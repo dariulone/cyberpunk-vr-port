@@ -13,11 +13,11 @@ void Start(unsigned frames=1){CyberpunkVR_GeometryPacketState=0;CyberpunkVR_Geom
 struct Arguments {
     std::array<uint8_t,32> bytes{};
     std::array<uint8_t,32> context{};
-    std::array<uint8_t,0x1e18> view{};
+    std::array<uint8_t,0x2c48> view{};
     Arguments(){const auto c=reinterpret_cast<uintptr_t>(context.data()),v=reinterpret_cast<uintptr_t>(view.data());
-        const uint64_t storage=0xabc123;std::memcpy(bytes.data(),&c,8);std::memcpy(context.data()+0x18,&v,8);std::memcpy(view.data()+0x1e10,&storage,8);}
+        const uint64_t storage=0xabc123;std::memcpy(bytes.data(),&c,8);std::memcpy(context.data()+0x18,&v,8);std::memcpy(view.data()+0x2c40,&storage,8);}
 };
-Ticket Capture(Arguments& args,const void* begin,const void* end,int side=1,uint32_t node=0x23A938){
+Ticket Capture(Arguments& args,const void* begin,const void* end,int side=1,uint32_t node=0x33DDA4){
     const void* range[]{begin,end};return Begin(node,side,reinterpret_cast<void*>(0x123456),args.bytes.data(),range);
 }
 int main(){
@@ -38,7 +38,7 @@ int main(){
     Capture(args,reinterpret_cast<void*>(0x10000),reinterpret_cast<void*>(0x10000+16ull*(MaxSpanPackets+1)));
     auto* guard=VirtualAlloc(nullptr,4096,MEM_RESERVE|MEM_COMMIT,PAGE_NOACCESS);Require(guard!=nullptr,"guard page");
     Capture(args,guard,static_cast<uint8_t*>(guard)+16);
-    const void* span[]{data.data(),data.data()+3};Begin(0x23A938,1,nullptr,guard,span);
+    const void* span[]{data.data(),data.data()+3};Begin(0x33DDA4,1,nullptr,guard,span);
     VirtualFree(guard,0,MEM_RELEASE);
     const Status expected[]{Status::Empty,Status::BadSpan,Status::BadSpan,Status::TooLarge,Status::Unreadable,Status::BadArguments};
     for(unsigned i=0;i<6;++i)Require(CyberpunkVR_GeometryPacketRecords[i].status==static_cast<unsigned>(expected[i]),"malformed span/arguments rejected");

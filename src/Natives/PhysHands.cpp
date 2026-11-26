@@ -15,8 +15,18 @@
 // doors), never a group of the player's own and not one of heavy bodies (cars). A census of the shapes near the
 // player finds them, a slice a frame, before the hands are made.
 #include "Natives/PhysHands.hpp"
+#include "Camera/PlayerCameraState.hpp"
+#include "Anim/BladeContactState.hpp"
+#include "Anim/BladeAttachment.hpp"
+#include "Utils/TestMarker.hpp"
+#include "Natives/ClimbSupport.hpp"
+#include "Natives/VehicleHands.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Natives/HeldGripPose.hpp"
+#include "Natives/HeldBodyMass.hpp"
+#include "Natives/HeldGripContact.hpp"
+#include "Natives/PersonGrip.hpp"
+#include "Natives/PersonCollisionFilter.hpp"
 #include "Anim/GraspPose.hpp"
 #include "Anim/LeftHanded.hpp"
 #include "Natives/HandSkin.hpp"
@@ -26,6 +36,7 @@
 #include "Anim/ScenePolicy.hpp"
 #include "Anim/VrikHook.hpp"
 #include "Anim/VrikState.hpp"
+#include "Anim/CharacterRig.hpp"
 #include "Camera/CameraState.hpp"
 #include "Core/LiveControls.hpp"
 #include "Core/Paths.hpp"
@@ -33,11 +44,15 @@
 #include "Hooks/LadderInput.hpp"
 #include "Hooks/ScannerGesture.hpp"
 #include "Hooks/SwimmingInput.hpp"
+#include "Hooks/RoomscaleMove.hpp"
+#include "Runtimes/OpenXRManager.hpp"
 #include "Lobby/MenuLobby.hpp"
 #include "Utils/SharedSlots.hpp"
 #include <RED4ext/Scripting/Utils.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 #include <windows.h>
+#include <mutex>
+#include <limits>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -54,7 +69,7 @@ static void QuietLog(const char*, ...) {}
 extern "C" int CyberpunkVR_VrikTakedownSuspend, CyberpunkVR_VrikBodyCarryHandOff, CyberpunkVR_VrikFinisherSuspend;
 
 namespace cvr::physhands {
-bool HeldNear(int owner, const float* a, const float* b, float radius);
+uint8_t HeldNearHands(int owner, const float* a, const float* b, float radius);
 namespace {
 
 // ---- math (quaternions x y z w) ----
@@ -381,12 +396,82 @@ Seq<Settings> settings;
 constexpr int kSettingsVersion = 26;
 
 // ---- what crosses threads ----
-struct Target { float pos[3]; float rot[4]; float entityPos[3]; float entityRot[4]; uint64_t at; };   // model space, anim thread
+struct Target { float pos[3]; float rot[4]; float entityPos[3]; float entityRot[4]; uint64_t at; };
+struct DrawnHand { float p[3]; float q[4]; uint64_t at; };
 Seq<Target> targets[2];
 std::atomic<uint32_t> reachHeld[2];   // steps tracking was past the arm's reach (statistics)
 struct Shoulder { float model[3]; float reach; uint64_t at; };   // the arm solve's shoulder, model space, and the arm's
                                                                   // length (upper arm + forearm), m (anim thread)
 Seq<Shoulder> shoulders[2];
+struct Forearm { float elbow[3]; uint64_t at; };
+Seq<Forearm> forearms[2];
+constexpr int kMostSelf = 6;
+struct SelfCap { float a[3], b[3], r; uint8_t meets; };
+struct SelfShown { SelfCap c[kMostSelf]; int n; uint64_t at; };
+struct PalmFrame { float skin[3],normal[3],along[3]; bool valid{}; };
+struct PoseInputs {
+    PoseFrame frame{};
+    Target target[2]{};
+    Shoulder shoulder[2]{};
+    Forearm forearm[2]{};
+    DrawnHand drawn[2]{};
+    PalmFrame palm[2]{};
+    PersonAttachment appliedGrip[2]{};
+    float appliedGripWeight[2]{};
+    SelfShown body{};
+    uint64_t at{};
+};
+std::mutex poseInputsMutex;
+PoseInputs publishedPoseInputs;
+thread_local PoseInputs pendingPoseInputs;
+thread_local bool poseInputsPending = false;
+PoseInputs stepPoseInputs; // physics thread: one snapshot for the complete step
+thread_local PoseInputs physicsPoseInputs;
+thread_local unsigned physicsPoseDepth = 0;
+
+void BeginPoseInputs(const PoseFrame& frame) {
+    pendingPoseInputs = {};
+    pendingPoseInputs.frame = frame;
+    pendingPoseInputs.at = GetTickCount64();
+    poseInputsPending = frame.entity.valid && g_liveControls.xrHandPhysics != 0 && g_liveControls.xrHandCollision != 0;
+}
+static void ReadPoseInputs(PoseInputs& out) {
+    std::lock_guard lock(poseInputsMutex);
+    out = publishedPoseInputs;
+    if (!out.at || GetTickCount64() - out.at > 200) out = {};
+}
+static handspace::Vector V3(const float* p){return {p[0],p[1],p[2]};}
+static handspace::Rotation R4(const float* q){return {q[0],q[1],q[2],q[3]};}
+static void Store3(float* p,handspace::Vector v){p[0]=v.x;p[1]=v.y;p[2]=v.z;}
+static void Store4(float* q,handspace::Rotation r){q[0]=r.x;q[1]=r.y;q[2]=r.z;q[3]=r.w;}
+static void PoseEntity(float* position, float* rotation) {
+    if (poseInputsPending) {
+        const auto& e = pendingPoseInputs.frame.entity;
+        position[0]=e.position.x;position[1]=e.position.y;position[2]=e.position.z;
+        rotation[0]=e.rotation.x;rotation[1]=e.rotation.y;rotation[2]=e.rotation.z;rotation[3]=e.rotation.w;
+    } else {
+        for(int k=0;k<3;++k)position[k]=CyberpunkVR_PlayerEntityPos[k];
+        for(int k=0;k<4;++k)rotation[k]=CyberpunkVR_PlayerEntityQuat[k];
+    }
+}
+static bool StepTarget(int side,Target& out) {
+    if(stepPoseInputs.at){out=stepPoseInputs.target[side];return out.at!=0;}
+    return targets[side].Read(out);
+}
+static bool StepShoulder(int side,Shoulder& out) {
+    if(stepPoseInputs.at){out=stepPoseInputs.shoulder[side];return out.at!=0;}
+    return shoulders[side].Read(out);
+}
+static bool StepForearm(int side,Forearm& out) {
+    if(stepPoseInputs.at){out=stepPoseInputs.forearm[side];return out.at!=0;}
+    return forearms[side].Read(out);
+}
+struct TouchInfo {int kind{},owner{},index{},simulates{};float depth{};};
+struct MotorProbe {
+    float before[4]{},beforeSpin[3]{},rawSpin[3]{},askedSpin[3]{},givenSpin[3]{};
+    float dt{},angle{},gain{},budget{};uint32_t flags{};TouchInfo touch{};
+};
+MotorProbe motorProbes[2]{}; // physics-thread input and command for one completed step
 struct Step {   // after a step: where each body is and where it was sent, PhysX's space; the frame's entity
     float pose[2][7];
     float sent[2][7];
@@ -397,14 +482,19 @@ struct Step {   // after a step: where each body is and where it was sent, PhysX
     float origin[3];
     bool touching[2];
     bool onWorld[2];
+    bool riding[2];
     float vel[2][3], spin[2][3];
     double when;   // seconds (performance counter), right after the fetch
     float dt;      // the step's own length, s
     uint64_t at;
     uint64_t serial;
     uint64_t scannerEpoch;
+    uint64_t gripRevision[2];
+    MotorProbe motor[2];
+    PoseFrame frame;
 };
 Seq<Step> steps;
+uint64_t sentGripRevision[2]{}; // physics thread, attachment used by each completed motor step
 // worker -> anim thread: the offset (model space), and, for a hand held off by something, where its body is in the game's
 // world (smoothed) and how much the drawn hand is that place rather than tracking plus the offset
 struct Offset {
@@ -417,10 +507,12 @@ struct Offset {
     float sentTrack[3];          // tracking itself at that step (world): sent, less the arm's reach bringing it back
     float sentEntity[3];         // the player's entity as that tracking had it (world)
     bool pressed;                // on the world and refused: drawn at the latch, tracking's move not added
+    bool riding;
     float origin[3];             // PhysX's origin in the game's world at that step
     float rawRot[4];             // the body's turn as PhysX has it (world), with o.raw its place
     float margin;                // the skin's margin the body's shapes are grown by
     uint64_t scannerEpoch;
+    PoseFrame frame;
 };
 Seq<Offset> offsets[2];
 // physics thread -> anim thread: the hold a hand has taken on the world (climb), the game's world: its place and turn
@@ -430,14 +522,17 @@ Seq<HoldPose> holdPoses[2];
 // every frame it is held
 struct BodyHold { void* actor; void* scene; void* ref; uint32_t proxy, body, refBody; float p[3]; float q[4]; float g[3]; float torque; bool on; uint64_t at; };
 Seq<BodyHold> bodyHolds[2];
-// anim thread -> physics thread: the hand bone where its body (or tracking) has it this frame, before a held body's turn
-// is given it (Adjust), the game's world: what a body held is put on at the next step
-struct DrawnHand { float p[3]; float q[4]; uint64_t at; };
+// Compatibility/public display readers. Physics holds use the matching drawn
+// wrist and raw controller target inside the single stepPoseInputs snapshot.
 Seq<DrawnHand> drawnHands[2];
 // physics thread -> anim thread: how far a body held by the hand is turned off the turn the hand has it at (HoldBody), the
 // game's world, and the point held in the hand bone's frame: the drawn hand is turned so about that point
-struct HoldLoad { float wrist[4]; float seat[3]; bool on; uint64_t at; };;
+struct HoldLoad {
+    float wrist[4]; float seat[3]; bool on; uint64_t at; uint32_t proxy, body; float ownMass;
+    uint64_t contactErrorUm = cvr::held_grip_contact::kInvalid;
+};
 Seq<HoldLoad> holdLoads[2];
+cvr::held_grip_contact::StepGate heldContactStep; // physics thread; no independent polling/timer
 struct Wanted { bool on[2]; uint64_t at; };   // worker -> physics thread
 Seq<Wanted> wanted;
 
@@ -511,9 +606,21 @@ struct Census {
     GroupSeen seen[kMostGroups];
     int groups = 0;
     float at[3] = {};
+    float from[3] = {};   // the player's entity where it was taken (world, not the scene's origin)
     uint64_t steadySince = 0;
 };
 Census census;
+// A CENSUS TAKEN WHERE ALMOST NOTHING STOOD is taken again: a load's spawn point is steady for seconds before the world
+// streams in round it, and a census there saw one shape -- no group worth meeting, no hands for the whole session
+// (2026-11-15, the player then put 1554 m away at the save). Again once the player is elsewhere, or the world has had time
+// to come in round the same spot (a few times there); the hands, if any, keep stepping with the old filters meanwhile.
+constexpr int kThinCensus = 20;                    // static shapes within the radius below which a census is thin
+constexpr float kCensusRedoMove = 20.0f;           // m from a thin census's spot before it is taken again
+constexpr uint64_t kCensusRedoWaitMs = 10000;      // or ms at the same spot, at most kCensusRedoTries times
+constexpr int kCensusRedoTries = 3;
+uint64_t censusDoneAt = 0;
+int censusTriesHere = 0;
+bool OwnBody(void* a);   // a person's or V's capsule of the hands' own (PEOPLE, below)
 constexpr int kMostListed = 40000;
 void* listed[kMostListed];
 constexpr float kCensusRadius = 15.0f, kHeavy = 50.0f, kNearPlayer = 0.5f;
@@ -524,6 +631,7 @@ bool filterReady = false;
 // pair meet, so both or neither) -- and the parts of V's own body each hand meets (in that part's group; the hand's mask
 // has its own while it meets them).
 unsigned long long bitLeft = 0, bitRight = 0, bitSelfLeft = 0, bitSelfRight = 0;
+unsigned long long bitPersonLeft=0,bitPersonRight=0;
 bool selfBitsReady = false;
 bool handsMeetOn = false, selfOn[2] = {false, false};                    // physics thread
 bool scriptedOn[2] = {false, false};                                      // physics thread: Scripted(), as last seen
@@ -566,7 +674,7 @@ void Sample(void* a, int type) {
         d2 += e * e;
     }
     if (!(d2 <= kCensusRadius * kCensusRadius)) return;
-    if (a == actor[0] || a == actor[1]) return;
+    if (a == actor[0] || a == actor[1] || OwnBody(a)) return;
     // a body in the player's own column (half a metre round the feet point, from the feet to over the head): the
     // player's controller capsule and any body of the player's own that rides with it
     float h2 = 0;
@@ -694,7 +802,10 @@ void CensusSlice(void* sc, const float* origin) {
         if (!CyberpunkVR_PlayerEntityValid || g_menuModeValue != 0) { census.steadySince = 0; return; }
         if (!census.steadySince) census.steadySince = now;
         if (now - census.steadySince < 3000) return;
-        for (int k = 0; k < 3; ++k) census.at[k] = CyberpunkVR_PlayerEntityPos[k] - origin[k];
+        for (int k = 0; k < 3; ++k) {
+            census.at[k] = CyberpunkVR_PlayerEntityPos[k] - origin[k];
+            census.from[k] = CyberpunkVR_PlayerEntityPos[k];
+        }
         census.next = 0;
         census.phase = 1;
         return;
@@ -722,6 +833,7 @@ void CensusSlice(void* sc, const float* origin) {
         census.next = end;
         if (end < census.count) return;
         census.phase = 3;
+        censusDoneAt = GetTickCount64();
         Settings s{};
         settings.Read(s);
         // the hand's group: the highest bit under 62 no mask round here has
@@ -741,16 +853,18 @@ void CensusSlice(void* sc, const float* origin) {
         {
             unsigned long long groups = census.groupStatic | census.groupLight | census.groupKinematic | census.groupHeavy | census.groupCallback;
             for (int j = 0; j < census.groups; ++j) groups |= census.seen[j].group;
-            const unsigned long long used = census.maskAll | groups | group | (3ull << 62);
-            unsigned long long bits[4] = {};
+            const unsigned long long used = census.maskAll | groups | group | mask | maskStatic | (3ull << 62);
+            unsigned long long bits[6] = {};
             int found = 0;
-            for (int bit = 61; bit >= 0 && found < 4; --bit)
+            for (int bit = 61; bit >= 0 && found < 6; --bit)
                 if (!(used >> bit & 1)) bits[found++] = 1ull << bit;
-            selfBitsReady = found == 4 && filterReady;
+            selfBitsReady = found >= 4 && filterReady;
             bitLeft = selfBitsReady ? bits[0] : 0;
             bitRight = selfBitsReady ? bits[1] : 0;
             bitSelfLeft = selfBitsReady ? bits[2] : 0;
             bitSelfRight = selfBitsReady ? bits[3] : 0;
+            bitPersonLeft=found>=6&&filterReady?bits[4]:0;bitPersonRight=found>=6&&filterReady?bits[5]:0;
+            Log("[physhands] NPC contact identities: left %016llx, right %016llx\n",bitPersonLeft,bitPersonRight);
             Log("[physhands] the hands' own bits: left %016llx, right %016llx, V's body for the left %016llx, for the right %016llx%s\n",
                 bitLeft, bitRight, bitSelfLeft, bitSelfRight, selfBitsReady ? "" : " (too few free: the hands meet neither V nor each other)");
         }
@@ -821,6 +935,28 @@ void SetFilter(int side, const uint32_t* palm, const uint32_t* weapon, const uin
 // bit while the two meet: in that bit's group, meeting nothing themselves (the pair rule is an or). THE FOREARM meets the
 // world, and the other hand's palm and fingers by the same bit (the other hand went through it); not V's own body (it lies
 // along the trunk) and not the other forearm (arms cross).
+// Inside a kinematic enclosure (ENCLOSURES, below) a hand gives up that enclosure's group bits, physics thread: all of
+// the ones the mask shares with it, or none (half of them still meets it) -- and none when that would leave a static
+// group the mask met unmet: the world stays solid even if it shares the enclosure's bits.
+constexpr int kMostEnclosedGroups = 4;
+struct Enclosed { unsigned long long group[kMostEnclosedGroups]; int n; };
+Enclosed enclosed[2] = {};
+bool KeepsStatics(unsigned long long mask, unsigned long long rest) {
+    for (int j = 0; j < census.groups; ++j) {
+        const GroupSeen& g = census.seen[j];
+        if (g.n[kindStatic] && (g.group & mask) && !(g.group & rest)) return false;
+    }
+    return true;
+}
+unsigned long long SafeToDrop(unsigned long long mask, const Enclosed& e) {
+    unsigned long long drop = 0;
+    for (int i = 0; i < e.n; ++i) {
+        const unsigned long long need = e.group[i] & mask & ~drop;
+        if (need && KeepsStatics(mask, mask & ~(drop | need))) drop |= need;
+    }
+    return drop;
+}
+
 void HandFilters(int side, bool loose, uint32_t* palm, uint32_t* fingers, uint32_t* weapon, uint32_t* forearm) {
     const uint32_t* base = loose ? handFilter : handFilterStatic;
     unsigned long long group = handFilter[0] | (unsigned long long)handFilter[1] << 32;
@@ -828,6 +964,7 @@ void HandFilters(int side, bool loose, uint32_t* palm, uint32_t* fingers, uint32
     unsigned long long maskF = handFilterStatic[2] | (unsigned long long)handFilterStatic[3] << 32;
     unsigned long long gunGroup = 0;
     unsigned long long foreGroup = handFilterStatic[0] | (unsigned long long)handFilterStatic[1] << 32;
+    const auto personBit=side?bitPersonRight:bitPersonLeft;group|=personBit;foreGroup|=personBit;
     const unsigned long long bit = side ? bitRight : bitLeft, otherBit = side ? bitLeft : bitRight;
     if (handsMeetOn) {
         group |= bit;
@@ -841,13 +978,19 @@ void HandFilters(int side, bool loose, uint32_t* palm, uint32_t* fingers, uint32
         mask |= otherBit;
         maskF |= otherBit;
     }
+    unsigned long long foreMask = handFilterStatic[2] | (unsigned long long)handFilterStatic[3] << 32;
+    if (enclosed[side].n) {
+        mask &= ~SafeToDrop(mask, enclosed[side]);
+        maskF &= ~SafeToDrop(maskF, enclosed[side]);
+        foreMask &= ~SafeToDrop(foreMask, enclosed[side]);
+    }
     weapon[0] = uint32_t(gunGroup);
     weapon[1] = uint32_t(gunGroup >> 32);
     weapon[2] = weapon[3] = 0;
     forearm[0] = uint32_t(foreGroup);
     forearm[1] = uint32_t(foreGroup >> 32);
-    forearm[2] = handFilterStatic[2];
-    forearm[3] = handFilterStatic[3];
+    forearm[2] = uint32_t(foreMask);
+    forearm[3] = uint32_t(foreMask >> 32);
     if (selfOn[side]) {
         mask |= side ? bitSelfRight : bitSelfLeft;
         maskF |= side ? bitSelfRight : bitSelfLeft;
@@ -894,7 +1037,7 @@ void* Capsule(void* a, float radius, float half, const PxTransform& local) {
 }
 // what TouchesWorld counts: the world alone; with the people near; with V's own body and the other hand as well
 enum TouchOf { kTouchWorld = 0, kTouchPeople = 1, kTouchAll = 2 };
-bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what = kTouchAll);
+bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what = kTouchAll,TouchInfo* info=nullptr);
 void PoseShapes(int side, const Settings& s);
 
 // The palm's box for this hand: V's own skin once the body is known (Natives/HandSkin.hpp), the ini's otherwise. What it
@@ -1024,7 +1167,7 @@ bool Make(int side, const PxTransform& at, const Settings& s) {
 // Where tracking puts the hand now, PhysX's space.
 bool TargetNow(int side, const float* origin, PxTransform& out) {
     Target t{};
-    if (!targets[side].Read(t) || GetTickCount64() - t.at > 150) return false;
+    if (!StepTarget(side,t) || GetTickCount64() - t.at > 150) return false;
     float p[3];
     QRot(t.entityRot, t.pos, p);
     for (int k = 0; k < 3; ++k) out.p[k] = t.entityPos[k] + p[k] - origin[k];
@@ -1075,56 +1218,32 @@ void PlayerPace() {
     if (sp > 30.f) for (auto& c : playerPace) c *= 30.f / sp;
 }
 
-// The bodies ride with the player's entity (Steer): no further than this in a step (more is a teleport, put); how many
+// The bodies ride with the common tracking frame: no further than this in a step (more is a teleport, put); how many
 // steps rode (statistics) and how far this step's ride went (the held-off diagnostic compares against it).
 constexpr float kRideMost = 1.0f;
 std::atomic<uint32_t> rodeSteps[2] = {};
+std::atomic<uint32_t> rodeAlong[2] = {};   // ...of them, on something: its part into what it touched taken out
 float rodeBy[2][3] = {};
+bool frameRiding[2] = {};
 
-void Steer(int side, const PxTransform& to, float dt, const Settings& s, bool put, bool riding) {
+void Steer(int side, const PxTransform& to, float dt, const Settings& s, bool put) {
+    auto& probe=motorProbes[side];probe={};probe.dt=dt;
     void* a = actor[side];
-    // THE HAND RIDES WITH THE PLAYER (Bonelab's hands are on its moving rig): each step the body is moved by exactly the
-    // entity's move that came with this step's target (targetEntity: the same frame's), and steered only by the hand's
-    // own move against the player. Carried by the player's PACE instead -- estimated from the entity's places as the
-    // physics thread saw them, a frame late and uneven -- a running hand was sent a little too fast one step and too slow
-    // the next and shook, and at a dash's end it kept the dash's 10-15 m/s for up to 0.1 s and flew on ahead
-    // (2026-11-14). Not while the hand holds on (a climb, a grab): there the body stays where it took hold and the player
-    // follows it. A move of a metre or more is a teleport (put, below).
-    // (Not with the entity's TURN: the hands' frame turns with the camera's heading, which the body follows with a lag of
-    // its own; turned by the entity's turn the bodies were sent off tracking up to 5 cm through a stick's turn, 2026-11-14.)
-    static float rideFrom[2][3] = {};
-    static bool rideValid[2] = {false, false};
-    float ride[3] = {0, 0, 0}, ride2 = 0;
-    if (rideValid[side])
-        for (int k = 0; k < 3; ++k) ride[k] = targetEntity[side][k] - rideFrom[side][k], ride2 += ride[k] * ride[k];
-    std::memcpy(rideFrom[side], targetEntity[side], sizeof(rideFrom[side]));
-    rideValid[side] = std::isfinite(rideFrom[side][0] + rideFrom[side][1] + rideFrom[side][2]);
-    const bool rides = riding && s.ride != 0;
-    // Riding, the body's velocity is its own move against the player: the player's pace is 0 to everything below.
+    // Both bodies and their previous targets were moved together before any
+    // contact query. The drive now sees only motion within that common frame.
+    const bool rides=frameRiding[side];
     const float zeroPace[3] = {0, 0, 0};
     const float* pace = rides ? zeroPace : playerPace;
-    // THE PLAYER'S CHANGE OF PACE SINCE THE LAST STEP, the hand carried by it whole: a dash's start is 10-15 m/s in a few
-    // steps, and held to a touch's push (50 N) a hand on the other or on the player's own body fell behind, was struck by
-    // the body it lagged, touched again, and shook. The caps below hold only the hand's own move against the player.
     static float paceWas[2][3] = {};
     float paceDv[3];
     for (int k = 0; k < 3; ++k) paceDv[k] = pace[k] - paceWas[side][k], paceWas[side][k] = pace[k];
     PxTransform now{};
     At<void (*)(void*, PxTransform*)>(a, kGetGlobalPose)(a, &now);
-    if (rides && !put && simulating[side] && ride2 > 1e-12f && ride2 < kRideMost * kRideMost) {
-        for (int k = 0; k < 3; ++k) now.p[k] += ride[k];
-        At<void (*)(void*, const PxTransform*, bool)>(a, kSetGlobalPose)(a, &now, true);
-        // the last step's target moved with the player too: what is left of tracking's move is the hand's own
-        if (sentValid[side])
-            for (int k = 0; k < 3; ++k) sent[side][4 + k] += ride[k];
-        rodeSteps[side].fetch_add(1, std::memory_order_relaxed);
-        std::memcpy(rodeBy[side], ride, sizeof(ride));
-    } else {
-        rodeBy[side][0] = rodeBy[side][1] = rodeBy[side][2] = 0;
-    }
+    std::copy_n(now.q,4,probe.before);
     float gap2 = 0;
     for (int k = 0; k < 3; ++k) gap2 += (to.p[k] - now.p[k]) * (to.p[k] - now.p[k]);
     if (put || !simulating[side] || !(gap2 < s.teleport * s.teleport)) {
+        probe.flags=16;
         // put there: just made, just back on, so far off (a teleport, a load) that steering would fling it through
         // things, the player just moved by a teleport, or stuck behind something an arm does not reach round
         At<void (*)(void*, const PxTransform*, bool)>(a, kSetGlobalPose)(a, &to, true);
@@ -1141,6 +1260,7 @@ void Steer(int side, const PxTransform& to, float dt, const Settings& s, bool pu
     float v[3]{}, w[3]{};
     At<void (*)(void*, float*)>(a, kGetLinearVelocity)(a, v);
     At<void (*)(void*, float*)>(a, kGetAngularVelocity)(a, w);
+    std::copy_n(w,3,probe.beforeSpin);
     const bool carried = gaveValid[side];   // (the touch test below compares PhysX's velocity with the one given: not carried yet)
     // TOUCHING: nothing else acts on the body (no gravity, no damping), so a velocity that is not the one it was given
     // is the solver's doing -- something stopped or turned it. Both as PhysX has them, the centre of mass's: a free
@@ -1173,7 +1293,7 @@ void Steer(int side, const PxTransform& to, float dt, const Settings& s, bool pu
     if (touching) touchedSteps[side].fetch_add(1, std::memory_order_relaxed);
     // ON THE WORLD OR ON A LOOSE THING. Pressed on a table the hand leans soft and turns little, so it lies still; on a
     // cup it pushes with a hand's force at the hand's own pace. With the world's caps on every touch a cup barely moved.
-    const bool world = touching && TouchesWorld(side, now, s);
+    const bool world = touching && TouchesWorld(side, now, s,kTouchAll,&probe.touch);
     onWorld[side] = world;
     onPushable[side] = world && TouchesWorld(side, now, s, kTouchPeople);
     if (world) worldSteps[side].fetch_add(1, std::memory_order_relaxed);
@@ -1256,6 +1376,7 @@ void Steer(int side, const PxTransform& to, float dt, const Settings& s, bool pu
     const float angle = 2.f * std::atan2(sn, dq[3]);
     float spin[3]{};
     if (sn > 1e-7f) for (int k = 0; k < 3; ++k) spin[k] = dq[k] / sn * angle / dt;
+    probe.angle=angle;std::copy_n(spin,3,probe.rawSpin);
     // the same for the turn: tracking's own turn this step, and the turn the body was already behind by at no more than
     // catch_spin
     float turnRate = 0;   // tracking's own turn this step, rad/s (for the settling)
@@ -1301,6 +1422,8 @@ void Steer(int side, const PxTransform& to, float dt, const Settings& s, bool pu
     const float kw = dwn > mostW ? mostW / dwn : 1.f;
     float wset[3];
     for (int k = 0; k < 3; ++k) wset[k] = w[k] + dw[k] * kw;
+    probe.flags=(touching?1u:0u)|(world?2u:0u)|(settle?4u:0u)|(trackClear[side]?8u:0u);
+    probe.gain=kw;probe.budget=mostW;std::copy_n(spin,3,probe.askedSpin);std::copy_n(wset,3,probe.givenSpin);
     if (!std::isfinite(set[0] + set[1] + set[2] + wset[0] + wset[1] + wset[2])) return;
     float setCom[3], ws[3];
     Cross(wset, com, ws);
@@ -1367,6 +1490,73 @@ struct TraceRow {
 constexpr int kTraceRing = 8192;
 TraceRow traceRing[kTraceRing];
 std::atomic<uint32_t> traceHead{0}, traceTail{0};
+// Unlike the body trace above, this records the FINAL avatar FK wrist and the
+// exact NPC publication consumed by that solve. Independently queried NPC/hand
+// snapshots can differ simply because another animation job ran between them.
+struct GripTraceRow {
+    uint64_t at{},avatarAt{},physicsAt{},physicsSerial{},physicsGrip{};
+    int side{};float weight{};bool physical{};
+    DrawnHand drawn{};PersonAttachment applied{},latest{};
+    float body[7]{},motor[7]{}; // quaternion, then world position
+    MotorProbe drive{};float actualSpin[3]{};
+};
+constexpr size_t kGripTraceRing=2048;
+GripTraceRow gripTraceRing[kGripTraceRing];
+std::mutex gripTraceMutex;
+uint64_t gripTraceHead{},gripTraceTail{},gripTraceDropped{};
+void TraceFinalGrip(int side) {
+    Settings cfg{};if(!settings.Read(cfg)||!cfg.trace)return;
+    const auto& pose=pendingPoseInputs;
+    GripTraceRow row{};row.applied=pose.appliedGrip[side];
+    ReadPersonAttachment(side,row.latest);
+    if(!row.applied.on&&!row.latest.on)return;
+    row.at=GetTickCount64();row.avatarAt=pose.at;row.side=side;
+    row.drawn=pose.drawn[side];row.weight=pose.appliedGripWeight[side];
+    Step physical{};
+    if(steps.Read(physical)&&physical.valid[side]){
+        row.physical=true;row.physicsAt=physical.at;row.physicsSerial=physical.serial;
+        row.physicsGrip=physical.gripRevision[side];
+        row.drive=physical.motor[side];std::copy_n(physical.spin[side],3,row.actualSpin);
+        std::copy_n(physical.pose[side],7,row.body);std::copy_n(physical.sent[side],7,row.motor);
+        for(int k=0;k<3;++k){row.body[k+4]+=physical.origin[k];row.motor[k+4]+=physical.origin[k];}
+    }
+    std::lock_guard lock(gripTraceMutex);
+    if(gripTraceHead-gripTraceTail==kGripTraceRing){++gripTraceDropped;return;}
+    gripTraceRing[gripTraceHead++%kGripTraceRing]=row;
+}
+void FlushGripTrace(bool enabled) {
+    static FILE* file=nullptr;
+    for(;;){
+        GripTraceRow row{};uint64_t dropped=0;
+        {
+            std::lock_guard lock(gripTraceMutex);
+            if(gripTraceHead==gripTraceTail)break;
+            row=gripTraceRing[gripTraceTail++%kGripTraceRing];dropped=gripTraceDropped;
+        }
+        if(!file){
+            const auto path=cvr::paths::FileA(cvr::paths::Folder::Log,"npc_grip_trace.csv");
+            file=_fsopen(path.c_str(),"a",_SH_DENYNO);
+            if(file)std::fputs("at,avatar_at,side,weight,owner,serial,used_rev,used_at,control_at,latest_rev,latest_at,physics_at,physics_serial,physics_grip,physical,dropped,"
+                "hand_x,hand_y,hand_z,hand_qx,hand_qy,hand_qz,hand_qw,used_x,used_y,used_z,used_qx,used_qy,used_qz,used_qw,"
+                "latest_x,latest_y,latest_z,latest_qx,latest_qy,latest_qz,latest_qw,body_qx,body_qy,body_qz,body_qw,body_x,body_y,body_z,"
+                "motor_qx,motor_qy,motor_qz,motor_qw,motor_x,motor_y,motor_z,drive_flags,touch_kind,touch_owner,touch_index,touch_mask,touch_depth,"
+                "drive_dt,drive_angle,drive_gain,drive_budget,pre_qx,pre_qy,pre_qz,pre_qw,pre_wx,pre_wy,pre_wz,raw_wx,raw_wy,raw_wz,"
+                "ask_wx,ask_wy,ask_wz,give_wx,give_wy,give_wz,actual_wx,actual_wy,actual_wz\n",file);
+        }
+        if(!file)continue;
+        const auto& a=row.applied;const auto& n=row.latest;
+        std::fprintf(file,"%llu,%llu,%d,%.7f,%d,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%d,%llu",
+            row.at,row.avatarAt,row.side,row.weight,a.owner,a.serial,a.revision,a.at,a.controlAt,n.revision,n.at,
+            row.physicsAt,row.physicsSerial,row.physicsGrip,int(row.physical),dropped);
+        const auto values=[&](const float* v,int count){for(int k=0;k<count;++k)std::fprintf(file,",%.9g",v[k]);};
+        values(row.drawn.p,3);values(row.drawn.q,4);values(a.position,3);values(a.rotation,4);
+        values(n.position,3);values(n.rotation,4);values(row.body,7);values(row.motor,7);
+        const auto& d=row.drive;
+        std::fprintf(file,",%u,%d,%d,%d,%d,%.9g,%.9g,%.9g,%.9g,%.9g",d.flags,d.touch.kind,d.touch.owner,d.touch.index,d.touch.simulates,d.touch.depth,d.dt,d.angle,d.gain,d.budget);
+        values(d.before,4);values(d.beforeSpin,3);values(d.rawSpin,3);values(d.askedSpin,3);values(d.givenSpin,3);values(row.actualSpin,3);std::fputc('\n',file);
+    }
+    if(file){std::fflush(file);if(!enabled){std::fclose(file);file=nullptr;}}
+}
 float lastTrack[2][3] = {};
 std::atomic<float> drawnIn[2] = {};   // trace=1: the body's shapes where the hand is drawn, the skin's deepest in what is near
 
@@ -1521,7 +1711,7 @@ void ReadSettings(Settings& s) {
 // moves would be where it was a cycle ago, and a loose thing's mesh can go with it.
 struct NearShape { alignas(8) uint8_t geometry[64]; PxTransform pose; PxBounds bounds; int type; };
 constexpr int kMostNear = 1536;
-struct NearList { NearShape s[kMostNear]; int n; float center[3]; uint64_t at; };
+struct NearList { NearShape s[kMostNear]; int n; float center[3], origin[3]; uint64_t at; };
 NearList nearLists[2];
 std::atomic<int> nearFront{-1};   // the list the worker reads, -1 none yet
 SRWLOCK nearLock = SRWLOCK_INIT;  // held shared by the worker while it reads the front; the swap takes it exclusively
@@ -1534,7 +1724,7 @@ constexpr float kNearRadius = 2.5f;   // round the player's chest: both hands' r
 // each part every frame; the physics thread poses a kinematic capsule of its own for each ----
 constexpr int kMostPeople = 96;
 // ...and V's own body's after them (SelfCapsules), made and posed the same way
-constexpr int kMostSelf = 6, kMostBodies = kMostPeople + kMostSelf;
+constexpr int kMostBodies = kMostPeople + kMostSelf;
 // a shape's owner: V; 0 a person the script did not name; > 0 one part of a person (the script's id: person * 32 + part)
 constexpr int kSelfOwner = -1;
 struct Person { float a[3], b[3], r; int owner; };
@@ -1546,19 +1736,28 @@ void* personShape[kMostBodies] = {};
 float personGeom[kMostBodies][2] = {};
 uint32_t personFilter[kMostBodies][4] = {};
 bool personLive[kMostBodies] = {};
+// Ours, not the game's: a census taken again while the hands live must not count them (their group is the hands').
+bool OwnBody(void* a) {
+    for (void* p : personActor)
+        if (p && p == a) return true;
+    return false;
+}
 // as posed this step, PhysX's space: each one's owner and the hands that meet it (bits: 1 the left, 2 the right)
-struct PeopleNear { NearShape s[kMostBodies]; int owner[kMostBodies]; uint8_t meets[kMostBodies]; int n; uint64_t at; };
+struct PeopleNear {
+    NearShape s[kMostBodies]; int owner[kMostBodies]; uint8_t meets[kMostBodies],simulates[kMostBodies]; int n; uint64_t at;
+    float origin[3]{};
+    handspace::Reference selfFrame{};
+};
 NearShape personNear[kMostBodies];   // physics thread
 int personOwner[kMostBodies] = {};
 uint8_t personMeets[kMostBodies] = {};
+uint8_t personSimulates[kMostBodies] = {};
 int personNearN = 0;
 // Whether a hand meets one of them now: a person always, V's own body while that hand meets it.
 inline bool PersonMeets(int i, int side) {
     return (personMeets[i] >> side & 1) && (personOwner[i] != kSelfOwner || selfOn[side]);
 }
 // V's own body as last posed, the game's world, for the script's view
-struct SelfCap { float a[3], b[3], r; uint8_t meets; };
-struct SelfShown { SelfCap c[kMostSelf]; int n; uint64_t at; };
 Seq<SelfShown> selfShown;
 Seq<PeopleNear> peopleNear;          // the same, for the worker's fingers
 using BoundsFn = PxBounds (*)(const void* geometry, const void* pose, float inflation);
@@ -1567,6 +1766,10 @@ BoundsFn worldBounds = nullptr;
 void NearSlice(void* sc, const float* origin) {
     constexpr uint32_t kSlice = 1200;
     NearList& L = nearLists[nearWalk.fill];
+    const uint64_t now = GetTickCount64();
+    // Do not publish a partial walk across an origin rebase or a long pause with both hands off.
+    if (nearWalk.phase && (!std::equal(origin, origin + 3, L.origin) || now - nearWalk.startedAt >= 5000))
+        nearWalk.phase = 0;
     if (nearWalk.phase == 0) {
         if (!worldBounds) {
             HMODULE common = GetModuleHandleA("PhysX3Common_x64.dll");
@@ -1585,12 +1788,13 @@ void NearSlice(void* sc, const float* origin) {
             const NearList& old = nearLists[front];
             float d2 = 0;
             for (int k = 0; k < 3; ++k) d2 += (center[k] - old.center[k]) * (center[k] - old.center[k]);
-            if (d2 < 0.5f * 0.5f && GetTickCount64() - old.at < 3000) return;
+            if (d2 < 0.5f * 0.5f && std::equal(origin, origin + 3, old.origin) && now - old.at < 3000) return;
         }
         nearWalk.fill = front == 0 ? 1 : 0;
         NearList& F = nearLists[nearWalk.fill];
         F.n = 0;
         std::memcpy(F.center, center, sizeof(center));
+        std::copy_n(origin, 3, F.origin);
         nearWalk.next = 0;
         nearWalk.phase = 1;
         nearWalk.startedAt = GetTickCount64();
@@ -1697,6 +1901,19 @@ bool LooseAlive(void* a, uint64_t user) {
            *reinterpret_cast<const uint64_t*>(static_cast<const char*>(a) + 0x10) == user;
 }
 
+// KINEMATIC ENCLOSURES: a kinematic body the palm meets whose bounds hold the player's chest is a volume round the player,
+// not a surface -- a lift car's solid 6 x 4.4 x 4 m block (group 18000, 38.9 t, met for the sake of people and doors). The
+// solver pushed the palm out of it at 0.25 m/s, 150 ms later the loose let-through put it back inside, and both hands
+// jumped 9 cm every 0.55 s standing still in an H10 lift (2026-11-16). While the palm is inside one the hand's filters
+// leave out that body's group bits (SafeToDrop keeps the world met). Listed by the loose walk (the chest at its centre),
+// bounds read each step.
+struct Enclosure { void* actor; uint64_t user; };
+constexpr int kMostEnclosures = 8;
+constexpr float kEnclosureLeast = 1.0f, kEnclosureLongest = 2.0f;   // m: the bounds' shortest side at least, longest
+Enclosure enclosures[2][kMostEnclosures];
+int enclosureN[2] = {0, 0};
+std::atomic<uint64_t> enclosureSteps[2] = {};
+
 // LOOSE THINGS FOR THE FINGERS: the shapes of the loose things by either hand, posed as the step left them (physics
 // thread, after the fetch), for the worker's finger solve -- a finger that brushes a bottle or a crate bends on it as on
 // the world. Only shapes with no mesh behind them: a convex hull goes as its own box (its local bounds), since the worker
@@ -1785,7 +2002,8 @@ void PublishLooseNear(const Step& st) {
 }
 
 // One dynamic actor, kept when it is near, not a hand's, not kinematic, not heavy, and a simulation shape of it is one the
-// palm meets.
+// palm meets. A kinematic one that encloses the chest goes to the enclosures instead.
+int enclosureFill = 1;
 void LooseSample(void* a, const float* center, Loose* out, int& n) {
     if (n >= kMostLoose || !a || a == actor[0] || a == actor[1]) return;
     if (*reinterpret_cast<const uintptr_t*>(a) != dll + kDynamicTable) return;   // an articulation's link
@@ -1801,7 +2019,19 @@ void LooseSample(void* a, const float* center, Loose* out, int& n) {
         if (out[i].actor == a) return;   // listed already (an aggregate's member is the scene's too)
     uint8_t flags = 0;
     At<void* (*)(void*, uint8_t*)>(a, kGetRigidBodyFlags)(a, &flags);
-    if ((flags & 1) || At<float (*)(void*)>(a, kGetMass)(a) > kHeavy) return;
+    const bool kinematic = (flags & 1) != 0;
+    bool enclosing = false;
+    if (kinematic) {
+        float least = 1e9f, longest = 0;
+        bool holds = true;
+        for (int k = 0; k < 3; ++k) {
+            const float e = b.hi[k] - b.lo[k];
+            least = std::min(least, e), longest = std::max(longest, e);
+            holds = holds && center[k] > b.lo[k] && center[k] < b.hi[k];
+        }
+        enclosing = holds && least >= kEnclosureLeast && longest >= kEnclosureLongest && enclosureN[enclosureFill] < kMostEnclosures;
+        if (!enclosing) return;
+    } else if (At<float (*)(void*)>(a, kGetMass)(a) > kHeavy) return;
     void* list[4]{};
     const uint32_t ns = At<uint32_t (*)(void*, void**, uint32_t, uint32_t)>(a, kGetShapes)(a, list, 4, 0);
     const unsigned long long mask = handFilter[2] | (unsigned long long)handFilter[3] << 32;
@@ -1814,7 +2044,33 @@ void LooseSample(void* a, const float* center, Loose* out, int& n) {
         At<void* (*)(void*, uint32_t*)>(list[i], kShapeGetSimFilter)(list[i], w);
         met = ((w[0] | (unsigned long long)w[1] << 32) & mask) != 0;
     }
+    if (enclosing)
+        for (uint32_t i = 0; i < ns && i < 4; ++i) {
+            uint8_t sf = 0;
+            At<void* (*)(void*, uint8_t*)>(list[i], kShapeGetFlags)(list[i], &sf);
+            if (!(sf & 1)) continue;
+            const int geometry = At<int (*)(void*)>(list[i], kShapeGetGeometryType)(list[i]);
+            if (geometry != kGeomBox && geometry != kGeomConvex && geometry != kGeomCapsule && geometry != kGeomSphere) enclosing = false;
+        }
+    if (enclosing) {
+        static void* told[16] = {};
+        bool said = false;
+        for (void* t : told) said |= t == a;
+        if (!said) {
+            for (void*& t : told) if (!t) { t = a; break; }
+            uint32_t w[4]{};
+            if (ns) At<void* (*)(void*, uint32_t*)>(list[0], kShapeGetSimFilter)(list[0], w);
+            Log("[physhands] enclosure %s: kinematic %p, bounds %.2f x %.2f x %.2f m round the chest, group %08x%08x\n",
+                met ? "listed" : "not met by the hands", a, b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2], w[1], w[0]);
+        }
+    }
     if (!met) return;
+    if (enclosing) {
+        Enclosure& e = enclosures[enclosureFill][enclosureN[enclosureFill]++];
+        e.actor = a;
+        e.user = *reinterpret_cast<const uint64_t*>(static_cast<const char*>(a) + 0x10);
+        return;
+    }
     out[n].actor = a;
     out[n].user = *reinterpret_cast<const uint64_t*>(static_cast<const char*>(a) + 0x10);
     out[n].b = b;
@@ -1851,6 +2107,8 @@ void LooseSlice(void* sc, const float* origin) {
         if (looseWalk.at && d2 < 0.4f * 0.4f && GetTickCount64() - looseWalk.at < 1500) return;
         std::memcpy(looseWalk.center, center, sizeof(center));
         looseN[fill] = 0;
+        enclosureFill = fill;
+        enclosureN[fill] = 0;
         looseWalk.next = 0;
         looseWalk.phase = 1;
         return;
@@ -1906,6 +2164,41 @@ void LooseCap(const Settings& s) {
 bool Penetration(float* dir, float* depth, const void* g0, const PxTransform* p0, const struct NearShape& s);
 
 // The palm in a loose thing: its box against each near one's shapes.
+// The simulation groups of the enclosures whose bounds, as they are now, hold the palm (its box's centre) and the chest.
+Enclosed EnclosureGroups(int side, const PxTransform& at, const float* origin) {
+    Enclosed out{};
+    const int f = looseFront;
+    if (!enclosureN[f] || !origin) return out;
+    float palm[3], r[3], chest[3];
+    const float off[3] = {madeCentre[side][0], madeCentre[side][1], madeCentre[side][2]};
+    QRot(at.q, off, r);
+    for (int k = 0; k < 3; ++k) palm[k] = at.p[k] + r[k], chest[k] = CyberpunkVR_PlayerEntityPos[k] - origin[k];
+    chest[2] += 1.1f;
+    for (int i = 0; i < enclosureN[f] && out.n < kMostEnclosedGroups; ++i) {
+        const Enclosure& e = enclosures[f][i];
+        if (!LooseAlive(e.actor, e.user)) continue;
+        PxBounds b{};
+        At<void* (*)(void*, PxBounds*, float)>(e.actor, kGetWorldBounds)(e.actor, &b, 1.0f);
+        bool inside = true;
+        for (int k = 0; k < 3 && inside; ++k)
+            inside = palm[k] > b.lo[k] && palm[k] < b.hi[k] && chest[k] > b.lo[k] && chest[k] < b.hi[k];
+        if (!inside) continue;
+        void* list[4]{};
+        const uint32_t ns = At<uint32_t (*)(void*, void**, uint32_t, uint32_t)>(e.actor, kGetShapes)(e.actor, list, 4, 0);
+        unsigned long long groups = 0;
+        for (uint32_t j = 0; j < ns && j < 4; ++j) {
+            uint8_t sf = 0;
+            At<void* (*)(void*, uint8_t*)>(list[j], kShapeGetFlags)(list[j], &sf);
+            if (!(sf & 1)) continue;
+            uint32_t w[4]{};
+            At<void* (*)(void*, uint32_t*)>(list[j], kShapeGetSimFilter)(list[j], w);
+            groups |= w[0] | (unsigned long long)w[1] << 32;
+        }
+        if (groups) out.group[out.n++] = groups;
+    }
+    return out;
+}
+
 bool PalmInLoose(int side, const PxTransform& at) {
     if (!penetration) return false;
     const BoxGeometry box{kGeomBox, {madeHalf[side][0], madeHalf[side][1], madeHalf[side][2]}};
@@ -2375,8 +2668,6 @@ Weapon weaponStaged[2] = {};   // the script's thread only: parts come one by on
 
 // ---- the fingers (worker) ----
 Seq<FingerHand> fingerHands[2];
-struct Forearm { float elbow[3]; uint64_t at; };   // the elbow in the hand bone's frame, from the arm solve
-Seq<Forearm> forearms[2];
 // a: as drawn (yielding, then wrapped round what the palm is on); y: only what the fingers yielded, for their capsules on
 // the body. Wrapped capsules pressed into the table they curled toward and lifted the hand off it: the fingers then found
 // nothing, hung further and lifted it more.
@@ -2396,8 +2687,8 @@ std::atomic<uint64_t> fingerCalls{0}, fingerContacts{0}, fingerUs{0}, fingerSolv
 std::atomic<uint64_t> palmShifted{0}, palmWraps{0};   // solves posed down onto the palm; solves with the palm on something
 std::atomic<uint64_t> fingersOut{0};                   // eased fingers found in something and put out of it at once
 std::atomic<uint64_t> fingersOpened{0};                // ...and out toward the open hand, the solve being in it too
-std::atomic<uint64_t> backPressed{0};
-std::atomic<bool> edgeWrap[2] = {false, false};       // worker: the palm on something, its fingers curled over its edge                  // solves with the back of the hand pressed on something (fingers straightened)
+std::atomic<uint64_t> backPressed{0};                  // solves with the back of the hand pressed on something
+std::atomic<bool> holdingOn[2] = {false, false};      // worker: the hand holds on (climb), so its thumb lies on what it holds too
 std::atomic<float> shownBends[2][5][3] = {};           // the eased bends last given, for the statistics
 std::atomic<float> shownDepth[2][5] = {};               // trace=1: each finger as drawn (b.a at the body), m deep in what is near
 
@@ -2421,10 +2712,13 @@ void AxisAngle(const float* axis, float a, float* q);
 // each upper arm, from below the shoulder to short of the elbow, for the other hand. No hips and no thighs: the holsters
 // are there.
 std::atomic<float> selfPad{0.f};   // m V's clothes add round the trunk (the script, from what is worn)
-int SelfCapsules(SelfCap* out) {
+// Called only at the primary avatar's completed FK pass, under its pose lock.
+// The diagnostic FK buffer can also be overwritten by downstream cyberware
+// graphs; physics must never combine it with a later entity transform.
+static int BuildSelfCapsules(SelfCap* out,const float* entityPosition,const float* entityRotation) {
     if (!CyberpunkVR_PlayerEntityValid) return 0;
     const float pad = std::clamp(selfPad.load(std::memory_order_relaxed), 0.f, 0.04f);
-    const int count = std::min(int(g_VRFKSnapCount), int(VRIK_MAX_BONES));
+    const int count = std::min(VRIK_FKCount(), int(VRIK_MAX_BONES));
     const auto have = [&](int i) { return i >= 0 && i < count; };
     const int spines = std::clamp(int(g_VRSpineCount), 0, 8);
     const int hips = g_VRHipsIdx, neck = g_VRNeckIdx, head = g_VRHeadBoneIdx;
@@ -2432,7 +2726,7 @@ int SelfCapsules(SelfCap* out) {
     if (spines < 2 || !have(hips) || !have(neck) || !have(la) || !have(ra) || !have(g_VRSpineIdx[0]) || !have(g_VRSpineIdx[spines - 1]))
         return 0;
     const auto at = [&](int i, float* p) {
-        for (int k = 0; k < 3; ++k) p[k] = g_VRFKSnapPos[i][k];
+        for (int k = 0; k < 3; ++k) p[k] = g_fkPos[i][k];
         return std::isfinite(p[0] + p[1] + p[2]);
     };
     const auto len = [](const float* v) { return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); };
@@ -2466,7 +2760,7 @@ int SelfCapsules(SelfCap* out) {
     }
     float Hd[3], q[4];
     if (have(head) && at(head, Hd)) {
-        for (int k = 0; k < 4; ++k) q[k] = g_VRFKSnapRot[head][k];
+        for (int k = 0; k < 4; ++k) q[k] = g_fkRot[head][k];
         float hu[3], hf[3];
         for (int k = 0; k < 3; ++k) hu[k] = Hd[k] - N[k];
         if (!unit(hu)) std::memcpy(hu, up, sizeof(hu));
@@ -2513,13 +2807,13 @@ int SelfCapsules(SelfCap* out) {
     }
     // model space to the game's world
     float eq[4];
-    for (int k = 0; k < 4; ++k) eq[k] = CyberpunkVR_PlayerEntityQuat[k];
+    for (int k = 0; k < 4; ++k) eq[k] = entityRotation[k];
     if (!QNorm(eq)) return 0;
     for (int i = 0; i < n; ++i)
         for (float* p : {out[i].a, out[i].b}) {
             float w[3];
             QRot(eq, p, w);
-            for (int k = 0; k < 3; ++k) p[k] = CyberpunkVR_PlayerEntityPos[k] + w[k];
+            for (int k = 0; k < 3; ++k) p[k] = entityPosition[k] + w[k];
         }
     static bool said = false;
     if (!said) {
@@ -2527,6 +2821,52 @@ int SelfCapsules(SelfCap* out) {
         Log("[physhands] V's own body for the hands: %d capsules (trunk %.2f m, shoulders %.2f m apart; forward in the model %.2f %.2f %.2f)\n", n,
             len(up) * upLen, latLen, fwd[0], fwd[1], fwd[2]);
     }
+    return n;
+}
+
+void CommitPoseInputs() {
+    if(!poseInputsPending)return;
+    float position[3],rotation[4];PoseEntity(position,rotation);
+    pendingPoseInputs.body.n=BuildSelfCapsules(pendingPoseInputs.body.c,position,rotation);
+    pendingPoseInputs.body.at=pendingPoseInputs.at;
+    // Held bodies follow the completed wrist, just like an attachment on the
+    // weapon bone. Publishing the pre-IK target here used to put the object
+    // ahead of the visible hand whenever arm reach or a later pose layer moved it.
+    const int count=VRIK_FKCount();
+    for(int side=0;side<2;++side) {
+        DrawnHand hand{};
+        const int bone=side ? g_VRRightBoneIdx:g_VRLeftBoneIdx;
+        if(pendingPoseInputs.target[side].at && bone>=0 && bone<count) {
+            QRot(rotation,g_fkPos[bone],hand.p);
+            for(int k=0;k<3;++k)hand.p[k]+=position[k];
+            QMul(rotation,g_fkRot[bone],hand.q);
+            if(QNorm(hand.q)&&std::isfinite(hand.p[0]+hand.p[1]+hand.p[2]))hand.at=pendingPoseInputs.at;
+        }
+        pendingPoseInputs.drawn[side]=hand;
+        TraceFinalGrip(side);
+        if(hand.at){
+            auto& palm=pendingPoseInputs.palm[side];
+            palm.valid=cvr::anim::GraspPalmFrame(side,palm.skin,palm.normal,palm.along);
+        }
+    }
+    {
+        std::lock_guard lock(poseInputsMutex);
+        publishedPoseInputs=pendingPoseInputs;
+    }
+    // Compatibility/freshness readers do not use these to pose the step. Its
+    // targets, arm reach and body geometry come from the one snapshot above.
+    for(int side=0;side<2;++side) {
+        drawnHands[side].Write(pendingPoseInputs.drawn[side]);
+        targets[side].Write(pendingPoseInputs.target[side]);
+        shoulders[side].Write(pendingPoseInputs.shoulder[side]);
+        forearms[side].Write(pendingPoseInputs.forearm[side]);
+    }
+    poseInputsPending=false;
+}
+static int SelfCapsules(SelfCap* out) {
+    if(!stepPoseInputs.at || !stepPoseInputs.frame.entity.valid)return 0;
+    const int n=std::clamp(stepPoseInputs.body.n,0,kMostSelf);
+    std::copy_n(stepPoseInputs.body.c,n,out);
     return n;
 }
 
@@ -2547,7 +2887,6 @@ void PeopleStep(const float* origin, const Settings& s) {
     shown.at = GetTickCount64();
     selfShown.Write(shown);
     const int ns = shown.n;
-    const uint32_t filterPeople[4] = {handFilter[0], handFilter[1], handFilter[0], handFilter[1]};
     static PeopleNear snap;
     int m = 0;
     const auto park = [](int i) {
@@ -2565,22 +2904,24 @@ void PeopleStep(const float* origin, const Settings& s) {
         }
         const float* ca = own ? shown.c[j].a : P.c[i].a;
         const float* cb = own ? shown.c[j].b : P.c[i].b;
-        const float cr = own ? shown.c[j].r : P.c[i].r;
+        float cr = own ? shown.c[j].r : P.c[i].r;
         const int owner = own ? kSelfOwner : P.c[i].owner;
-        const uint8_t meets = own ? shown.c[j].meets : uint8_t(3);
-        uint32_t filter[4];
+        uint8_t meets = own ? shown.c[j].meets : uint8_t(3);
+        uint32_t filter[4]{};
         if (own) {
             const unsigned long long g = (meets & 1 ? bitSelfLeft : 0) | (meets & 2 ? bitSelfRight : 0);
             filter[0] = uint32_t(g);
             filter[1] = uint32_t(g >> 32);
             filter[2] = filter[3] = 0;
-        } else {
-            std::memcpy(filter, filterPeople, sizeof(filter));
         }
         float a[3], b[3], d[3], len = 0;
+        PersonAttachment attached{};bool exactPart=false;
+        if(!own&&owner>0)for(int side=0;side<2;++side){PersonAttachment value{};
+            if(ReadPersonAttachment(side,value)&&value.on&&value.owner==owner){attached=value;exactPart=true;break;}}
+        float axis[3]{};if(exactPart){const float x[3]{1,0,0};QRot(attached.capsuleRotation,x,axis);cr=attached.radius;}
         for (int k = 0; k < 3; ++k) {
-            a[k] = ca[k] - origin[k];
-            b[k] = cb[k] - origin[k];
+            a[k] = (exactPart?attached.capsule[k]-axis[k]*attached.half:ca[k]) - origin[k];
+            b[k] = (exactPart?attached.capsule[k]+axis[k]*attached.half:cb[k]) - origin[k];
             d[k] = b[k] - a[k];
             len += d[k] * d[k];
         }
@@ -2589,12 +2930,17 @@ void PeopleStep(const float* origin, const Settings& s) {
             park(i);
             continue;
         }
-        // THE PART HELD AND WHAT IS NEXT TO IT meet nothing while a hand holds them: the hold keeps the hand on the part, and
-        // a contact as well threw the hand about with every move of the part (the capsules are put where the bones are, not
-        // moved there), and the fingers on it with the hand
-        if (!own && owner > 0 && HeldNear(owner, a, b, cr)) filter[0] = filter[1] = filter[2] = filter[3] = 0;
+        // Suppress only the hand already attached here, not the other hand.
+        // Every penetration query consumes the same effective pair eligibility.
+        if(!own){
+            const auto held=owner>0?HeldNearHands(owner,a,b,cr):uint8_t(0);
+            const uint64_t common=handFilter[0]|uint64_t(handFilter[1])<<32;
+            const auto contact=FilterPersonHands(common,bitPersonLeft,bitPersonRight,uint8_t(3&~held));
+            std::copy_n(contact.words.data(),4,filter);meets=contact.hands;
+        }
         PxTransform pose{{0, 0, 0, 1}, {0.5f * (a[0] + b[0]), 0.5f * (a[1] + b[1]), 0.5f * (a[2] + b[2])}};
-        if (len > 1e-4f) {
+        if(exactPart)std::copy_n(attached.capsuleRotation,4,pose.q);
+        else if (len > 1e-4f) {
             // the capsule's axis is its x: the turn taking x to the line between its ends
             const float u[3] = {d[0] / len, d[1] / len, d[2] / len};
             const float w = 1.f + u[0];
@@ -2657,6 +3003,7 @@ void PeopleStep(const float* origin, const Settings& s) {
         e.type = kGeomCapsule;
         snap.owner[m] = owner;
         snap.meets[m] = meets;
+        snap.simulates[m]=(filter[0]|filter[1]|filter[2]|filter[3])?meets:0;
         ++m;
     }
     snap.n = m;
@@ -2664,7 +3011,10 @@ void PeopleStep(const float* origin, const Settings& s) {
     std::memcpy(personNear, snap.s, sizeof(NearShape) * size_t(m));
     std::memcpy(personOwner, snap.owner, sizeof(int) * size_t(m));
     std::memcpy(personMeets, snap.meets, size_t(m));
+    std::memcpy(personSimulates, snap.simulates, size_t(m));
     personNearN = m;
+    std::copy_n(origin,3,snap.origin);
+    snap.selfFrame=stepPoseInputs.frame.tracking.valid ? stepPoseInputs.frame.tracking:stepPoseInputs.frame.entity;
     peopleNear.Write(snap);
 }
 
@@ -2681,7 +3031,7 @@ Seq<BodyShapes> bodyShapes[2];
 // alone, it was "on something loose", steered at a push's strength and all of the gap a step, and drove its fingers'
 // capsules a centimetre and more into the wall, which threw the hand back off it (2026-11-09).
 int OtherHandShapes(int side, const float* pose, NearShape* out, int cap, BodyShapes* scratch, int partOnly = -1);
-bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what) {
+bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what,TouchInfo* info) {
     const int front = nearFront.load(std::memory_order_acquire);
     if (front < 0 || !penetration) return false;
     const NearList& L = nearLists[front];
@@ -2714,7 +3064,7 @@ bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what) 
             if (apart) continue;
             ++calls;
             float dir[3]{}, depth = 0;
-            if (Penetration(dir, &depth, &g, &at, e) && depth > 0) return true;
+            if (Penetration(dir, &depth, &g, &at, e) && depth > 0){if(info)*info={1,0,i,3,depth};return true;}
         }
         // a person is the world here: pressed on, the hand is held soft and drawn still, as on a wall (V's own body too,
         // while the hand meets it)
@@ -2726,7 +3076,7 @@ bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what) 
             if (apart) continue;
             ++calls;
             float dir[3]{}, depth = 0;
-            if (Penetration(dir, &depth, &g, &at, e) && depth > 0) return true;
+            if (Penetration(dir, &depth, &g, &at, e) && depth > 0){if(info)*info={2,personOwner[i],i,personSimulates[i],depth};return true;}
         }
         for (int i = 0; i < otherN && calls < 64; ++i) {
             const NearShape& e = other[i];
@@ -2735,7 +3085,7 @@ bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what) 
             if (apart) continue;
             ++calls;
             float dir[3]{}, depth = 0;
-            if (Penetration(dir, &depth, &g, &at, e) && depth > 0) return true;
+            if (Penetration(dir, &depth, &g, &at, e) && depth > 0){if(info)*info={3,1-side,i,3,depth};return true;}
         }
         return false;
     };
@@ -2760,7 +3110,7 @@ bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what) 
                     if (apart) continue;
                     ++calls;
                     float dir[3]{}, depth = 0;
-                    if (Penetration(dir, &depth, &g, &w, e) && depth > 0) return true;
+                    if (Penetration(dir, &depth, &g, &w, e) && depth > 0){if(info)*info={4,0,j,3,depth};return true;}
                 }
             }
         }
@@ -2769,35 +3119,96 @@ bool TouchesWorld(int side, const PxTransform& at, const Settings& s, int what) 
     return false;
 }
 
-// WHAT A HAND CAN HOLD ON BY, from the world's shapes round it (physics thread): the palm's box grown by 2 cm and each
-// finger's capsule by 1.2 cm, and each one's way out of what it is in, at the point of it that is deepest that way (on the
-// surface, not the shape's middle: the palm's middle stands 2 cm further off a wall than the fingers' do). A TOP: a way out
-// up (a railing's, a ledge's, a crate's). AN EDGE OR A CORNER: two ways out more than 40 degrees apart, the one point 1.5
-// cm behind the other's face -- fingers round a pillar's corner, over a ledge's lip, round a pole. The two faces of an
-// inside corner face each other and are not held, nor is a wall's face alone: walls are not climbed. 0 none, 1 a top, 2
-// an edge or a corner.
-int HoldFeature(int side, const PxTransform& at) {
+// THE WAYS OUT OF WHAT THE HAND TOUCHES (physics thread): the palm's box grown by 1.5 cm and the fingers' and the forearm's
+// capsules by a centimetre, against the world and the people near (not the other hand: the two ride together), each one's
+// way out as PhysX gives it; ways within 25 degrees of one already found are the same face. At most `cap`.
+int WaysOut(int side, const PxTransform& at, float (*ways)[3], int cap) {
     const int front = nearFront.load(std::memory_order_acquire);
-    if (front < 0 || !penetration) return 0;
+    if (front < 0 || !penetration || cap <= 0) return 0;
     const NearList& L = nearLists[front];
-    struct Hit { float p[3], n[3]; };
-    Hit hits[24];
+    int n = 0, calls = 0;
+    const auto add = [&](const float* d) {
+        float m = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (!(m > 1e-6f) || n >= cap) return;
+        const float u[3] = {d[0] / m, d[1] / m, d[2] / m};
+        for (int i = 0; i < n; ++i)
+            if (u[0] * ways[i][0] + u[1] * ways[i][1] + u[2] * ways[i][2] > 0.906f) return;
+        std::memcpy(ways[n++], u, sizeof(u));
+    };
+    const auto against = [&](const void* g, const PxTransform& p, float reach) {
+        for (int i = 0; i < L.n && calls < 64 && n < cap; ++i) {
+            const NearShape& e = L.s[i];
+            bool apart = false;
+            for (int k = 0; k < 3 && !apart; ++k) apart = p.p[k] + reach < e.bounds.lo[k] || p.p[k] - reach > e.bounds.hi[k];
+            if (apart) continue;
+            ++calls;
+            float dir[3]{}, depth = 0;
+            if (Penetration(dir, &depth, g, &p, e) && depth > 0) add(dir);
+        }
+        for (int i = 0; i < personNearN && calls < 80 && n < cap; ++i) {
+            if (!PersonMeets(i, side) || personOwner[i] == kSelfOwner) continue;
+            const NearShape& e = personNear[i];
+            bool apart = false;
+            for (int k = 0; k < 3 && !apart; ++k) apart = p.p[k] + reach < e.bounds.lo[k] || p.p[k] - reach > e.bounds.hi[k];
+            if (apart) continue;
+            ++calls;
+            float dir[3]{}, depth = 0;
+            if (Penetration(dir, &depth, g, &p, e) && depth > 0) add(dir);
+        }
+    };
+    {
+        constexpr float kGrow = 0.015f;
+        const BoxGeometry box{kGeomBox, {madeHalf[side][0] + kGrow, madeHalf[side][1] + kGrow, madeHalf[side][2] + kGrow}};
+        PxTransform pose{};
+        float r[3];
+        QRot(at.q, madeCentre[side], r);
+        for (int k = 0; k < 3; ++k) pose.p[k] = at.p[k] + r[k];
+        std::memcpy(pose.q, at.q, sizeof(pose.q));
+        against(&box, pose, std::sqrt(box.half[0] * box.half[0] + box.half[1] * box.half[1] + box.half[2] * box.half[2]));
+    }
+    static BodyShapes bs;   // physics thread
+    if (bodyShapes[side].Read(bs) && GetTickCount64() - bs.at < 200) {
+        for (int i = 1; i < bs.n && i < kBodyShapes && n < cap; ++i) {
+            int type = 0;
+            std::memcpy(&type, bs.s[i].geometry, sizeof(type));
+            if (type != kGeomCapsule) continue;
+            struct { int type; float radius, halfHeight; } g{};
+            std::memcpy(&g, bs.s[i].geometry, sizeof(g));
+            g.radius += 0.01f;
+            PxTransform w{};
+            Compose(at.q, at.p, bs.s[i].local.q, bs.s[i].local.p, w.q, w.p);
+            against(&g, w, g.halfHeight + g.radius);
+        }
+    }
+    return n;
+}
+
+// Only current static geometry may establish a climb hold. The worker bends drawn fingers on
+// people and loose things too; its curl and its animation hysteresis are not contact evidence.
+climb_support::Feature HoldFeature(int side, const PxTransform& at, const float* origin) {
+    using namespace climb_support;
+    const int front = nearFront.load(std::memory_order_acquire);
+    if (front < 0 || !penetration) return Feature::None;
+    const NearList& L = nearLists[front];
+    if (!std::equal(origin, origin + 3, L.origin) || GetTickCount64() - L.at >= 5000) return Feature::None;
+    Hit hits[kMaxHits];
     int nh = 0, calls = 0;
-    // `extent(n)`: how far the shape reaches from its middle against n (its point deepest in what pushes it out along n)
-    const auto probe = [&](const void* g, const PxTransform& pose, float reach, const auto& extent) {
-        for (int i = 0; i < L.n && calls < 160 && nh < 24; ++i) {
+    // Reserve 16 of the pre-existing 160 queries for verifying seams and rail tops. The grown
+    // probe's extreme along the MTD, translated out by its depth, locates the static plane.
+    const auto probe = [&](const void* g, const PxTransform& pose, float reach, const auto& extent, const auto& closeDepth) {
+        for (int i = 0; i < L.n && calls < 144 && nh < kMaxHits; ++i) {
             const NearShape& e = L.s[i];
             bool apart = false;
             for (int k = 0; k < 3 && !apart; ++k) apart = pose.p[k] + reach < e.bounds.lo[k] || pose.p[k] - reach > e.bounds.hi[k];
             if (apart) continue;
             ++calls;
             float dir[3]{}, depth = 0;
-            if (Penetration(dir, &depth, g, &pose, e) && depth > 0 && std::isfinite(dir[0] + dir[1] + dir[2])) {
-                Hit& h = hits[nh++];
-                const float x = extent(dir);
-                for (int k = 0; k < 3; ++k) h.p[k] = pose.p[k] - dir[k] * x;
-                std::memcpy(h.n, dir, sizeof(h.n));
-            }
+            if (!Penetration(dir, &depth, g, &pose, e) || !(depth > 0) || !std::isfinite(depth)) continue;
+            const auto n = V3(dir);
+            const float n2 = LengthSquared(n);
+            if (!(n2 > .99f && n2 < 1.01f)) continue;
+            const auto p = V3(pose.p) + n * (depth - extent(dir));
+            if (Finite(p)) hits[nh++] = {p, n, i, depth > closeDepth(dir)};
         }
     };
     {
@@ -2812,13 +3223,14 @@ int HoldFeature(int side, const PxTransform& at) {
             const float e[3] = {a == 0 ? 1.f : 0.f, a == 1 ? 1.f : 0.f, a == 2 ? 1.f : 0.f};
             QRot(at.q, e, axes[a]);
         }
+        const auto projected = [&](int a, const float* n) { return std::fabs(Dot(V3(axes[a]), V3(n))); };
         const auto extent = [&](const float* n) {
-            float x = 0;
-            for (int a = 0; a < 3; ++a)
-                x += std::fabs(n[0] * axes[a][0] + n[1] * axes[a][1] + n[2] * axes[a][2]) * (box.half[a] - 0.02f);
-            return x;
+            return projected(0,n)*box.half[0] + projected(1,n)*box.half[1] + projected(2,n)*box.half[2];
         };
-        probe(&box, pose, std::sqrt(box.half[0] * box.half[0] + box.half[1] * box.half[1] + box.half[2] * box.half[2]), extent);
+        // A hold must actually touch its support at the old 1.5 cm palm / 1 cm finger reach,
+        // not just touch a different wall with the forearm while reaching towards a top.
+        const auto closeDepth = [&](const float* n) { return .005f*(projected(0,n)+projected(1,n)+projected(2,n)); };
+        probe(&box, pose, std::sqrt(box.half[0] * box.half[0] + box.half[1] * box.half[1] + box.half[2] * box.half[2]), extent, closeDepth);
     }
     static BodyShapes bs;   // physics thread
     if (bodyShapes[side].Read(bs) && GetTickCount64() - bs.at < 200)
@@ -2827,7 +3239,6 @@ int HoldFeature(int side, const PxTransform& at) {
             struct { int type; float radius, halfHeight; } g{};
             std::memcpy(&g, bs.s[i].geometry, sizeof(g));
             if (g.type != kGeomCapsule) continue;
-            const float skin = g.radius;
             g.radius += 0.012f;
             PxTransform w{};
             Compose(at.q, at.p, bs.s[i].local.q, bs.s[i].local.p, w.q, w.p);
@@ -2835,22 +3246,31 @@ int HoldFeature(int side, const PxTransform& at) {
             const float ex[3] = {1.f, 0.f, 0.f};
             QRot(w.q, ex, ax);
             const auto extent = [&](const float* n) {
-                return skin + std::fabs(n[0] * ax[0] + n[1] * ax[1] + n[2] * ax[2]) * g.halfHeight;
+                return g.radius + std::fabs(n[0] * ax[0] + n[1] * ax[1] + n[2] * ax[2]) * g.halfHeight;
             };
-            probe(&g, w, g.halfHeight + g.radius, extent);
+            probe(&g, w, g.halfHeight + g.radius, extent, [](const float*) { return .002f; });
         }
-    for (int i = 0; i < nh; ++i)
-        if (hits[i].n[2] >= 0.45f) return 1;
-    for (int i = 0; i < nh; ++i)
-        for (int j = i + 1; j < nh; ++j) {
-            const Hit &a = hits[i], &b = hits[j];
-            const float c = a.n[0] * b.n[0] + a.n[1] * b.n[1] + a.n[2] * b.n[2];
-            if (!(c < 0.77f)) continue;
-            float ab = 0, ba = 0;
-            for (int k = 0; k < 3; ++k) ab += (b.p[k] - a.p[k]) * a.n[k], ba += (a.p[k] - b.p[k]) * b.n[k];
-            if (ab < -0.015f || ba < -0.015f) return 2;
+    const int seamLimit = calls + 14;
+    return Classify(hits, nh, [&](int a, int b, handspace::Vector seam) {
+        if (calls + 2 > seamLimit) return false;
+        const struct { int type; float radius; } ball{kGeomSphere, kSeamRadius};
+        PxTransform p{}; p.q[3] = 1; Store3(p.p, seam);
+        for (int index : {a, b}) for (int k = 0; k < 3; ++k)
+            if (p.p[k] + ball.radius < L.s[index].bounds.lo[k] || p.p[k] - ball.radius > L.s[index].bounds.hi[k]) return false;
+        for (int index : {a, b}) {
+            float d[3]{}, depth = 0;
+            ++calls;
+            if (!Penetration(d, &depth, &ball, &p, L.s[index]) || !(depth > 0) || !std::isfinite(depth)) return false;
         }
-    return 0;
+        return true;
+    }, [&](int shape, handspace::Vector center) {
+        const struct { int type; float radius; } ball{kGeomSphere, kCapRadius};
+        PxTransform p{}; p.q[3] = 1; Store3(p.p, center);
+        float d[3]{}, depth = 0;
+        // A pad outside a top gets a shallow, upward MTD. A pad buried inside a solid
+        // or simply crossing a vertical wall does not demonstrate top support.
+        return Penetration(d, &depth, &ball, &p, L.s[shape]) && depth > 0 && depth <= ball.radius && d[2] >= .65f;
+    });
 }
 
 // The part of a person a hand closes on (physics thread): of the people's capsules the palm's box grown by 2 cm or a
@@ -3153,7 +3573,7 @@ uint64_t farSince[2] = {0, 0}, stuckAsked[2] = {0, 0};
 static void ArmReach(int side, PxTransform& to, const float* origin, uint64_t tick, const Settings& s) {
     Shoulder sh{};
     Target t{};
-    if (!shoulders[side].Read(sh) || tick - sh.at > 300 || sh.reach <= 0 || !targets[side].Read(t)) return;
+    if (!StepShoulder(side,sh) || tick - sh.at > 300 || sh.reach <= 0 || !StepTarget(side,t)) return;
     float r[3], d[3], n = 0;
     QRot(t.entityRot, sh.model, r);
     for (int k = 0; k < 3; ++k) {
@@ -3210,7 +3630,7 @@ bool Unstick(int side, const PxTransform& to, const float* origin, int holding, 
     }
     Shoulder sh{};
     Target t{};
-    if (!shoulders[side].Read(sh) || tick - sh.at > 300 || !targets[side].Read(t)) return refuse("no shoulder from the arm solve");
+    if (!StepShoulder(side,sh) || tick - sh.at > 300 || !StepTarget(side,t)) return refuse("no shoulder from the arm solve");
     float shoulder[3], palm[3], r[3];
     QRot(t.entityRot, sh.model, r);
     for (int k = 0; k < 3; ++k) shoulder[k] = t.entityPos[k] + r[k] - origin[k];
@@ -3405,7 +3825,7 @@ void PoseShapes(int side, const Settings& s) {
     void* fu = forearmUpper[side];
     if (!fa || !fu) return;
     Forearm arm{};
-    if (s.forearm && forearms[side].Read(arm) && now - arm.at < 200) {
+    if (s.forearm && StepForearm(side,arm) && now - arm.at < 200) {
         const float len = std::sqrt(arm.elbow[0] * arm.elbow[0] + arm.elbow[1] * arm.elbow[1] + arm.elbow[2] * arm.elbow[2]);
         if (len > 0.15f) {
             const HandSkin* k = s.skin ? SkinFor(g_VRBodyFemale, side) : nullptr;
@@ -3562,8 +3982,7 @@ void OpenAngles(const FingerChain& c, const float* hq, const float* hp, const fl
 }
 
 void SolveFinger(const FingerChain& c, const float* hq, const float* hp, const NearList& L, bool wrap, float* out, float* yielded, float* opened,
-                 int& calls, int& contacts, float squeeze = 0.f, float* wrapT = nullptr) {
-    if (wrapT) *wrapT = -1.f;
+                 int& calls, int& contacts, float squeeze = 0.f) {
     static const float kWrap[3] = {1.1f, 1.5f, 0.9f};      // rad at the full wrap: knuckle, middle joint, last joint
     // how far a finger pressed on its pad bends back past straight at most (each within its anatomical range): the
     // knuckle and the last joint give, the middle joint hardly (its volar plate)
@@ -3685,7 +4104,6 @@ void SolveFinger(const FingerChain& c, const float* hq, const float* hp, const N
             }
             Log("%s\n", line);
         }
-        if (wrapT) *wrapT = 0.06f;
         if (!touchesAt(0.06f)) {
             // THE FIRST TOUCH ON THE WAY IN, stepped for and then halved between the last step clear and the first that
             // touches. Not halved over the whole wrap: a fingertip curled all the way comes back up off a table (a fist),
@@ -3716,9 +4134,7 @@ void SolveFinger(const FingerChain& c, const float* hq, const float* hp, const N
                 float b[3];
                 bendAt(lo, b);
                 std::memcpy(a, b, sizeof(a));
-                if (wrapT) *wrapT = lo;
             }
-            if (hi < 0 && wrapT) *wrapT = -1.f;
         }
         if (squeeze > 0) {
             // THE GRIP SHOWS: closed on what the palm is on, the fingers press on -- on a flat face the fingertips dig in
@@ -3825,11 +4241,11 @@ float PalmDepth(int side, const float* hq, const float* hp, const NearList& L, i
 
 void SolveFingers(const Step& st, const Settings& s, double dtS) {
     static float shown[2][5][3] = {}, shownYield[2][5][3] = {}, shownV[2][5][3] = {}, shownYieldV[2][5][3] = {};
-    const int front = nearFront.load(std::memory_order_acquire);
     LARGE_INTEGER t0;
     QueryPerformanceCounter(&t0);
     AcquireSRWLockShared(&nearLock);
-    const NearList* L0 = front >= 0 ? &nearLists[nearFront.load(std::memory_order_acquire)] : nullptr;
+    const int front = s.fingers ? nearFront.load(std::memory_order_acquire) : -1;
+    const NearList* L0 = front >= 0 ? &nearLists[front] : nullptr;
     // ...and the people near and the loose things by the hands, posed this step, V's own body while a hand meets it and
     // the other hand while the two meet: the world's list and theirs, one list a hand (a finger that brushes a bottle or a
     // crate bends on it as on a wall; a palm on a crate lays its fingers on it, on the other hand, on V's chest)
@@ -3978,16 +4394,16 @@ void SolveFingers(const Step& st, const Settings& s, double dtS) {
             }
             static uint64_t wrapProbeAt = 0;
             const bool gripping = g_pSharedHands && g_pSharedHands[side ? 49 : vrshared::kLeftGripPressed] > 0.5f;
-            float middleWrap = -1.f;
             for (int f = 0; f < 5; ++f) {
                 if (s.trace && side == 1 && f == 1 && wrap && GetTickCount64() - wrapProbeAt > 2000) wrapProbeAt = GetTickCount64(), wrapProbe = true;
-                SolveFinger(h.f[f], hq, hp, *L, wrap && f != 4, want[f], wantYield[f], wantOpen[f], calls, contacts,
-                            gripping && wrap && f != 4 ? 1.f : 0.f, f == 1 ? &middleWrap : nullptr);
+                // THE THUMB OF A HAND THAT HOLDS ON lies on what it holds as the fingers do: kept out of it the other way, it
+                // was opened up off a ledge's top and stood straight up in the air beside the hooked fingers (2026-11-16).
+                // Otherwise it stays as it is, on top of a railing the fingers wrap.
+                const bool thumbWraps = f == 4 && holdingOn[side].load(std::memory_order_relaxed);
+                SolveFinger(h.f[f], hq, hp, *L, wrap && (f != 4 || thumbWraps), want[f], wantYield[f], wantOpen[f], calls, contacts,
+                            gripping && wrap && f != 4 ? 1.f : 0.f);
                 wrapProbe = false;
             }
-            // past the knuckle's share of the wrap before it met something: the fingers curl over an edge (a railing's
-            // top, a ledge), not lie on a face
-            edgeWrap[side].store(wrap && middleWrap > 1.1f, std::memory_order_relaxed);
             // THE BACK OF THE HAND PRESSED ON SOMETHING (the knuckles on a wall, a table): the fingers straighten a little
             // with the press, as a relaxed hand's do when its back is pushed flat -- from 4 mm held off to 4.4 cm, up to 35%
             // of the way to the open hand. The way out of the surface is where the body was refused (its place less where
@@ -4285,6 +4701,8 @@ void Work() {
     bool latchOn[2] = {false, false};
     float lastShown[2][3] = {}, jitterSum[2] = {}, jitterMost[2] = {}, lastBody[2][3] = {}, bodyJitterSum[2] = {}, lastSent[2][3] = {}, sentJitterSum[2] = {};
     bool lastShownOn[2] = {false, false};
+    PoseFrame previousFilterFrame[2]{};
+    bool previousFilterRiding[2]{};
     uint32_t jitterN[2] = {0, 0};
     for (;;) {
         WaitForSingleObject(stepped, 50);
@@ -4350,6 +4768,45 @@ void Work() {
                 Offset o{};
                 o.at = now;
                 o.scannerEpoch = st.scannerEpoch;
+                o.frame = st.frame;
+                o.riding = st.riding[side];
+                const auto& before=previousFilterFrame[side];
+                if(before.entity.valid && st.frame.entity.valid &&
+                   (before.entity.owner!=st.frame.entity.owner || before.entity.origin!=st.frame.entity.origin)) {
+                    smoothed[side].on=bodySmoothed[side].on=false;
+                    latchOn[side]=stuckOn[side]=stuckTurnOn[side]=pressedWas[side]=lastShownOn[side]=false;
+                    std::fill_n(residual[side],3,0.f);std::fill_n(residualTurn[side],4,0.f);residualTurn[side][3]=1;
+                    contactW[side]=0;
+                }
+                const auto motion=previousFilterRiding[side] && st.riding[side]
+                    ? handspace::Between(before.tracking,st.frame.tracking,4.f):handspace::Motion{};
+                if(motion.valid) {
+                    if(bodySmoothed[side].on)Store3(bodySmoothed[side].p,motion.Point(V3(bodySmoothed[side].p)));
+                    if(latchOn[side])Store3(latch[side],motion.Point(V3(latch[side])));
+                    if(stuckOn[side]) {
+                        Store3(stuck[side],motion.Point(V3(stuck[side])));
+                        Store3(stuckPrev[side],motion.Point(V3(stuckPrev[side])));
+                        Store3(stuckVel[side],motion.Direction(V3(stuckVel[side])));
+                        Store4(stuckPrevTurn[side],motion.Orientation(R4(stuckPrevTurn[side])));
+                    }
+                    if(stuckTurnOn[side])Store4(stuckTurn[side],motion.Orientation(R4(stuckTurn[side])));
+                    Store3(residual[side],motion.Direction(V3(residual[side])));
+                    Store4(residualTurn[side],handspace::Multiply(handspace::Multiply(motion.turn,R4(residualTurn[side])),handspace::Conjugate(motion.turn)));
+                    if(lastShownOn[side]) {
+                        Store3(lastShown[side],motion.Point(V3(lastShown[side])));
+                        Store3(lastBody[side],motion.Point(V3(lastBody[side])));
+                        Store3(lastSent[side],motion.Point(V3(lastSent[side])));
+                    }
+                }
+                if(smoothed[side].on && before.entity.valid && st.frame.entity.valid) {
+                    for(float* v:{smoothed[side].p,smoothed[side].r}) {
+                        auto world=handspace::Rotate(before.entity.rotation,V3(v));
+                        if(motion.valid)world=motion.Direction(world);
+                        Store3(v,handspace::Rotate(handspace::Conjugate(st.frame.entity.rotation),world));
+                    }
+                }
+                previousFilterFrame[side]=st.frame;
+                previousFilterRiding[side]=st.riding[side];
                 o.on = st.valid[side] && live[side].load(std::memory_order_acquire) &&
                        cvr::input::scannerHandPhysics.Accepts(st.scannerEpoch);
                 if (o.on) {
@@ -4632,6 +5089,7 @@ void Work() {
                 traceFile = nullptr;
             }
         }
+        FlushGripTrace(s.trace!=0);
         // THE STATISTICS EVERY log_every SECONDS: a tuning aid, seven lines at a time, written with trace=1 or the launcher's
         // DEBUG box only. The block runs either way: its counters are taken (and reset) in the calls' arguments.
         if (now - loggedAt > uint64_t(s.logEvery) * 1000) {
@@ -4727,6 +5185,10 @@ void StartWorker() {
 
 }  // namespace
 
+void BeginPoseFrame(const PoseFrame& frame) { BeginPoseInputs(frame); }
+bool PoseFramePending() { return poseInputsPending; }
+void PublishPoseFrame() { CommitPoseInputs(); }
+
 static void NoteTracking(int side, const float* modelPos);
 
 // THE TRACE (trace=1): each drawn frame -- the drawn place, the body's as drawn and as PhysX has it, its velocity, what it
@@ -4773,10 +5235,13 @@ static void TraceFrame(int side, const float* at, const Offset& o, float lead, c
 void NoteTarget(int side, const float* modelPos, const float* modelRot) {
     if (side < 0 || side > 1 || !modelPos || !modelRot) return;
     Target t{};
-    for (int k = 0; k < 3; ++k) t.pos[k] = modelPos[k], t.entityPos[k] = CyberpunkVR_PlayerEntityPos[k];
-    for (int k = 0; k < 4; ++k) t.rot[k] = modelRot[k], t.entityRot[k] = CyberpunkVR_PlayerEntityQuat[k];
-    t.at = GetTickCount64();
-    targets[side].Write(t);
+    for (int k = 0; k < 3; ++k) t.pos[k] = modelPos[k];
+    for (int k = 0; k < 4; ++k) t.rot[k] = modelRot[k];
+    PoseEntity(t.entityPos,t.entityRot);
+    t.at = poseInputsPending ? pendingPoseInputs.at : GetTickCount64();
+    if(poseInputsPending) {
+        pendingPoseInputs.target[side]=t;
+    } else targets[side].Write(t);
     NoteTracking(side, modelPos);
 }
 
@@ -4804,7 +5269,8 @@ void NoteForearm(int side, const float* elbowModel, const float* wristModel, con
         sh.reach = reach;
         if (!std::isfinite(sh.reach) || sh.reach < 0.3f || sh.reach > 1.2f) sh.reach = 0;   // not an arm: no limit from it
         sh.at = GetTickCount64();
-        shoulders[side].Write(sh);
+        if(poseInputsPending)pendingPoseInputs.shoulder[side]=sh;
+        else shoulders[side].Write(sh);
     }
     Forearm f{};
     float d[3], inv[4];
@@ -4814,7 +5280,8 @@ void NoteForearm(int side, const float* elbowModel, const float* wristModel, con
     if (!QNorm(q)) return;
     QRot(q, d, f.elbow);
     f.at = GetTickCount64();
-    forearms[side].Write(f);
+    if(poseInputsPending)pendingPoseInputs.forearm[side]=f;
+    else forearms[side].Write(f);
 }
 
 // A point's track frame to frame: how far each frame's point is off the line through the two before it, carried by the
@@ -4875,10 +5342,11 @@ static void NoteSlip(int side, const float* drawn, const float* track, bool inAi
     }
 }
 static void NoteTracking(int side, const float* modelPos) {
+    float entityPosition[3],entityRotation[4];PoseEntity(entityPosition,entityRotation);
     static thread_local Track tr[2];
     float w[3];
-    QRot(CyberpunkVR_PlayerEntityQuat, modelPos, w);
-    for (int k = 0; k < 3; ++k) w[k] += CyberpunkVR_PlayerEntityPos[k];
+    QRot(entityRotation, modelPos, w);
+    for (int k = 0; k < 3; ++k) w[k] += entityPosition[k];
     std::memcpy(lastTrack[side], w, sizeof(w));
     const float off = OffItsLine(tr[side], w, NowS());
     if (off >= 0) Tally(trackJerkUm[side], trackJerkMostUm[side], trackJerkN[side], off);
@@ -4917,7 +5385,7 @@ static float ShapeDepth(const BodyShape& b, const float* at, const float* worldR
     const bool own = b.part != 2 && selfOnShown[side].load(std::memory_order_relaxed);
     if (P)
         for (int i = 0; i < P->n && i < kMostBodies; ++i)
-            if (P->owner[i] != kSelfOwner || (own && (P->meets[i] >> side & 1))) test(P->s[i]);
+            if ((P->meets[i] >> side & 1) && (P->owner[i] != kSelfOwner || own)) test(P->s[i]);
     return deepest;
 }
 static void QSlerp(const float* a, const float* b0, float t, float* o) {
@@ -4936,14 +5404,51 @@ static void QSlerp(const float* a, const float* b0, float t, float* o) {
     for (int k = 0; k < 4; ++k) o[k] = a[k] * wa + b[k] * wb;
     QNorm(o);
 }
+static void RebasePeopleForDraw(PeopleNear& people,const float* origin) {
+    // These shapes and the hand's physics result need not have been published
+    // in the same step. Put both in the hand result's PhysX origin first.
+    for(int k=0;k<3;++k) {
+        const float shift=people.origin[k]-origin[k];
+        if(shift==0)continue;
+        for(int i=0;i<people.n && i<kMostBodies;++i) {
+            people.s[i].pose.p[k]+=shift;
+            people.s[i].bounds.lo[k]+=shift;people.s[i].bounds.hi[k]+=shift;
+        }
+    }
+    if(!poseInputsPending)return;
+    const auto& current=pendingPoseInputs.frame.tracking.valid ? pendingPoseInputs.frame.tracking:pendingPoseInputs.frame.entity;
+    const auto motion=handspace::Between(people.selfFrame,current);
+    const handspace::Vector spaceOrigin{origin[0],origin[1],origin[2]};
+    for(int i=0;i<people.n && i<kMostBodies;++i) {
+        if(people.owner[i]!=kSelfOwner)continue;
+        if(!motion.valid){people.meets[i]=0;continue;}
+        auto& shape=people.s[i];
+        const auto p=motion.Point(handspace::Vector{shape.pose.p[0],shape.pose.p[1],shape.pose.p[2]}+spaceOrigin)-spaceOrigin;
+        const auto q=motion.Orientation({shape.pose.q[0],shape.pose.q[1],shape.pose.q[2],shape.pose.q[3]});
+        shape.pose.p[0]=p.x;shape.pose.p[1]=p.y;shape.pose.p[2]=p.z;
+        shape.pose.q[0]=q.x;shape.pose.q[1]=q.y;shape.pose.q[2]=q.z;shape.pose.q[3]=q.w;
+        const auto old=shape.bounds;
+        const float most=std::numeric_limits<float>::max();
+        for(int k=0;k<3;++k){shape.bounds.lo[k]=most;shape.bounds.hi[k]=-most;}
+        // A transformed old AABB is conservative. Narrow phase still uses the
+        // actual PhysX capsule at its transformed pose, never an invented box.
+        for(int corner=0;corner<8;++corner) {
+            const auto c=motion.Point(handspace::Vector{
+                corner&1?old.hi[0]:old.lo[0],corner&2?old.hi[1]:old.lo[1],corner&4?old.hi[2]:old.lo[2]}+spaceOrigin)-spaceOrigin;
+            const float v[3]{c.x,c.y,c.z};
+            for(int k=0;k<3;++k){shape.bounds.lo[k]=std::min(shape.bounds.lo[k],v[k]);shape.bounds.hi[k]=std::max(shape.bounds.hi[k],v[k]);}
+        }
+    }
+}
 static void KeepDrawnOut(int side, const Offset& o, float* at, float* modelRot) {
+    float entityPosition[3],entityRotation[4];PoseEntity(entityPosition,entityRotation);
     drawnIn[side].store(0.f, std::memory_order_relaxed);
     const bool cut = !g_hasWeaponEquipped;
     if ((!cut && !o.trace) || !modelRot) return;
     static thread_local BodyShapes bs;
     if (!bodyShapes[side].Read(bs) || bs.n <= 0 || GetTickCount64() - bs.at > 200) return;
     float wq[4], bq[4] = {o.rawRot[0], o.rawRot[1], o.rawRot[2], o.rawRot[3]};
-    QMul(CyberpunkVR_PlayerEntityQuat, modelRot, wq);
+    QMul(entityRotation, modelRot, wq);
     if (!QNorm(wq) || !QNorm(bq)) return;
     // from the body as PhysX has it
     float d[3], dn = 0;
@@ -4952,6 +5457,7 @@ static void KeepDrawnOut(int side, const Offset& o, float* at, float* modelRot) 
     const bool moved = dn >= 0.001f * 0.001f || turnDot < 0.99998f;   // a millimetre, or about a degree
     static thread_local PeopleNear pn;
     const PeopleNear* P = peopleNear.Read(pn) && pn.n > 0 && GetTickCount64() - pn.at < 300 ? &pn : nullptr;
+    if(P)RebasePeopleForDraw(pn,o.origin);
     AcquireSRWLockShared(&nearLock);
     const int front = nearFront.load(std::memory_order_acquire);
     const NearList* L = front >= 0 ? &nearLists[front] : nullptr;
@@ -4982,7 +5488,7 @@ static void KeepDrawnOut(int side, const Offset& o, float* at, float* modelRot) 
         QSlerp(bq, wq, lo, wq);
         {
             float inv[4], m[4];
-            QConj(CyberpunkVR_PlayerEntityQuat, inv);
+            QConj(entityRotation, inv);
             QMul(inv, wq, m);
             if (QNorm(m)) std::memcpy(modelRot, m, sizeof(m));
         }
@@ -5023,6 +5529,7 @@ static bool AdjustBody(int side, float* modelPos, float* modelRot);
 // it is), whatever the controller does. Eased in and out over 30 ms. Drawn from its body, the hold slid off where it was
 // taken as the body was pushed about on the railing, and turned as the controller did.
 static bool AdjustHold(int side, float* modelPos, float* modelRot) {
+    float entityPosition[3],entityRotation[4];PoseEntity(entityPosition,entityRotation);
     static float holdW[2] = {0, 0}, holdP[2][3] = {}, holdQ[2][4] = {{0, 0, 0, 1}, {0, 0, 0, 1}};
     static double holdAt[2] = {0, 0};
     constexpr float kHoldTau = 0.03f;
@@ -5031,7 +5538,12 @@ static bool AdjustHold(int side, float* modelPos, float* modelRot) {
         return false;
     }
     HoldPose hp{};
-    const bool on = holdPoses[side].Read(hp) && hp.on && GetTickCount64() - hp.at < 200 &&
+    const bool readHold=holdPoses[side].Read(hp);
+    PersonAttachment attached{};
+    if(ReadPersonAttachment(side,attached)&&attached.on){
+        std::copy_n(attached.position,3,hp.p);std::copy_n(attached.rotation,4,hp.q);hp.on=true;hp.at=attached.at;
+    }
+    const bool on = (readHold||hp.on) && hp.on && GetTickCount64() - hp.at < 200 &&
                     std::isfinite(hp.p[0] + hp.p[1] + hp.p[2] + hp.q[0] + hp.q[1] + hp.q[2] + hp.q[3]);
     const double nowS = NowS(), dt = std::clamp(nowS - holdAt[side], 0.0, 0.1);
     if (nowS - holdAt[side] > 0.004) holdAt[side] = nowS;
@@ -5043,12 +5555,13 @@ static bool AdjustHold(int side, float* modelPos, float* modelRot) {
     holdW[side] += ((on ? 1.f : 0.f) - holdW[side]) * float(1.0 - std::exp(-dt / kHoldTau));
     if (holdW[side] < 0.001f) return true;
     float inv[4], d[3], m[3], q[4];
-    QConj(CyberpunkVR_PlayerEntityQuat, inv);
-    for (int k = 0; k < 3; ++k) d[k] = holdP[side][k] - CyberpunkVR_PlayerEntityPos[k];
+    QConj(entityRotation, inv);
+    for (int k = 0; k < 3; ++k) d[k] = holdP[side][k] - entityPosition[k];
     QRot(inv, d, m);
     QMul(inv, holdQ[side], q);
     if (!QNorm(q) || !std::isfinite(m[0] + m[1] + m[2])) return true;
     const float w = holdW[side] > 0.999f ? 1.f : holdW[side];
+    if(poseInputsPending&&attached.on){pendingPoseInputs.appliedGrip[side]=attached;pendingPoseInputs.appliedGripWeight[side]=w;}
     for (int k = 0; k < 3; ++k) modelPos[k] += (m[k] - modelPos[k]) * w;
     if (modelRot) {
         if (q[0] * modelRot[0] + q[1] * modelRot[1] + q[2] * modelRot[2] + q[3] * modelRot[3] < 0) for (auto& c : q) c = -c;
@@ -5063,6 +5576,7 @@ static bool AdjustHold(int side, float* modelPos, float* modelRot) {
 // and the weighted body; publishing the pre-load wrist avoids feeding the correction back into that drive.
 constexpr float kLoadTau = 0.08f;
 static void BearLoad(int side, float* modelPos, float* modelRot) {
+    float entityPosition[3],entityRotation[4];PoseEntity(entityPosition,entityRotation);
     static float w[2] = {0, 0};
     static double at[2] = {0, 0};
     static HoldLoad last[2] = {};
@@ -5070,14 +5584,15 @@ static void BearLoad(int side, float* modelPos, float* modelRot) {
     const auto epoch=cvr::input::scannerHandPhysics.Epoch();
     if(epochs[side]!=epoch) { epochs[side]=epoch;w[side]=0;last[side]={};at[side]=NowS(); }
     if (!modelPos) return;
-    // the hand as it is before the body's turn: the body held is put on it
-    {
+    // Fallback for a caller outside the primary pose scope. Its normal
+    // publication is the completed FK wrist in CommitPoseInputs.
+    if(!poseInputsPending) {
         DrawnHand dh{};
         float d[3];
-        QRot(CyberpunkVR_PlayerEntityQuat, modelPos, d);
-        for (int i = 0; i < 3; ++i) dh.p[i] = CyberpunkVR_PlayerEntityPos[i] + d[i];
-        if (modelRot) QMul(CyberpunkVR_PlayerEntityQuat, modelRot, dh.q);
-        else std::memcpy(dh.q, CyberpunkVR_PlayerEntityQuat, sizeof(dh.q));
+        QRot(entityRotation, modelPos, d);
+        for (int i = 0; i < 3; ++i) dh.p[i] = entityPosition[i] + d[i];
+        if (modelRot) QMul(entityRotation, modelRot, dh.q);
+        else std::memcpy(dh.q, entityRotation, sizeof(dh.q));
         dh.at = GetTickCount64();
         if (QNorm(dh.q) && std::isfinite(dh.p[0] + dh.p[1] + dh.p[2])) drawnHands[side].Write(dh);
     }
@@ -5092,13 +5607,13 @@ static void BearLoad(int side, float* modelPos, float* modelRot) {
     if (fresh && w[side] > 0.99f) w[side] = 1.f;
     const HoldLoad& u = last[side];
     float wp[3], wq[4], d[3];
-    QRot(CyberpunkVR_PlayerEntityQuat, modelPos, d);
-    for (int i = 0; i < 3; ++i) wp[i] = CyberpunkVR_PlayerEntityPos[i] + d[i];
-    QMul(CyberpunkVR_PlayerEntityQuat, modelRot, wq);
+    QRot(entityRotation, modelPos, d);
+    for (int i = 0; i < 3; ++i) wp[i] = entityPosition[i] + d[i];
+    QMul(entityRotation, modelRot, wq);
     if (!QNorm(wq) || !cvr::held_grip::SeatRotation(wp, wq, u.wrist, u.seat, w[side])) return;
     float inv[4], m[3];
-    QConj(CyberpunkVR_PlayerEntityQuat, inv);
-    for (int i = 0; i < 3; ++i) d[i] = wp[i] - CyberpunkVR_PlayerEntityPos[i];
+    QConj(entityRotation, inv);
+    for (int i = 0; i < 3; ++i) d[i] = wp[i] - entityPosition[i];
     QRot(inv, d, m);
     if (!std::isfinite(m[0] + m[1] + m[2])) return;
     std::memcpy(modelPos, m, sizeof(m));
@@ -5113,6 +5628,31 @@ bool HoldsBody(int side) {
     return holdLoads[side].Read(load) && load.on && GetTickCount64() - load.at < 200;
 }
 
+// Diagnostic snapshot of the completed physics hold, not the Lua request.
+// IDs are the engine's integer proxy/body identifiers, never actor pointers.
+static void HeldBodyState(int side, uint64_t* fields) {
+    std::fill_n(fields, 5, uint64_t{});
+    fields[4] = cvr::held_grip_contact::kInvalid;
+    HoldLoad load{};
+    if (side < 0 || side > 1 || !holdLoads[side].Read(load) || !load.at) return;
+    const uint64_t age = GetTickCount64() - load.at;
+    fields[0] = g_liveControls.xrHandPhysics != 0 && g_liveControls.xrHandCollision != 0 && load.on && age < 200 ? 1 : 0;
+    fields[1] = load.proxy;
+    fields[2] = load.body;
+    fields[3] = age;
+    if (fields[0]) fields[4] = load.contactErrorUm;
+}
+
+bool OriginalHeldMass(uint32_t proxy, uint32_t body, float& mass) {
+    const uint64_t now = GetTickCount64();
+    for (int side = 0; side < 2; ++side) {
+        HoldLoad load{};
+        if (holdLoads[side].Read(load) && cvr::held_body_mass::Original(proxy, body, load.proxy, load.body, load.ownMass,
+                                                                     load.on, load.at, now, mass)) return true;
+    }
+    return false;
+}
+
 bool Adjust(int side, float* modelPos, float* modelRot) {
     const bool drawn = AdjustHold(side, modelPos, modelRot);
     BearLoad(side, modelPos, modelRot);
@@ -5120,10 +5660,40 @@ bool Adjust(int side, float* modelPos, float* modelRot) {
 }
 
 static bool AdjustBody(int side, float* modelPos, float* modelRot) {
+    float entityPosition[3],entityRotation[4];PoseEntity(entityPosition,entityRotation);
     if (!On(side) || !modelPos) return false;
     Offset o{};
     if (!offsets[side].Read(o) || !o.on || GetTickCount64() - o.at > 200 ||
         !cvr::input::scannerHandPhysics.Accepts(o.scannerEpoch)) return false;
+    const Offset observed=o; // trace the actual physics publication, not its transported view
+    bool transported=false;
+    if(poseInputsPending && o.frame.entity.valid &&
+       (o.frame.entity.owner!=pendingPoseInputs.frame.entity.owner || o.frame.entity.origin!=pendingPoseInputs.frame.entity.origin))return false;
+    if(o.riding && poseInputsPending) {
+        const auto motion=handspace::Between(o.frame.tracking,pendingPoseInputs.frame.tracking,4.f);
+        if(motion.valid) {
+            // the body on something rides as the step rode it: along what refused it and away, not into it (the way in
+            // is where it was sent less where it ended, as below)
+            float into[3]{},inN=0,body0[3],raw0[3];
+            std::copy_n(o.body,3,body0);std::copy_n(o.raw,3,raw0);
+            if(o.touching || o.onWorld) {
+                for(int k=0;k<3;++k)into[k]=o.sent[k]-o.raw[k],inN+=into[k]*into[k];
+                inN=std::sqrt(inN);
+            }
+            for(float* p:{o.body,o.raw,o.sent,o.sentTrack})Store3(p,motion.Point(V3(p)));
+            if(inN>0.001f) {
+                for(int k=0;k<3;++k)into[k]/=inN;
+                for(auto [p,p0]:{std::pair<float*,const float*>{o.body,body0},std::pair<float*,const float*>{o.raw,raw0}}) {
+                    float d=0;for(int k=0;k<3;++k)d+=(p[k]-p0[k])*into[k];
+                    if(d>0)for(int k=0;k<3;++k)p[k]-=into[k]*d;
+                }
+            }
+            for(float* q:{o.bodyRot,o.rawRot,o.sentRot})Store4(q,motion.Orientation(R4(q)));
+            Store3(o.vel,motion.Direction(V3(o.vel)));Store3(o.spin,motion.Direction(V3(o.spin)));
+            std::copy_n(entityPosition,3,o.sentEntity);
+            o.frame=pendingPoseInputs.frame;transported=true;
+        }
+    }
     if (o.bodyMode) {
         // THE BODY, MOVED ON BY WHAT TRACKING HAS DONE SINCE THE STEP THAT SENT IT. A free body ends its step where it was
         // sent, so this is tracking itself, frame for frame; a body something held back is that much short of it. Carried
@@ -5132,13 +5702,13 @@ static bool AdjustBody(int side, float* modelPos, float* modelRot) {
         // Touching, the part of tracking's move into what refused the body is left out; pressed on the world, the body
         // is held where it is (the latch) and none of it is added.
         float track[3], move[3] = {0, 0, 0}, inv[4];
-        QRot(CyberpunkVR_PlayerEntityQuat, modelPos, track);
-        for (int k = 0; k < 3; ++k) track[k] += CyberpunkVR_PlayerEntityPos[k];
+        QRot(entityRotation, modelPos, track);
+        for (int k = 0; k < 3; ++k) track[k] += entityPosition[k];
         // THE PLAYER'S OWN MOVE SINCE THE STEP rides along whole: what follows holds back or leaves out only the hand's own
         // move against the player. A hand pressed on the other while running was latched where the step left it in the
         // world, and fell a run's frame behind each frame it stayed pressed. (A jump past a metre is a teleport.)
         float pm[3], pm2 = 0;
-        for (int k = 0; k < 3; ++k) pm[k] = CyberpunkVR_PlayerEntityPos[k] - o.sentEntity[k], pm2 += pm[k] * pm[k];
+        for (int k = 0; k < 3; ++k) pm[k] = o.riding && !transported ? entityPosition[k] - o.sentEntity[k]:0.f, pm2 += pm[k] * pm[k];
         if (!(pm2 < 1.f)) pm[0] = pm[1] = pm[2] = 0;
         // eased out as the body is pressed on the world and in as it leaves, so the hand neither stops dead nor jumps by
         // a frame's move
@@ -5199,6 +5769,24 @@ static bool AdjustBody(int side, float* modelPos, float* modelRot) {
             static double relT[2] = {0, 0}, relFrom[2] = {-1, -1};
             static bool relHave[2] = {false, false}, relPressed[2] = {false, false}, relTouch[2] = {false, false},
                         relStart[2] = {false, false};
+            static PoseFrame relFrame[2]{};
+            static bool relRiding[2]{};
+            static float outN[2][3] = {};
+            static double outAt[2] = {-1,-1};
+            if(poseInputsPending && nowS-relT[side]>=.004) {
+                const auto& next=pendingPoseInputs.frame;
+                if(relFrame[side].entity.valid && next.entity.valid &&
+                   (relFrame[side].entity.owner!=next.entity.owner || relFrame[side].entity.origin!=next.entity.origin)) {
+                    relHave[side]=false;relFrom[side]=-1;relStart[side]=false;outAt[side]=-1;
+                }
+                const auto motion=relRiding[side] && o.riding
+                    ? handspace::Between(relFrame[side].tracking,next.tracking,4.f):handspace::Motion{};
+                if(motion.valid && relHave[side]) {
+                    for(float* p:{relAt[side],relGoal[side],relTrack[side]})Store3(p,motion.Point(V3(p)));
+                    for(float* v:{relV[side],relE[side],relEV[side],outN[side]})Store3(v,motion.Direction(V3(v)));
+                }
+                relFrame[side]=next;relRiding[side]=o.riding;
+            }
             const bool touch = o.touching || o.onWorld;
             const bool wasHeld = relPressed[side] || relTouch[side];
             // letting go only: a landing stops dead on what it lands on (eased, it would sink a few centimetres in first),
@@ -5273,8 +5861,6 @@ static bool AdjustBody(int side, float* modelPos, float* modelRot) {
                 // body would be is brought out to it at once. It only ever moves the hand toward tracking, so it can
                 // neither push it in nor carry it past.
                 {
-                    static float outN[2][3] = {};
-                    static double outAt[2] = {-1, -1};
                     float r[3], rn = 0;
                     for (int k = 0; k < 3; ++k) r[k] = o.raw[k] - o.sent[k], rn += r[k] * r[k];
                     rn = std::sqrt(rn);
@@ -5303,8 +5889,8 @@ static bool AdjustBody(int side, float* modelPos, float* modelRot) {
                 relHave[side] = std::isfinite(at[0] + at[1] + at[2]);
             }
         }
-        for (int k = 0; k < 3; ++k) d[k] = at[k] - CyberpunkVR_PlayerEntityPos[k];
-        QConj(CyberpunkVR_PlayerEntityQuat, inv);
+        for (int k = 0; k < 3; ++k) d[k] = at[k] - entityPosition[k];
+        QConj(entityRotation, inv);
         QRot(inv, d, m);
         if (!std::isfinite(m[0] + m[1] + m[2])) return false;
         for (int k = 0; k < 3; ++k) modelPos[k] = m[k];
@@ -5320,7 +5906,7 @@ static bool AdjustBody(int side, float* modelPos, float* modelRot) {
             float step[4] = {0, 0, 0, 1}, q[4], r[4];
             if (moveW[side] > 0.001f) {
                 float trackRot[4], sentInv[4];
-                QMul(CyberpunkVR_PlayerEntityQuat, modelRot, trackRot);
+                QMul(entityRotation, modelRot, trackRot);
                 QConj(o.sentRot, sentInv);
                 QMul(trackRot, sentInv, step);
                 if (step[3] < 0) for (auto& c : step) c = -c;
@@ -5381,21 +5967,21 @@ static bool AdjustBody(int side, float* modelPos, float* modelRot) {
             KeepDrawnOut(side, o, at, modelRot);
             if (at[0] != was[0] || at[1] != was[1] || at[2] != was[2]) {
                 float dd[3], mm[3], iv[4];
-                for (int k = 0; k < 3; ++k) dd[k] = at[k] - CyberpunkVR_PlayerEntityPos[k];
-                QConj(CyberpunkVR_PlayerEntityQuat, iv);
+                for (int k = 0; k < 3; ++k) dd[k] = at[k] - entityPosition[k];
+                QConj(entityRotation, iv);
                 QRot(iv, dd, mm);
                 if (std::isfinite(mm[0] + mm[1] + mm[2])) for (int k = 0; k < 3; ++k) modelPos[k] = mm[k];
             }
         }
-        if (o.trace) TraceFrame(side, at, o, traceLead, modelRot, moveW[side], modelRot ? trackRot : nullptr);
+        if (o.trace) TraceFrame(side, at, observed, traceLead, modelRot, moveW[side], modelRot ? trackRot : nullptr);
         return true;
     }
     for (int k = 0; k < 3; ++k) modelPos[k] += o.pos[k];
     if (o.held > 0) {
         // the body's place in model space, by the entity as it is this frame
         float d[3], inv[4], m[3];
-        for (int k = 0; k < 3; ++k) d[k] = o.body[k] - CyberpunkVR_PlayerEntityPos[k];
-        QConj(const_cast<const float*>(CyberpunkVR_PlayerEntityQuat), inv);
+        for (int k = 0; k < 3; ++k) d[k] = o.body[k] - entityPosition[k];
+        QConj(const_cast<const float*>(entityRotation), inv);
         QRot(inv, d, m);
         if (std::isfinite(m[0] + m[1] + m[2]))
             for (int k = 0; k < 3; ++k) modelPos[k] += (m[k] - modelPos[k]) * o.held;
@@ -5430,7 +6016,8 @@ static bool grabOn[2] = {false, false}, gripSpent[2] = {false, false};
 static int grabOwner[2] = {0, 0};
 // A capsule of the person a hand holds, near that hand (physics thread, PhysX's space): of the same person (the script's id
 // over 32), its segment within its radius and 12 cm of the hand's bone.
-bool HeldNear(int owner, const float* a, const float* b, float radius) {
+uint8_t HeldNearHands(int owner, const float* a, const float* b, float radius) {
+    uint8_t held=0;
     for (int sd = 0; sd < 2; ++sd) {
         if (!grabOn[sd] || grabOwner[sd] / 32 != owner / 32 || !actor[sd]) continue;
         PxTransform at{};
@@ -5444,9 +6031,9 @@ bool HeldNear(int owner, const float* a, const float* b, float radius) {
         t = l2 > 1e-8f ? std::clamp(t / l2, 0.f, 1.f) : 0.f;
         float d2 = 0;
         for (int k = 0; k < 3; ++k) d2 += (a[k] + ab[k] * t - at.p[k]) * (a[k] + ab[k] * t - at.p[k]);
-        if (d2 < (radius + 0.12f) * (radius + 0.12f)) return true;
+        if (d2 < (radius + 0.12f) * (radius + 0.12f)) held|=uint8_t(1u<<sd);
     }
-    return false;
+    return held;
 }
 // THE GRASP A HELD PART ASKS FOR (the script's, VRPhysHandsGrabStyle: 1 a can, 2 a can with the fingers wide, 3 gently,
 // 4 the palm), for the part it names: the fingers are closed on that part's capsule as it lies in the hand.
@@ -5474,13 +6061,95 @@ constexpr float kSeatTau = 0.05f;   // s
 static float grabMid[2][3] = {}, grabAxis[2][3] = {};
 static uint64_t grabSeenAt[2] = {0, 0};
 static float grabPull[2][3] = {};
-struct Grab { int owner; float pull[3]; uint64_t at; };
+struct Grab { int owner; float pull[3]; uint64_t at,serial; };
 static Seq<Grab> grabs[2];
+static uint64_t grabSerial[2]{};
+static Seq<PersonContact> personContacts[2];
+static Seq<PersonAttachment> personAttachments[2];
 static std::atomic<bool> gripSpentShown[2] = {false, false};
 static std::atomic<bool> holdsOnShown[2] = {false, false};   // climbOn, for the other threads
 static float pushWant[2] = {0, 0}, pushShown[2] = {0, 0};
 
 bool HoldsOn(int side) { return On(side) && holdsOnShown[side].load(std::memory_order_relaxed); }   // on the world or a person
+
+bool DrawnWorld(int side, float* position) {
+    if (side < 0 || side > 1 || !position) return false;
+    if(SolvedWorldPose(side,position,nullptr))return true;
+    DrawnHand hand{};
+    if (!drawnHands[side].Read(hand) || GetTickCount64() - hand.at > 200) return false;
+    std::memcpy(position, hand.p, sizeof(hand.p));
+    return true;
+}
+
+bool SolvedWorldPose(int side,float* position,float* rotation) {
+    if(side<0||side>1||!position)return false;
+    PoseInputs copy{};
+    if(!physicsPoseDepth)ReadPoseInputs(copy);
+    const PoseInputs& pose=physicsPoseDepth?physicsPoseInputs:copy;
+    const DrawnHand& hand=pose.drawn[side];
+    if(!pose.at||!pose.frame.entity.valid||!hand.at||GetTickCount64()-hand.at>200)return false;
+    std::copy_n(hand.p,3,position);
+    if(rotation)std::copy_n(hand.q,4,rotation);
+    return true;
+}
+bool ReadGripControl(int side,GripControl& out){
+    if(side<0||side>1)return false;
+    PoseInputs p{};if(!physicsPoseDepth)ReadPoseInputs(p);
+    const auto& pose=physicsPoseDepth?physicsPoseInputs:p;
+    const auto& target=pose.target[side];const auto& shoulder=pose.shoulder[side];
+    if(!pose.at||!pose.frame.entity.valid||!target.at||!shoulder.at||!(shoulder.reach>.01f))return false;
+    const auto position=handspace::Point(pose.frame.entity,V3(target.pos));
+    auto rotation=handspace::Multiply(pose.frame.entity.rotation,R4(target.rot));
+    const auto center=handspace::Point(pose.frame.entity,V3(shoulder.model));
+    if(!handspace::Finite(position)||!handspace::Finite(center)||!handspace::Normalize(rotation))return false;
+    Store3(out.position,position);Store4(out.rotation,rotation);Store3(out.shoulder,center);out.reach=shoulder.reach;out.at=pose.at;return true;
+}
+bool ReadPersonContact(int side,PersonContact& out){
+    return side>=0&&side<2&&personContacts[side].Read(out)&&out.owner>0&&GetTickCount64()-out.at<200;
+}
+bool ReadPersonAttachment(int side,PersonAttachment& out){
+    if(side<0||side>1||!personAttachments[side].Read(out)||(!out.on&&!out.release)||GetTickCount64()-out.at>200)return false;
+    Grab grip{};
+    return grabs[side].Read(grip)&&grip.owner>0&&grip.owner==out.owner&&grip.serial==out.serial&&GetTickCount64()-grip.at<200;
+}
+void PublishPersonAttachment(int side,const PersonAttachment& value){
+    static std::atomic<uint64_t> revisions{0};
+    if(side<0||side>1)return;auto copy=value;copy.at=GetTickCount64();
+    copy.revision=revisions.fetch_add(1,std::memory_order_relaxed)+1;personAttachments[side].Write(copy);
+}
+
+// Script rows: solved world position/rotation, control world position/rotation,
+// palm skin in the wrist, world palm normal/along, solved model wrist, world palm.
+bool ScriptHandFrame(int side,float (*rows)[4]) {
+    if(side<0||side>1||!rows)return false;
+    PoseInputs copy{};if(!physicsPoseDepth)ReadPoseInputs(copy);
+    const PoseInputs& pose=physicsPoseDepth?physicsPoseInputs:copy;
+    const auto& hand=pose.drawn[side];const auto& target=pose.target[side];const auto& palm=pose.palm[side];
+    if(!pose.at||!pose.frame.entity.valid||!hand.at||!target.at||!palm.valid||GetTickCount64()-hand.at>200)return false;
+    const auto& entity=pose.frame.entity;const auto drawn=R4(hand.q);
+    auto control=handspace::Multiply(entity.rotation,R4(target.rot));
+    const auto raw=handspace::Point(entity,V3(target.pos));
+    if(!handspace::Normalize(control)||!handspace::Finite(raw))return false;
+    Store3(rows[0],V3(hand.p));rows[0][3]=1;Store4(rows[1],drawn);
+    Store3(rows[2],raw);rows[2][3]=1;Store4(rows[3],control);
+    Store3(rows[4],V3(palm.skin));rows[4][3]=1;
+    Store3(rows[5],handspace::Rotate(drawn,V3(palm.normal)));rows[5][3]=1;
+    Store3(rows[6],handspace::Rotate(drawn,V3(palm.along)));rows[6][3]=1;
+    Store3(rows[7],handspace::Rotate(handspace::Conjugate(entity.rotation),V3(hand.p)-entity.position));rows[7][3]=1;
+    Store3(rows[8],V3(hand.p)+handspace::Rotate(drawn,V3(palm.skin)));rows[8][3]=1;
+    return true;
+}
+
+void BeginPhysicsPoseFrame() {
+    if(physicsPoseDepth++==0)ReadPoseInputs(physicsPoseInputs);
+}
+void EndPhysicsPoseFrame() {
+    if(physicsPoseDepth)--physicsPoseDepth;
+}
+
+bool SceneOrigin(void* sceneNow,float* origin) {
+    return sceneNow && origin && Prove() && Origin(sceneNow,origin);
+}
 
 bool BodyPull(float* velocity) {
     if (!velocity || !g_liveControls.xrHandPhysics || !g_liveControls.xrHandCollision || (!On(0) && !On(1))) return false;
@@ -5501,20 +6170,100 @@ bool BodyPush(float* velocityXY) {
     return true;
 }
 
+
 static void HoldSteps(void* sc, const float* origin, float dt);
+static void StepBladeJoint(void* sc, const float* origin, float step, bool allowed,int holding);
+static bool BladeEdgeTarget(int side,void* sc,const PxTransform& now,float maxGap,PxTransform& to);
+
+static void PrepareRigBodies(const float* origin,const Settings& s,float previousTracking[2][3],bool previousTrackingValid[2]) {
+    static handspace::Reference previous[2];
+    static bool previousWasTracking[2]{};
+    static bool haveOrigin[2]{};
+    static float previousOrigin[2][3]{};
+    const auto spaceOrigin=V3(origin);
+    for(int side=0;side<2;++side) {
+        PxTransform wanted{};
+        const bool haveTarget=TargetNow(side,origin,wanted);
+        const bool tracking=stepPoseInputs.frame.tracking.valid;
+        auto current=stepPoseInputs.frame.tracking;
+        if(!tracking && haveTarget)current=handspace::Make(V3(targetEntity[side])+spaceOrigin,{},
+            reinterpret_cast<uintptr_t>(actor[side]),OpenXRManager::Get().GetTrackingOriginSerial());
+        const bool sameBasis=tracking==previousWasTracking[side];
+        const auto motion=sameBasis ? handspace::Between(previous[side],current,kRideMost):handspace::Motion{};
+        // ON SOMETHING TOO: the body rides the player's move and turn along what it touches and away from it, only the part
+        // into it left to the drive. Left off the ride whenever it touched, a hand resting on a counter was steered after a
+        // strafe by the player's pace, a step behind: its body 47 mm off the drawn hand and the drawn hand jumping 23 mm
+        // (2026-11-16). Holding on (climb) or holding a person the hand stays with what it holds.
+        frameRiding[side]=haveTarget && s.ride!=0 && !climbOn[side] && !grabOn[side];
+        const bool rideAlong=frameRiding[side] && onPushable[side];
+        std::fill_n(rodeBy[side],3,0.f);
+        const auto oldOrigin=haveOrigin[side] ? V3(previousOrigin[side]):spaceOrigin;
+        // Normalize cached physics-space points even when the scene rebases
+        // its origin. Their world positions do not change with an origin shift.
+        if(sentValid[side])Store3(sent[side]+4,V3(sent[side]+4)+oldOrigin-spaceOrigin);
+        if(previousTrackingValid[side])Store3(previousTracking[side],V3(previousTracking[side])+oldOrigin-spaceOrigin);
+        if(actor[side] && simulating[side] && frameRiding[side] && motion.valid) {
+            PxTransform pose{};At<void (*)(void*,PxTransform*)>(actor[side],kGetGlobalPose)(actor[side],&pose);
+            const auto before=V3(pose.p)+spaceOrigin;
+            auto after=motion.Point(before);
+            if(rideAlong) {
+                // the ride's part into each face it touches taken out (a few rounds for a corner's two faces)
+                float ways[4][3];
+                const int nWays=WaysOut(side,pose,ways,4);
+                float d[3];Store3(d,after-before);
+                for(int round=0;round<3 && nWays;++round)
+                    for(int i=0;i<nWays;++i) {
+                        const float into=d[0]*ways[i][0]+d[1]*ways[i][1]+d[2]*ways[i][2];
+                        if(into<0)for(int k=0;k<3;++k)d[k]-=ways[i][k]*into;
+                    }
+                after=before+V3(d);
+                if(nWays)rodeAlong[side].fetch_add(1,std::memory_order_relaxed);
+            }
+            Store3(pose.p,after-spaceOrigin);Store4(pose.q,motion.Orientation(R4(pose.q)));
+            if(QNorm(pose.q) && handspace::Finite(after)) {
+                At<void (*)(void*,const PxTransform*,bool)>(actor[side],kSetGlobalPose)(actor[side],&pose,true);
+                float velocity[3],spin[3];
+                At<void (*)(void*,float*)>(actor[side],kGetLinearVelocity)(actor[side],velocity);
+                At<void (*)(void*,float*)>(actor[side],kGetAngularVelocity)(actor[side],spin);
+                Store3(velocity,motion.Direction(V3(velocity)));Store3(spin,motion.Direction(V3(spin)));
+                At<void (*)(void*,const float*,bool)>(actor[side],kSetLinearVelocity)(actor[side],velocity,true);
+                At<void (*)(void*,const float*,bool)>(actor[side],kSetAngularVelocity)(actor[side],spin,true);
+                if(sentValid[side]) {
+                    Store3(sent[side]+4,motion.Point(V3(sent[side]+4)+spaceOrigin)-spaceOrigin);
+                    Store4(sent[side],motion.Orientation(R4(sent[side])));
+                }
+                if(previousTrackingValid[side])Store3(previousTracking[side],motion.Point(V3(previousTracking[side])+spaceOrigin)-spaceOrigin);
+                Store3(gaveCom[side],motion.Direction(V3(gaveCom[side])));
+                Store3(gave[side],motion.Direction(V3(gave[side])));
+                Store3(gave[side]+3,motion.Direction(V3(gave[side]+3)));
+                Store3(pushedOut[side],motion.Direction(V3(pushedOut[side])));
+                Store3(rodeBy[side],after-before);
+                if(handspace::LengthSquared(after-before)>1e-12f)rodeSteps[side].fetch_add(1,std::memory_order_relaxed);
+            }
+        }
+        previous[side]=current;previousWasTracking[side]=tracking;
+        std::copy_n(origin,3,previousOrigin[side]);haveOrigin[side]=true;
+    }
+}
 
 void BeforeSimulate(void* sc, float dt) {
+    heldContactStep.Begin(sc, scene);
     if (!workerUp.load(std::memory_order_acquire) || !Prove() || !sc) return;
     if (dt > 1e-4f && dt < 0.1f) lastStepDt = dt;
     LARGE_INTEGER t0;
     QueryPerformanceCounter(&t0);
     float origin[3];
     if (sc != scene || !Origin(sc, origin)) return;   // the hands live in the world scene only
+    if(physicsPoseDepth)stepPoseInputs=physicsPoseInputs;
+    else ReadPoseInputs(stepPoseInputs);
     HoldSteps(sc, origin, dt);
     Wanted w{};
     const bool fresh = wanted.Read(w) && GetTickCount64() - w.at < 300;
     Settings s{};
     settings.Read(s);
+    static float trackWas[2][3] = {};
+    static bool trackWasValid[2] = {false, false};
+    PrepareRigBodies(origin,s,trackWas,trackWasValid);
     const int holding = cvr::heldbody::HoldingMask();
     const uint64_t tick = GetTickCount64();
     PlayerPace();
@@ -5536,20 +6285,8 @@ void BeforeSimulate(void* sc, float dt) {
                     now ? "a script's: it meets neither the gun nor the other hand" : "its own again");
             scriptedOn[side] = now;
         }
-        // RUNNING, THE HANDS DO NOT MEET EACH OTHER (nor the gun in the other): past 2.5 m/s, back under 1.5. Each body is
-        // a part of a step behind its controller at a run, the two by different parts as each is pushed, and two hands
-        // held together shook against each other at a sprint (2026-11-11: 102 frames of 112 over 5 mm); they meet again
-        // as before (apart, or out of the gun) once the player slows.
-        static bool running = false;
-        {
-            const float pace = std::sqrt(playerPace[0] * playerPace[0] + playerPace[1] * playerPace[1]);
-            const bool was = running;
-            running = running ? pace > 1.5f : pace > 2.5f;
-            if (running != was) Log("[physhands] the player %s (%.1f m/s): the hands %s\n", running ? "runs" : "slows", pace,
-                                    running ? "meet neither each other nor the gun in the other" : "may meet each other again");
-        }
         const bool wantHands = selfBitsReady && s.handsMeet && !holding && actor[0] && actor[1] && simulating[0] && simulating[1] &&
-                               !scriptedOn[0] && !scriptedOn[1] && !running;
+                               !scriptedOn[0] && !scriptedOn[1];
         const bool handsWas = handsMeetOn;
         if (!wantHands) handsMeetOn = false;
         else if (!handsMeetOn && HandsApart()) handsMeetOn = true;
@@ -5557,7 +6294,7 @@ void BeforeSimulate(void* sc, float dt) {
         handsMeetShown.store(handsMeetOn, std::memory_order_relaxed);
         for (int side = 0; side < 2; ++side) {
             const bool wantGun = selfBitsReady && s.weapon && armed && !holding && actor[0] && actor[1] && simulating[0] &&
-                                 simulating[1] && weaponOn[side] > 0 && !scriptedOn[1 - side] && !running;
+                                 simulating[1] && weaponOn[side] > 0 && !scriptedOn[1 - side];
             const bool was = gunMeetOn[side];
             if (!wantGun) gunMeetOn[side] = false;
             else if (!gunMeetOn[side] && !OtherInGun(side)) gunMeetOn[side] = true;
@@ -5602,8 +6339,6 @@ void BeforeSimulate(void* sc, float dt) {
     }
     // BOTH HANDS' TRACKING THIS STEP, read before either is steered, and the last step's: the hands-meet test below
     // compares one hand's way into the other with what the other's tracking did meanwhile.
-    static float trackWas[2][3] = {};
-    static bool trackWasValid[2] = {false, false};
     float trackIs[2][3] = {};
     bool trackIsValid[2] = {false, false};
     for (int k2 = 0; k2 < 2; ++k2) {
@@ -5613,6 +6348,7 @@ void BeforeSimulate(void* sc, float dt) {
     }
     for (int side = 0; side < 2; ++side) {
         PxTransform to{};
+        sentGripRevision[side]=0;
         const bool want = !scannerReset && cvr::input::scannerHandPhysics.Accepts(scannerEpoch) &&
                           g_liveControls.xrHandPhysics != 0 && g_liveControls.xrHandCollision != 0 &&
                           fresh && w.on[side] && filterReady && TargetNow(side, origin, to);
@@ -5620,8 +6356,10 @@ void BeforeSimulate(void* sc, float dt) {
             // A parked body must release its climb/grab too, not keep pulling the player from a stale anchor.
             climbOn[side] = grabOn[side] = false;
             holdsOnShown[side].store(false, std::memory_order_relaxed);
+            holdingOn[side].store(false, std::memory_order_relaxed);
             holdPoses[side].Write(HoldPose{});
             grabs[side].Write(Grab{});
+            personContacts[side].Write(PersonContact{});
             gripSpentShown[side].store(false, std::memory_order_relaxed);
             grabPull[side][0] = grabPull[side][1] = grabPull[side][2] = 0;
             if (graspGiven[side] && cvr::anim::GraspPerson(side, 0, nullptr, nullptr, 0.f, 0.f)) graspGiven[side] = false;
@@ -5673,10 +6411,26 @@ void BeforeSimulate(void* sc, float dt) {
         // THE PALM AND WHAT IT CLOSES ON. A hand closing on a thing (the grip past half), or holding one by its body, does
         // not meet the loose things: the one taken would fight it and its neighbours would be shoved. It meets them again a
         // moment after it opens, and only once it is in none of them: given them back inside a thing, PhysX threw it.
-        const bool grip = g_pSharedHands && g_pSharedHands[side ? 49 : vrshared::kLeftGripPressed] > 0.5f;
+        const bool vehicleGrip = cvr::vehiclehands::Busy(side);
+        const bool grip = !vehicleGrip && g_pSharedHands && g_pSharedHands[side ? 49 : vrshared::kLeftGripPressed] > 0.5f;
         SetMaterials(side, grip);
         if (grip || (holding & (1 << side))) looseFrom[side] = tick + uint64_t(s.looseAfterGrip * 1000.f);
         bool meet = tick >= looseFrom[side];
+        {
+            PxTransform at{};
+            At<void (*)(void*, PxTransform*)>(actor[side], kGetGlobalPose)(actor[side], &at);
+            const bool was = enclosed[side].n != 0;
+            enclosed[side] = EnclosureGroups(side, at, origin);
+            const bool in = enclosed[side].n != 0;
+            if (in) enclosureSteps[side].fetch_add(1, std::memory_order_relaxed);
+            static uint64_t enclosureToldAt[2] = {0, 0};
+            if (in != was && tick - enclosureToldAt[side] >= 1000) {
+                enclosureToldAt[side] = tick;
+                const unsigned long long mask = handFilter[2] | (unsigned long long)handFilter[3] << 32;
+                Log("[physhands] %s palm %s an enclosure (groups %016llx): the hand gives up %016llx\n", side ? "right" : "left",
+                    in ? "inside" : "out of", in ? enclosed[side].group[0] : 0ull, in ? SafeToDrop(mask, enclosed[side]) : 0ull);
+            }
+        }
         if (meet && !looseMet[side]) {
             PxTransform at{};
             At<void (*)(void*, PxTransform*)>(actor[side], kGetGlobalPose)(actor[side], &at);
@@ -5715,7 +6469,7 @@ void BeforeSimulate(void* sc, float dt) {
         if (grip) gripOffAt[side] = 0;
         else if (!gripOffAt[side]) gripOffAt[side] = tick;
         if (grip && !gripWas[side]) gripPressAt[side] = tick;
-        const bool holdGrip = grip || (gripOffAt[side] && tick - gripOffAt[side] < 150);
+        const bool holdGrip = !vehicleGrip && (grip || (gripOffAt[side] && tick - gripOffAt[side] < 150));
         if (!holdGrip) gripSpent[side] = false;
         // a touch that comes after 0.3 s off the world is the hand coming onto something; the touch's own flicker (its 60 ms
         // window as a hand rests on a wall) is not -- caught so, a palm on a wall with the grip closed took a hold
@@ -5734,11 +6488,14 @@ void BeforeSimulate(void* sc, float dt) {
         // their capsules) -- the hand stays on that part as it moves, a little way toward the controller (grab_give, eased
         // in), and lets go by itself once the controller is grab_release from it.
         if (grabOn[side]) {
+            PersonAttachment attached{};
+            const bool exact=ReadPersonAttachment(side,attached)&&attached.owner==grabOwner[side];
             PxTransform cap{};
             const bool seen = PersonPose(grabOwner[side], cap);
             if (seen) grabSeenAt[side] = tick;
             bool off = !holdGrip;
             const char* why = "the grip opened 150 ms ago";
+            if(!off&&exact&&attached.release){off=true;gripSpent[side]=true;why="the bone attachment ended or became unreachable";}
             if (!off && !seen && tick - grabSeenAt[side] > 250) off = true, why = "the person is gone";
             if (!off) {
                 PxTransform hold = grabLast[side];
@@ -5756,7 +6513,11 @@ void BeforeSimulate(void* sc, float dt) {
                     QNorm(h.q);
                     if (left < 0.0005f) h = w, grabSeating[side] = false;
                 }
-                if (seen) {
+                if(exact&&attached.on){
+                    sentGripRevision[side]=attached.revision;
+                    for(int k=0;k<3;++k)hold.p[k]=attached.position[k]-origin[k];
+                    std::copy_n(attached.rotation,4,hold.q);
+                } else if (seen) {
                     const float ex[3] = {1.f, 0.f, 0.f};
                     float axis[3], swing[4], rel[3], r[3];
                     QRot(cap.q, ex, axis);
@@ -5794,13 +6555,13 @@ void BeforeSimulate(void* sc, float dt) {
                     gripSpent[side] = true;
                     why = "the controller pulled away from it";
                 } else {
-                    const float give = s.grabGive > 1e-4f ? s.grabGive * (1.f - std::exp(-dist / s.grabGive)) : 0.f;
+                    const float give = !exact&&s.grabGive > 1e-4f ? s.grabGive * (1.f - std::exp(-dist / s.grabGive)) : 0.f;
                     const float k = dist > 1e-4f ? give / dist : 0.f;
                     for (int i = 0; i < 3; ++i) to.p[i] = hold.p[i] + d[i] * k;
                     // turned as the part is, a quarter of the way to the controller's turn
                     const float sgn = hold.q[0] * to.q[0] + hold.q[1] * to.q[1] + hold.q[2] * to.q[2] + hold.q[3] * to.q[3] < 0 ? -1.f : 1.f;
                     float q[4];
-                    for (int i = 0; i < 4; ++i) q[i] = hold.q[i] + (to.q[i] * sgn - hold.q[i]) * 0.25f;
+                    for (int i = 0; i < 4; ++i) q[i] = hold.q[i] + (to.q[i] * sgn - hold.q[i]) * (exact?0.f:0.25f);
                     if (QNorm(q)) std::memcpy(to.q, q, sizeof(q));
                 }
             }
@@ -5821,6 +6582,7 @@ void BeforeSimulate(void* sc, float dt) {
                 grabOn[side] = true;
                 grabSeating[side] = false;
                 grabOwner[side] = personOwner[index];
+                ++grabSerial[side];
                 grabSeenAt[side] = tick;
                 grabLast[side] = bodyNow;
                 float d2 = 0;
@@ -5854,7 +6616,8 @@ void BeforeSimulate(void* sc, float dt) {
                     graspGiven[side] = true;
                     // SEATED: the hand moved by X = (the part in the hand) * (its seat)^-1, in the hand's frame -- the
                     // hold as it is this step taken on the capsule as it is now, and eased to itself times X
-                    if (seated) {
+                    PersonAttachment attached{};
+                    if (seated && !(ReadPersonAttachment(side,attached)&&attached.on)) {
                         const float sc[4] = {-seatQ[0], -seatQ[1], -seatQ[2], seatQ[3]};
                         float xq[4], xp[3], t[3];
                         QMul(qz, sc, xq);
@@ -5884,25 +6647,21 @@ void BeforeSimulate(void* sc, float dt) {
             climbOn[side] = false;
             Log("[physhands] %s hand lets go (the grip opened 150 ms ago)\n", side ? "right" : "left");
         }
-        else if (!grabOn[side] && !climbOn[side] && (pressFresh || caught) && s.climb && !(holding & (1 << side)) &&
-                 TouchesWorld(side, bodyNow, s, kTouchWorld)) {
-            // a top by the shapes round the hand, not by the way the solver last pushed it: with the fingers curling on a
-            // wall that pointed up now and then, and a palm on a wall held on (2026-11-10)
-            const bool edge = edgeWrap[side].load(std::memory_order_relaxed);
-            const int feature = HoldFeature(side, bodyNow);
-            const bool top = feature == 1;
-            if (feature || edge) {
+        else if (!grabOn[side] && !climbOn[side] && (pressFresh || caught) && s.climb && !(holding & (1 << side))) {
+            const auto feature = HoldFeature(side, bodyNow, origin);
+            if (feature != climb_support::Feature::None) {
                 for (int k = 0; k < 3; ++k) climbAnchor[side][k] = bodyNow.p[k] + origin[k];
                 std::memcpy(climbTurn[side], bodyNow.q, sizeof(climbTurn[side]));
                 climbOn[side] = true;
                 Log("[physhands] %s hand holds on (%s%s) at %.2f %.2f %.2f\n", side ? "right" : "left",
-                    top ? (onWorld[side] ? "a top" : "a top within reach") : feature == 2 ? "an edge or a corner" : "an edge the fingers curl over",
+                    feature == climb_support::Feature::Top ? (onWorld[side] ? "a top" : "a top within reach") : "an edge or a corner",
                     caught ? ", caught with the grip held" : (tick - gripPressAt[side] > 30 ? ", after the press" : ""),
                     climbAnchor[side][0], climbAnchor[side][1], climbAnchor[side][2]);
             }
         }
         gripWas[side] = grip;
         holdsOnShown[side].store(climbOn[side] || grabOn[side], std::memory_order_relaxed);
+        holdingOn[side].store(climbOn[side], std::memory_order_relaxed);
         {
             HoldPose hp{};
             hp.on = climbOn[side];
@@ -5917,14 +6676,33 @@ void BeforeSimulate(void* sc, float dt) {
             g.owner = grabOn[side] ? grabOwner[side] : 0;
             std::memcpy(g.pull, grabPull[side], sizeof(g.pull));
             g.at = tick;
+            g.serial=grabSerial[side];
             grabs[side].Write(g);
+            PersonContact contact{};
+            if(g.owner){
+                contact.owner=g.owner;contact.serial=g.serial;contact.at=tick;
+                for(int k=0;k<3;++k)contact.position[k]=grabLast[side].p[k]+origin[k];
+                std::copy_n(grabLast[side].q,4,contact.rotation);
+                PxTransform cap{};
+                if(PersonShape(g.owner,cap,contact.radius,contact.half)){
+                    for(int k=0;k<3;++k)contact.capsule[k]=cap.p[k]+origin[k];
+                    std::copy_n(cap.q,4,contact.capsuleRotation);
+                    contact.ready=graspGiven[side]&&!grabSeating[side];
+                }
+            }
+            personContacts[side].Write(contact);
         }
         if (climbOn[side]) {
             for (int k = 0; k < 3; ++k) to.p[k] = climbAnchor[side][k] - origin[k];
             std::memcpy(to.q, climbTurn[side], sizeof(to.q));
         }
-        if (s.armReach && !climbOn[side] && !grabOn[side]) ArmReach(side, to, origin, tick, s);
-        const bool put = tick < putUntil || Unstick(side, to, origin, holding, tick, s);
+        const bool edgeDrive=tick>=putUntil && !climbOn[side] && !grabOn[side] && !(holding&(1<<side)) &&
+            BladeEdgeTarget(side,sc,bodyNow,s.teleport*.5f,to);
+        static bool hadEdgeDrive[2]{};
+        if(edgeDrive!=hadEdgeDrive[side]) { sentValid[side]=false;hadEdgeDrive[side]=edgeDrive; }
+        if (s.armReach && !edgeDrive && !climbOn[side] && !grabOn[side]) ArmReach(side, to, origin, tick, s);
+        if(edgeDrive) farSince[side]=0;
+        const bool put = tick < putUntil || (!edgeDrive && Unstick(side,to,origin,holding,tick,s));
         // where the last step sent the body: a free body ended that step there, so its distance from it is what held it
         // (against tracking itself, a hand carried at a walk is a step's walk behind: 3-5 cm at 2-3 m/s, read as held)
         float prevSent[3];
@@ -5962,8 +6740,7 @@ void BeforeSimulate(void* sc, float dt) {
                         for (int k = 0; k < 3; ++k) to.p[k] += w[k] * past;
                 }
         }
-        Steer(side, to, dt > 1e-4f ? dt : 1.f / 60.f, s, put, !climbOn[side] && !grabOn[side]);
-        for (int k = 0; k < 3; ++k) prevSent[k] += rodeBy[side][k];   // the last step's target rode with the body
+        Steer(side, to, dt > 1e-4f ? dt : 1.f / 60.f, s, put);
         std::memcpy(sent[side], to.q, sizeof(to.q));
         std::memcpy(sent[side] + 4, to.p, sizeof(to.p));
         sentValid[side] = true;
@@ -6100,6 +6877,8 @@ void BeforeSimulate(void* sc, float dt) {
         }
         bodyPulls.Write(p);
     }
+    StepBladeJoint(sc, origin, dt, fresh && !scannerReset && tick >= putUntil && g_hasWeaponEquipped &&
+        !g_isInVehicle && !g_menuModeValue && cvr::input::scannerHandPhysics.Accepts(scannerEpoch),holding);
     Charge(beforeUs, beforeMostUs, t0);
 }
 
@@ -6198,13 +6977,17 @@ struct HoldRun {
     float wantP[3], wantQ[4];   // where the hold has it in the hand's frame (the script's, carried onto this body when taken)
     float fromP[3], fromQ[4];   // where it lay in the hand's frame when taken
     float t;                    // s since taken
-    float handP[3];             // the hand at the last step, PhysX's frame
+    float handP[3];             // last hand position in world space; an origin rebase is not a hand jump
     bool hasLast;
     float grip[3];              // the point held, in the body's frame
     float torque;               // the hand's grip torque (N m)
     bool toOn;                  // where this hand has the body this step (PhysX's frame), and the body in the hand's frame
     PxTransform to;
     float relP[3], relQ[4];
+    float targetGripWorld[3];   // exact desired actual-body point for this step, stable across origin rebases
+    bool targetGripValid;
+    const void* targetGripScene;
+    uint64_t targetGripGeneration;
 };
 HoldRun holdRun[2] = {};
 bool holdRunReady = false;
@@ -6213,6 +6996,15 @@ static bool HeldAlive(const void* actor, uint32_t proxy, uint32_t body) {
     const auto* a = static_cast<const uint8_t*>(actor);
     return a && dll && *reinterpret_cast<const uintptr_t*>(a) == dll + kDynamicTable &&
            *reinterpret_cast<const uint32_t*>(a + 0x10) == proxy && *reinterpret_cast<const uint16_t*>(a + 0x14) == uint16_t(body);
+}
+float BodySolverMass(void* actor, uint32_t proxy, uint32_t body) {
+    __try {
+        if (!HeldAlive(actor, proxy, body) || cvr::debugview::BodyGone(proxy, body)) return -1.f;
+        const float mass = At<float (*)(void*)>(actor, kGetMass)(actor);
+        return std::isfinite(mass) && mass > 0.f ? mass : -1.f;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -1.f;
+    }
 }
 static bool HeldPose(void* actor, PxTransform& out) {
     __try {
@@ -6223,6 +7015,654 @@ static bool HeldPose(void* actor, PxTransform& out) {
     }
 }
 // Taken: its centre of mass moved to `centre`, its mass and inertia raised, no linear damping, its spin ceiling raised.
+namespace {
+struct BladeRequest {
+    uint64_t at{};
+    int side{-1};
+    uint32_t serial{}, proxy{}, body{};
+    float point[3]{}, edge[3]{};
+    float resistance{};
+    bool holdDepth{};
+    bool cut{};
+    bool inserting{};
+    float edgeAdvance{-1.f};
+    float cuttingEdge[3]{};
+};
+std::mutex bladeMutex;
+BladeRequest bladeRequest;
+std::atomic<bool> bladeRequested{};
+std::atomic<uint64_t> bladeBound{};
+uint64_t BladeKey(int side, uint32_t serial) { return (uint64_t(side+1)<<32) | serial; }
+struct RetailD6 {
+    uintptr_t exe{};
+    RetailD6() {
+        const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base+reinterpret_cast<IMAGE_DOS_HEADER*>(base)->e_lfanew);
+        if (nt->FileHeader.TimeDateStamp != 0x6AD55DAF || nt->OptionalHeader.SizeOfImage != 0x0581B000) return;
+        const auto* slots = reinterpret_cast<const uintptr_t*>(base+0x3423198);
+        if (slots[0]!=base+0x1a15c20 || slots[6]!=base+0x1a14040 || slots[12]!=base+0x1a16040 || slots[16]!=base+0x1a142e0 ||
+            slots[28]!=base+0x1a15160 || slots[29]!=base+0x1a11a50 || slots[30]!=base+0x1a11a30) return;
+        const uint8_t createCall[]{0xff,0x90,0xf0,0,0,0,0x48,0x89,0x43,0x60};
+        if (std::memcmp(reinterpret_cast<const void*>(base+0x1a1138c),createCall,sizeof(createCall))==0) exe=base;
+    }
+};
+void* FindBladeBody(void* sc, const BladeRequest& request) {
+    auto matches=[&](void* candidate) { return HeldAlive(candidate,request.proxy,request.body); };
+    void* batch[128]{};
+    for (uint32_t start=0; start<4096; start+=128) {
+        const uint32_t count=At<uint32_t(*)(void*,void**,uint32_t,uint32_t)>(sc,kSceneGetAggregates)(sc,batch,128,start);
+        for (uint32_t index=0; index<count; ++index) {
+            void* members[128]{};
+            const auto size=At<uint32_t(*)(void*,void**,uint32_t,uint32_t)>(batch[index],kAggregateGetActors)(batch[index],members,128,0);
+            for (uint32_t member=0; member<size; ++member) if(matches(members[member])) return members[member];
+        }
+        if(count<128) break;
+    }
+    const uint16_t dynamics=2;
+    for(uint32_t start=0;start<16384;start+=128) {
+        const uint32_t count=At<uint32_t(*)(void*,const uint16_t*,void**,uint32_t,uint32_t)>(sc,kSceneGetActors)(sc,&dynamics,batch,128,start);
+        for(uint32_t index=0;index<count;++index) if(matches(batch[index])) return batch[index];
+        if(count<128) break;
+    }
+    return nullptr;
+}
+bool JointFrame(void* body, const float* origin, const BladeRequest& request, PxTransform& frame) {
+    PxTransform pose{};
+    if (!HeldPose(body,pose) || !QNorm(pose.q)) return false;
+    float inverse[4], rel[3]; QConj(pose.q,inverse);
+    for(int index=0;index<3;++index) rel[index]=request.point[index]-origin[index]-pose.p[index];
+    QRot(inverse,rel,frame.p);
+    const float* edge=request.edge;
+    float world[4]{0,-edge[2],edge[1],1+edge[0]};
+    if (world[3]<1e-6f) { world[0]=world[1]=world[3]=0; world[2]=1; }
+    if (!QNorm(world)) return false;
+    QMul(inverse,world,frame.q);
+    return QNorm(frame.q);
+}
+void* bladeJoint{};
+bool bladeDepthHeld{};
+bool bladeCutting{};
+uint32_t cutStroke{};
+uint32_t coupledStroke{};
+uint32_t jointProxy{},jointBody{};
+uint64_t jointKey{}, lookupKey{}, lookupAfter{};
+struct JointSample {
+    uint64_t key{},at{};float point[3]{},cutStart[3]{};uint32_t stroke{},coupledStroke{};
+    uint64_t generation{};handspace::Rotation bodyRotation{};handspace::Vector travel{};
+    float edgeAxis[3]{};int edgeStage{};
+    bool holdingDepth{};
+};
+std::mutex jointSampleLock;
+JointSample jointSample;
+uint64_t railGeneration{};
+handspace::Vector travelStation{};
+blade::RailTravel railTravel{};
+struct AnimatedPin {
+    uint64_t key{},generation{},at{},appliedAt{},origin{};
+    uintptr_t owner{};
+    blade::BladeAttachment attachment;
+    blade::BladeWristLeash leash;
+    bool settled{};
+    uint64_t quietSince{};
+    handspace::Vector previousController{},previousAnchor{},lastControllerOffset{},settleOffset{};
+    uint64_t weaponRevision{};
+    handspace::Vector goal{};
+    handspace::Vector edgeOffset{},edgeAxis{};
+    uint32_t edgeStroke{};
+};
+AnimatedPin animatedPin; // jointSampleLock
+std::atomic<uint64_t> animatedKey{};
+std::atomic<uint64_t> animatedReleaseAt{};
+thread_local struct { uint64_t key{},at{};handspace::Vector target{}; } drawnBladePin[2];
+PxTransform jointBodyFrame{};
+PxTransform jointHandFrame{};
+float lastShaftPoint[3]{}; // last occupied shaft coordinate in the hand actor
+float shaftBodyRotation[4]{};
+float cutStartCommand{};
+void* CreateBladeRail(void* hand, const PxTransform& handFrame, void* target, const PxTransform& targetFrame,bool hold=false) {
+    static const RetailD6 factory;
+    if(!factory.exe) return nullptr;
+    using Create=void*(*)(void*,void*,const PxTransform&,void*,const PxTransform&);
+    void* joint=reinterpret_cast<Create>(factory.exe+0x1a112b0)(physics,hand,handFrame,target,targetFrame);
+    if(joint) {
+        // Tracking loss, withdrawal and verified separation release this joint.
+        // A hit-reaction impulse can otherwise break it during the first solver step.
+        auto setMode=At<void(*)(void*,int,int)>(joint,29);
+        auto getMode=At<int(*)(void*,int)>(joint,30);
+        if(!cvr::blade::ConfigureRailTranslations(hold,[&](int i,int mode){setMode(joint,i,mode);},
+                                                  [&](int i){return getMode(joint,i);})) {
+            At<void(*)(void*)>(joint,0)(joint);return nullptr;
+        }
+    }
+    return joint;
+}
+void ProbeBladeRail(void* sc) {
+    static const bool enabled=cvr::TestMarker("cpvr_test_blade_rail.flag");
+    static void *owner{},*first{},*second{},*joint{};
+    static unsigned steps{};
+    if(!enabled || steps>6 || (owner && sc!=owner)) return;
+    if(!steps++) {
+        owner=sc;
+        PxTransform pose{{0,0,0,1},{10,10,60}},local{{0,0,0,1},{}};
+        auto make=At<void*(*)(void*,const PxTransform*)>(physics,kCreateRigidDynamic);
+        for(void** slot:{&first,&second}) {
+            *slot=make(physics,&pose);
+            if(!*slot) break;
+            *reinterpret_cast<uintptr_t*>(static_cast<char*>(*slot)+0x10)=~uintptr_t(0);
+            At<void(*)(void*,int,bool)>(*slot,kSetActorFlag)(*slot,kDisableGravity,true);
+            At<void(*)(void*,void*,const void*)>(sc,kAddActor)(sc,*slot,nullptr);
+        }
+        if(first && second) joint=CreateBladeRail(first,local,second,local);
+        if(joint) {
+            const float velocity[]{.9f,.9f,0};
+            At<void(*)(void*,const float*,bool)>(first,kSetLinearVelocity)(first,velocity,true);
+            return;
+        }
+        steps=7;
+    } else if(steps<6) return;
+    if(joint) {
+        PxTransform left{},right{};
+        if(HeldPose(first,left) && HeldPose(second,right))
+            Log("[blade-rail-test] xA=%.6f xB=%.6f yA=%.6f yB=%.6f modeX=%d modeY=%d\n",
+                left.p[0]-10,right.p[0]-10,left.p[1]-10,right.p[1]-10,
+                At<int(*)(void*,int)>(joint,30)(joint,0),At<int(*)(void*,int)>(joint,30)(joint,1));
+        At<void(*)(void*)>(joint,0)(joint);
+    }
+    if(first) At<void(*)(void*)>(first,kRelease)(first);
+    if(second) At<void(*)(void*)>(second,kRelease)(second);
+    steps=7;
+}
+void ReleaseBladeJoint() {
+    bladeBound.store(0,std::memory_order_release);
+    animatedKey.store(0,std::memory_order_release);
+    if(bladeJoint) At<void(*)(void*)>(bladeJoint,0)(bladeJoint);
+    bladeJoint=nullptr; jointKey=0;bladeDepthHeld=false;bladeCutting=false;coupledStroke=0;
+}
+}
+bool RequestBladeJoint(int side,uint32_t serial,uint32_t proxy,uint32_t body,const float* point,const float* edge) {
+    if(side<0 || side>1) return false;
+    BladeRequest next{};
+    if (serial && proxy && proxy!=UINT32_MAX && body<65536 && point && edge) {
+        float norm=0;
+        for(int index=0;index<3;++index) {
+            if(!std::isfinite(point[index]) || !std::isfinite(edge[index])) return false;
+            norm+=edge[index]*edge[index]; next.point[index]=point[index];
+        }
+        if(!(norm>.9f && norm<1.1f)) return false;
+        for(int index=0;index<3;++index) next.edge[index]=edge[index]/std::sqrt(norm);
+        next.at=GetTickCount64();next.side=side;next.serial=serial;next.proxy=proxy;next.body=body;next.inserting=true;
+        next.resistance=1.f; // first solver step, before the script renews with its measured load
+    }
+    std::lock_guard guard(bladeMutex);
+    if (!next.serial && bladeRequest.side!=side) return false;
+    bladeRequest=next;
+    bladeRequested.store(next.serial!=0,std::memory_order_release);
+    return next.serial!=0;
+}
+bool BladeJointBound(int side,uint32_t serial) {
+    return serial && bladeBound.load(std::memory_order_acquire)==BladeKey(side,serial);
+}
+bool ReadBladeJointPoint(int side,uint32_t serial,float* point) {
+    if(!BladeJointBound(side,serial)) return false;
+    std::lock_guard guard(jointSampleLock);
+    if(jointSample.key!=BladeKey(side,serial) || GetTickCount64()-jointSample.at>100) return false;
+    std::copy_n(jointSample.point,3,point);return true;
+}
+int UpdateBladeAttachment(int side,uint32_t serial,const float* animated,const float* slotRotation,
+                          const float* station,bool bind,float* goal) {
+    if(side<0 || side>1 || !serial) return 0;
+    const auto key=BladeKey(side,serial);
+    auto slot=R4(slotRotation);
+    if(!handspace::Normalize(slot) || !handspace::Finite(V3(animated)) || !handspace::Finite(V3(station))) return 0;
+    Target input{};
+    DrawnHand wrist{};
+    handspace::Reference entity{};
+    {
+        std::lock_guard guard(poseInputsMutex);
+        input=publishedPoseInputs.target[side];wrist=publishedPoseInputs.drawn[side];
+        entity=publishedPoseInputs.frame.entity;
+    }
+    const uint64_t now=GetTickCount64();
+    auto rotation=R4(wrist.q);
+    if(!entity.valid || !input.at || !wrist.at || now-input.at>100 || !handspace::Normalize(rotation)) return 0;
+    const auto controller=entity.position+Rotate(entity.rotation,V3(input.pos));
+    AnimatedPin initial{};
+    if(bind) {
+        if(handspace::LengthSquared(V3(station)-V3(animated))>.035f*.035f ||
+           handspace::LengthSquared(V3(station)-V3(wrist.p))>1.65f*1.65f) return 0;
+        initial.key=key;initial.owner=entity.owner;initial.origin=entity.origin;
+        initial.weaponRevision=PrimaryWeaponRevision();
+        initial.leash={V3(wrist.p),controller};
+        initial.previousController=controller;initial.previousAnchor=V3(animated);initial.quietSince=now;
+        initial.attachment.BindWrist(V3(station),V3(wrist.p),rotation);
+    }
+    std::lock_guard guard(jointSampleLock);
+    if(bind) { animatedPin=initial;animatedKey.store(0,std::memory_order_release);animatedReleaseAt.store(0,std::memory_order_release); }
+    if(animatedPin.key!=key) return 0;
+    // Record the visible pair on first overlap, even when the D6 arrives a
+    // frame later. Only a fresh sample from the matching D6 drives the wrist.
+    if(!BladeJointBound(side,serial) || jointSample.key!=key || now-jointSample.at>100 || !jointSample.generation) {
+        animatedKey.store(0,std::memory_order_release);Store3(goal,V3(animated));return 1;
+    }
+    if(animatedPin.generation!=jointSample.generation) {
+        animatedPin.attachment.BindRail(jointSample.travel,jointSample.bodyRotation,slot);
+        animatedPin.generation=jointSample.generation;
+    }
+    animatedPin.goal=animatedPin.attachment.Goal(V3(animated),slot,jointSample.travel)-animatedPin.settleOffset;
+    if(!handspace::Finite(animatedPin.goal)) return 0;
+    auto wristGoal=animatedPin.attachment.Wrist(animatedPin.goal,rotation);
+    if(entity.owner!=animatedPin.owner || entity.origin!=animatedPin.origin || animatedPin.weaponRevision!=PrimaryWeaponRevision()) {
+        animatedKey.store(0,std::memory_order_release);
+        return -1;
+    }
+    if(!animatedPin.leash.Limit(controller,wristGoal)) {
+        if(animatedPin.appliedAt && now-animatedPin.appliedAt<=100) animatedReleaseAt.store(now,std::memory_order_release);
+        animatedKey.store(0,std::memory_order_release);
+        return -1;
+    }
+    // Finish seating at the resting pose, after hand and slot have settled.
+    // Movement of the NPC alone must never continually recenter this limit.
+    if(LengthSquared(controller-animatedPin.previousController)>.008f*.008f) {
+        animatedPin.previousController=controller;
+        animatedPin.quietSince=now;animatedPin.settled=false;
+    }
+    if(!animatedPin.settled) {
+        if(LengthSquared(V3(animated)-animatedPin.previousAnchor)>.006f*.006f) {
+            animatedPin.previousAnchor=V3(animated);
+            animatedPin.quietSince=now;
+        }
+        if(jointSample.holdingDepth && now-animatedPin.quietSince>=160) {
+            const auto correction=animatedPin.attachment.Wrist(animatedPin.goal,rotation)-wristGoal;
+            animatedPin.settleOffset=animatedPin.settleOffset+correction;
+            animatedPin.goal=animatedPin.goal-correction;
+            animatedPin.leash={wristGoal,controller};animatedPin.settled=true;
+        }
+    }
+    // Use the very physics sample that positioned this rendered wrist goal.
+    // Offsets expressed in the bound slot are comparable across NPC turns.
+    animatedPin.edgeStroke=jointSample.stroke;
+    if(jointSample.stroke) {
+        const auto worldToSlot=Multiply(animatedPin.attachment.bodyToSlot,Conjugate(jointSample.bodyRotation));
+        animatedPin.edgeOffset=Rotate(worldToSlot,V3(jointSample.point)-V3(jointSample.cutStart));
+        animatedPin.edgeAxis=Rotate(worldToSlot,V3(jointSample.edgeAxis));
+    }
+    animatedPin.at=now;Store3(goal,wristGoal+Rotate(rotation,animatedPin.attachment.wristLocal));
+    animatedKey.store(key,std::memory_order_release);
+    return animatedPin.appliedAt && now-animatedPin.appliedAt<=100 ? 3 : 2;
+}
+bool ApplyBladeAttachment(int side,float* target,const float* rotation) {
+    const auto key=animatedKey.load(std::memory_order_acquire);
+    if(!key && poseInputsPending) {
+        const auto start=animatedReleaseAt.load(std::memory_order_acquire);
+        const auto now=GetTickCount64();
+        if(!start || now-start>=160) return false;
+        std::lock_guard guard(jointSampleLock);
+        const auto& entity=pendingPoseInputs.frame.entity;
+        const auto& input=pendingPoseInputs.target[side];
+        if(!input.at || (animatedPin.key>>32)!=uint64_t(side+1) || start!=animatedReleaseAt.load() ||
+           entity.owner!=animatedPin.owner || entity.origin!=animatedPin.origin || animatedPin.weaponRevision!=PrimaryWeaponRevision()) return false;
+        // The hand body can still carry momentum from the NPC on the first
+        // free step. Start from the last displayed offset and follow live input.
+        Store3(target,blade::ReleaseWrist(V3(target),V3(input.pos),animatedPin.lastControllerOffset,float(now-start)/160.f));
+        return true;
+    }
+    if(!key || (key>>32)!=uint64_t(side+1) || !poseInputsPending || !bladeRequested.load(std::memory_order_acquire) ||
+       bladeBound.load(std::memory_order_acquire)!=key) return false;
+    std::lock_guard guard(jointSampleLock);
+    const auto& pin=animatedPin;
+    const auto now=GetTickCount64();
+    if(pin.key!=key || now-pin.at>100 || jointSample.key!=key || pin.generation!=jointSample.generation ||
+       now-jointSample.at>100) return false;
+    const auto& entity=pendingPoseInputs.frame.entity;
+    if(entity.owner!=pin.owner || entity.origin!=pin.origin) return false;
+    auto wq=handspace::Multiply(entity.rotation,R4(rotation));
+    if(!handspace::Normalize(wq)) return false;
+    const auto& input=pendingPoseInputs.target[side];
+    if(!input.at) return false;
+    const auto controller=entity.position+Rotate(entity.rotation,V3(input.pos));
+    auto wristGoal=pin.attachment.Wrist(pin.goal,wq);
+    pin.leash.Limit(controller,wristGoal);
+    const auto p=Rotate(Conjugate(entity.rotation),wristGoal-entity.position);
+    if(!handspace::Finite(p)) return false;
+    Store3(target,p);drawnBladePin[side]={key,pendingPoseInputs.at,p};animatedPin.appliedAt=now;
+    animatedPin.lastControllerOffset=p-V3(input.pos);
+    return true;
+}
+bool BladeAttachmentMatches(int side,const float* target) {
+    const auto& pin=drawnBladePin[side];
+    return pin.key && poseInputsPending && pin.at==pendingPoseInputs.at &&
+        pin.key==animatedKey.load(std::memory_order_acquire) &&
+        handspace::LengthSquared(pin.target-V3(target))<1.e-8f;
+}
+uint32_t ReadBladeEdgePath(int side,uint32_t serial,float* from,float* to,float* axis,int* stage) {
+    std::lock_guard guard(jointSampleLock);
+    if(!BladeJointBound(side,serial) || jointSample.key!=BladeKey(side,serial) || GetTickCount64()-jointSample.at>100) return 0;
+    std::copy_n(jointSample.cutStart,3,from);std::copy_n(jointSample.point,3,to);
+    if(axis) std::copy_n(jointSample.edgeAxis,3,axis);
+    if(stage) *stage=jointSample.edgeStage;
+    return jointSample.stroke;
+}
+bool BladeEdgeStrokeLive(int side,uint32_t serial,uint32_t stroke) {
+    std::lock_guard guard(jointSampleLock);
+    return stroke && BladeJointBound(side,serial) && jointSample.key==BladeKey(side,serial) &&
+        jointSample.coupledStroke==stroke && GetTickCount64()-jointSample.at<=100;
+}
+uint32_t ReadBladeSlotEdge(int side,uint32_t serial,float* offset,float* axis) {
+    const auto key=BladeKey(side,serial);
+    std::lock_guard guard(jointSampleLock);
+    if(!BladeJointBound(side,serial) || animatedKey.load(std::memory_order_acquire)!=key || animatedPin.key!=key ||
+       animatedPin.generation!=jointSample.generation || GetTickCount64()-animatedPin.at>100 ||
+       !animatedPin.edgeStroke || animatedPin.edgeStroke!=jointSample.stroke) return 0;
+    Store3(offset,animatedPin.edgeOffset);Store3(axis,animatedPin.edgeAxis);
+    return animatedPin.edgeStroke;
+}
+bool RenewBladeJoint(int side,uint32_t serial,float resistance,bool holdDepth,const float* cuttingEdge,bool inserting,float edgeAdvance) {
+    std::lock_guard guard(bladeMutex);
+    if(!BladeJointBound(side,serial) || bladeRequest.serial!=serial || bladeRequest.side!=side ||
+       GetTickCount64()-bladeRequest.at>100 || !std::isfinite(resistance) || resistance<0) return false;
+    if(!std::isfinite(edgeAdvance) || edgeAdvance>.35f) return false;
+    if(cuttingEdge) {
+        const float n=cuttingEdge[0]*cuttingEdge[0]+cuttingEdge[1]*cuttingEdge[1]+cuttingEdge[2]*cuttingEdge[2];
+        if(!(n>.99f && n<1.01f)) return false;
+        std::copy_n(cuttingEdge,3,bladeRequest.cuttingEdge);
+    }
+    bladeRequest.cut=cuttingEdge!=nullptr;bladeRequest.resistance=resistance;bladeRequest.holdDepth=holdDepth;
+    bladeRequest.inserting=inserting;bladeRequest.edgeAdvance=edgeAdvance;
+    bladeRequest.at=GetTickCount64();return true;
+}
+
+// Physics-thread only. Steer still applies the ordinary bounded velocity and
+// force budgets. Never move the actor directly to an XR displacement.
+static bool BladeEdgeTarget(int side,void* sc,const PxTransform& now,float maxGap,PxTransform& to) {
+    if(!bladeJoint || !bladeRequested.load(std::memory_order_acquire)) return false;
+    BladeRequest request;
+    { std::lock_guard guard(bladeMutex);request=bladeRequest; }
+    if(request.side!=side || jointKey!=BladeKey(side,request.serial) || GetTickCount64()-request.at>100 ||
+       request.proxy!=jointProxy || request.body!=jointBody) return false;
+    const bool opening=request.cut && request.edgeAdvance>=0.f;
+    if(!opening && !(bladeCutting && cutStartCommand>=0.f)) return false;
+    // First remove the stored raw-tracking error while the old axes are
+    // still locked. Do the same for the last step before the rail relocks.
+    if(!bladeCutting || !opening) { to=now;return true; }
+    void *hand=nullptr,*body=nullptr;
+    At<void(*)(void*,void**,void**)>(bladeJoint,6)(bladeJoint,&hand,&body);
+    PxTransform bp{};
+    if(hand!=actor[side] || !HeldAlive(body,jointProxy,jointBody) ||
+       At<void*(*)(void*)>(bladeJoint,28)(bladeJoint)!=sc || !HeldPose(body,bp)) return false;
+    const auto rotation=R4(bp.q);
+    const auto start=V3(bp.p)+Rotate(rotation,V3(jointBodyFrame.p));
+    handspace::Rotation wrist;
+    const float advance=std::clamp(request.edgeAdvance-cutStartCommand,0.f,.35f);
+    const auto goal=blade::EdgeDriveWrist(start,Multiply(rotation,R4(jointBodyFrame.q)),V3(jointHandFrame.p),
+                                          R4(jointHandFrame.q),advance,wrist);
+    auto delta=goal-V3(now.p);
+    const float gap=std::sqrt(handspace::LengthSquared(delta));
+    if(!std::isfinite(gap) || !Normalize(wrist)) {to=now;return true;}
+    if(gap>maxGap) delta=delta*(maxGap/gap); // stay in the velocity drive even after a large reaction
+    Store3(to.p,V3(now.p)+delta);Store4(to.q,wrist);return true;
+}
+
+// Rebase both local anchors at the occupied blade point when changing rails.
+// Local X is the only slide axis. For a cut X is the authored edge; the shaft
+// and the blade normal both lie in the locked YZ plane.
+static int SetBladeRailMode(const BladeRequest& request,void* hand,void* body,const PxTransform& pose,const PxTransform& palm,
+                             const float* origin,const float* bladePoint,const float* bodyPoint) {
+    const bool hold=request.holdDepth && !request.cut;
+    if(request.cut==bladeCutting && hold==bladeDepthHeld) return 0;
+    BladeRequest frame=request;
+    std::copy_n(bladePoint,3,frame.point);
+    float shaftRotation[4],shaft[3];
+    const float localX[]{1.f,0.f,0.f};
+    QMul(pose.q,shaftBodyRotation,shaftRotation);QRot(shaftRotation,localX,shaft);
+    if(request.cut && request.edgeAdvance>=0.f) {
+        // weaponLocal is the pose of the actually simulated weapon boxes in
+        // the hand. Both the shaft and edge were orthogonalized in item space.
+        const auto weaponQ=Multiply(R4(palm.q),R4(weaponLocal[request.side][0].q));
+        const auto axis=Rotate(weaponQ,V3(request.cuttingEdge));
+        if(!handspace::Finite(axis) || std::abs(handspace::LengthSquared(axis)-1.f)>.01f) return 3;
+        Store3(frame.edge,axis);
+    } else if(!cvr::blade::SelectRailAxis(shaft,request.cut ? request.cuttingEdge : nullptr,frame.edge)) return 3;
+    PxTransform nextHand{},nextBody{};
+    if(!JointFrame(hand,origin,frame,nextHand)) return 4;
+    std::copy_n(bodyPoint,3,frame.point);
+    if(!JointFrame(body,origin,frame,nextBody)) return 4;
+    void* replacement=CreateBladeRail(hand,nextHand,body,nextBody,hold);
+    if(!replacement) return 4;
+    At<void(*)(void*)>(bladeJoint,0)(bladeJoint);
+    bladeJoint=replacement;jointHandFrame=nextHand;jointBodyFrame=nextBody;
+    bladeCutting=request.cut;bladeDepthHeld=hold;
+    if(bladeCutting) {
+        cutStroke=cutStroke%0x00ffffffu+1u; // exactly representable in a script Vector4
+        coupledStroke=cutStroke;
+        cutStartCommand=request.edgeAdvance;
+    }
+    return 0;
+}
+static bool BladeContainsPoint(int side,const float* origin,const float* point) {
+    PxTransform palm{};
+    if(!HeldPose(actor[side],palm)) return false;
+    float inverse[4],delta[3],local[3];
+    QConj(palm.q,inverse);
+    for(int index=0;index<3;++index) delta[index]=point[index]-origin[index]-palm.p[index];
+    QRot(inverse,delta,local);
+    for(int box=0;box<weaponOn[side];++box) {
+        const auto& shapePose=weaponLocal[side][box]; QConj(shapePose.q,inverse);
+        for(int index=0;index<3;++index) delta[index]=local[index]-shapePose.p[index];
+        float inBox[3]; QRot(inverse,delta,inBox);
+        if(cvr::blade::InsideWeaponBox(inBox,weaponHalf[side][box])) return true;
+    }
+    return false;
+}
+
+// A rotating pair can have transverse solver error at the two old anchors.
+// Start at a material witness shared by this actor and this weapon. Try the
+// two existing anchors first, then the nearest point of each finite box to
+// the body anchor. Never transfer to a different actor or a remote box.
+static bool BladeCutWitness(int side,void* body,const PxTransform& palm,const float* origin,
+                            const float* handPoint,const float* bodyPoint,float* witness) {
+    const auto contact=[&](const float* p) {
+        float surface[3],gap{};
+        if(!BodySurface(body,origin,p,surface,&gap) || gap>.045f ||
+           handspace::LengthSquared(V3(surface)-V3(bodyPoint))>.10f*.10f ||
+           !BladeContainsPoint(side,origin,surface)) return false;
+        std::copy_n(surface,3,witness);return true;
+    };
+    if(contact(handPoint) || contact(bodyPoint)) return true;
+    const auto hand=R4(palm.q);
+    const auto center=V3(palm.p)+V3(origin);
+    const auto local=Rotate(Conjugate(hand),V3(bodyPoint)-center);
+    for(int i=0;i<weaponOn[side];++i) {
+        const auto& box=weaponLocal[side][i];const auto boxQ=R4(box.q);
+        const auto p=Rotate(Conjugate(boxQ),local-V3(box.p));
+        const auto half=V3(weaponHalf[side][i]);
+        const handspace::Vector inBox{std::clamp(p.x,-half.x,half.x),std::clamp(p.y,-half.y,half.y),std::clamp(p.z,-half.z,half.z)};
+        if(handspace::LengthSquared(p-inBox)>.10f*.10f) continue;
+        float world[3];Store3(world,center+Rotate(hand,V3(box.p)+Rotate(boxQ,inBox)));
+        if(contact(world)) return true;
+    }
+    return false;
+}
+
+static void StepBladeJoint(void* sc,const float* origin,float step,bool allowed,int holding) {
+    ProbeBladeRail(sc);
+    if(!bladeJoint && !bladeRequested.load(std::memory_order_acquire)) return;
+    BladeRequest request;
+    { std::lock_guard guard(bladeMutex); request=bladeRequest; }
+    const uint64_t now=GetTickCount64();
+    const int side=request.side;
+    static const bool traceBlade=cvr::TestMarker("cpvr_blade_owner_trace.flag");
+    static unsigned attempts{};
+    const bool report=traceBlade && request.serial && attempts++<96;
+    if(report) Log("[blade-d6] serial=%u side=%d allowed=%d sim=%d boxes=%d age=%llu\n",request.serial,side,allowed,
+        side>=0 && simulating[side],side>=0?weaponOn[side]:0,static_cast<unsigned long long>(now-request.at));
+    if(!allowed || side<0 || (holding&(1<<side)) || !request.serial || now-request.at>100 || !simulating[side] ||
+        !actor[side] || !weaponOn[side]) {
+        if(bladeJoint) Log("[blade-d6] release key=%llu allowed=%d side=%d holding=%d serial=%u age=%llu sim=%d boxes=%d\n",
+            jointKey,allowed,side,holding,request.serial,now-request.at,side>=0 && simulating[side],side>=0?weaponOn[side]:0);
+        ReleaseBladeJoint(); return;
+    }
+    const uint64_t key=BladeKey(side,request.serial);
+    if(bladeJoint) {
+        void *hand=nullptr,*body=nullptr;
+        At<void(*)(void*,void**,void**)>(bladeJoint,6)(bladeJoint,&hand,&body);
+        uint16_t jointFlags{};
+        At<void*(*)(void*,uint16_t*)>(bladeJoint,16)(bladeJoint,&jointFlags);
+        const bool samePair=hand==actor[side] && body && jointKey==key && jointProxy==request.proxy && jointBody==request.body &&
+            HeldAlive(body,request.proxy,request.body);
+        if((jointFlags&1) && samePair && !bladeCutting && (request.holdDepth || request.inserting) &&
+            At<void*(*)(void*)>(hand,kGetScene)(hand)==sc && At<void*(*)(void*)>(body,kGetScene)(body)==sc) {
+            // A broken constraint may still report both live actors. Restore
+            // their own local anchors only while they are within one short
+            // reaction step. A changed actor must pass contact acquisition.
+            static uint64_t repairedKey{},repairedAt{};
+            PxTransform hp{},bp{};
+            if((repairedKey!=key || now-repairedAt>=125) && HeldPose(hand,hp) && HeldPose(body,bp)) {
+                PxTransform hf=jointHandFrame;
+                if(!bladeDepthHeld) std::copy_n(lastShaftPoint,3,hf.p);
+                float h[3],b[3],gap2=0;
+                QRot(hp.q,hf.p,h);QRot(bp.q,jointBodyFrame.p,b);
+                for(int i=0;i<3;++i) {
+                    h[i]+=hp.p[i]+origin[i];b[i]+=bp.p[i]+origin[i];
+                    gap2+=(h[i]-b[i])*(h[i]-b[i]);
+                }
+                if(gap2<=.15f*.15f && BladeContainsPoint(side,origin,h)) {
+                    if(void* next=CreateBladeRail(hand,hf,body,jointBodyFrame,true)) {
+                        At<void(*)(void*)>(bladeJoint,0)(bladeJoint);
+                        bladeJoint=next;jointHandFrame=hf;bladeDepthHeld=true;coupledStroke=0;
+                        repairedKey=key;repairedAt=now;jointFlags=0;
+                        Log("[blade-d6] restored broken constraint key=%llu gap=%.3f\n",key,std::sqrt(gap2));
+                    }
+                }
+            }
+        }
+        if(!(jointFlags&1) && samePair && At<void*(*)(void*)>(bladeJoint,28)(bladeJoint)==sc) {
+            uint16_t bodyFlags{};
+            At<void*(*)(void*,uint16_t*)>(body,kGetRigidBodyFlags)(body,&bodyFlags);
+            PxTransform pose{};
+            if(HeldPose(body,pose)) {
+                JointSample sample{key,now,{}};
+                QRot(pose.q,jointBodyFrame.p,sample.point);
+                for(int index=0;index<3;++index) sample.point[index]+=pose.p[index]+origin[index];
+                PxTransform palm{};
+                if(!HeldPose(hand,palm)) { ReleaseBladeJoint();return; }
+                float handPoint[3],bladePoint[3];
+                QRot(palm.q,jointHandFrame.p,handPoint);
+                for(int i=0;i<3;++i) handPoint[i]+=palm.p[i]+origin[i];
+                const auto bodyQ=R4(pose.q);
+                const auto stationInBody=Rotate(Conjugate(bodyQ),V3(palm.p)-V3(pose.p)+Rotate(R4(palm.q),travelStation));
+                const auto axisInBody=Rotate(R4(jointBodyFrame.q),handspace::Vector{1,0,0});
+                railTravel.Sample(stationInBody,axisInBody,!bladeDepthHeld);
+                sample.travel=railTravel.total;sample.generation=railGeneration;sample.bodyRotation=bodyQ;
+                std::copy_n(handPoint,3,bladePoint);
+                if(bladeCutting) {
+                    Store3(sample.edgeAxis,Rotate(bodyQ,axisInBody));
+                    std::copy_n(sample.point,3,sample.cutStart);
+                    std::copy_n(handPoint,3,sample.point);
+                    float closest[3],gap;
+                    if(!BodySurface(body,origin,handPoint,closest,&gap) || gap>.045f) {
+                        Log("[blade-d6] edge left actor key=%llu\n",key);
+                        ReleaseBladeJoint();return;
+                    }
+                    // The path endpoint is the material point on this hand's
+                    // actual weapon collider. A lagging render/IK centerline
+                    // can be several centimetres away during a puppet reaction.
+                    if(BladeContainsPoint(side,origin,handPoint)) {sample.stroke=cutStroke;sample.edgeStage=5;}
+                    else sample.edgeStage=6;
+                } else if(!bladeDepthHeld) {
+                    // Transverse solver error belongs to the D6. Testing the
+                    // remote actor point against the hand boxes here released
+                    // the shaft as soon as an animated target stepped sideways.
+                    float rotation[4],axis[3];const float x[]{1.f,0.f,0.f};
+                    QMul(palm.q,jointHandFrame.q,rotation);QRot(rotation,x,axis);
+                    const float slide=cvr::blade::ShaftPoint(handPoint,sample.point,axis,bladePoint);
+                    if(BladeContainsPoint(side,origin,bladePoint)) {
+                        float inverse[4],delta[3];QConj(palm.q,inverse);
+                        for(int i=0;i<3;++i) delta[i]=bladePoint[i]-palm.p[i]-origin[i];
+                        QRot(inverse,delta,lastShaftPoint);
+                    } else if(request.inserting || request.holdDepth || request.cut) {
+                        // A reaction pulled the actor off the free axis before
+                        // the next CET update. Keep the last physical point
+                        // on each actor and let the solver close their gap.
+                        QRot(palm.q,lastShaftPoint,bladePoint);
+                        for(int i=0;i<3;++i) bladePoint[i]+=palm.p[i]+origin[i];
+                        request.cut=false;request.holdDepth=true;
+                    } else {
+                        Log("[blade-d6] shaft withdrawn key=%llu slide=%.3f\n",key,slide);
+                        ReleaseBladeJoint();return;
+                    }
+                }
+                if(request.cut && !bladeCutting) {
+                    float witness[3];
+                    if(BladeCutWitness(side,body,palm,origin,bladePoint,sample.point,witness)) {
+                        std::copy_n(witness,3,bladePoint);sample.edgeStage=1;
+                    } else { request.cut=false;request.holdDepth=true;sample.edgeStage=2; }
+                }
+                const int rejected=SetBladeRailMode(request,hand,body,pose,palm,origin,bladePoint,request.cut ? bladePoint : sample.point);
+                if(rejected && request.cut) sample.edgeStage=rejected;
+                if(!bladeCutting) sample.stroke=0;
+                sample.coupledStroke=coupledStroke;
+                sample.holdingDepth=bladeDepthHeld;
+                // D6 leaves one axis free. The hand motor still needs a load on
+                // that axis when animation owns the other actor's velocity.
+                if(!bladeDepthHeld && request.resistance>0) {
+                    const bool kinematic=(bodyFlags & 1)!=0;
+                    float rotation[4],axis[3],handSpeed[3],bodySpeed[3];
+                    const float localX[]{1.f,0.f,0.f};
+                    QMul(pose.q,jointBodyFrame.q,rotation);QRot(rotation,localX,axis);
+                    At<void(*)(void*,float*)>(hand,kGetLinearVelocity)(hand,handSpeed);
+                    At<void(*)(void*,float*)>(body,kGetLinearVelocity)(body,bodySpeed);
+                    const float handMass=At<float(*)(void*)>(hand,kGetMass)(hand);
+                    const float bodyMass=kinematic ? 0.f : At<float(*)(void*)>(body,kGetMass)(body);
+                    const float dampingRate=request.resistance*(request.inserting ? 16.f : 1.f);
+                    const auto previousVelocity=V3(handSpeed);
+                    if(cvr::blade::DampSlide(handSpeed,bodySpeed,axis,handMass,bodyMass,dampingRate,step,kinematic)) {
+                        At<void(*)(void*,const float*,bool)>(hand,kSetLinearVelocity)(hand,handSpeed,false);
+                        if(!kinematic) At<void(*)(void*,const float*,bool)>(body,kSetLinearVelocity)(body,bodySpeed,false);
+                        if(traceBlade && request.inserting) {
+                            const auto removed=previousVelocity-V3(handSpeed);
+                            Log("[blade-d6] insertion key=%llu kinematic=%d load=%.3f step=%.5f velocityCorrection=%.4f\n",
+                                jointKey,kinematic,request.resistance,step,std::sqrt(handspace::LengthSquared(removed)));
+                        }
+                    }
+                }
+                std::lock_guard guard(jointSampleLock);jointSample=sample;
+                return;
+            }
+        }
+        Log("[blade-d6] detached key=%llu next=%llu flags=%u proxy=%u/%u body=%u/%u\n",
+            jointKey,key,jointFlags,jointProxy,request.proxy,jointBody,request.body);
+        ReleaseBladeJoint();
+    }
+    if(key==lookupKey && now<lookupAfter) return;
+    lookupKey=key;
+    lookupAfter=now+125;
+    void* body=FindBladeBody(sc,request);
+    if(!body || body==actor[side]) return;
+    uint16_t flags{};
+    At<void*(*)(void*,uint16_t*)>(body,kGetRigidBodyFlags)(body,&flags);
+    if(report) Log("[blade-d6] target proxy=%u body=%u flags=%u\n",request.proxy,request.body,flags);
+    float closest[3],gap;
+    if(!BodySurface(body,origin,request.point,closest,&gap) || gap>.045f) return;
+    if(!BladeContainsPoint(side,origin,request.point)) return;
+    PxTransform handFrame{},bodyFrame{};
+    if(!JointFrame(actor[side],origin,request,handFrame) || !JointFrame(body,origin,request,bodyFrame)) return;
+    bladeJoint=CreateBladeRail(actor[side],handFrame,body,bodyFrame);
+    if(!bladeJoint) return;
+    jointKey=key;jointProxy=request.proxy;jointBody=request.body;
+    jointBodyFrame=bodyFrame;jointHandFrame=handFrame;
+    std::copy_n(bodyFrame.q,4,shaftBodyRotation);
+    std::copy_n(handFrame.p,3,lastShaftPoint);
+    PxTransform bodyPose{};
+    if(!HeldPose(body,bodyPose)) { ReleaseBladeJoint();return; }
+    travelStation=V3(handFrame.p);railTravel={V3(bodyFrame.p),{}};
+    ++railGeneration;
+    { std::lock_guard guard(jointSampleLock);
+      jointSample={key,now,{request.point[0],request.point[1],request.point[2]}};
+      jointSample.generation=railGeneration;jointSample.bodyRotation=R4(bodyPose.q); }
+    bladeBound.store(key,std::memory_order_release);
+    if(traceBlade) Log("[blade-d6] bound serial=%u proxy=%u body=%u\n",request.serial,request.proxy,request.body);
+}
+
 static bool HeldTake(void* actor, const float* centre, Held& h) {
     __try {
         At<void (*)(void*, PxTransform*)>(actor, kGetCMassLocalPose)(actor, &h.ownCentre);
@@ -6365,21 +7805,23 @@ static void HoldSide(int side, void* sc, const float* origin, float step) {
     BodyHold h{};
     HoldRun& r = holdRun[side];
     r.toOn = false;
+    r.targetGripValid = false;
     const bool asked = !cvr::input::scannerHandPhysics.Active() && g_liveControls.xrHandPhysics != 0 && g_liveControls.xrHandCollision != 0 &&
                        bodyHolds[side].Read(h) && h.on && h.actor && h.scene == sc && GetTickCount64() - h.at < 300;
     const bool alive = asked && !cvr::debugview::BodyGone(h.proxy, h.body) && HeldAlive(h.actor, h.proxy, h.body);
-    if (r.held >= 0 && (!alive || h.actor != r.actor)) HoldRelease(side);
+    if (r.held >= 0 && (!alive || !cvr::held_body_mass::SameActor(h.actor, h.proxy, h.body, r.actor, r.proxy, r.body))) HoldRelease(side);
     if (!alive) return;
     r.torque = h.torque;
-    DrawnHand dh{};
-    if (!drawnHands[side].Read(dh) || GetTickCount64() - dh.at > 200) return;   // not drawn: no new target this step
+    const DrawnHand& dh=stepPoseInputs.drawn[side];
+    PxTransform control{};
+    if(!stepPoseInputs.at||!dh.at||GetTickCount64()-dh.at>200||!TargetNow(side,origin,control))return;
     float hp[3], d[3];
     for (int k = 0; k < 3; ++k) hp[k] = dh.p[k] - origin[k];
     const float* hq = dh.q;
     bool take = r.held < 0;
     if (!take && r.hasLast) {
         float j2 = 0;
-        for (int k = 0; k < 3; ++k) j2 += (hp[k] - r.handP[k]) * (hp[k] - r.handP[k]);
+        for (int k = 0; k < 3; ++k) j2 += (dh.p[k] - r.handP[k]) * (dh.p[k] - r.handP[k]);
         if (j2 > kHoldJump * kHoldJump) {
             take = true;
             Log("[physhands] %s hand jumped %.2f m holding a body: eased in again from where the body is\n", side ? "right" : "left", std::sqrt(j2));
@@ -6422,7 +7864,8 @@ static void HoldSide(int side, void* sc, const float* origin, float step) {
             // the other hand's body already: held by both
             int at = -1;
             for (int i = 0; i < 2; ++i)
-                if (helds[i].actor == h.actor && helds[i].holders > 0) at = i;
+                if (helds[i].holders > 0 && cvr::held_body_mass::SameActor(helds[i].actor, helds[i].proxy, helds[i].body,
+                                                                        h.actor, h.proxy, h.body)) at = i;
             if (at >= 0) {
                 ++helds[at].holders;
                 Log("[physhands] %s hand holds the body the other holds too (proxy %u body %u): held by both, the pull shared\n",
@@ -6459,16 +7902,17 @@ static void HoldSide(int side, void* sc, const float* origin, float step) {
     for (int k = 0; k < 3; ++k) r.relP[k] = r.fromP[k] + (r.wantP[k] - r.fromP[k]) * e;
     for (int k = 0; k < 4; ++k) r.relQ[k] = r.fromQ[k] + (r.wantQ[k] * sgn - r.fromQ[k]) * e;
     if (!QNorm(r.relQ)) return;
-    QMul(hq, r.relQ, r.to.q);
-    if (!QNorm(r.to.q)) return;
-    QRot(hq, r.relP, d);
-    for (int k = 0; k < 3; ++k) r.to.p[k] = hp[k] + d[k];
-    std::memcpy(r.handP, hp, sizeof(r.handP));
+    if(!cvr::held_grip::DriveTarget(hp,hq,control.q,r.relP,r.relQ,r.grip,r.to.p,r.to.q))return;
+    r.targetGripValid = cvr::held_grip_contact::WorldPoint(r.to.p, r.to.q, r.grip, origin, r.targetGripWorld);
+    r.targetGripScene = sc;
+    r.targetGripGeneration = heldContactStep.generation;
+    std::memcpy(r.handP, dh.p, sizeof(r.handP));
     r.hasLast = true;
     r.toOn = true;
 }
 
 static void HoldSteps(void* sc, const float* origin, float dt) {
+    heldContactStep.Prepared(sc);
     if (!holdRunReady) {
         for (auto& r : holdRun) HoldUnrun(r);
         holdRunReady = true;
@@ -6488,20 +7932,10 @@ static void HoldSteps(void* sc, const float* origin, float dt) {
         float centre[3];
         std::memcpy(centre, a.grip, sizeof(centre));
         if (n == 2) {
-            // TWO HANDS ON IT: its turn between theirs, the midpoint of the points held where the midpoint of the hands has it
+            // Both grip points steer the body; wrist turns supply the remaining twist.
             const HoldRun& b = holdRun[sides[1]];
-            const float sgn = a.to.q[0] * b.to.q[0] + a.to.q[1] * b.to.q[1] + a.to.q[2] * b.to.q[2] + a.to.q[3] * b.to.q[3] < 0 ? -1.f : 1.f;
-            for (int k = 0; k < 4; ++k) to.q[k] = a.to.q[k] + b.to.q[k] * sgn;
-            if (!QNorm(to.q)) continue;
-            float ga[3], gb[3], mid[3], d[3];
-            QRot(a.to.q, a.grip, ga);
-            QRot(b.to.q, b.grip, gb);
-            for (int k = 0; k < 3; ++k) {
-                centre[k] = 0.5f * (a.grip[k] + b.grip[k]);
-                mid[k] = 0.5f * (a.to.p[k] + ga[k] + b.to.p[k] + gb[k]);
-            }
-            QRot(to.q, centre, d);
-            for (int k = 0; k < 3; ++k) to.p[k] = mid[k] - d[k];
+            if (!cvr::held_grip::TwoHandTarget(a.to.p, a.to.q, a.grip, b.to.p, b.to.q, b.grip,
+                                               to.p, to.q, centre)) continue;
         }
         float c2 = 0;
         for (int k = 0; k < 3; ++k) c2 += (centre[k] - h.centre[k]) * (centre[k] - h.centre[k]);
@@ -6567,7 +8001,7 @@ bool HoldBody(int side, void* actor, void* actorScene, uint32_t proxy, uint32_t 
     return actor ? h.on : true;
 }
 
-static void PublishHeldWrists(uint64_t now) {
+static void PublishHeldWrists(uint64_t now, const float* origin, const cvr::held_grip_contact::Fetch& contact) {
     if (!holdRunReady) return;
     for (int side = 0; side < 2; ++side) {
         const HoldRun& r = holdRun[side];
@@ -6582,6 +8016,12 @@ static void PublishHeldWrists(uint64_t now) {
                 float g[3];
                 QRot(r.relQ, r.grip, g);
                 for (int k = 0; k < 3; ++k) load.seat[k] = r.relP[k] + g[k];
+                load.proxy = held.proxy;
+                load.body = held.body;
+                load.ownMass = held.ownMass;
+                load.contactErrorUm = cvr::held_grip_contact::ErrorMicrometres(pose.p, pose.q, r.grip, origin,
+                    r.targetGripWorld, r.targetGripValid && contact.valid && r.targetGripScene == contact.scene &&
+                    r.targetGripGeneration == contact.generation);
                 load.on = true;
             }
         }
@@ -6590,6 +8030,7 @@ static void PublishHeldWrists(uint64_t now) {
 }
 
 void AfterFetch(void* sc) {
+    const auto contact = heldContactStep.Take(sc);
     StartWorker();
     if (!Prove() || !sc) return;
     LARGE_INTEGER t0;
@@ -6602,6 +8043,7 @@ void AfterFetch(void* sc) {
         askedAt = now;
         void* world = WorldScene(origin);
         if (world != scene) {
+            ReleaseBladeJoint();
             if (scene) Log("[physhands] the world scene changed (%p -> %p): the hands start again\n", scene, world);
             scene = world;
             // the bodies of a released scene were taken out of it, not released; they are put in the new one when made again
@@ -6614,6 +8056,7 @@ void AfterFetch(void* sc) {
             for (int i = 0; i < kMostBodies; ++i) personActor[i] = personShape[i] = nullptr, personLive[i] = false;
             personNearN = 0;
             census = Census{};
+            censusTriesHere = 0;
             filterReady = false;
             // the world list's meshes were the old world's
             AcquireSRWLockExclusive(&nearLock);
@@ -6637,11 +8080,30 @@ void AfterFetch(void* sc) {
         }
     }
     if (sc != scene || !Origin(sc, origin)) return;
-    PublishHeldWrists(now);
+    PublishHeldWrists(now, origin, contact);
+    if (census.phase == 3 && census.statics < kThinCensus && CyberpunkVR_PlayerEntityValid) {
+        float moved2 = 0;
+        for (int k = 0; k < 3; ++k) {
+            const float d = CyberpunkVR_PlayerEntityPos[k] - census.from[k];
+            moved2 += d * d;
+        }
+        const bool elsewhere = moved2 > kCensusRedoMove * kCensusRedoMove && now - censusDoneAt > 2000;
+        const bool waited = now - censusDoneAt > kCensusRedoWaitMs && censusTriesHere < kCensusRedoTries;
+        if (std::isfinite(moved2) && (elsewhere || waited)) {
+            censusTriesHere = elsewhere ? 0 : censusTriesHere + 1;
+            Log("[physhands] the census saw %d static shapes%s: taken again (%s, %.0f m away)\n", census.statics,
+                filterReady ? "" : " and nothing to meet", elsewhere ? "the player is elsewhere" : "the world had time to come in",
+                std::sqrt(moved2));
+            census = Census{};
+        }
+    }
     if (census.phase < 3) {
         CensusSlice(sc, origin);
-        Charge(afterUs, afterMostUs, t0);
-        return;
+        // the first census: no filters, nothing to step yet; one taken again: the hands go on with the old filters
+        if (!filterReady) {
+            Charge(afterUs, afterMostUs, t0);
+            return;
+        }
     }
     Step st{};
     st.scannerEpoch = stepScannerEpoch;
@@ -6659,11 +8121,18 @@ void AfterFetch(void* sc) {
         std::memcpy(st.sentEntity[side], sentEntity[side], sizeof(sentEntity[side]));
         live[side].store(true, std::memory_order_release);
     }
-    for (int k = 0; k < 4; ++k) st.entityRot[k] = CyberpunkVR_PlayerEntityQuat[k];
+    st.frame=stepPoseInputs.frame;
+    if(st.frame.entity.valid) {
+        const auto q=st.frame.entity.rotation;
+        st.entityRot[0]=q.x;st.entityRot[1]=q.y;st.entityRot[2]=q.z;st.entityRot[3]=q.w;
+    } else for (int k = 0; k < 4; ++k) st.entityRot[k] = CyberpunkVR_PlayerEntityQuat[k];
     for (int k = 0; k < 3; ++k) st.origin[k] = origin[k];
     for (int side = 0; side < 2; ++side) {
         st.touching[side] = st.valid[side] && now < touchUntil[side];
         st.onWorld[side] = st.touching[side] && onWorld[side];
+        st.riding[side] = st.valid[side] && frameRiding[side];
+        st.gripRevision[side]=sentGripRevision[side];
+        st.motor[side]=motorProbes[side];
         if (!st.valid[side]) continue;
         At<void (*)(void*, float*)>(actor[side], kGetLinearVelocity)(actor[side], st.vel[side]);
         At<void (*)(void*, float*)>(actor[side], kGetAngularVelocity)(actor[side], st.spin[side]);
@@ -6685,10 +8154,10 @@ void AfterFetch(void* sc) {
     steps.Write(st);
     stepsSeen.fetch_add(1, std::memory_order_relaxed);
     if (stepped) SetEvent(stepped);
-    // the world round the player for the fingers, a slice a step, while a hand is on
+    // One shared static slice, even if climbing is the only consumer (finger conformance off).
     Settings s{};
     settings.Read(s);
-    if (s.fingers && penetration && (st.valid[0] || st.valid[1])) NearSlice(sc, origin);
+    if ((s.fingers || s.climb) && penetration && (st.valid[0] || st.valid[1])) NearSlice(sc, origin);
     if (st.valid[0] || st.valid[1]) LooseSlice(sc, origin);
     Charge(afterUs, afterMostUs, t0);
 }
@@ -6902,6 +8371,22 @@ void VRPhysHandsGrabStyle(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bo
     stack->code++;
     cvr::physhands::SetGrabStyle(side, owner, style);
     if (out) *out = side == 0 || side == 1;
+}
+
+void VRPhysHandFrame(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,RED4ext::DynArray<RED4ext::Vector4>* out,int64_t) {
+    int32_t side=-1;RED4ext::GetParameter(stack,&side);stack->code++;
+    if(!out)return;out->Clear();float rows[9][4]{};
+    if(!cvr::physhands::ScriptHandFrame(side,rows))return;
+    for(const auto& row:rows)out->EmplaceBack(RED4ext::Vector4{row[0],row[1],row[2],row[3]});
+}
+
+// [active, stable proxy ID, body index, age ms, exact anchor error micrometres].
+// First four fields retain their old meaning; UINT64_MAX is invalid contact data.
+void VRPhysHeldBody(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,RED4ext::DynArray<uint64_t>* out,int64_t) {
+    int32_t side=-1;RED4ext::GetParameter(stack,&side);stack->code++;
+    if(!out)return;out->Clear();uint64_t fields[5]{};
+    cvr::physhands::HeldBodyState(side,fields);
+    for(uint64_t value:fields)out->EmplaceBack(value);
 }
 
 void VRPhysHandsPeople(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {

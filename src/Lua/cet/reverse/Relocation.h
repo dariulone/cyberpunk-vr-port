@@ -9,6 +9,12 @@
 #include <RED4ext/Common.hpp>
 #include <RED4ext/Detail/Memory.hpp>
 
+// The Rust build's DLL resolves through its own resolver (include/Core/PortAddressResolver.hpp, also force-included):
+// one override for every file, not CET's version.dll beside it. Included here as well, since the precompiled header
+// comes before the force-included one.
+#if defined(CVR_RUST_VRIK) && CVR_RUST_VRIK
+#include "../../../../include/Core/PortAddressResolver.hpp"
+#else
 template<>
 struct RED4ext::Detail::AddressResolverOverride<uint32_t> : std::true_type
 {
@@ -66,3 +72,4 @@ struct RED4ext::Detail::AddressResolverOverride<uint32_t> : std::true_type
         return reinterpret_cast<uintptr_t>(address);
     }
 };
+#endif

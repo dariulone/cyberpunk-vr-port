@@ -1,9 +1,16 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // ProjStage -- one hook, one file. It registers itself at the bottom; Hooks/Hook.hpp says why the
 // stage and order live here rather than in a boot function.
 //
 // The projection staging copy, one of the four sites that carry FOV and aspect into the
 // engine's projection block.
 
+#include "Hooks/Hook.hpp"
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/proj_stage.rs: the same stub and callback.
+extern "C" bool cvr_hook_proj_stage_install();
+CVR_HOOK("ProjStage", ::cvr::hooks::Stage::Boot, 55, cvr_hook_proj_stage_install);
+#else
 #include "Core/VrCoreShared.hpp"
 #include "Core/LiveControls.hpp"
 #include "Core/Telemetry.hpp"
@@ -170,3 +177,5 @@ bool InstallProjStageHook() {
     return true;
 }
 CVR_HOOK("ProjStage", ::cvr::hooks::Stage::Boot, 55, InstallProjStageHook);
+#endif
+#endif

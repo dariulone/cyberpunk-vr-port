@@ -1,6 +1,6 @@
 // Upscaler history mask of a camera scope's image surface (see lens_mask_ps.hlsl).
 //
-// The camera scope's surface (sight_reflex_ps, ImageScale -713.25 / -714.25 / -716.25)
+// The camera scope's surface (including the integrated displays)
 // shows the scope camera's own image, already accumulated over frames by the
 // camera source resolve. The surface writes no velocity, so the upscaler moved
 // its history with the world behind the scope: on a head turn it mixed in the
@@ -20,6 +20,6 @@ struct PSIn {
 };
 
 float main(PSIn IN) : SV_Target {
-    if (_29_m0[6].x != -713.25f && _29_m0[6].x != -714.25f && _29_m0[6].x != -716.25f) discard;
+    if (_29_m0[6].x != -713.25f && _29_m0[6].x != -714.25f && _29_m0[6].x != -716.25f && _29_m0[6].x != -717.25f) discard;
     return 1.0f;
 }

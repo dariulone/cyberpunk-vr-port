@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/DesktopMirror.hpp"
 
 #include "Render/ColorBlit.hpp"
@@ -8,6 +9,10 @@
 #include <mutex>
 #include <vector>
 #include <wrl/client.h>
+#if CVR_RUST_VRIK
+// The exports' tables are attached by rust/crates/cvr-render/src/export_attach.rs as the plugin loads;
+// nothing of this file remains in the Rust build.
+#else
 
 // Ported from the TofuExpress fork (2026-10-16). Changes against it: only the visible crop is copied
 // out of the backbuffer (about half the bytes on a tall render), and nothing at all is recorded while
@@ -413,3 +418,5 @@ void DesktopMirrorRender(IDXGISwapChain* swapChain, HWND hwnd) {
         if (!logged) { logged = true; Log("DesktopMirror: crop blit failed; the desktop shows the uncropped frame\n"); }
     }
 }
+#endif
+#endif

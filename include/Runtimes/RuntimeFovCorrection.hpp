@@ -19,6 +19,28 @@ struct RuntimeFovCorrection {
 
 inline constexpr float kRuntimeFovDeltaThresholdRad = 0.017000001f;
 
+#if CVR_RUST_ROOM
+// rust/crates/cvr-camera/src/projection.rs.
+extern "C" {
+void cvr_runtime_fov_correction(const XrFovf* left, const XrFovf* right, RuntimeFovCorrection* out);
+float cvr_corrected_game_horizontal_fov_deg(const RuntimeFovCorrection* corr);
+void cvr_panel_half_angles(const XrFovf* left, const XrFovf* right, float* halfH, float* halfV);
+float cvr_panel_covering_horizontal_fov_deg(const XrFovf* left, const XrFovf* right, float aspect);
+}
+static_assert(sizeof(RuntimeFovCorrection) == 44, "mirrored in rust/crates/cvr-camera/src/projection.rs");
+inline RuntimeFovCorrection ComputeRuntimeFovCorrection(const XrFovf& left, const XrFovf& right) {
+    RuntimeFovCorrection out{};
+    cvr_runtime_fov_correction(&left, &right, &out);
+    return out;
+}
+inline float GetCorrectedGameHorizontalFovDeg(const RuntimeFovCorrection& corr) { return cvr_corrected_game_horizontal_fov_deg(&corr); }
+inline void GetPanelHalfAngles(const XrFovf& left, const XrFovf& right, float* halfH, float* halfV) {
+    cvr_panel_half_angles(&left, &right, halfH, halfV);
+}
+inline float GetPanelCoveringHorizontalFovDeg(const XrFovf& left, const XrFovf& right, float aspect) {
+    return cvr_panel_covering_horizontal_fov_deg(&left, &right, aspect);
+}
+#else
 inline RuntimeFovCorrection ComputeRuntimeFovCorrection(const XrFovf& left, const XrFovf& right) {
     RuntimeFovCorrection out{};
     out.eye[0] = left;
@@ -116,3 +138,4 @@ inline float GetPanelCoveringHorizontalFovDeg(const XrFovf& left, const XrFovf& 
     const float deg = 2.0f * halfRad * (180.0f / 3.1415926535f);
     return (deg > 1.0f && deg < 170.0f) ? deg : 0.0f;
 }
+#endif

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build's tracer: rust/crates/cvr-render/src/setter_tracers.rs (registered in hook_table.rs)
 // NativeSetterMetaConsume -- one hook, one file. It registers itself at the bottom; Hooks/Hook.hpp says why the
 // stage and order are declared here rather than in a boot function.
 //
@@ -64,3 +65,4 @@ bool NativeSetterTracersWanted() { return kEnableNativeSetterTracers != 0; }
 }  // namespace
 
 CVR_HOOK_IF("NativeSetterMetaConsume", ::cvr::hooks::Stage::Boot, 96, InstallNativeSetterMetaConsumeHook, NativeSetterTracersWanted);
+#endif

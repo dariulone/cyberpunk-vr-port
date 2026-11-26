@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's checkpoint; the Rust build's is rust/crates/cvr-gpu/src/geometry_checkpoint.rs (the header calls it).
 #include "Render/GeometryTargetCheckpoint.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
@@ -107,3 +109,4 @@ const scene_state::GeometryTargets& GeometryTargetCheckpoint::Targets()const{
     static const scene_state::GeometryTargets empty;return Captured()?storage_->targets:empty;
 }
 }
+#endif

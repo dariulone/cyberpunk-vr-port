@@ -1,16 +1,31 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/OpticsProbe.hpp"
 #include <atomic>
 #include <mutex>
 #include <cstring>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_OpticsProbeState{0};
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsProbeWidth=0;
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsProbeHeight=0;
 __declspec(dllexport) uintptr_t CyberpunkVR_OpticsProbePixels=0;
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsProbeFormat=0;
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_OpticsProbeStage{0};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+
+#if CVR_RUST_VRIK
+// THE PROBE IS RUST'S (rust/crates/cvr-gpu/src/optics_probe.rs): the pending read, its copy, fence and readback, the
+// staged render target and the pixels. This file keeps the exports above (attached to Rust), the C++ names as
+// forwarders, and hands a request's texture lease over (given back through Rust when the probe is done with it).
+#else
 
 namespace cvr::optics::probe {
 namespace {
@@ -145,3 +160,5 @@ void Capture(ID3D12Device* device,ID3D12CommandQueue* queue) {
     pending.reset();CyberpunkVR_OpticsProbeState.store(3,std::memory_order_release);
 }
 }
+#endif
+#endif

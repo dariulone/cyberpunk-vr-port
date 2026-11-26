@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's policy; the Rust build's is rust/crates/cvr-render/src/indirect_policy.rs (the header calls it).
 #include "Render/NativeIndirectPolicy.hpp"
 #include "Render/NativeStereoProbe.hpp"
 #include "Render/RenderProbeScope.hpp"
@@ -22,3 +24,4 @@ UINT PureDrawStride(ID3D12CommandSignature* signature){return detail::PureDrawSt
 UINT DrawKind(ID3D12CommandSignature* signature){return detail::DrawKind(Describe(signature));}
 bool DrawIndexedOnly(ID3D12CommandSignature* signature){return DrawIndexedStride(signature)!=0;}
 }
+#endif

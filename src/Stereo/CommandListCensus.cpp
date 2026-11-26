@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Natives/MenuSurface.hpp"
 #include "Core/Paths.hpp"
 #include "Utils/DebugGate.hpp"
@@ -87,9 +88,17 @@
 #include "Stereo/StereoPairProbe.hpp"
 #include "Stereo/SinglePass.hpp"
 
+#if !CVR_RUST_VRIK
 namespace cvr {
+#endif
+#if !CVR_RUST_VRIK
 namespace detail {
+#endif
 
+#if CVR_RUST_VRIK
+// THE CENSUSES ARE RUST'S (rust/crates/cvr-render/src/census_probes.rs), called by the detours in
+// rust/crates/cvr-render/src/list_detours.
+#else
 static void light_dst_note(void* dst, uint64_t size, uint32_t bytes, bool vrcam) {
     if (!dst || size > 4096) return;          // constant buffers only; the big arrays are noise
     uint32_t i = 0;
@@ -172,6 +181,7 @@ static void light_census_report() {
     }
     log("[lights] constant-buffer destinations (<=4KB): %s", dl);
 }
+#endif
 
 // ---- name the node behind each compute dispatch -------------------------------------------
 // The night capture pinned the defect to one constant block: the pass at PSO 926 gets six
@@ -183,7 +193,12 @@ static void light_census_report() {
 // render resolution over 16 in both axes. Recording the node RVA for every distinct
 // (groupX, groupY) per view names it in one run -- and gives the same table for every other
 // compute pass for free.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DispatchCensus = 1;   // OFF: [dispatch] per-node dispatch census
+#endif
+#if !CVR_RUST_VRIK
 struct DispatchBin { uint32_t node_rva, gx, gy, gz; uint32_t hits[2]; };
 static std::array<DispatchBin, 96> g_disp_bins{};
 static uint32_t g_disp_bin_n = 0;
@@ -262,9 +277,15 @@ static void dispatch_census_report() {
         mn, an, mo);
     log("[disp] nodes that dispatch for VRCAM and NEVER for MAIN (%d): %s", vn, vo);
 }
+#endif
 
 // OFF -- the light arrays are byte-identical between the views.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_LightContent = 0;
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint64_t LIGHT_SNAP_MAX = 64 * 1024;
 static std::mutex g_lc_mtx;
 static uint8_t  g_lc_buf[2][LIGHT_SNAP_MAX];
@@ -352,6 +373,7 @@ static void light_content_report() {
     }
     log("[lightbuf] first records %s", r0);
 }
+#endif
 
 // ---- is the two views' auto-exposure the same? ---------------------------------------------
 // The lighting output has the lamps in BOTH views (checked in the capture), and every node after
@@ -374,9 +396,18 @@ static void light_content_report() {
 // the second view is refused, so its exposure is a standing number that cannot flash. At 8 s a
 // line the flash falls between two samples and the log shows only the standing difference; at
 // 200 ms the ramp itself is in the log, field by field, for both views.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ExpoProbe = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float   CyberpunkVR_DebugExpoValMain  = 0.f;
 extern "C" __declspec(dllexport) float   CyberpunkVR_DebugExpoValVrcam = 0.f;
+#endif
+#if !CVR_RUST_VRIK
 static ID3D12Resource* g_expo_rb[3] = {};
 static uint8_t*        g_expo_rb_map[3] = {};
 
@@ -404,6 +435,7 @@ static bool expo_rb_ensure(int v) {
     g_expo_rb_map[v] = static_cast<uint8_t*>(m);
     return true;
 }
+#endif
 
 // ---- THE CLOUD BRIGHTNESS, and why it is only the clouds ------------------------------------
 //
@@ -454,6 +486,9 @@ static bool expo_rb_ensure(int v) {
 //
 // It only started working once the buffer stopped being identified by t_vrcam_node_active; see
 // the note at the classification in Capture.cpp.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_ExpoMirror = 1;
 
 // WHICH OF THE SEVEN FLOATS, and the measurement that chose them.
@@ -501,7 +536,13 @@ extern "C" __declspec(dllexport) int32_t  CyberpunkVR_ExpoMirror = 1;
 //
 // 25 = f0|f3|f4 (the multiplier, its reciprocal and its previous value), 9 = the bare f0|f3 pair.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ExpoFieldMask = 127;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExpoMirrors = 0;
+#endif
+#if !CVR_RUST_VRIK
 static ID3D12Resource* g_expo_stage = nullptr;
 // False until MAIN's exposure has actually been parked in it. Without this the very first
 // frames copy an uninitialised buffer into the second view, and -- worse -- any frame in
@@ -633,6 +674,7 @@ static bool expo_stage_ensure() {
             (unsigned long long)now,o[0],o[1],o[2],o[3],o[4],o[5],o[6]);
     }
 }
+#endif
 
 // ---- does the light cull actually FILL the tile grid for VRCAM? ----------------------------
 // The lamp's own emissive surface shows in both views; the light it casts does not -- no red
@@ -644,9 +686,17 @@ static bool expo_stage_ensure() {
 // OFF -- the per-tile grids read equal once the readback was finally synchronised.
 // DEFAULT 0. The comment above already said OFF while the value said 1, which is how it kept
 // running: a GetDesc and a readback copy on barriers, for a question closed long ago.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_TileProbe = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTileNonzeroMain  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTileNonzeroVrcam = 0;
+#endif
 
 // One signature matches several different integer grids, and the first version silently mixed
 // them: MAIN reported a stable 160x160 (max 5, i.e. a per-tile light COUNT) while VRCAM reported
@@ -658,6 +708,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTileNonzeroVrcam = 0;
 // is how MAIN's grid read full in one run and empty in the next while the symptom never moved.
 // Three buffers, written round-robin, and only the OLDEST is read: by then two more copies have
 // been recorded behind it, so the one being read is long since retired.
+#if !CVR_RUST_VRIK
 struct TileGrid {
     uint32_t w, h, pitch;
     DXGI_FORMAT fmt;
@@ -806,6 +857,7 @@ static void tile_scan(TileGrid& t) {
         log("[tile] %-5s grids: %s", v ? "VRCAM" : "MAIN", u ? line : "(none)");
     }
 }
+#endif
 
 // ---- how many lights does each view's cull actually output? --------------------------------
 // The capture shows both views clearing and filling the SAME persistent UAV buffers for the
@@ -819,7 +871,12 @@ static void tile_scan(TileGrid& t) {
 // Read off a UAV barrier, not a transition: this counter never changes state, it stays in
 // UNORDERED_ACCESS, so the copy brackets it explicitly from a state we know rather than guess.
 // OFF -- the 20-byte counters it found were indirect-draw args, now understood.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_CullCountProbe = 1;
+#endif
+#if !CVR_RUST_VRIK
 struct CullCnt {
     ID3D12Resource* res;
     ID3D12Resource* rb[3];
@@ -924,6 +981,7 @@ static CullCnt* cull_slot(ID3D12Resource* res, uint32_t bytes) {
     log("[cull] small UAV counters (shared ones carry both m and v): %s%s", line,
         both ? "" : "  [no counter seen by both views yet]");
 }
+#endif
 
 // ---- the work the Dispatch census could never see -------------------------------------------
 // The lighting is issued through ExecuteIndirect, which is vtable slot 59 -- an entirely
@@ -946,7 +1004,13 @@ static CullCnt* cull_slot(ID3D12Resource* res, uint32_t bytes) {
 // the SECOND VIEW replays a frame-graph node whose argument resource has not been rebuilt, and
 // MAIN never does. What is missing is the node's name. This census holds exactly that -- node
 // RVA against per-view hit counts -- so arming it during a session that crashes names it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_IndirectCensus = 0;   // [indirect] ExecuteIndirect census
+#endif
+#if CVR_RUST_VRIK
+#else
 struct IndirectBin { uint32_t node_rva; void* sig; uint64_t hits[2]; };
 static std::array<IndirectBin, 64> g_ind{};
 static uint32_t g_ind_n = 0;
@@ -981,6 +1045,7 @@ static void indirect_report() {
     log("[indirect] node/signature pairs MAIN issues and VRCAM never: %s", mu ? mo : "(none)");
     log("[indirect] node/signature pairs VRCAM issues and MAIN never: %s", vu ? vo : "(none)");
 }
+#endif
 
 // ---- which PSO draws the holographic sight ---------------------------------------------------
 // The reticle is a 6-index instanced quad (PipelineState_29513 in the capture, Forward_NoTXAA,
@@ -990,6 +1055,9 @@ static void indirect_report() {
 // bytecode hash is, being a hash of the bytes themselves.
 //
 // This pass only NAMES it. Nothing is substituted yet and no rendering changes.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_PsoProbe = 1;   // OFF: both hashes are
 // known and hardcoded now, and this runs on every 6-index instanced draw -- of which a menu
 // issues tens of thousands. Set to 1 to re-identify a shader.
@@ -1009,12 +1077,40 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_SightPsHash = 0xEE25C03C35
 // container -- shader model, input signature and whether this is DXBC or a DXIL blob decide
 // whether it is fxc or dxc that has to compile it. Guessing that would waste a build.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightPsDump = 1;   // one-shot, long done
+#endif
+#if CVR_RUST_VRIK
+#else
 struct SightVs { uint64_t hash; std::vector<uint8_t> bytes; bool written = false; };
 static std::vector<SightVs> g_sight_vs;
 static std::mutex g_sight_vs_mtx;
+#endif
 // Published by the DRAW: the vertex shader the sight actually runs with.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSightVsUsed = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// THE DETOURS ARE RUST'S (rust/crates/cvr-render/src/list_detours; the pipeline and sight probes and the address maps:
+// rust/crates/cvr-render/src/census_pso.rs). What stays are the census' forwarders other files call and the list
+// resets Dlss.cpp and the swap chain make.
+#else
+#if CVR_RUST_VRIK
+// THE PIPELINE AND SIGHT PROBES AND THE ADDRESS MAPS ARE RUST'S (rust/crates/cvr-render/src/census_pso.rs).
+extern "C" {
+uint64_t cvr_census_fnv1a(const void* p, size_t n);
+void cvr_census_sight_ps_dump(const void* bytes, size_t len, const char* name);
+void cvr_census_pso_ids_record(void* pso, const D3D12_SHADER_BYTECODE* ps, const D3D12_SHADER_BYTECODE* vs);
+uint64_t cvr_census_pso_ps(ID3D12PipelineState* pso);
+void cvr_census_draw_probe(ID3D12PipelineState* pso);
+uint64_t cvr_census_sight_note(ID3D12PipelineState* pso, uint32_t rva, bool vrcam);
+void cvr_census_buf_note(ID3D12Resource* res, uint64_t va, uint64_t size);
+void cvr_census_filled_note(ID3D12Resource* dst, uint64_t dst_off, uint64_t bytes, const uint8_t* cpu);
+const uint8_t* cvr_census_filled_cpu_for_va(uint64_t va, uint64_t need);
+}
+void sight_ps_dump(const void* bytes, size_t len, const char* name) { cvr_census_sight_ps_dump(bytes, len, name); }
+#else
 // The dump's path in the log folder, kept out of sight_ps_dump: that one has __try, which takes no objects.
 static bool sight_dump_path(char (&path)[MAX_PATH], const char* name) {
     return strcpy_s(path, cvr::paths::FileA(cvr::paths::Folder::Log, name).c_str()) == 0;
@@ -1045,19 +1141,35 @@ static bool sight_dump_path(char (&path)[MAX_PATH], const char* name) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { tags[u] = 0; }
     log("[pso] sight shader dumped %zu bytes -> %s   chunks: %s", len, path, tags);
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 struct PsoIds { uint64_t ps, vs; uint32_t ps_len, vs_len; };
 static std::unordered_map<void*, PsoIds> g_pso_ids;
 static std::mutex g_pso_ids_mtx;
+#endif
 static thread_local ID3D12PipelineState* t_current_pso = nullptr;
 // Draw probe: the shaders of the draws with this many indices (one chunk of a known mesh), to find a
 // material's pipelines live -- the hash and the length name the shader in the game's shader cache
 // (tools/asym_tests/extract_shader_cache.py hashes the same bytes). Up to four pixel shaders, first
 // seen first. 0: off.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern std::atomic<uint32_t> CyberpunkVR_DrawProbeIndices;
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_DrawProbeIndices{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DrawProbePs[4] = {};
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DrawProbeVs[4] = {};
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DrawProbePsLen[4] = {};
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DrawProbeHits{0};
+#endif
+#if CVR_RUST_VRIK
+static void draw_probe(ID3D12PipelineState* pso) { cvr_census_draw_probe(pso); }
+#else
 static std::mutex g_draw_probe_mtx;
 static void draw_probe(ID3D12PipelineState* pso) {
     PsoIds ids{};
@@ -1079,6 +1191,7 @@ static void draw_probe(ID3D12PipelineState* pso) {
         }
     }
 }
+#endif
 // Which dispatch inside the vision node is the outline generator, and where that count stands.
 // WHICH 384x384 DISPATCH IN THE NODE IS THE OUTLINE: the third, ordinal 2. Established on the
 // picture, not by reasoning -- with the shader forced to write RED while keeping the alpha it
@@ -1086,6 +1199,12 @@ static void draw_probe(ID3D12PipelineState* pso) {
 // the frame out (it writes the frame's colour) and 1 changed nothing. It agrees with the capture's
 // own event list, where the outline dispatch (event 44898, PipelineState_917) is the third of the
 // five 384x384 dispatches recorded into the PostFX list.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_VisionCsOrd;
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_VisionCsDim;
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_VisionCsNode;
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionCsOrd = 2;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionCsDim = 384;
 // The node whose square dispatch draws the outline, measured by [viscs] rather than remembered: the
@@ -1094,12 +1213,19 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionCsDim = 384;
 // 0xFFFFFFFF = do not filter by node at all, which is the shipping value: see the note at the
 // selection itself. A concrete RVA is still accepted, for narrowing a measurement by hand.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VisionCsNode = 0xFFFFFFFFu;
+#endif
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_VisionCsSwap;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVisionCsSwaps;
 std::atomic<ID3D12RootSignature*> g_last_compute_rootsig{nullptr};
 static thread_local uintptr_t t_vis_swap_node = 0;
 static thread_local int32_t   t_vis_swap_ord = 0;
 
+#if CVR_RUST_VRIK
+uint64_t fnv1a(const void* p, size_t n) { return cvr_census_fnv1a(p, n); }
+void pso_ids_record(void* pso, const D3D12_SHADER_BYTECODE& ps, const D3D12_SHADER_BYTECODE& vs) {
+    cvr_census_pso_ids_record(pso, &ps, &vs);
+}
+#else
  uint64_t fnv1a(const void* p, size_t n) {
     const uint8_t* b = static_cast<const uint8_t*>(p);
     uint64_t h = 1469598103934665603ull;
@@ -1168,9 +1294,17 @@ static thread_local int32_t   t_vis_swap_ord = 0;
     std::lock_guard<std::mutex> lk(g_pso_ids_mtx);
     if (g_pso_ids.size() < 65536) g_pso_ids[pso] = ids;
 }
+#endif
 
 // Candidates, tallied. The sight draws exactly ONCE per view per frame, so the row whose hit
 // count tracks the frame count is it -- the tally is the check, not a guess from one sighting.
+#if CVR_RUST_VRIK
+static uint64_t sight_note(bool vrcam) {
+    const uintptr_t base = reinterpret_cast<uintptr_t>(g_exe_base);
+    const uintptr_t work = t_current_node_work;
+    return cvr_census_sight_note(t_current_pso, (base && work > base) ? static_cast<uint32_t>(work - base) : 0, vrcam);
+}
+#else
 struct SightCand { uint64_t ps; uint32_t node_rva, ps_len; uint64_t hits[2]; };
 static std::array<SightCand, 32> g_sight{};
 static uint32_t g_sight_n = 0;
@@ -1239,6 +1373,7 @@ static uint64_t sight_note(bool vrcam) {
     sight_report();
     return ids.ps;
 }
+#endif
 
 // The instance buffer sits on a DEFAULT heap -- the first read attempt reported exactly that --
 // so it cannot be mapped. But the engine FILLS it with CopyBufferRegion from an upload buffer,
@@ -1249,6 +1384,13 @@ static uint64_t sight_note(bool vrcam) {
 // carries must be resolved to a resource. There is no API for that, so buffers are recorded as
 // they are created. Buffers are exempt from D3D12's state rules (always effectively COMMON, with
 // implicit promotion), so the copy below needs no barriers on the engine's resource at all.
+#if CVR_RUST_VRIK
+void buf_note(ID3D12Resource* res, uint64_t va, uint64_t size) { cvr_census_buf_note(res, va, size); }
+static void filled_note_guarded(ID3D12Resource* dst, uint64_t dst_off, uint64_t bytes, const uint8_t* cpu) {
+    cvr_census_filled_note(dst, dst_off, bytes, cpu);
+}
+const uint8_t* filled_cpu_for_va(uint64_t va, uint64_t need) { return cvr_census_filled_cpu_for_va(va, need); }
+#else
 struct BufRange { uint64_t va; uint64_t size; ID3D12Resource* res; };
 static std::array<BufRange, 512> g_bufs{};
 static std::atomic<uint32_t> g_bufs_n{0};
@@ -1301,6 +1443,7 @@ static void filled_note_guarded(ID3D12Resource* dst, uint64_t dst_off, uint64_t 
         if (f.cpu && va >= f.va && va + need <= f.va + f.bytes) return f.cpu + (va - f.va);
     return nullptr;
 }
+#endif
 
 // The instance stream, per recording thread.
 static thread_local uint64_t t_inst_va = 0;
@@ -1308,7 +1451,12 @@ static thread_local uint32_t t_inst_stride = 0;
 // OFF: a GetGPUVirtualAddress() call and a mutex on every CopyBufferRegion, every descriptor
 // table bind and every resource creation -- thousands a frame. It answered its question; the
 // cost it leaves behind is uneven frame time.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_SightAxisProbe;
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightAxisProbe = 1;
+#endif
 
  void STDMETHODCALLTYPE hk_IASetVertexBuffers(ID3D12GraphicsCommandList* self,
         UINT start, UINT num, const D3D12_VERTEX_BUFFER_VIEW* views) {
@@ -1327,6 +1475,21 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightAxisProbe = 1;
 // Decode the sight's world orientation for this view and print it once. The three rows are the
 // instance rotation; the optical axis is the one the vertex shader picks -- the thin bounding-box
 // axis -- so printing all three lets the two views be compared directly.
+#if CVR_RUST_VRIK
+// THE SIGHT AXIS, THE LUT LEND AND THE DRAW AND CASCADE CENSUSES ARE RUST'S
+// (rust/crates/cvr-render/src/census_draws.rs).
+extern "C" {
+void cvr_census_sight_axis_drain();
+void cvr_census_sight_axis_readback(ID3D12GraphicsCommandList* list, bool vrcam, UINT sinst, uint64_t va);
+void cvr_census_sight_axis_note(bool vrcam, UINT sinst, uint64_t inst_va, uint32_t inst_stride);
+uint64_t cvr_census_lut_src_bind(UINT index, uint64_t handle, int32_t side, uintptr_t work, uintptr_t base);
+void cvr_census_draw_note(uint32_t rva, bool vrcam);
+void cvr_census_cascade_note(UINT idx, UINT inst, UINT sinst, bool vrcam);
+void cvr_census_cascade_report();
+void cvr_census_cascade_draw_seen(uintptr_t work, uintptr_t base, int32_t side);
+}
+static void sight_axis_drain() { cvr_census_sight_axis_drain(); }
+#else
 static ID3D12Resource* g_axis_rb[2] = {nullptr, nullptr};
 static void* g_axis_map[2] = {nullptr, nullptr};
 static std::atomic<int> g_axis_state[2] = {};       // 0 idle, 1 copy recorded, 2 reported
@@ -1363,13 +1526,24 @@ static void sight_axis_drain() {
             static_cast<int32_t>(u[11]) * kFp);
     }
 }
+#endif
 
 // Re-arm both slots at once, every few seconds. Sampling the two views in DIFFERENT frames
 // would let the weapon's own sway (centimetres) drown the 65 mm we are looking for; re-arming
 // them together keeps each pair one frame apart at worst, and repeating it makes a one-off
 // coincidence visible as noise instead of being mistaken for the answer.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightAxisRepeatMs = 4000;
+#endif
 
+#if CVR_RUST_VRIK
+static void sight_axis_readback(ID3D12GraphicsCommandList* list, bool vrcam, UINT sinst, uint64_t va) {
+    cvr_census_sight_axis_readback(list, vrcam, sinst, va);
+}
+static void sight_axis_note(bool vrcam, UINT sinst) { cvr_census_sight_axis_note(vrcam, sinst, t_inst_va, t_inst_stride); }
+#else
 static void sight_axis_readback(ID3D12GraphicsCommandList* list, bool vrcam, UINT sinst,
                                 uint64_t va) {
     const int v = vrcam ? 1 : 0;
@@ -1440,6 +1614,7 @@ static void sight_axis_note(bool vrcam, UINT sinst) {
         vrcam ? "VRCAM" : "MAIN", sinst,
         r[0], r[1], r[2], r[4], r[5], r[6], r[8], r[9], r[10]);
 }
+#endif
 
 
 // A list Reset starts a new recording: the ordinal and the pending table mask both belong to the
@@ -1496,11 +1671,22 @@ void vision_swap_list_reset() {
 // whatever the recycled handles held by then. So a table is lent only while it is ONE build old:
 // MAIN must have built its LUT since the second view's previous build. Otherwise the second view
 // builds from its own table that frame -- its own grade for a frame instead of garbage.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_LutSrcLend;
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_LutSrcLend      = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLutSrcLearn = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLutSrcLend  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLutSrcStale = 0;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 namespace {
 std::atomic<uint64_t> g_lut_src_tbl[8]{};
 std::atomic<uint64_t> g_lut_main_builds{0};          // MAIN's LUT builds so far
@@ -1528,11 +1714,16 @@ void lut_src_build_begin() {
         }
     }
 }
+#endif
 
  void STDMETHODCALLTYPE hk_SetComputeRootDescriptorTable(ID3D12GraphicsCommandList* self,
         UINT index, D3D12_GPU_DESCRIPTOR_HANDLE handle) {
     const CommandListVtableHook* e = command_list_hook_entry(self);
     if (!e || !e->crootdt_original) return;
+#if CVR_RUST_VRIK
+    handle.ptr = cvr_census_lut_src_bind(index, handle.ptr, t_view_side, t_current_node_work,
+                                         reinterpret_cast<uintptr_t>(g_exe_base));
+#else
     if (CyberpunkVR_LutSrcLend && g_exe_base && index < 8 &&
         t_current_node_work == reinterpret_cast<uintptr_t>(g_exe_base) + TONEMAP_LUT_RVA) {
         if (t_view_side == 0) {
@@ -1548,6 +1739,7 @@ void lut_src_build_begin() {
             }
         }
     }
+#endif
     e->crootdt_original(self, index, handle);
     cvr::stereo::scene_state::ComputeTable(self,index,handle);
 }
@@ -1568,7 +1760,21 @@ void lut_src_build_begin() {
 }
 
 // ---- draw census: which nodes draw for one view and never for the other ---------------------
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_DrawCensus;
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DrawCensus = 1;   // OFF: [draw] per-node draw census + imbalance
+#endif
+#if CVR_RUST_VRIK
+static void draw_census_note(bool vrcam) {
+    if (!g_exe_base) return;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(g_exe_base);
+    const uintptr_t work = t_current_node_work;
+    if (work <= base) return;
+    cvr_census_draw_note(static_cast<uint32_t>(work - base), vrcam);
+}
+#else
 struct DrawBin { uint32_t node_rva; uint64_t hits[2]; };
 static std::array<DrawBin, 96> g_draw{};
 static uint32_t g_draw_n = 0;
@@ -1646,6 +1852,7 @@ static void draw_census_note(bool vrcam) {
     }
     draw_census_report();
 }
+#endif
 
 // ---- WHAT EACH VIEW PUTS INTO ITS OWN SHADOW CASCADE -------------------------------------------
 //
@@ -1672,7 +1879,18 @@ static void draw_census_note(bool vrcam) {
 // running totals from different seconds do not.
 // DEFAULT 0: it counted every cascade draw in the frame and its job is done (the two views draw the
 // same casters, 94002 against 94004). Kept for repeating that measurement.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_CascadeCensus;
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_CascadeCensus = 0;
+#endif
+#if CVR_RUST_VRIK
+namespace {
+void cascade_note(UINT idx, UINT inst, UINT sinst, bool vrcam) { cvr_census_cascade_note(idx, inst, sinst, vrcam); }
+void cascade_report() { cvr_census_cascade_report(); }
+}  // namespace
+#else
 namespace {
 std::atomic<uint64_t> g_casc_draws[2];
 std::atomic<uint64_t> g_casc_inst[2];
@@ -1708,14 +1926,29 @@ void cascade_report() {
         (unsigned long long)hm, (unsigned long long)hv);
 }
 }  // namespace
+#endif
 
 // Optional per-side cascade census. It observes native draws without dropping them.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_CascSideCensus;
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_CascSideCensus = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascadeDrawsSide0 = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascadeDrawsSide1 = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascadeDrawsSideX = 0;
+#endif
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugCaptureMarkers;
 
+#if CVR_RUST_VRIK
+static void cascade_draw_seen() {
+    cvr_census_cascade_draw_seen(t_current_node_work, reinterpret_cast<uintptr_t>(g_exe_base), t_view_side);
+}
+#else
 static void cascade_draw_seen() {
     if (!cvr::RuntimeDiagnosticsEnabled() || !CyberpunkVR_CascSideCensus || !g_exe_base ||
         t_current_node_work != reinterpret_cast<uintptr_t>(g_exe_base) + CASCADE_NODE_RVA) return;
@@ -1725,6 +1958,7 @@ static void cascade_draw_seen() {
                         : reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugCascadeDrawsSideX);
     InterlockedIncrement64(slot);
 }
+#endif
 
 // ---- VIEW AND NODE MARKERS, so a capture labels itself -------------------------------------------
 //
@@ -1760,8 +1994,14 @@ static void cascade_draw_seen() {
 // the game's own command lists -- and a camera feed or a monitor is an EXTRA view (it classifies as
 // neither-eye), so each active one multiplies the marker count. Turn it on for a capture; it has no
 // business costing frame time in play.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_CaptureMarkers;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugCaptureMarkers;
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CaptureMarkers = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCaptureMarkers = 0;
+#endif
 extern "C" __declspec(dllexport) const char* CyberpunkVR_ProfNodeName(uint32_t rva);
 
 namespace {
@@ -1989,10 +2229,17 @@ extern "C" void RegisterGameFacingListVtable(ID3D12Device* device) {
 
 // Single-pass ceiling probe (Render/GeometryCostProbe.hpp). Off unless the live measurement script
 // writes the control; every native draw otherwise pays one relaxed load.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern std::atomic<uint32_t> CyberpunkVR_GeometryCostProbe, CyberpunkVR_GeometryCostNode;
+extern "C" __declspec(dllexport) extern std::atomic<uint64_t> CyberpunkVR_GeometryCostHits;
+extern "C" __declspec(dllexport) extern std::atomic<uint64_t> CyberpunkVR_GeometryCostPso;
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryCostProbe{0},CyberpunkVR_GeometryCostNode{0};
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_GeometryCostHits{0};
 // Optional: only draws with this pipeline (0 = any).
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_GeometryCostPso{0};
+#endif
 thread_local cvr::stereo::geometry_cost::ScissorState t_geometry_cost_scissor;
 // The recording thread's last viewport, for the eye bits (engine stereo: both eyes' halves in one target).
 thread_local const void* t_geometry_cost_viewport_list{};
@@ -2198,12 +2445,16 @@ static void lens_mask(ID3D12GraphicsCommandList* self,const CommandListVtableHoo
         // Only for the sight's own pixel shader, so the many other 6-index quads cost nothing.
         ID3D12PipelineState* pso = t_current_pso;
         if (pso) {
+#if CVR_RUST_VRIK
+            const uint64_t ps = cvr_census_pso_ps(pso);
+#else
             uint64_t ps = 0;
             {
                 std::lock_guard<std::mutex> lk(g_pso_ids_mtx);
                 auto it = g_pso_ids.find(pso);
                 if (it != g_pso_ids.end()) ps = it->second.ps;
             }
+#endif
             if (ps == CyberpunkVR_SightPsHash) {
                 sight_axis_note(t_vrcam_node_active, sinst);
                 sight_axis_readback(self, t_vrcam_node_active, sinst,
@@ -2248,8 +2499,14 @@ static void lens_mask(ID3D12GraphicsCommandList* self,const CommandListVtableHoo
 
 // [EI-DIAG] How often this hook drops the game's draw, and how often it declines to issue one that
 // would kill the process. Exported so they can be read without waiting for a log line.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugEiNoEntry;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugEiNullArgs;
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEiNoEntry = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEiNullArgs = 0;
+#endif
 
  void STDMETHODCALLTYPE hk_ExecuteIndirect(ID3D12GraphicsCommandList* self,
         ID3D12CommandSignature* sig, UINT maxCount, ID3D12Resource* args, UINT64 argOff,
@@ -2333,6 +2590,9 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEiNullArgs = 0;
     const uintptr_t work = t_current_node_work;
     if (work <= base) return;
     const uint32_t rva = static_cast<uint32_t>(work - base);
+#if CVR_RUST_VRIK
+    cvr_census_indirect_note(rva, sig, t_vrcam_node_active);
+#else
     const int v = t_vrcam_node_active ? 1 : 0;
     {
         std::lock_guard<std::mutex> lk(g_ind_mtx);
@@ -2345,6 +2605,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEiNullArgs = 0;
         ++g_ind[i].hits[v];
     }
     indirect_report();
+#endif
 }
 
 // ---- which node builds the colour-grading tables? -------------------------------------------
@@ -2362,7 +2623,16 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEiNullArgs = 0;
 //
 // This probe exists only to name the node, so CyberpunkVR_NodeCutSet can target it without
 // another rebuild. Cubic thread-group shapes are rare enough to be a clean filter.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_VolumeNodeProbe;
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VolumeNodeProbe = 1;   // OFF: cubic-dispatch (volume/LUT) probe
+#endif
+#if CVR_RUST_VRIK
+extern "C" void cvr_cl_volume_node_note(uint32_t, UINT, bool);   // rust/crates/cvr-render/src/volume_node_census.rs
+static void volume_node_note(uint32_t rva, UINT n, bool vrcam) { cvr_cl_volume_node_note(rva, n, vrcam); }
+#else
 static void volume_node_note(uint32_t rva, UINT n, bool vrcam) {
     struct Seen { uint32_t rva, n; uint8_t views; };
     static std::array<Seen, 16> s_seen{};
@@ -2391,6 +2661,7 @@ static void volume_node_note(uint32_t rva, UINT n, bool vrcam) {
     }
     log("[volnode] cubic dispatches, node:shape(views): %s", line);
 }
+#endif
 
  void STDMETHODCALLTYPE hk_Dispatch(ID3D12GraphicsCommandList* self,
         UINT x, UINT y, UINT z) {
@@ -2653,6 +2924,12 @@ void STDMETHODCALLTYPE probe_CopyTextureRegion(ID3D12GraphicsCommandList* self,c
         }
     }
 }
+#endif
 
+#if !CVR_RUST_VRIK
 }  // namespace detail
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace cvr
+#endif
+#endif

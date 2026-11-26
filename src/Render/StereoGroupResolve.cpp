@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's resolve; the Rust build's is rust/crates/cvr-gpu/src/group_resolve.rs (the header calls it).
 #include "Render/StereoGroupResolve.hpp"
 #include "Render/CommandResources.hpp"
 #include <d3dcompiler.h>
@@ -89,3 +91,4 @@ void StereoGroupResolve::Record(ID3D12GraphicsCommandList* list,UINT eye,UINT st
     for(UINT i=first;i<4;++i)std::swap(barriers[i].Transition.StateBefore,barriers[i].Transition.StateAfter);list->ResourceBarrier(4-first,barriers+first);
 }
 }
+#endif

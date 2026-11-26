@@ -1,10 +1,13 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // Inject displacement at the already-buffered native CCT boundary. The original
 // move owns contacts, steps, gravity, backend velocity and entity propagation.
+//
+// THE MOVE IS RUST'S with CVR_RUST_VRIK (rust/crates/cvr-rig/src/vrik/roomscale_move.rs): this file then keeps only the
+// registration (so the install order holds), and cvr::roomscale::* forwards from
+// src/Hooks/RoomscaleRust.cpp. The capsule tweak is src/Hooks/RoomscaleTweaks.cpp in both builds. The C++ below reaches
+// the rest of the plugin through src/Hooks/HookServices.cpp's C forms where tools/vrik_tests must stand in for it.
 #include "Hooks/RoomscaleMove.hpp"
-#include "Runtimes/BodyDeadZones.hpp"
-#include "Runtimes/HybridBodyYaw.hpp"
-#include "Runtimes/LookDownCone.hpp"
 #include "Hooks/BodyHeading.hpp"
 #include "Hooks/RoomscaleSites.hpp"
 #include "Hooks/RoomscaleEligibility.hpp"
@@ -18,70 +21,59 @@
 #include "Core/LiveControls.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Anim/VrikState.hpp"
+#include "Anim/CharacterRig.hpp"
 #include "Anim/HeadAimWeapon.hpp"
 #include "Fbt/Game/Body.hpp"
 #include "Lobby/MenuLobby.hpp"
-#include "Core/TweakRecords.hpp"
 #include <MinHook.h>
-#include <RED4ext/RTTISystem.hpp>
-#include <RED4ext/TweakDB.hpp>
 #include <intrin.h>
 #include <atomic>
 #include <limits>
 #include <mutex>
-#include <shared_mutex>
 #include <cstdio>
 #include "Fbt/Game/Calibration.hpp"
-#include "Natives/PhysHands.hpp"
 #include <cstring>
-#include <initializer_list>
-#include <string>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 
-// POD snapshot for x64dbg / offline live probes. Read while paused, or bracket
-// reads with the even, unchanged sequence. Diagnostics do not write game state.
-struct RoomscaleDebug {
-    uint64_t calls{}, injected{}, feedbackReads{}, resets{};
-    uintptr_t player{}, movement{}, backend{};
-    uint64_t poseSequence{}, origin{};
-    uint32_t reason{}, gates{}; // native binding / CCT enabled / gameplay / tracking
-    float dt{}, yaw{}, native[3]{}, requested[3]{}, before[3]{}, after[3]{}, velocity[3]{};
-    float consumed[2]{}, feedback[2]{};
-    float accepted[2]{}, lead[2]{}; // controller's share of the physical step; view lead over the capsule (m)
-    float leadRadius{}, eyeBase[2]{};
-    float reported[2]{};          // strict: the physical velocity the readers other than the solver see (m/s)
-    uint32_t strict{}, walking{}; // strict mode on this move; PhysicalWalkGate's walk
-};
+// The exports are src/Hooks/BodyHooksState.cpp's (both builds).
+#include "Hooks/RoomscaleDebug.hpp"
 extern "C" {
-// 1: the view keeps the headset's lead over a blocked capsule (up to the capsule's free footprint);
-// 0: the old ledger, the refused distance is consumed and the view is held on the capsule.
-__declspec(dllexport) int CyberpunkVR_HeadLeadsCapsule = 1;
-// 1: the body strictly under the head (RoomscaleMovement.hpp, Movement::Begin's strict): every tick the capsule is asked
-// for the head's whole lead, and the velocity readers other than the solver see it only as a walk (PhysicalWalkGate);
-// 0: the follow -- the free zone, the critically damped follow and its settle.
-__declspec(dllexport) int CyberpunkVR_BodyStrictUnderHead = 1;
-// 1: with the head-led body rotation and strict roomscale, the visible body keeps the dead zones of
-// Runtimes/BodyDeadZones.hpp while the capsule stays under the head.
-// 0 (the default since 2026-11-07): the visible body is under the head every frame with the capsule, as BONELAB's
-// physics body is -- no dead zone, no catching up. Eased (CyberpunkVR_BodyDeadZoneEase) or not, the zones read in the
-// headset as the body trailing the head.
-__declspec(dllexport) int CyberpunkVR_BodyDeadZones = 0;
-// 1: the body goes to a new place eased (BodyDeadZones::kShowOmega); 0: in one frame
-__declspec(dllexport) int CyberpunkVR_BodyDeadZoneEase = 1;
-// 1: in strict roomscale the visible body stands under the RENDERED head's neck every frame (Hooks/AnimPose.cpp)
-__declspec(dllexport) int CyberpunkVR_BodyUnderRenderedHead = 1;
-// the body less the neck (x, y tracking metres), looking down, breached, inner breached, distance(false) (game metres),
-// the shown body less the neck (x, y)
-__declspec(dllexport) float CyberpunkVR_DebugBodyZones[8] = {};
-__declspec(dllexport) RoomscaleDebug CyberpunkVR_RoomscaleDebug{};
-__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_RoomscaleDebugSeq{0};
-__declspec(dllexport) int CyberpunkVR_RoomscaleHooksReady = 0;
-__declspec(dllexport) uint64_t CyberpunkVR_SwimmingFeedbackReads[2]{};
-__declspec(dllexport) uint64_t CyberpunkVR_SwimmingPropertyFeedbackReads{};
-__declspec(dllexport) float CyberpunkVR_SwimmingRedirect[3]{};
+extern int CyberpunkVR_HeadLeadsCapsule,CyberpunkVR_BodyStrictUnderHead,CyberpunkVR_RoomscaleHooksReady;
+#if !CVR_RUST_VRIK
+extern RoomscaleDebug CyberpunkVR_RoomscaleDebug;
+extern std::atomic<uint32_t> CyberpunkVR_RoomscaleDebugSeq;
+#endif
+extern uint64_t CyberpunkVR_SwimmingFeedbackReads[2],CyberpunkVR_SwimmingPropertyFeedbackReads;
+#if !CVR_RUST_VRIK
+extern float CyberpunkVR_SwimmingRedirect[3];
+#endif
 }
+#if !CVR_RUST_VRIK
 extern "C" int Get3DofMovement();   // Core/VrCore.cpp: the ledger walks the eyes, not the neck, when set
+#endif
+
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("RoomscaleMovement", ::cvr::hooks::Stage::Boot, 77, cvr_hook_roomscale_install);
+#endif
+#else
+// src/Hooks/HookServices.cpp, src/Hooks/RoomscaleTweaks.cpp, src/Camera/CameraServices.cpp
+extern "C" {
+uint64_t cvr_cpp_xr_tracking_origin_serial();
+bool cvr_cpp_xr_roomscale_sample(cvr::roomscale::Sample* out,OpenXRHeadPose* frameHead,XrTime* frameTime);
+void cvr_cpp_xr_flush_hands_to_shared(const OpenXRHeadPose* frameHead,XrTime frameTime,const cvr::roomscale::Vec2* consumed);
+float cvr_cpp_tweak_capsule_radius();
+void cvr_cpp_camera_player_changed();
+}
+// The move, the velocity getter given its caller, the property reader, and the binding of the originals: C linkage, so
+// tools/vrik_tests calls the same names in both builds.
+extern "C" uintptr_t cvr_roomscale_move(void* backend,float* displacement,float dt);
+extern "C" float* cvr_roomscale_velocity_from(void* provider,float* output,uintptr_t caller);
+extern "C" uintptr_t cvr_roomscale_property(void* registry,uint32_t handle,uint32_t flags,uint32_t mode,
+                                           uint32_t property,void* output,uint32_t bytes);
 
 namespace cvr::roomscale {
 namespace {
@@ -89,9 +81,6 @@ std::atomic<uintptr_t> s_player{}, s_movement{};
 uintptr_t s_base{};
 std::mutex s_mutex;
 Movement s_motion;
-BodyDeadZones s_headLedBody;
-uint64_t s_bodyZonesOrigin{};
-bool s_bodyZonesActive{};
 std::atomic<bool> s_bodyFollowing{};
 bool s_waterMode{};
 PhysicalWalkGate s_walkGate;
@@ -109,6 +98,9 @@ MoveFn s_move{};
 VelocityFn s_velocity{};
 using PropertyFn=uintptr_t(__fastcall*)(void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t);
 PropertyFn s_property{};
+
+// XrDiagNowUs, or the tests' counter (g_VRIKClockQpc, 1 MHz).
+uint64_t NowUs() { return g_VRIKClockQpc ? static_cast<uint64_t>(g_VRIKClockQpc()) : XrDiagNowUs(); }
 
 template<class T> T Read(const void* p, size_t offset) {
     T value;
@@ -165,80 +157,16 @@ bool ReadNative(void* backend, NativeState* out) {
 // capsule's own footprint the controller keeps space free, so the view cannot enter
 // geometry; the clearance and the controller's contact offset (7 cm measured: the
 // axis stops 0.47 m from a wall) keep the face and the near plane 12 cm off the
-// surface the capsule touches.
+// surface the capsule touches. (The capsule itself: src/Hooks/RoomscaleTweaks.cpp.)
 constexpr float kLeadClearance = 0.05f;
 constexpr float kDefaultCapsuleRadius = 0.25f;
-
-// THE CAPSULE A HEADSET STANDS IN. Every on-foot locomotion state gives the player a 0.40 m radius, and the
-// controller keeps another 7 cm of contact offset: the body's axis stops 0.47 m from a wall, the shoulders with it,
-// and a hand on an arm measured from those shoulders could not reach a button on that wall. 0.25 m brings the axis to
-// 0.32 m, where the arm reaches past the surface, and the view's lead over a blocked capsule (below) shrinks with it.
-// The states on foot only; swimming, grapples and takedowns, braindances and scene tiers keep the game's radius.
-//
-// NOT ON A LADDER. The ladder's exit over the top carries the capsule forward by what a 0.40 m one needs to stand on
-// the floor beyond; a 0.25 m capsule was left over the gap between the ladder and that floor and fell -- the whole
-// height of a long ladder (2026-11-05, a 9.1 m ladder with exitStepTop -1: V reached the floor level, moved
-// 12 cm and dropped 9 m; with the ladder states at 0.40 it walked off onto the roof). Nothing on a ladder needs the
-// shoulders nearer a wall, so all five ladder states keep the game's radius.
-constexpr float kVrCapsuleRadius = 0.25f;
-struct StateGroup { const char* package; std::initializer_list<const char*> states; };
-const StateGroup kOnFootStates[] = {
-    {"playerStateMachineBaseLocomotion", {"baseLocomotionState", "locomotionAir", "locomotionDash", "locomotionGround"}},
-    {"playerStateMachineBaseLocomotionLowGravity",
-     {"baseLocomotionStateLowGravity", "locomotionAirLowGravity", "locomotionGroundLowGravity"}},
-    {"playerStateMachineLocomotion",
-     {"abstractStatusEffect", "aimWalk", "airHover", "airThrusters", "bodySlamJump", "chargeJump", "climb",
-      "coolExitJump", "crouch", "crouchSprint", "deathLand", "dodge", "dodgeAir", "doubleJump", "failedLandingAbstract",
-      "fall", "felled", "forceFreeze", "forceIdle", "forceWalk", "forcedKnockdown", "hardLand", "hoverJump", "jump",
-      "knockdown", "landingAbstract",
-      "regularLand", "slide", "slideAfterFall", "slideFall", "sprint", "stand", "stunned", "superheroFall",
-      "superheroLand", "superheroLandRecovery", "unsecureFootingFall", "vault", "vehicleKnockdown", "veryHardLand",
-      "workspot"}},
-    {"playerStateMachineLocomotionLowGravity",
-     {"climbLowGravity", "crouchLowGravity", "dodgeAirLowGravity", "dodgeCrouchLowGravity", "dodgeLowGravity",
-      "fallLowGravity", "jumpLowGravity", "preCrouchLowGravity", "regularLandLowGravity", "slideLowGravity",
-      "sprintJumpLowGravity", "sprintLowGravity", "sprintWindupLowGravity", "standLowGravity"}},
-    {"playerStateMachineMelee", {"meleeGroundSlamAttack"}},
-};
-
-void ShrinkOnFootCapsules(RED4ext::TweakDB* db) {
-    auto* const floatType = RED4ext::CRTTISystem::Get()->GetType("Float");
-    cvr::tweak_records::FlatWrites writes(db);
-    int changed = 0, missing = 0;
-    for (const auto& group : kOnFootStates)
-        for (const char* state : group.states) {
-            const RED4ext::TweakDBID flat(std::string(group.package) + "." + state + ".capsuleRadius");
-            const RED4ext::CStackType value = writes.Get(flat);
-            if (value.type != floatType || !value.value) { ++missing; continue; }
-            if (!(*static_cast<const float*>(value.value) > kVrCapsuleRadius)) continue;
-            float radius = kVrCapsuleRadius;
-            if (writes.Set(flat, floatType, &radius)) ++changed;
-        }
-    Log("[tweaks] on-foot capsule radius %.2f m: %d states set, %d not found\n", kVrCapsuleRadius, changed, missing);
-}
-const bool kCapsuleTweak = (cvr::tweak_records::AddNativeTweak(&ShrinkOnFootCapsules), true);
-
-float ReadCapsuleRadius() {
-    auto* db = RED4ext::TweakDB::Get();
-    auto* rtti = RED4ext::CRTTISystem::Get();
-    if (!db || !rtti) return 0;
-    static auto* const floatType = rtti->GetType("Float");
-    // The locomotion states all set this one radius (stand, crouch, sprint, slide, jump, fall...).
-    std::shared_lock<RED4ext::SharedSpinLock> guard(db->mutex00);
-    auto* flat = db->GetFlatValue(RED4ext::TweakDBID("playerStateMachineLocomotion.stand.capsuleRadius"));
-    if (!flat) return 0;
-    const RED4ext::CStackType value = flat->GetValue();
-    if (value.type != floatType || !value.value) return 0;
-    const float radius = *static_cast<const float*>(value.value);
-    return std::isfinite(radius) && radius > 0.1f && radius < 2.0f ? radius : 0;
-}
 
 Movement::LeadLimit HeadLeadLimit() {
     static std::atomic<float> radius{0};
     static std::atomic<int> attempts{0};
     float r = radius.load(std::memory_order_relaxed);
     if (r <= 0) {
-        r = attempts.fetch_add(1, std::memory_order_relaxed) < 600 ? ReadCapsuleRadius() : 0;
+        r = attempts.fetch_add(1, std::memory_order_relaxed) < 600 ? cvr_cpp_tweak_capsule_radius() : 0;
         if (r > 0) { radius.store(r, std::memory_order_relaxed); Log("[roomscale] capsule radius %.3f\n", r); }
         else r = kDefaultCapsuleRadius;
     }
@@ -260,14 +188,17 @@ bool IsBackendPlayer(void* backend) {
         return player && Read<uintptr_t>(backend, 8) == player;
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+} // namespace
+} // namespace cvr::roomscale
 
-uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
+uintptr_t cvr_roomscale_move(void* backend, float* displacement, float dt) {
+    using namespace cvr::roomscale;
     if (!IsBackendPlayer(backend)) return s_move(backend, displacement, dt);
     const auto player = s_player.load(std::memory_order_acquire);
     Sample sample{};
     OpenXRHeadPose frameHead{};
     XrTime frameTime{};
-    OpenXRManager::Get().GetRoomscaleSample(&sample,&frameHead,&frameTime);
+    cvr_cpp_xr_roomscale_sample(&sample,&frameHead,&frameTime);
     NativeState before{};
     const bool nativeOk = ReadNative(backend, &before);
     const bool allowed = nativeOk && before.enabled && GameplayAllowed();
@@ -281,7 +212,7 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
         // Removing/reinstating the land hinge component is a posture-mode
         // change, not a physical step. Keep the consumed camera ledger.
         if(waterMode!=s_waterMode) { s_motion.Suspend();s_waterMode=waterMode; }
-        step = s_motion.Begin(sample, XrDiagNowUs(), dt, GetWorldScale(), yaw, allowed,
+        step = s_motion.Begin(sample, NowUs(), dt, GetWorldScale(), yaw, allowed,
                               g_liveControls.xrBodyMoveRadius, strict);
         // The bend tracker's walking mode: in strict mode a walk is the gate's walk, not every move of the head.
         s_bodyFollowing.store(strict ? s_walkGate.Walking() : s_motion.Following(), std::memory_order_relaxed);
@@ -290,26 +221,7 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
     XrVector3f swimDirection{};int swimState{};
     const bool steer=nativeOk && before.enabled && cvr::swimming::ReadSteering(&swimDirection,&swimState);
     const cvr::swimming::Vector original{native[0],native[1],native[2]};
-    auto redirected=steer ? cvr::swimming::Redirect(original,swimDirection,yaw,swimState==2):original;
-    // THE HANDS PUSH THE BODY (Natives/PhysHands.hpp BodyPush): a hand held off by a wall it is pushed into sends the
-    // player away from it, as a stick's move would (not the headset's share: the ledger keeps the head where it is)
-    {
-        float push[2]{};
-        if(allowed && !waterMode && cvr::physhands::BodyPush(push) && std::isfinite(push[0]+push[1])) {
-            redirected.x+=push[0]*dt;
-            redirected.y+=push[1]*dt;
-        }
-        // ...and the hands that hold on pull it after them, up as well (Natives/PhysHands.hpp BodyPull: climbing onto a
-        // railing, up out of a crouch)
-        float pull[3]{};
-        if(allowed && !waterMode && cvr::physhands::BodyPull(pull) && std::isfinite(pull[0]+pull[1]+pull[2])) {
-            redirected.x+=pull[0]*dt;
-            redirected.y+=pull[1]*dt;
-            // holding on, the hands carry the body: the game's own fall is left out (added to it, the body sank and bobbed
-            // 6 cm while it hung, gravity against the pull)
-            redirected.z=pull[2]*dt;
-        }
-    }
+    const auto redirected=steer ? cvr::swimming::Redirect(original,swimDirection,yaw,swimState==2):original;
     const auto added=redirected-original+cvr::swimming::Vector{step.world.x,step.world.y,0};
     float combined[3]{native[0]+added.x,native[1]+added.y,native[2]+added.z};
     if(cvr::RuntimeDiagnosticsEnabled()) {
@@ -339,26 +251,6 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
             : step.world;
         s_motion.Complete(step,accepted,leadLimit);
         completedConsumed=s_motion.Consumed(sample.origin);
-        // THE VISIBLE BODY'S DEAD ZONES: it stays in the world while the neck -- the capsule -- moves under it, and is
-        // placed again only when the head leaves its dead zones (Runtimes/BodyDeadZones.hpp). The neck's move is what
-        // the controller accepted: a step the wall refused moved neither the capsule nor the body.
-        const bool bodyZones = CyberpunkVR_BodyDeadZones != 0 && strict && resultOk &&
-            static_cast<cvr::body::RotationMode>(g_liveControls.xrBodyRotationMode)==cvr::body::RotationMode::HeadLed;
-        if (!bodyZones || sample.origin != s_bodyZonesOrigin) { s_headLedBody.Reset(); s_bodyZonesOrigin = sample.origin; }
-        if (bodyZones && step.reason == Reason::Applied && step.scale > 0 && frameHead.valid) {
-            const Vec2 moved = Rotate(accepted, -step.yaw) * (1.0f / step.scale);
-            const float bodyInTracking = before.yaw - yaw;   // tracking -> world turns by `yaw`, the body faces before.yaw
-            const Vec2 forward{-std::sin(bodyInTracking), std::cos(bodyInTracking)};
-            const float pitch = -HeadDownDegrees(frameHead.oriX, frameHead.oriY, frameHead.oriZ, frameHead.oriW);
-            const Vec2 offset = s_headLedBody.Step(moved, sample.eyeFromNeck, forward, pitch, step.scale, step.dt,
-                                                CyberpunkVR_BodyDeadZoneEase != 0 ? BodyDeadZones::kShowOmega : 0.0f);
-            const auto& st = s_headLedBody.Last();
-            CyberpunkVR_DebugBodyZones[0] = offset.x; CyberpunkVR_DebugBodyZones[1] = offset.y;
-            CyberpunkVR_DebugBodyZones[2] = st.lookingDown; CyberpunkVR_DebugBodyZones[3] = st.breached;
-            CyberpunkVR_DebugBodyZones[4] = st.inner; CyberpunkVR_DebugBodyZones[5] = st.distance;
-            CyberpunkVR_DebugBodyZones[6] = s_headLedBody.Shown().x; CyberpunkVR_DebugBodyZones[7] = s_headLedBody.Shown().y;
-        }
-        s_bodyZonesActive = bodyZones && s_headLedBody.Valid();
         s_feedback = resultOk ? PhysicalVelocity({native[0],native[1]},{added.x,added.y},
             {after.velocity[0],after.velocity[1]},dt) : Vec2{};
         // Pitch and buoyancy are already part of the native vertical solve.
@@ -371,7 +263,7 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
         s_feedbackBackend = resultOk ? before.backend : 0;
         s_feedbackProvider = resultOk ? before.provider : 0;
         s_feedbackHandle = resultOk ? before.handle : 0;
-        s_feedbackUs = XrDiagNowUs();
+        s_feedbackUs = NowUs();
         if(cvr::RuntimeDiagnosticsEnabled()) {
         CyberpunkVR_RoomscaleDebugSeq.fetch_add(1, std::memory_order_acq_rel);
         auto& d = CyberpunkVR_RoomscaleDebug;
@@ -413,12 +305,12 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
     // Publish after Complete: the head and the consumed displacement must name
     // the same native move. Camera/IK must never subtract a later move's ledger.
     if (nativeOk && before.enabled && PoseFrameAllowed() && sample.valid && frameHead.valid && frameTime>0)
-        OpenXRManager::Get().FlushHandsToShared(&frameHead,frameTime,&completedConsumed);
+        cvr_cpp_xr_flush_hands_to_shared(&frameHead,frameTime,&completedConsumed);
     return result;
 }
 
-float* __fastcall Velocity(void* provider, float* output) {
-    const auto caller = reinterpret_cast<uintptr_t>(_ReturnAddress());
+float* cvr_roomscale_velocity_from(void* provider, float* output, uintptr_t caller) {
+    using namespace cvr::roomscale;
     float* result = s_velocity(provider, output);
     // Water queries share the physics-property reader below; do not subtract
     // twice when a provider wrapper happens to use that same path.
@@ -434,7 +326,7 @@ float* __fastcall Velocity(void* provider, float* output) {
     // there, and read raw each one would start and stop the walking animation.
     if(!solver) {
         if(CyberpunkVR_BodyStrictUnderHead==0 || !IsPlayerProvider(provider))return result;
-        const auto now = XrDiagNowUs();
+        const auto now = NowUs();
         std::lock_guard lock(s_mutex);
         if (!s_strict || !s_feedbackBackend || reinterpret_cast<uintptr_t>(provider) != s_feedbackProvider ||
             now < s_feedbackUs || now - s_feedbackUs > Movement::MaxAgeUs) return result;
@@ -443,7 +335,7 @@ float* __fastcall Velocity(void* provider, float* output) {
         return result;
     }
     if(!IsPlayerProvider(provider))return result;
-    const auto now = XrDiagNowUs();
+    const auto now = NowUs();
     std::lock_guard lock(s_mutex);
     if (!s_feedbackBackend || reinterpret_cast<uintptr_t>(provider) != s_feedbackProvider ||
         now < s_feedbackUs || now - s_feedbackUs > Movement::MaxAgeUs) return result;
@@ -461,20 +353,36 @@ float* __fastcall Velocity(void* provider, float* output) {
     return result;
 }
 
-uintptr_t __fastcall Property(void* registry,uint32_t handle,uint32_t flags,uint32_t mode,
-                              uint32_t property,void* output,uint32_t bytes) {
+uintptr_t cvr_roomscale_property(void* registry,uint32_t handle,uint32_t flags,uint32_t mode,
+                                 uint32_t property,void* output,uint32_t bytes) {
+    using namespace cvr::roomscale;
     const auto result=s_property(registry,handle,flags,mode,property,output,bytes);
     // Property4 is the resolved linear velocity (12 bytes), shared by native
     // swimming and script state-vector readers. Filtering a few provider
     // callsites missed the water solver's direct/cached property reads.
     if(!(result&0xff) || property!=4 || bytes!=12 || !output || !cvr::swimming::Active())return result;
-    const auto now=XrDiagNowUs();std::lock_guard lock(s_mutex);
+    const auto now=NowUs();std::lock_guard lock(s_mutex);
     if(!s_feedbackBackend || handle!=s_feedbackHandle || now<s_feedbackUs || now-s_feedbackUs>Movement::MaxAgeUs)return result;
     auto* velocity=static_cast<float*>(output);
     if(!std::isfinite(velocity[0]) || !std::isfinite(velocity[1]) || !std::isfinite(velocity[2]))return result;
     velocity[0]-=s_feedback.x;velocity[1]-=s_feedback.y;velocity[2]-=s_feedbackZ;
     CVR_DIAGNOSTIC(++CyberpunkVR_SwimmingPropertyFeedbackReads);
     return result;
+}
+
+// The image base and the three originals: the install's, or the tests' fakes.
+extern "C" void cvr_roomscale_bind(uintptr_t base,void* move,void* velocity,void* property) {
+    using namespace cvr::roomscale;
+    s_base=base;
+    s_move=reinterpret_cast<MoveFn>(move);s_velocity=reinterpret_cast<VelocityFn>(velocity);
+    s_property=reinterpret_cast<PropertyFn>(property);
+}
+
+namespace cvr::roomscale {
+namespace {
+// The getter's return address names its caller.
+float* __fastcall Velocity(void* provider, float* output) {
+    return cvr_roomscale_velocity_from(provider,output,reinterpret_cast<uintptr_t>(_ReturnAddress()));
 }
 
 bool Matches(const sites::Site& site) {
@@ -498,11 +406,11 @@ bool InstallRoomscale() {
     void* move = reinterpret_cast<void*>(s_base + sites::CctMove.rva);
     void* velocity = reinterpret_cast<void*>(s_base + sites::Velocity.rva);
     void* property = reinterpret_cast<void*>(s_base + sites::PhysicsProperty.rva);
-    if (MH_CreateHook(move, reinterpret_cast<void*>(&Move), reinterpret_cast<void**>(&s_move)) != MH_OK) return false;
+    if (MH_CreateHook(move, reinterpret_cast<void*>(&cvr_roomscale_move), reinterpret_cast<void**>(&s_move)) != MH_OK) return false;
     if (MH_CreateHook(velocity, reinterpret_cast<void*>(&Velocity), reinterpret_cast<void**>(&s_velocity)) != MH_OK) {
         MH_RemoveHook(move); return false;
     }
-    if(MH_CreateHook(property,reinterpret_cast<void*>(&Property),reinterpret_cast<void**>(&s_property))!=MH_OK) {
+    if(MH_CreateHook(property,reinterpret_cast<void*>(&cvr_roomscale_property),reinterpret_cast<void**>(&s_property))!=MH_OK) {
         MH_RemoveHook(move);MH_RemoveHook(velocity);return false;
     }
     if (MH_EnableHook(velocity) != MH_OK || MH_EnableHook(move) != MH_OK || MH_EnableHook(property)!=MH_OK) {
@@ -520,8 +428,7 @@ void SetPlayer(uintptr_t player) {
     if (s_player.exchange(player, std::memory_order_acq_rel) == player) return;
     // A previous puppet can keep animating after a player replacement. Its
     // camera counters still advance, so the worker's idle recovery never fires.
-    g_camObjMain.store(0,std::memory_order_release);
-    PatchFastDisarm();
+    cvr_cpp_camera_player_changed();
     s_movement.store(0, std::memory_order_release);
     std::lock_guard lock(s_mutex);
     s_motion.Reset(); s_feedback = {};s_feedbackZ=0; s_feedbackBackend = 0; s_feedbackProvider = 0; s_feedbackUs = 0;
@@ -611,7 +518,7 @@ Vec2 CameraConsumed(uint64_t origin) {
 }
 
 Vec2 CameraConsumed() {
-    return CameraConsumed(OpenXRManager::Get().GetTrackingOriginSerial());
+    return CameraConsumed(cvr_cpp_xr_tracking_origin_serial());
 }
 
 bool CameraRestNeck(uint64_t origin, Vec2* out) {
@@ -621,29 +528,14 @@ bool CameraRestNeck(uint64_t origin, Vec2* out) {
 }
 
 bool CameraRestNeck(Vec2* out) {
-    return CameraRestNeck(OpenXRManager::Get().GetTrackingOriginSerial(), out);
+    return CameraRestNeck(cvr_cpp_xr_tracking_origin_serial(), out);
 }
 
 bool BodyFollowing() {
     return s_bodyFollowing.load(std::memory_order_relaxed);
 }
 
-bool StrictTickEye(Vec2* out) {
-    if (!out || Get3DofMovement() != 0 || CyberpunkVR_BodyUnderRenderedHead == 0) return false;
-    const auto origin = OpenXRManager::Get().GetTrackingOriginSerial();
-    std::lock_guard lock(s_mutex);
-    if (!s_strict) return false;
-    return s_motion.TickEye(origin, out);
-}
-
-bool BodyDeadZoneOffset(Vec2* out) {
-    if (!out || Get3DofMovement() != 0) return false;
-    const auto origin = OpenXRManager::Get().GetTrackingOriginSerial();
-    std::lock_guard lock(s_mutex);
-    if (!s_bodyZonesActive || origin != s_bodyZonesOrigin || !s_headLedBody.Valid()) return false;
-    *out = s_headLedBody.Shown();
-    return Finite(*out);
-}
-
 CVR_HOOK("RoomscaleMovement", ::cvr::hooks::Stage::Boot, 77, InstallRoomscale);
 } // namespace cvr::roomscale
+#endif
+#endif

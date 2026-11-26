@@ -21,15 +21,15 @@ struct Fixture {
         std::memcpy(edge.bytes.data(),data.data(),24);graph.edges.push_back(edge);}
     uint32_t main{},eye{},scene{},render{},bridge{},tail{};
     Fixture(){
-        main=Node(0,0x79B03C);std::vector<uint32_t> ready;
-        for(auto flags:{17,2,4}){auto c=Node(0,0xB2BEFC,flags);Edge(main,c);ready.push_back(c);}
-        for(int i=0;i<4;++i){auto p=Node(0,0xCBB23C);Edge(ready[0],p);ready.push_back(p);}
-        render=Node(0,0x1EC1D0);Edge(ready[0],render);
-        eye=Node(1,0x79B03C);Edge(render,eye);Edge(render,eye,1);
-        bridge=Node(1,0);Edge(eye,bridge);scene=Node(1,0xB2BEFC,17);Edge(bridge,scene);
+        main=Node(0,0xC0F204);std::vector<uint32_t> ready;
+        for(auto flags:{17,2,4}){auto c=Node(0,0xBF436C,flags);Edge(main,c);ready.push_back(c);}
+        for(int i=0;i<4;++i){auto p=Node(0,0xD5BAC4);Edge(ready[0],p);ready.push_back(p);}
+        render=Node(0,0x332D5C);Edge(ready[0],render);
+        eye=Node(1,0xC0F204);Edge(render,eye);Edge(render,eye,1);
+        bridge=Node(1,0);Edge(eye,bridge);scene=Node(1,0xBF436C,17);Edge(bridge,scene);
         tail=Node(1,0);Edge(scene,tail);Edge(bridge,tail);
-        for(auto flags:{2,4}){auto c=Node(1,0xB2BEFC,flags);Edge(eye,c);}
-        for(int i=0;i<4;++i){auto p=Node(1,0xCBB23C);Edge(tail,p);}
+        for(auto flags:{2,4}){auto c=Node(1,0xBF436C,flags);Edge(eye,c);}
+        for(int i=0;i<4;++i){auto p=Node(1,0xD5BAC4);Edge(tail,p);}
     }
 };
 template<class T>std::vector<T> Load(const char* path){std::ifstream file(path,std::ios::binary|std::ios::ate);Check(bool(file));
@@ -60,8 +60,8 @@ int main(int argc,char** argv){try{
     Fixture unknown;unknown.Node(2,0);Check(!plan.Build(unknown.graph,unknown.base));
     Fixture ordinal;Put(ordinal.graph.nodes[0].bytes,0,uint32_t(3));Check(!plan.Build(ordinal.graph,ordinal.base));
     Fixture missing;missing.graph.nodes[2].work=0;Check(!plan.Build(missing.graph,missing.base));
-    Check(preparation_schedule::Independent({0x100000,0x1C5C40,0x200000,0x2C5C40}));
-    Check(!preparation_schedule::Independent({0x100000,0x1C5C40,0x200000,0x1C5C40}));
+    Check(preparation_schedule::Independent({0x100000,0x1E0500,0x200000,0x2E0500}));
+    Check(!preparation_schedule::Independent({0x100000,0x1E0500,0x200000,0x1E0500}));
     Check(!preparation_schedule::Independent({0,1,2,3}));
     preparation_schedule::PlanCache cache;bool hit{};
     const auto first=cache.Acquire(f.graph,f.base,true,hit);Check(first && !hit && !cache.failure);

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // AnimFeatures -- building an anim feature, and getting the engine to accept it.
 //
 // An anim feature is how a value reaches the animation graph from outside: you construct a Handle of the
@@ -78,6 +79,8 @@
 #include "Natives/NativeHelpers.hpp"
 #include "Natives/NativeState.hpp"
 
+#if !CVR_RUST_VRIK
+// The C++ build's; the Rust build's features and routes are rust/crates/cvr-ffi/src/anim_inputs.rs.
 static RED4ext::Handle<RED4ext::anim::AnimFeature> CreateWeaponUserFeature(const RED4ext::Vector4& aLeft,
                                                                            const RED4ext::Vector4& aRight)
 {
@@ -695,3 +698,5 @@ void TestMeleeIKDataFeatureRoute(RED4ext::IScriptable* aContext, RED4ext::CStack
     AppendAnimTestLog(logName, result, head, offset);
     if (aOut) *aOut = result;
 }
+#endif
+#endif

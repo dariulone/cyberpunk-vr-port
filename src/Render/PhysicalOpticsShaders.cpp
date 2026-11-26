@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's glass; the Rust build's is rust/crates/cvr-gpu/src/optics.rs (the header calls it).
 #include "Render/PhysicalOpticsShaders.hpp"
 #include "Core/Paths.hpp"
 #include "Render/PipelineVariants.hpp"
@@ -237,3 +239,4 @@ bool GlassShaderReplacement(const D3D12_SHADER_BYTECODE& native,D3D12_SHADER_BYT
     return false;
 }
 }
+#endif

@@ -17,7 +17,6 @@
 #include "Camera/CameraState.hpp"   // PatchFastPath, PatchFastDisarm
 #include "Overlay/LiveControlsUi.hpp"
 #include "Overlay/LauncherDialog.hpp"
-#include "Lobby/MenuLobby.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Runtimes/RuntimeFovCorrection.hpp"
 #include <RED4ext/RED4ext.hpp>
@@ -39,54 +38,92 @@
 #include "Hooks/RoomscaleMove.hpp"
 #include <string>
 
-FILE* g_logFile = nullptr;
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's are rust/crates/cvr-render/src/moved_globals.rs'
 char g_gameDir[MAX_PATH] = {};
 char g_liveControlPath[MAX_PATH] = {};
 char g_launcherConfigPath[MAX_PATH] = {};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/worker.rs.
+#else
 char g_backendModulePath[MAX_PATH] = {};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
 FILETIME g_lastLiveControlWrite = {};
+#endif
 // Bridge files in the CET VRIK mod folder (CET sandboxes a mod's relative paths to
 // its own folder). dxgi WRITES vrik_settings.ini (mouse-Y flag, CET reads it); CET
 // WRITES vrik_recenter.ini (a counter on save load) which dxgi polls to recenter.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
 char g_vrikSettingsPath[MAX_PATH] = {};
 char g_vrikRecenterPath[MAX_PATH] = {};
 FILETIME g_lastVrikRecenterWrite = {};
+#endif
+#if !CVR_RUST_VRIK
 static const int kNoRecenterBaseline = -2000000000;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 int g_lastVrikRecenterCounter = kNoRecenterBaseline;
+#endif
 
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 uintptr_t g_gameModuleBase = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/worker.rs.
+#else
 size_t g_gameModuleSize = 0;
+#endif
 void Log(const char* fmt, ...);
 
 
+#if !CVR_RUST_VRIK
 static constexpr int kEnableNativeSetterTracers = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 int ClampRuntimeMode(int value) {
     return value == 1 ? 1 : 0;
 }
+#endif
 
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's is rust/crates/cvr-settings/src/live_controls_block.rs'
 LiveControls g_liveControls = {};
+#endif
 
 // Verbose per-frame logging (ClipCursor / depth-diag / hook spam). Off by default so
 // the tester log stays readable; toggled live from the F10 Debug section. Not persisted.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile int g_verboseLog = 0;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 int g_launcherWidth = 2048;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 int g_launcherHeight = 2048;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 int g_launcherHmdType = 0;
+#endif
 // DEBUG tick-box in the launcher, persisted as debug= in vrport-launcher.ini. It is the
 // master switch for every probe, census and dump in the mod -- see ApplyLauncherDebugGate
 // in debug_gate.cpp for why the gating happens once at startup rather than per read.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 int g_launcherDebug = 0;
+#endif
 // Persisted startup switch. Automated runs use the saved selection when disabled.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 int g_launcherShow = 1;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 int g_launcherDelayMs = 1000;
-// 1: the saved width x height is the player's own (typed or slid in the launcher), not a ladder entry. Engine stereo
-// renders any size (no VRCAM asset per size), so it is kept; without engine stereo it still moves to the ladder.
-int g_launcherCustomRes = 0;
+#endif
 
 // Moved to src/Core/LauncherConfig.cpp: paths and the launcher ini.
 
 // Publish the mouse-Y flag for the CET VRIK mod (it reads this from its own folder).
+#if CVR_RUST_VRIK
+#else
 void WriteVrikSettingsFile() {
     InitRuntimePaths();
     int v = g_liveControls.xrDisableMouseY != 0 ? 1 : 0;
@@ -97,11 +134,18 @@ void WriteVrikSettingsFile() {
     static int s_lastLogged = -1;
     if (v != s_lastLogged) { s_lastLogged = v; if (g_verboseLog) Log("VRIK bridge: disable_mouse_y=%d -> %s\n", v, g_vrikSettingsPath); }
 }
+#endif
 
 // Moved to src/Core/LiveControls.cpp: polling the live-control file and the overlay UI state.
 
-extern "C" int GetLauncherEngineStereo();
-
+#if CVR_RUST_VRIK
+// THE LAUNCHER'S AND THE LIVE SETTINGS' ANSWERS ARE RUST'S (rust/crates/cvr-render/src/vr_core_settings.rs): the C
+// names (PrepareStartupLiveControls .. GetSnapTurnYawIndex, the forced sizes, the fov) are defined there, the
+// C++-linkage ones forward. The live settings block is mirrored there field for field.
+static_assert(sizeof(LiveControls) == 364 && offsetof(LiveControls, xrVrWeaponWheel) == 360,
+              "mirrored by rust/crates/cvr-settings/src/live_controls_block.rs");
+// The block is named to Rust by rust/crates/cvr-settings/src/live_controls_block.rs.
+#else
 extern "C" void PrepareStartupLiveControls() {
     static bool g_dialogShown = false;
     EnsureLiveControlFileExists();
@@ -116,8 +160,7 @@ extern "C" void PrepareStartupLiveControls() {
             // exists, and an entry only engine stereo offers has none: no second eye. The dialog would move it;
             // without the dialog, move it here.
             const int savedWidth = g_launcherWidth, savedHeight = g_launcherHeight;
-            const bool keepCustom = g_launcherCustomRes && GetLauncherEngineStereo();
-            if (!keepCustom && SnapLauncherResolution(g_launcherHmdType, &g_launcherWidth, &g_launcherHeight)) {
+            if (SnapLauncherResolution(g_launcherHmdType, &g_launcherWidth, &g_launcherHeight)) {
                 Log("Launcher: %dx%d is not in HMD type %d's ladder -> %dx%d (nearest in cost)\n",
                     savedWidth, savedHeight, g_launcherHmdType, g_launcherWidth, g_launcherHeight);
                 SaveLauncherConfig(g_launcherWidth, g_launcherHeight);
@@ -142,10 +185,8 @@ static std::atomic<bool> g_launchEyeSizeDecided{false};
 extern "C" void FitLauncherResolutionToRuntime() {
     uint32_t maxWidth = 0, maxHeight = 0;
     const int width = g_launcherWidth, height = g_launcherHeight;
-    // a custom size is scaled into the limit at its own aspect (-1: no ladder to pick from)
-    const int ladder = g_launcherCustomRes ? -1 : g_launcherHmdType;
     if (OpenXRManager::Get().GetEyeImageLimit(&maxWidth, &maxHeight) &&
-        FitLauncherResolution(ladder, static_cast<int>(maxWidth), static_cast<int>(maxHeight),
+        FitLauncherResolution(g_launcherHmdType, static_cast<int>(maxWidth), static_cast<int>(maxHeight),
                               &g_launcherWidth, &g_launcherHeight))
         Log("Launcher: %dx%d is larger than the runtime takes for one eye (%ux%u) -> %dx%d for this launch\n",
             width, height, maxWidth, maxHeight, g_launcherWidth, g_launcherHeight);
@@ -195,34 +236,6 @@ extern "C" void SetLauncherDebugAndPersist(int on) {
 
 extern "C" int GetCurrentHmdType() {
     return g_launcherHmdType;
-}
-
-// The launcher's "custom size" flag (custom_res in vrport-launcher.ini), saved with the next SaveLauncherConfig.
-extern "C" int GetLauncherCustomResolution() {
-    return g_launcherCustomRes;
-}
-extern "C" void SetLauncherCustomResolution(int on) {
-    g_launcherCustomRes = on != 0 ? 1 : 0;
-}
-
-// The VR lobby (xr_lobby in vrport.ini): the main menu shown in its own world. The launcher closes before the main
-// menu opens, so a change takes effect in this launch.
-extern "C" int GetLauncherInterface() { return g_liveControls.xrVrInterface != 0; }
-extern "C" void SetLauncherInterfaceAndPersist(int on) {
-    g_liveControls.xrVrInterface = on != 0;
-    PersistLiveControlsUiState(MakeLiveControlsUiState());
-}
-extern "C" int GetLauncherHandPhysics() { return g_liveControls.xrHandPhysics != 0; }
-extern "C" void SetLauncherHandPhysicsAndPersist(int on) {
-    g_liveControls.xrHandPhysics = on != 0;
-    PersistLiveControlsUiState(MakeLiveControlsUiState());
-}
-extern "C" int GetLauncherLobby() {
-    return cvr::lobby::Enabled() ? 1 : 0;
-}
-extern "C" void SetLauncherLobbyAndPersist(int on) {
-    cvr::lobby::SetEnabled(on != 0);
-    PersistLiveControlsUiState(MakeLiveControlsUiState());
 }
 
 // Persist the VR runtime choice (0 = OpenXR default runtime, 1 = SteamVR/OpenVR)
@@ -420,6 +433,7 @@ extern "C" int GetSnapTurnYawIndex() {
     int v = g_liveControls.xrSnapTurnYawIndex;
     return (v >= 0 && v <= 3) ? v : 1;
 }
+#endif
 
 
 // Moved to src/Core/Log.cpp: the log, and the guarded dumps that read engine memory.
@@ -427,11 +441,19 @@ extern "C" int GetSnapTurnYawIndex() {
 // ======================== TELEMETRY ========================
 
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/worker.rs.
+#else
 TelemetryData*  g_telemetry   = nullptr;   // see Core/Telemetry.hpp -- ONE object
 SetterTraceData* g_setterTrace = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile uintptr_t g_settingsResPtr = 0;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile uintptr_t g_dlssResPtr = 0;
+#endif
 
 float* GetShotShared();  // shared-mem accessor (defined below)
 
@@ -441,6 +463,8 @@ float* GetShotShared();  // shared-mem accessor (defined below)
 // map is open (shared[81], set by redscript bridge SetVRMenuOpen), STOP applying
 // our square-resolution override — let the game use its real 16:9 resolution for
 // the map's UI projection so pins track the background correctly.
+#if CVR_RUST_VRIK
+#else
 void ApplySettingsResolutionOverride(uintptr_t settingsPtr) {
     // Both straight from the launcher. The aspect-derived variant that used to sit here is
     // gone with the DLSS overrides -- nothing may re-derive a size from the runtime's
@@ -492,6 +516,7 @@ void ApplyKnownResolutionOverrides() {
         ApplySettingsResolutionOverride(settingsPtr);
     }
 }
+#endif
 
 // THE ENGINE'S FOV FIELD IS VERTICAL. Measured live in x64dbg on the MAIN view context: we wrote
 // 94.0 (the de-canted horizontal) and the frustum came back tan(V/2) = 1.072369 -- exactly tan 47,
@@ -508,8 +533,12 @@ void ApplyKnownResolutionOverrides() {
 //   g_normalFovOverrideValue  the VERTICAL, i.e. what the engine's field actually receives
 //   g_engineHorizontalFovDeg  the horizontal that then falls out of it -- the real rendered H,
 //                             which is what the submit layer and the overlay reticle both need
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_normalFovOverrideValue = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_engineHorizontalFovDeg = 0.0f;
+#endif
 
 // The FOV (degrees) the GAME actually renders the scene with, captured live by
 // OnNormalFovHookCallback (native by default, or xr_force_fov). The OpenXR submit
@@ -520,6 +549,8 @@ volatile float g_engineHorizontalFovDeg = 0.0f;
 // the OpenXR submit layer and the overlay's reticle projection -- all want the horizontal, and on
 // a symmetric headset the two were the same number, which is why returning the written value
 // worked until a canted one turned up.
+#if CVR_RUST_VRIK
+#else
 extern "C" float GetGameRenderFovDeg() {
     const float f = g_engineHorizontalFovDeg;
     return (f > 1.0f && f < 170.0f) ? f : 0.0f;
@@ -539,7 +570,10 @@ extern "C" float GetGameRenderVerticalFovDeg() {
 extern "C" float GetFovOverscan() {
     return 1.0f;
 }
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile int g_menuModeValue = 0;
+#endif
 
 // Overscan factor: render (and submit) a FOV this much wider than the lens, so the
 // compositor's reprojection (ATW) on head turns has rendered pixels beyond the lens
@@ -547,10 +581,18 @@ volatile int g_menuModeValue = 0;
 // lens, so the VISIBLE FOV + scale stay correct. ~1.0 = no margin = stretch on turn
 // (the bug). The "body big" era accidentally had margin because the render FOV was
 // far NARROWER than the submitted FOV. Tunable via xr_fov_overscan.
+#if !CVR_RUST_VRIK
 extern "C" float GetFovOverscan();  // defined below near the live-controls getters
+#endif
 
 // The VERTICAL FOV (deg) we want the game to RENDER = lens vertical * overscan.
+#if !CVR_RUST_VRIK
 extern "C" float GetTargetRenderVfovDegC();
+#endif
+#if CVR_RUST_VRIK
+// Its table is built in Rust (vr_core_settings.rs); the game upscaler's sharpening amount stays here.
+// The upscaler gate: rust/crates/cvr-render/src/xr_manager_services.rs.
+#else
 float GetTargetRenderVfovDeg() {
     const float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
     if (!(vfovDeg > 1.0f && vfovDeg < 175.0f)) return 0.0f;
@@ -564,9 +606,14 @@ float GetTargetRenderVfovDeg() {
 // FOV to the SAME overscanned target the game renders -> render == submit, runtime
 // crops to lens, ATW gets margin.
 extern "C" float GetTargetRenderVfovDegC() { return GetTargetRenderVfovDeg(); }
+#endif
 
 // Moved to src/Core/CameraMath.cpp: FOV, IPD and turning a quaternion into the engine camera basis.
 
+#if CVR_RUST_VRIK
+// THE TAKEN-OVER AND THE BRAINDANCE CAMERA ARE RUST'S (rust/crates/cvr-render/src/camera_takeover.rs); the state
+// stays here, attached below.
+#else
 bool IsPlausibleCameraSpan(const float* a, const float* b) {
     if (!a || !b) return false;
     if (!IsPlausiblePositionVec4(a) || !IsPlausiblePositionVec4(b)) return false;
@@ -577,15 +624,22 @@ bool IsPlausibleCameraSpan(const float* a, const float* b) {
     const float spanSq = dx * dx + dy * dy + dz * dz;
     return spanSq < 25.0f;
 }
+#endif
 
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile int32_t g_lastLocatePosFP[3] = {};   // world head CENTRE, fixed point 1/131072
+#endif
 // LATE IPD SHIFT: the per-eye stereo offset, computed (and eye-signed) in
 // LocateCamera but NOT applied to the located camera there. The located camera
 // stays at the head CENTER so the engine's IK/physics/VRIK see a stable,
 // non-jittering head. OnFinalCameraCallback adds this shift to the final render
 // camera only — post-IK, just before projection.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile int32_t g_lastIpdShiftFP[3] = {};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_lastLocateQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };  // located (HMD-injected) game-world cam quat; read by the overlay barrel crosshair
+#endif
 
 // The head orientation LocateCamera composed this frame: heading (mouse/stick) * HMD pose.
 // Written by PatchCamera into BOTH cameras. Kept separate from g_lastLocateQuat, which is a
@@ -600,7 +654,9 @@ volatile float g_lastLocateQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };  // located (HM
 // The cache is self-healing rather than permanent: components are recreated on respawn, load
 // and camera switches, so a miss simply falls through to the name read, which re-latches. That
 // keeps it correct without ever needing an invalidation event to be delivered.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<uintptr_t> g_camObjMain{0};
+#endif
 
 // The fast-path block the PatchCamera trampoline reads. Defined here, beside the latches it
 // mirrors, so there is exactly one owner of both. See CameraState.hpp for why it is armed the way
@@ -641,9 +697,17 @@ std::atomic<uintptr_t> g_camObjMain{0};
 // it forces the view rebuild while bypassing every piece of bookkeeping the engine does around it.
 // The flag is a RESULT of the engine's transform notify, not an input. Kept switchable only so the
 // experiment is on record; CyberpunkVR_BdPushTransform is the route that goes through the notify.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdCamDirty = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdCamDirty = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdCamPose = 0;
+#endif
 
 // THE SECOND EYE'S TRANSFORM, PUSHED THROUGH THE ENGINE'S OWN NOTIFY -- AND WHY THE RAW FLAG WAS
 // THE WRONG ANSWER.
@@ -693,9 +757,17 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdCamPose = 0;
 //
 // Bit 2 is OFF by default: MAIN's component is the FPP camera the body, the arms and the weapon all
 // hang off, so a write there reaches more than the picture.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdPushTransform = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdPushTransform = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdPushMain = 0;
+#endif
 
 
 // BOTH EYES FROM ONE COMPOSITION AT ONE RATE -- the missing quarter of it being MAIN's viewpoint.
@@ -719,8 +791,16 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdPushMain = 0;
 //
 // No engine notify is needed and none is made: nothing else consumes this buffer, and it is the
 // descriptor the replay is rendered through.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdMainPosFromScene = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdMainPos = 0;
+#endif
 
 // WHAT THE SECOND EYE IS PLACED RELATIVE TO.
 //   0  the scene pose the CET script publishes
@@ -740,6 +820,9 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdMainPos = 0;
 // at PatchCamera, which runs BEFORE LocateCamera publishes it, so it was always a frame old. The push
 // lives INSIDE LocateCamera, where this frame's own value is in hand, so the same idea carries no lag
 // at all. That is the whole difference between the two attempts.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdPushBase = 1;
 
 // ONE COMPOSITION AND ONE WRITER FOR THE PAIR, WHILE THE BRAINDANCE PUSH OWNS THE SECOND EYE.
@@ -763,6 +846,7 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdPushBase = 1;
 // Both are suppressed only while the push is armed AND a braindance is running, so nothing outside
 // that window changes, and 0 restores the old behaviour whole.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdOneComposition = 1;
+#endif
 
 // One predicate for both sites, because the composition and the FRAME POSE LABEL have to move
 // together. Whoever composes what the pixels are drawn from must also be the one that publishes the
@@ -781,6 +865,8 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdOneComposition = 1;
 //
 // The port's own CET script already publishes this distinction as the validity of the scene pose
 // (GetSceneSystemCameraControlEnabled), so nothing new has to detect it.
+#if CVR_RUST_VRIK
+#else
 bool BdPushOwnsComposition() {
     if (CyberpunkVR_BdOneComposition == 0 || (CyberpunkVR_BdPushTransform & 1) == 0) return false;
     // A TAKEOVER DELIBERATELY DOES NOT OWN IT. It was tried: this predicate also suppresses
@@ -791,11 +877,14 @@ bool BdPushOwnsComposition() {
     return g_bdActive.load(std::memory_order_relaxed) &&
            g_bdScenePoseValid.load(std::memory_order_acquire);
 }
+#endif
 
 // "The located buffer owns this frame's camera": a braindance scene, or a device takeover once the lens
 // has actually been identified. Both mean the same thing to every site that asks -- the base comes from
 // the buffer and the second eye is written from here, not from its component.
 // "Did the classifier ever claim the taken-over camera": the latch itself lives further down the file.
+#if CVR_RUST_VRIK
+#else
 static bool DeviceCamClaimed();
 
 bool LocateOwnsTakeover() {
@@ -827,6 +916,7 @@ bool LocateOwnsTakeover() {
     if (CyberpunkVR_DevCamInLocate >= 2) return true;
     return !DeviceCamClaimed();
 }
+#endif
 
 // THE BRAINDANCE EDITOR'S HEIGHT MISMATCH.
 //
@@ -846,8 +936,16 @@ bool LocateOwnsTakeover() {
 // LocateCamera, which runs AFTER this site, so it is one frame old -- and that is the right trade
 // here: a frame of lag on a camera the player flies by hand is invisible, while the wrong PLACE is
 // not. In playback this branch does not run at all; there the base is the scene pose.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdEditorAlign = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdEditorAlign = 0;
+#endif
 
 // THE SCENE'S ROTATION, TAKEN FROM THE ENGINE RATHER THAN FROM LUA.
 //
@@ -863,12 +961,27 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdEditorAlign = 0;
 // this hook writes that same quaternion further down, and reading it back afterwards would be reading
 // our own output. The script's value stays as the fallback for the frames before the first locate and
 // for anything the plausibility test rejects.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdBaseFromLocate = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdBaseFromLocate = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdBaseFromScript = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/camera_owner.rs.
+#else
 PatchFastPath g_patchFast{};
+#endif
 
+#if CVR_RUST_VRIK
+// THE CAMERA CLASSIFIER AND ITS FAST PATH ARE RUST'S (rust/crates/cvr-render/src/camera_owner.rs).
+#else
 // The two halves of the re-arm condition. Plain statics on purpose: they are written on the slow
 // path and must NOT sit in g_patchFast, whose line has to stay read-shared.
 static bool g_pfSeenMain = false;
@@ -879,11 +992,22 @@ void PatchFastDisarm() {
     g_pfSeenVrcam = false;
     if (g_patchFast.armed != 0u) g_patchFast.armed = 0u;   // no store in the steady state
 }
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<uintptr_t> g_camObjVrcam{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamRebinds = 0;
+#endif
 
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_headQuatComposed[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile uint32_t g_headQuatValid = 0;     // 0 while the shot-frame/native-aim skip is active
+#endif
 
 // The ENGINE's own camera orientation, snapshotted at PatchCamera BEFORE we overwrite it.
 //
@@ -898,8 +1022,12 @@ volatile uint32_t g_headQuatValid = 0;     // 0 while the shot-frame/native-aim 
 // At the PatchCamera site the engine's own `movups` has already executed by the time our
 // callback runs, so what we read there is the engine's value for this frame, before our
 // overwrite -- the clean base the heading needs.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_engineCamQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile uint32_t g_engineCamQuatValid = 0;
+#endif
 
 // 1 = LocateCamera composes and PatchCamera writes (the correct split, see the comment at the
 // write site). 0 = the legacy path, orientation written into LocateCamera's serialiser buffer.
@@ -928,7 +1056,11 @@ volatile uint32_t g_engineCamQuatValid = 0;
 // value passes through between the component and the blender. Recorded because it is a
 // clean negative: the camera write is no longer a suspect, and the buffer path is not an
 // option in stereo anyway (it cannot tell MAIN from VRCAM).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_CamWriteInPatch = 1;
+#endif
 
 // ---- COMPOSE AT THE WRITE SITE ------------------------------------------------------------
 //
@@ -946,12 +1078,24 @@ extern "C" __declspec(dllexport) int CyberpunkVR_CamWriteInPatch = 1;
 // Whenever Patch leads, it writes the PREVIOUS interval's product -- a full frame of
 // orientation lag that never catches up, and an image that does not match the pose submitted
 // with it. Composing here takes the ordering out of the answer entirely.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_headingSy = 0.0f;      // heading quaternion is (0, 0, sy, cy)
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_gamePitchRadians = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_headingPitchS = 0.0f;  // pitch quaternion is (s, 0, 0, c)
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_headingPitchC = 1.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_headingCy = 1.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile uint32_t g_headingValid = 0;   // 0 on the shot frame / native-aim mode
+#endif
 
 // The product actually written into both cameras, composed once per present interval.
 //
@@ -968,7 +1112,9 @@ volatile uint32_t g_headingValid = 0;   // 0 on the shot frame / native-aim mode
 // seqlock, because a reader that catches two of them from before a write and two from after
 // gets a quaternion that existed at no point in time. Either would show up as an occasional
 // unexplained jolt, which is the most expensive kind of bug to go looking for later.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<uint64_t> g_camComposedForPresent{~0ull};
+#endif
 
 
 
@@ -976,6 +1122,9 @@ std::atomic<uint64_t> g_camComposedForPresent{~0ull};
 
 
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalMatch   = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalNoMatch = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugFinalAge     = 0;   // measured depth
@@ -986,6 +1135,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalTieHits = 0;
 // 1 = label the submitted frame with the pose read back out of the engine at frame-open.
 // 0 = the previous arrangement, which assumed the frame at present N used the write of N-1.
 extern "C" __declspec(dllexport) int CyberpunkVR_PoseReadBack = 1;
+#endif
 
 // 1 = compose at the write site (above). 0 = the previous split, where LocateCamera composed
 // and PatchCamera copied. Live-switchable so the two can be compared inside one session.
@@ -996,6 +1146,9 @@ extern "C" __declspec(dllexport) int CyberpunkVR_PoseReadBack = 1;
 // moving it (the aim epoch advances at display rate while the camera is written at game rate, so
 // the composes-per-frame count alternates) requires the two rates to differ, and the twitch is
 // there at 90+ fps in mono as well. Rate mismatch is not the mechanism. Not touched.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_CamComposeAtWrite = 1;
 // 1 = locate the head afresh at the camera write, aimed at the predicted display time of the
 // frame being built. 0 = read the cached atomics the frame-loop thread
@@ -1007,13 +1160,20 @@ extern "C" __declspec(dllexport) int CyberpunkVR_PoseLocateAtWrite = 1;
 extern "C" __declspec(dllexport) int CyberpunkVR_OneSamplePerFrame = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPoseLocatedAtWrite = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPoseFromCache = 0;
+#endif
 // Defined in openxr_frameloop.cpp -- how many presents ahead the frame being built is shown.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) int CyberpunkVR_EnginePipelineDepth;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamComposed   = 0;
 // How often VRCAM, not MAIN, was the first camera the engine updated in an interval. Non-zero
 // means the order really is not fixed, which is the whole reason composition moved here.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamVrcamFirst = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamNoHmd      = 0;
+#endif
 
 // Which thread each stage runs on -- this is what decides whether PoseFrameLag should be 0 or
 // 1, and it has never been established.
@@ -1046,9 +1206,16 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamNoHmd      = 0;
 // In every one of them the head translation is applied ONCE, to a value both eyes share, and
 // the eyes differ by the lateral IPD term and nothing else. Published here in the engine's own
 // int32 fixed-point (x131072) so the write site can add it to a component position directly.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int32_t> g_headDeltaFP[3] = {};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<uint32_t> g_headDeltaValid{0};
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugTidPatchCam = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugTidLocateCam = 0;
 
@@ -1087,16 +1254,31 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewCamOther = 0;
 // 1 = give every view in the image the head orientation (see the write site). 0 = only the two
 // eye views, which left distant geometry and shadows turning with the head.
 extern "C" __declspec(dllexport) int CyberpunkVR_CamFinalViewScope = 1;
+#endif
 // The dispatcher's own view tags -- the same pair the VRCAM capture pipeline runs on.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) int CyberpunkVR_IsVrcamViewActive();
+#endif
 // 1 = give VRCAM the same head translation MAIN gets. Live-switchable to isolate it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_VrcamHeadTranslation = 1;
+#endif
 // 1 = hold the gamepad LT back on foot with empty hands, so striking the smoking lighter does not
 // also pull the camera into aim-zoom. 0 = vanilla LT everywhere, for anyone not using that mod.
 // Driving is never gated: no weapon is equipped in a car, and that is where LT is the brake.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_LtLighterGate = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamPosWrites = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainPosWrites = 0;
+#endif
 // 1 = both cameras get the head translation in the COMPONENT (PatchCamera). 0 = the old
 // split, where MAIN took it in LocateCamera's serialised buffer and was therefore weighted
 // by the blender while its orientation was not. See the use site.
@@ -1126,13 +1308,20 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainPosWrites = 0;
 // Tracking/Camera sliders are ONE vector (worldDelta), so if the view ever stops following the
 // head, the offset sliders go dead in the same instant. Flip this live to separate that from
 // anything in the VRIK path: python vrprobe.py translation 0|1.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_HeadTranslationInPatch = 1;
+#endif
 
 // 1 = take the body heading from the component's PRE-WRITE world rotation at the write site,
 // instead of the g_headingSy/Cy pair LocateCamera publishes. Those are published downstream of
 // this write (LocateCamera runs inside the blender), so the cached pair is one frame old and the
 // camera lags the body by heading-change-per-frame -- 4.2 deg at a 300 deg/s mouse turn. See the
 // use site in PatchCamera.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_HeadingFromPreWrite = 1;
 
 // 1 = rebuild the head translation from the frame's OWN head sample using the recipe
@@ -1140,27 +1329,39 @@ extern "C" __declspec(dllexport) int CyberpunkVR_HeadingFromPreWrite = 1;
 // reading g_headDeltaFP -- which LocateCamera computes AFTER this write and therefore belongs
 // to the previous frame. Same class of defect as the stale heading, same remedy.
 extern "C" __declspec(dllexport) int CyberpunkVR_DeltaFromFreshSample = 1;
+#endif
 // How far AHEAD of the tick heading to aim the camera, in ticks. 0 = the tick heading, which is
 // what the body's tick is; the body itself is drawn with an INTERPOLATED entity transform, so
 // somewhere between 0 and 1 is the value that matches what is on screen. Not guessable from
 // here (the serialise buffer is a verbatim component copy, so there is no render-rate heading
 // to compare against) -- turn the knob until the trail on a fast mouse turn disappears, and
 // that reading is the answer. Read CyberpunkVR_DebugHeadingStepDeg to see the scale involved.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_HeadingLeadFrames = 0.0f;
 // Peak |heading change| per composition, in degrees -- the size any phase error can have.
 // Cleared by whoever reads it.
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugHeadingStepDeg = 0.0f;
+#endif
 // The two headings the write site can see, in degrees: the one extracted from the component's
 // pre-write world rotation, and the cached pair LocateCamera publishes. Live, so a constant
 // value is immediately visible as constant.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugHeadingPreWriteDeg = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugHeadingCachedDeg = 0.0f;
+#endif
 
 // THE BODY-YAW CENSUS. Peak-held per window, cleared by the reader in OpenXRPresent.
 // lag  = |view heading - entity world yaw| in degrees: how far behind the drawn body is.
 // step = |entity yaw change| per fresh solve: the turn rate the lag has to be read against.
 // hips = |hips MODEL yaw change| per fresh solve: zero means no bone carries the turn and the
 //        yaw lives entirely in the entity transform. Sampled in AnimPose, where the solve is.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugBodyYawLagDeg = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugBodyYawStepDeg = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugHipsYawStepDeg = 0.0f;
@@ -1173,12 +1374,16 @@ extern "C" __declspec(dllexport) float CyberpunkVR_DebugHipsYawStepDeg = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugYawToSolveMaxMs = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugYawToSolveMinMs = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugYawLagWriteDeg = 0.0f;
+#endif
 
 // 1 = the solve takes its world->model yaw from the ENGINE body yaw (published by the write site
 // sub_140336390, see src/Hooks/BodyYawCensus.cpp) instead of the view packet heading. Measured:
 // the yaw is stored 0.22-0.79 ms BEFORE the animation batch, while the packet heading is a frame
 // old, and the two differ by 5-10 deg on an ordinary mouse turn. Live flag so the two can be
 // compared without a rebuild.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_VrikYawFromEngine = 1;
 
 // 1 = the VIEW takes its yaw from the ENGINE body yaw (what the mouse and the stick produce)
@@ -1186,6 +1391,7 @@ extern "C" __declspec(dllexport) int CyberpunkVR_VrikYawFromEngine = 1;
 // body-follow offset. This is what makes "the body turns, the camera does not" possible at all --
 // see the use site in PatchCamera. It also drops a frame of age from the heading.
 extern "C" __declspec(dllexport) int CyberpunkVR_ViewYawFromEngine = 1;
+#endif
 
 // THE VIEW'S OWN YAW FOR SCENES THAT TURN NOTHING.
 //
@@ -1205,21 +1411,35 @@ extern "C" __declspec(dllexport) int CyberpunkVR_ViewYawFromEngine = 1;
 //
 // Degrees per second at full deflection; 0 disables the whole thing, which is the default until it
 // has been seen on the picture.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_SceneStickYawDps = 0.0f;
 extern "C" __declspec(dllexport) int   CyberpunkVR_SceneStickYawTier = 3;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugSceneStickYawDeg = 0.0f;
+#endif
 
 // ONE GATE, NAMED ONCE. The camera composition integrates the scene yaw and the input merge has to
 // stand its snap turn down for exactly the same frames -- two copies of this condition would drift
 // apart the first time either was touched.
+#if CVR_RUST_VRIK
+#else
 bool SceneStickYawArmed() {
     return CyberpunkVR_SceneStickYawDps > 0.0f &&
            g_sceneTier.load(std::memory_order_relaxed) >= CyberpunkVR_SceneStickYawTier &&
            !g_isInVehicle;
 }
+#endif
 // Use a coherent relative camera/entity snapshot for the model-space anchor and the same latched XR
 // head sample as PatchCamera for its orientation.  See VRIK_ComputeCamModel; g_lastLocate* is too
 // late in the frame to pair with the entity transform consumed by animation.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_VrikTransformsFromPlugin = 1;
 // Remove the final script clock from VRIK transforms: LocateCamera's preceding frame is paired with
 // the preceding engine entity transform by BodyYawFollowTick and published atomically.
@@ -1262,9 +1482,17 @@ extern "C" __declspec(dllexport) int CyberpunkVR_CamWriteOrientInVehicle = 1;
 // removed: vehicle MAIN and VRCAM have different native attachment headings.
 extern "C" __declspec(dllexport) int CyberpunkVR_YawCatchUpOnSharedEpoch = 0;
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugYawCaughtUp = 0;
+#endif
 // Shared view yaw selected by PatchCamera, consumed downstream by LocateCamera.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile float g_viewYawUsedRad = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile int   g_viewYawUsedValid = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrikNativePairUsed = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrikLuaPairFallback = 0;
 // The head bone follows the freshest camera sample, while arm/controller math keeps the stable
@@ -1295,6 +1523,7 @@ extern "C" __declspec(dllexport) float CyberpunkVR_DebugHandReachRatio = 0.0f;
 // delta put the physical head motion back in with the wrong sign. See the publish site.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_EngineCamPosFP[3] = { 0, 0, 0 };
 extern "C" __declspec(dllexport) int     CyberpunkVR_EngineCamPosValid = 0;
+#endif
 
 // WHERE THE SECOND EYE TAKES ITS POSITION FROM.
 //   0  its own attachment, plus whatever the branches in PatchCamera hand it (current behaviour)
@@ -1325,6 +1554,9 @@ extern "C" __declspec(dllexport) int     CyberpunkVR_EngineCamPosValid = 0;
 // from elsewhere for the same reason. Retried once anyway while chasing a 5.5 m divergence in an AV and
 // it changed nothing there, because that divergence had another cause entirely (a turret published as a
 // taken-over surveillance camera). Leave this at 0 unless a measurement says otherwise.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VrcamPosFromMain = 0;
 // THE VIEWPOINT OF A TAKEN-OVER CAMERA, in metres, in the LENS's own frame: x right, y forward, z up.
 //
@@ -1362,7 +1594,12 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_VrcamPosFromMain = 0;
 // is exactly the case that was broken. Drop it to 1 to get the old split back if some other device
 // camera ever regresses.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DevCamInLocate = 2;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTakeoverPush = 0;
+#endif
 
 // THE NAME IS NOT THE IDENTITY -- the header of VRRemoteCamera says so in as many words, and then the
 // claim below tested the name anyway. It cost this: the AV turret's camera component is NOT called
@@ -1375,11 +1612,19 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTakeoverPush = 0;
 // 1 = trust the published position alone, which is what the script publishes it for. 0 = the old
 // name-and-position test, kept because this is the identification path and a wrong claim here moves the
 // picture.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DevCamAnyName = 1;
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DevCamOffsetX = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DevCamOffsetY = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DevCamOffsetZ = 0.0f;
+#endif
 
 
 // THE FIRST EYE'S HALF-IPD IN A BRAINDANCE, APPLIED IN LocateCamera INSTEAD OF PatchCamera.
@@ -1400,23 +1645,37 @@ extern "C" __declspec(dllexport) float CyberpunkVR_DevCamOffsetZ = 0.0f;
 // which is the descriptor the engine renders the braindance through (measured 0.9995 against it).
 // Only while the scene owns the camera -- in the editor the component is live again and PatchCamera
 // is the right site, exactly as in ordinary play.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdIpdInLocate = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdIpdLocate = 0;
+#endif
 
 // MAIN'S POSITION AS THE ENGINE WILL RENDER IT, published from LocateCamera after everything of
 // ours has gone into that buffer. It exists for the camera census: in a braindance MAIN's COMPONENT
 // is not what the picture comes from, so a census that differences the two components reports the
 // gap between the player's body and the replay camera -- 1.737 m -- and says nothing at all about
 // the eye separation it is there to check.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int32_t> g_locatePosFP[3] = {};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int32_t> g_locatePosValid{0};
+#endif
 
 // MAIN's HEAD CENTRE as located: the same buffer, taken BEFORE the eye separation goes in. It is
 // the base both eyes belong on, and it already carries whatever translation MAIN has -- the
 // room-scale delta in ordinary play, the replay's own movement in a braindance, nothing at all
 // where the game gives nothing. That is the point: the second view should not compute a
 // displacement of its own and then have it switched off case by case, it should sit on MAIN's.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int32_t> g_locateCenterFP[3] = {};
+#endif
 
 // THE BASE THE HEAD IS COMPOSED ONTO IN A BRAINDANCE.
 //   0  the pose the CET script publishes for the scene camera (g_bdSceneQuat)
@@ -1441,7 +1700,9 @@ std::atomic<int32_t> g_locateCenterFP[3] = {};
 // Seeded from the script instead, the learned value is right from the first frame and no pose match
 // is needed to start. The script has had this number all along (Game.GetCameraSystem():
 // GetActiveCameraFOV) and was only using it for its own status line.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<float> g_bdSceneFov{0.0f};
+#endif
 
 // THE SCENE'S QUATERNION AS THE COMPOSE BASE AT THE WRITE SITE TOO, so both eyes are composed
 // onto the same thing in a braindance. Without it the second eye sat on the player's body
@@ -1450,10 +1711,18 @@ std::atomic<float> g_bdSceneFov{0.0f};
 // 1 = in a braindance MAIN writes the quaternion the WRITE SITE composed, so the pixels and the
 // submitted pose label come from one head sample. 0 = this site composes its own, which is what
 // left MAIN juddering in the headset while the second eye, written at the write site, did not.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdQuatFromWriteSite = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdQuatFromWriteSite = 0;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdSceneBaseInPatch = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdSceneBaseInPatch = 0;
+#endif
 
 // DISPROVEN AND OFF, kept only so the experiment is not repeated. Basing the braindance head compose
 // on the located buffer's own quaternion looked strictly fresher than the script pose -- and it is
@@ -1468,7 +1737,14 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdSceneBaseInPatch = 
 // for was never the age of the base: it was the two eyes being composed onto DIFFERENT bases,
 // and once the write site was given the scene's own quaternion the base here has to stay the
 // same one or the split comes back. Kept only so the experiment is not repeated.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_BdQuatFromBuffer = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdQuatFromBuffer = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamPosFromMain = 0;
 // Horizontal distance from the character's origin to the FPP camera -- the radius the body
@@ -1486,13 +1762,31 @@ extern "C" __declspec(dllexport) float   CyberpunkVR_DebugCamMountM = 0.0f;
 // and can be flipped live without a restart.
 extern "C" __declspec(dllexport) int     CyberpunkVR_CamMountCompensate = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewYawFromEngine = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHeadingLedComps = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugDeltaRebuilt = 0;
+#endif
 // 1 = put the eye separation into the component's WORLD POSITION (component+0xE0), above the view
 // producer, so culling / shadows / distant pass / motion vectors all see the eye they are drawn
 // for. 0 = do not separate the cameras at all.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_IpdInWorldPos = 1;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_MainIsRightEye;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugIpdWorldWrites = 0;
 // The legacy write into component+0x100/0x110 ("posA/posB"). OFF: measured to have no effect on
 // the rendered viewpoint -- the two render cameras stayed 23 micrometres apart with it enabled.
@@ -1505,19 +1799,30 @@ extern "C" __declspec(dllexport) int CyberpunkVR_IpdInPosAB = 0;
 // safe against that -- which is why the composition below is a compare-exchange and the
 // quaternion a seqlock rather than four plain stores.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamThreadSwitches = 0;
+#endif
 
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile uint32_t g_lastLocateSeq = 0;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile uint32_t g_renderedSeq = 0;
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs
 extern "C" uint32_t GetRenderedCameraSeq() {
     return g_renderedSeq;
 }
+#endif
 
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs
 extern "C" int GetMenuMode() {
     return g_menuModeValue;
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 void NormalizeQuat(float& x, float& y, float& z, float& w) {
     const float lenSq = x * x + y * y + z * z + w * w;
     if (lenSq <= 0.000001f) {
@@ -1540,6 +1845,7 @@ void MulQuat(float ax, float ay, float az, float aw,
     oz = aw * bz + ax * by - ay * bx + az * bw;
     ow = aw * bw - ax * bx - ay * by - az * bz;
 }
+#endif
 
 // Shot-decouple bridge: publish the LOCATED camera pointer (rbxPtr -- the struct where
 // we inject HMD, and the one the bullet reads) + a controller-aim quaternion built in the
@@ -1548,6 +1854,8 @@ void MulQuat(float ax, float ay, float az, float aw,
 // write controllerAimQuat -> bullet flies down the controller; restore HMD -> view stays.
 // Layout: 256 floats -- FULL slot map + numbering rules live in src/shared_slots.h.
 // This bridge uses [50] valid-seq, [51]/[52] locatedCamPtr lo/hi, [53..56] controllerAimQuat.
+#if CVR_RUST_VRIK
+#else
 static float* g_shotShared = nullptr;
 static HANDLE g_shotSharedHandle = nullptr;
 float* GetShotShared() {
@@ -1560,11 +1868,13 @@ float* GetShotShared() {
     }
     return g_shotShared;
 }
+#endif
 
 
 // ============================================
 // VARIABILI GLOBALI PER LA CACHE
 // ============================================
+#if !CVR_RUST_VRIK   // the Rust build reads these flags in rust/crates/cvr-ffi/src/player_camera_state.rs
 RED4ext::CProperty* g_mountedVehicleProp = nullptr;
 RED4ext::CProperty* g_vehicleStateProp = nullptr;
 RED4ext::CProperty* g_isAimingProp = nullptr;
@@ -1624,34 +1934,66 @@ void InitializeMountedVehicleCache() {
 
     g_isRTTIInitialized = true;
 }
+#endif
 
 
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 uint64_t g_locateCameraHits = 0;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 bool g_isInVehicle = false;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<bool> g_isDriving{false};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_vehicleState{-1};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_sceneTier{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<float> g_lookStickX{0.0f};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 bool g_isAiming = false;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 bool g_hasWeaponEquipped = false;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 bool g_hasRightWeaponEquipped = false;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 bool g_hasLeftWeaponEquipped = false;
+#endif
 // [dx-win]/[jerk] diag: ENGINE located camera captured at callback entry (pre-overwrite).
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
 float g_dbgEntryYaw = 0.0f, g_dbgEntryPosX = 0.0f, g_dbgEntryPosY = 0.0f, g_dbgEntryPosZ = 0.0f;
+#endif
 // [jerk] diag: the FOV the game LAST TRIED to set (pre-override) + the camera state
 // pointer, so the jerk window can check for a sprint FOV boost (render zoom).
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
 void* volatile g_dbgFovCamState = nullptr;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 uint64_t g_patchCameraHits = 0;
+#endif
 
 // CName of the player's own camera component, measured live: cname_hash("camera").
 // The camera object is an Entity/IPlacedComponent and carries its component name at obj+0x40,
 // so this is a per-instance identity that costs one load -- no view plumbing, no
 // first/last/most-frequent guessing, and stable across launches because it is a name hash.
+#if !CVR_RUST_VRIK
 static constexpr uint64_t kCamNameMain = 0x6FCFDF926F11594Eull;
+#endif
 // THE DEVICE'S OWN CAMERA, which is what a surveillance camera hands the view to. Its component is
 // named `cameraComponent` -- read off the live SurveillanceCamera through the bridge, not guessed -- and
 // the hash is computed with the same function the VRCAM name uses, so a mistyped literal cannot silently
 // classify nothing (every wrong guess at this has been silent, which is the note above this block).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DeviceCamFollow = 1;
 // Writing the HEAD POSE into the device camera. Off, and this is a measurement rather than caution: with
 // it on the view started aimed at a wall and MAIN's frames jumped about while VRCAM's did not, which is
@@ -1664,22 +2006,39 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_DeviceCamFollow = 1;
 // steering inside a surveillance camera needs that whole chain pointed at it, which is a piece of work
 // and not a knob. Off, the eyes both look along the lens and nothing artefacts.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DeviceCamOrient = 1;
+#endif
 // THE LENS HEADING, split into yaw and pitch because that is the shape the composition takes
 // (R_z(yaw) * R_x(pitch) * HMD, exactly as MAIN composes its body heading). Handing it a full mount
 // quaternion instead carried the mount's roll into the product, and the head pose then arrived in a
 // tilted frame. Measured on the live camera: 9.4 deg of pitch and EXACTLY no roll -- its right vector
 // reads (-0.7675, 0.6411, -0.0000) -- so yaw plus pitch describes the mount completely.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_devCamAimYaw = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_devCamAimPitch = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_devCamAimValid{0};
+#endif
 // The camera's authored FOV, so the object can be handed back exactly as it was found.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_devCamFovOrig = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_devCamFovSaved{0};
+#endif
 // What we last wrote into that camera, and the answer both eyes then use. The first is what makes a
 // per-frame base refresh safe: the field is only believed to be the engine's while it differs from this.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_devCamLastWritten[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_devCamViewQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_devCamViewValid{0};
+#endif
 // THE GATE AND THE TARGET, published from the script side (VRRemoteCamera in src/Natives/RemoteCamera.cpp).
 // Nothing is followed until both are set, which is why a stray camera in the world can no longer be
 // picked up: the name is not the identity, the position is.
@@ -1700,7 +2059,9 @@ std::atomic<int> g_devCamViewValid{0};
 //
 // Zero means "not published": the position test then stands in, which is the surveillance camera's case
 // and stays untouched.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<uint64_t> g_takeoverEntityId{0};
+#endif
 
 // THE LENS COMPONENT ITSELF, resolved once and then read fresh every frame.
 //
@@ -1719,12 +2080,16 @@ std::atomic<uint64_t> g_takeoverEntityId{0};
 // platform moving at tens of metres per second one frame is metres -- the two eyes would sit apart along
 // the flight path, which is the lag that was reported earlier. Reading the component at the moment of the
 // write has no such term.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<uintptr_t> g_lensComp{0};
+#endif
 
 // READABLE, ASKED OF THE OS RATHER THAN ASSUMED. __try/__except does not catch a bad read here -- the
 // engine's vectored handler takes the exception first -- and this scan learned that the hard way: a qword
 // holding the float 1.0 (0x3F800000) was dereferenced and killed the process at ReadPtrSafe. VirtualQuery
 // costs real time, so it is only ever called while BINDING, which happens once per takeover.
+#if CVR_RUST_VRIK
+#else
 static bool AddressIsReadable(uintptr_t a, size_t bytes) {
     if (a < 0x10000 || a >= 0x7FF000000000ull) return false;
     if ((a & 7u) != 0) return false;                       // every object here is qword aligned
@@ -1736,9 +2101,12 @@ static bool AddressIsReadable(uintptr_t a, size_t bytes) {
     const uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
     return (a + bytes) <= end;
 }
+#endif
 
 // THE ENTITY WHOSE CAMERA IS BEING LOOKED THROUGH, kept so the lens can be looked up inside it.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<uintptr_t> g_takeoverEntity{0};
+#endif
 
 // THE LENS, FOUND IN THAT ENTITY'S OWN COMPONENT LIST.
 //
@@ -1756,6 +2124,8 @@ std::atomic<uintptr_t> g_takeoverEntity{0};
 // as Handle<IComponent> describes. So the lens is "the component named `cameraComponent` whose owner is
 // the entity the script named", and both halves come out of the objects themselves -- no position, no
 // fov, no tolerance, nothing a flying platform or a sibling camera can break.
+#if CVR_RUST_VRIK
+#else
 uintptr_t BindLensFromEntity(uintptr_t entity) {
     static const uint64_t kCamComp = cvr::cname_hash("cameraComponent");
     if (!AddressIsReadable(entity, 0xB0)) return 0;
@@ -1796,6 +2166,7 @@ uintptr_t BindLensFromEntity(uintptr_t entity) {
         reinterpret_cast<void*>(entity), count);
     return 0;
 }
+#endif
 
 // Fills exactly the globals the existing device-camera path already consumes, so nothing downstream
 // changes: the second eye copies this position and composes onto this base, which is code that has
@@ -1804,9 +2175,12 @@ void StampDeviceCam();   // defined below; the fresh read is what keeps the devi
 
 // WHAT WE LAST WROTE INTO THE LENS. Kept so the component's own aim can be told from our composition
 // coming back through the same field -- see the note in RefreshLensFromComponent.
+#if CVR_RUST_VRIK
+#else
 static float   g_lensWrittenQuat[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 static int32_t g_lensWrittenPosFP[3] = { 0, 0, 0 };
 static std::atomic<int> g_lensWrittenValid{0};
+#endif
 
 // THE HEAD, WRITTEN INTO THE LENS THE MAIN VIEW IS RENDERED FROM.
 //
@@ -1824,9 +2198,19 @@ static std::atomic<int> g_lensWrittenValid{0};
 // it does not work -- because the view is built from the located buffer, not from that component's
 // rotation (its fov IS read from there, which is why the fov fix works at the component). Kept as a live
 // key rather than deleted, since it is one line away from being the right answer if the route ever changes.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_LensHeadWrite = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLensHeadWrites = 0;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 void PushLensHeadTransform(const float* quat) {
     if (!CyberpunkVR_LensHeadWrite) return;
     const uintptr_t comp = g_lensComp.load(std::memory_order_relaxed);
@@ -1917,10 +2301,15 @@ void RefreshLensFromComponent() {
         g_devCamBaseValid.store(1, std::memory_order_release);
     }
 }
+#endif
 
 
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_remoteCamOn{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int32_t> g_remoteCamPosFP[3] = {};
+#endif
 // How close a cameraComponent has to sit to the published camera to be believed. The published point is
 // the ENTITY's origin and the component sits at the lens, so this is not a few centimetres; cameras in
 // the game stand metres apart, so 1.5 m separates them without being tight enough to miss the mount.
@@ -1932,51 +2321,110 @@ std::atomic<int32_t> g_remoteCamPosFP[3] = {};
 // nothing: after it the identity is fixed by address.
 // 1.5 m, the value measured against a wall-mounted camera. It is a FALLBACK only: with an entity id
 // published the identity decides and this is not consulted, so widening it buys nothing.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DevCamTolM = 1.5f;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) unsigned int CyberpunkVR_DebugPatchCamDevice = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/camera_owner.rs.
+#else
 static std::atomic<uintptr_t> g_camObjDevice{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 static bool DeviceCamClaimed() { return g_camObjDevice.load(std::memory_order_relaxed) != 0; }
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_bdActive{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_bdWantFovMilli{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int32_t> g_bdScenePosFP[3] = {};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_bdSceneQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_bdScenePoseValid{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_bdCamFound{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_playerCamOn{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int32_t> g_playerCamPosFP[3] = {};
+#endif
+#if !CVR_RUST_VRIK
 static constexpr float kPlayerCamTolM = 2.0f;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainCamRejects = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamCamRejects = 0;
+#endif
 // The RTT component the ENGINE renders the second view through, latched by the view-create detour in
 // src/Stereo/FrameGraph.cpp. With two authored sets of vrcam components -- the player's and the
 // braindance replacer's -- the name alone no longer identifies one object, and this does.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugRttComp;
+#endif
 // How close a patched object has to be to the pose script reports for the scene camera. The orientation
 // is the discriminating half -- 0.99 is ~16 degrees, and almost nothing in the world is aimed the way a
 // cinematic camera is -- while the distance covers the frame of lag between the script read and this
 // write, at replay speeds a few centimetres.
+#if !CVR_RUST_VRIK
 static constexpr float kBdPosTolM = 0.60f;
 static constexpr float kBdDotTol  = 0.995f;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdCandidates = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdCamHits = 0;
+#endif
 // The clock of the last write to such a camera. There is no polling anywhere: this stamp IS the state,
 // and it clears itself. Script systems could answer the question directly but the periodic poll in this
 // plugin runs on the worker thread, where calling into the script VM is not safe.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/camera_owner.rs.
+#else
 std::atomic<unsigned long long> g_deviceCamLastMs{0};
+#endif
 // THE CAMERA'S OWN AIM AND PLACE, latched once per takeover.
 //
 // The base orientation cannot be re-read every frame: we overwrite that quaternion, so reading it back
 // would compose the head pose onto our own previous output and the view would wind up. Latched on the
 // first write to the camera and held until the takeover ends -- which is why the staleness test below
 // invalidates it rather than any timer.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_devCamBase[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_devCamBaseValid{0};
+#endif
 // And its world position, in the same fixed point the component stores (1/131072 m), so the second eye
 // can be placed at the lens instead of at the player.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int32_t> g_devCamPosFP[3] = {};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 std::atomic<int> g_devCamPosValid{0};
+#endif
 // One stamp, and the place the latch is dropped when the takeover has been away. Anything longer than
 // the liveness window means this is a fresh entry, and the camera's aim and place must be taken again.
+#if CVR_RUST_VRIK
+#else
 void StampDeviceCam() {
     const unsigned long long now = GetTickCount64();
     const unsigned long long prev = g_deviceCamLastMs.exchange(now, std::memory_order_relaxed);
@@ -2034,7 +2482,10 @@ static bool DeviceCamPositionMatches(uintptr_t obj) {
                           ? CyberpunkVR_DevCamTolM : 1.5f;
     return d2 <= (tol * tol);
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 bool DeviceCamActive() {
     if (!CyberpunkVR_DeviceCamFollow) return false;
     // EITHER GATE, AND BOTH MEAN "A CAMERA THAT IS NOT THE PLAYER'S IS LATCHED". A takeover publishes
@@ -2051,18 +2502,33 @@ bool DeviceCamActive() {
     if (t == 0) return false;
     return (GetTickCount64() - t) < 300ull;
 }
+#endif
+#if !CVR_RUST_VRIK
 extern "C" unsigned long long CyberpunkVR_VrcamCamNameHash();   // stereo/sync_stereo.cpp
+#endif
 // Read by the braindance census: whether the second view is producing frame-graph nodes and whether its
 // render target is being captured. Both live in the stereo translation unit.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVrcamNodeHits;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugMirrorRtvHits;
+#endif
 // The same component on the braindance replacer, which carries its own prefix. Only one of the two is
 // ever enabled, so either name means "the second view".
+#if !CVR_RUST_VRIK
 extern "C" unsigned long long CyberpunkVR_VrcamBdCamNameHash();
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPatchCamMain  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPatchCamVrcam = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPatchCamOther = 0;
+#endif
 
 // 0 = not a camera we drive, 1 = MAIN (the player's FPP camera), 2 = VRCAM.
 //
@@ -2091,7 +2557,11 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPatchCamOther = 0;
 // first object whose first 0x80 bytes contain one of the two hashes we already know teaches us
 // the offset, and it is latched and logged. Self-calibrating, and it survives a patch that
 // shifts the layout.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/camera_owner.rs.
+#else
 static std::atomic<int> g_camNameOffset{-1};
+#endif
 
 // THE LATCH IS RE-VALIDATED BY NAME, NOT BY POSITION.
 //
@@ -2106,6 +2576,8 @@ static std::atomic<int> g_camNameOffset{-1};
 // correct, it simply was not applied on those passes. The name does not move, so one qword read keeps
 // the original intent -- notice when the object stops being MAIN -- without a test a replay is
 // guaranteed to fail.
+#if CVR_RUST_VRIK
+#else
 static bool CamNameStillMain(uintptr_t obj) {
     const int off = g_camNameOffset.load(std::memory_order_acquire);
     if (off < 0) return true;              // not calibrated yet: do not drop a latch over it
@@ -2113,6 +2585,7 @@ static bool CamNameStillMain(uintptr_t obj) {
     if (!ReadU64Safe(obj + off, &nm)) return true;
     return nm == kCamNameMain;
 }
+#endif
 
 // HAND THE CAMERA BACK. Its fov was raised from the authored value to the one the headset needs, and
 // that is a change to a world object, so it is undone when control is released. Called from the
@@ -2121,6 +2594,8 @@ static bool CamNameStillMain(uintptr_t obj) {
 // The pointer is validated before anything is written through it: the entity can be unloaded between the
 // last patch and the release, and a blind write would land in freed memory. The check is the same one the
 // classifier trusts -- the component's own CName at the calibrated offset.
+#if CVR_RUST_VRIK
+#else
 void DeviceCamRestoreFov() {
     if (!g_devCamFovSaved.exchange(0, std::memory_order_acq_rel)) return;
     const uintptr_t obj = g_camObjDevice.load(std::memory_order_relaxed);
@@ -2143,6 +2618,7 @@ void DeviceCamRestoreFov() {
     WriteFloatSafe(obj + 0x128, g_devCamFovOrig);
     if (g_verboseLog) Log("PatchCamera: device camera fov handed back %.3f -> %.3f\n", cur, g_devCamFovOrig);
 }
+#endif
 
 
 // ===== BRAINDANCE: WHICH OBJECT IS THE CAMERA THE SCENE RENDERS THROUGH =========================
@@ -2152,6 +2628,9 @@ void DeviceCamRestoreFov() {
 // performance story: the site fires ~16M times a session for ordinary placed components, so the
 // ORIENTATION is tested first -- four multiplies, no memory read -- and the position is only read for
 // the handful of objects aimed the way the scene's camera is.
+#if CVR_RUST_VRIK
+// Its table is built in Rust (camera_takeover.rs, from vrcore_exports.rs's and camera_owner.rs's objects).
+#else
 bool BraindanceCameraMatch(uintptr_t obj, const float* quat) {
     if (!CyberpunkVR_DeviceCamFollow) return false;
     if (!g_bdActive.load(std::memory_order_relaxed)) return false;
@@ -2332,6 +2811,7 @@ void BraindanceCameraRelease() {
     g_devCamAimValid.store(0, std::memory_order_relaxed);
     if (g_verboseLog) Log("PatchCamera: braindance camera released\n");
 }
+#endif
 
 // ARM THE FAST PATH, from the classifier, on a camera it recognised. Nothing here is a policy
 // decision the trampoline could make for itself: the trampoline can only compare pointers, and the
@@ -2345,6 +2825,9 @@ void BraindanceCameraRelease() {
 //
 // Written only on an actual change, so an armed steady state produces no store traffic at all on a
 // line three job threads are reading every call.
+#if CVR_RUST_VRIK
+// Its table is built in Rust (camera_owner.rs).
+#else
 static void patch_fast_note(int kind) {
     if (kind == 1) g_pfSeenMain = true;
     else if (kind == 2) g_pfSeenVrcam = true;
@@ -2648,9 +3131,12 @@ int ClassifyPatchCameraOwner(void* ownerState) {
     CVR_DIAGNOSTIC(++CyberpunkVR_DebugPatchCamOther);
     return 0;
 }
+#endif
 
 
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 uint64_t g_finalCameraHits = 0;
+#endif
 
 
 
@@ -2668,17 +3154,45 @@ uint64_t g_finalCameraHits = 0;
 //   r13[4:8]   (floats 4-7): -> rbx+0x21D0 (projection params)
 //   r13[8]     (float 8):    -> rbx+0x21E0 (FOV in degrees)
 //
+#if !CVR_RUST_VRIK
+extern "C" {
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 uint64_t g_unifixHits = 0;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_unifixProjDump[9] = {};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile uintptr_t g_unifixRenderObj = 0;
+#endif
+#if !CVR_RUST_VRIK
+}
+#endif
 
 
 
+#if !CVR_RUST_VRIK
+extern "C" {
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 uint64_t g_projStageHits = 0;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_projStageFov = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_projStageAspect = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 float g_projStageExtra = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 bool g_projStagePatched = false;
+#endif
+#if !CVR_RUST_VRIK
+}
+#endif
 
 
 // ===================== Projection FOV/Aspect Copy Hook =====================
@@ -2738,11 +3252,15 @@ bool g_projStagePatched = false;
 // Snap-turn yaw delta (degrees) pushed by the XInput hook when the player flicks
 // the right stick. Applied here in one frame to give a true instant snap (no
 // stick-driven smooth rotation). Atomic 32-bit float via bit-cast through int.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-ffi/src/vrcore_exports.rs
 volatile LONG g_pendingSnapYawDeltaBits = 0;
+#endif
 
 // Index of the yaw float inside the delta buffer (default 1). Overridable via
 // xr_snap_turn_yaw_index in vrport.ini for quick experimentation if [1] is wrong.
+#if !CVR_RUST_VRIK
 extern "C" int GetSnapTurnYawIndex();
+#endif
 // Sprint input state (left stick to the stop), written by the XInput merge each poll.
 // (Kept for diagnostics; the snap-event suppression that consumed it is reverted.)
 
@@ -2779,6 +3297,7 @@ extern "C" int GetSnapTurnYawIndex();
 
 // Moved to src/Core/WorkerThread.cpp: the background thread that does all of the polling.
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_start.rs
 extern "C" {
 // Initialize OpenXR early
 void InitOpenXREarly() {
@@ -2793,7 +3312,9 @@ void InitOpenXREarly() {
 
 // Enable DRED auto-breadcrumbs + page-fault reporting before any D3D12 device
 // is created. Implemented in swapchain_hooks.cpp.
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVRPort_EnableDredOnce();
+#endif
 
 // ---- sync_stereo boot ---------------------------------------------------------------------
 // extern "C++" is load-bearing: this sits inside the extern "C" block that wraps the DXGI
@@ -2810,8 +3331,17 @@ void sync_stereo_install_early_hooks();
 // without a rebuild. Stereo is the default now, so the file is an opt-OUT (the old build had
 // the opposite, vrport_stereo.txt, back when the module was the experiment rather than the
 // shipping path).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+extern "C" __declspec(dllexport) extern int CyberpunkVR_StereoModuleEnable;
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_StereoModuleEnable = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_StereoModuleLoaded = 0;
+#endif
 
 
 void InitStereoOnce() {
@@ -2846,3 +3376,4 @@ void InitStereoOnce() {
 __declspec(dllexport) void CyberpunkVRPort_InitStereo() { InitStereoOnce(); }
 
 }
+#endif

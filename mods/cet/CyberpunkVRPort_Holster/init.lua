@@ -34,13 +34,41 @@ local Simple = require('modules/simple')
 local errorAt = -10
 local clock = 0
 
+-- THE RUST BUILD RUNS THE HOLSTERS (rust/crates/cvr-ffi/src/mechanics/holster.rs, bit 26 of VRRustMechanics): the copies
+-- on the body, the shells, the hands' draws and stows, the simple holsters. The menu's side below (slotInfo, setPlace,
+-- hidden, setHidden) stays here and writes holster_places.json, which Rust reads again when it changes; the belt's
+-- question goes to Rust (VRHolsterNear); the detach releases Rust's copies (VRHolsterRelease). The reference build has
+-- no such native, and everything runs here.
+local rustOwned = nil
+local function rust()
+  if rustOwned == nil then
+    rustOwned = type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 67108864) % 2 == 1
+  end
+  return rustOwned
+end
+local rustNear = {
+  near = function(x, y, z, side)
+    local ok, d = pcall(VRHolsterNear, x, y, z, side)
+    if not ok or d == nil or d < 0 then return nil end
+    return d
+  end,
+}
+
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent('onInit', function()
   pcall(Simple.init)
   -- the copies belong to the world the player is in: let them go with it
-  pcall(function() ObserveBefore('PlayerPuppet', 'OnDetach', function() pcall(Holsters.release) end) end)
+  if not rustHooks() then pcall(function() ObserveBefore('PlayerPuppet', 'OnDetach', function()
+    pcall(Holsters.release)
+    if rust() then pcall(VRHolsterRelease) end
+  end) end) end
 end)
 
 registerForEvent('onUpdate', function(dt)
+  if rust() then return end
   dt = dt or 0.016
   clock = clock + dt
   if type(GetVRSharedSlot) ~= 'function' then return end
@@ -62,7 +90,7 @@ return {
   setPlace = function(slot, name) return Holsters.setPlace(slot, name) end,
   hidden = function() return Holsters.hidden() end,
   setHidden = function(on) return Holsters.setHidden(on) end,
-  holsters = function() return Holsters end,
+  holsters = function() if rust() then return rustNear end return Holsters end,
   -- GetMod('CyberpunkVRPort_Holster').hot() -> 'ok' or the error; the old module stays if the new one fails
   hot = function()
     local ok, new = pcall(hotLoad, 'modules/holsters')

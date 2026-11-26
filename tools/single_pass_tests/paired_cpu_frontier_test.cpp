@@ -27,16 +27,16 @@ struct Fixture {
             node.work=Base+work;Put(node.definition,0,node.vtable);Put(node.definition,24,tag);}
         graph.nodes.push_back(node);return id;
     }
-    uint32_t Named(uint32_t eye,std::string_view name){return Node(eye,0x1EC1D0,frontier::Name(name));}
+    uint32_t Named(uint32_t eye,std::string_view name){return Node(eye,0x332D5C,frontier::Name(name));}
     Fixture(){
         Named(0,"StartRender");global=Node(1,0x374AD8);
-        for(uint32_t eye=0;eye<2;++eye){auto& role=roles[eye];role.collector=Node(eye,0x79B03C);
-            for(const uint32_t kind:{17u,2u,4u})Node(eye,0xB2BEFC,kind);
-            for(uint32_t particle=0;particle<4;++particle)Node(eye,0xCBB23C,uint64_t(4)<<32|particle);
-            Node(eye,0x76ECC4);Named(eye,"RenderPrep");Named(eye,"PrepareGloballyAccessibleSystems");Node(eye,0x58DA9C,1);
-            Named(eye,"AsyncWater");role.depth=Named(eye,"DepthPrepass");Named(eye,"GBufferEarly_Velocity_Weapon");Node(eye,0xC26DB8);
+        for(uint32_t eye=0;eye<2;++eye){auto& role=roles[eye];role.collector=Node(eye,0xC0F204);
+            for(const uint32_t kind:{17u,2u,4u})Node(eye,0xBF436C,kind);
+            for(uint32_t particle=0;particle<4;++particle)Node(eye,0xD5BAC4,uint64_t(4)<<32|particle);
+            Node(eye,0x77596C);Named(eye,"RenderPrep");Named(eye,"PrepareGloballyAccessibleSystems");Node(eye,0x655FAC,1);
+            Named(eye,"AsyncWater");role.depth=Named(eye,"DepthPrepass");Named(eye,"GBufferEarly_Velocity_Weapon");Node(eye,0xCB1E88);
             for(uint32_t solid=0;solid<4;++solid)role.solid.push_back(Named(eye,"GBuffer_Solid"));
-            role.solidReady=Node(eye,0x58DA9C,2);role.discard=Named(eye,"GBuffer_Discard");
+            role.solidReady=Node(eye,0x655FAC,2);role.discard=Named(eye,"GBuffer_Discard");
             role.afterDiscard=role.postGBuffer=Named(eye,"PostGBufferOverrides");role.lighting=Named(eye,"Lighting");role.final2D=Named(eye,"RenderFinal2D");
         }
         for(auto& phase:edges)for(uint32_t id=1;id<graph.nodes.size();++id)phase.emplace(id-1,id);

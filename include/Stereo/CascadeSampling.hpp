@@ -9,6 +9,18 @@ inline constexpr size_t CascadeMatrixFloatCount=CascadeMatrixCount*16;
 
 // CSConstants contains four affine world-to-shadow matrices. The native
 // quality setting selects a contiguous active prefix; unused matrices are zero.
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/cascade_sampling.rs through render_parity_abi.rs (tools/render_parity_tests'
+// cascade cases run against them in their Rust variant).
+extern "C" {
+size_t cvr_casc_active(const float*);
+bool cvr_casc_same_layout(const float*,const float*,float*);
+}
+inline size_t ActiveCascadeMatrices(const float* matrices){return cvr_casc_active(matrices);}
+// Matches extents for every active cascade. Translation and orientation are deliberately free: sharing them is the
+// purpose of the stereo correction.
+inline bool SameCascadeSamplingLayout(const float* a,const float* b,float* worst=nullptr){return cvr_casc_same_layout(a,b,worst);}
+#else
 inline size_t ActiveCascadeMatrices(const float* matrices) {
     if(!matrices)return 0;
     size_t count=0;bool ended=false;
@@ -47,4 +59,5 @@ inline bool SameCascadeSamplingLayout(const float* a,const float* b,float* worst
     // deliberately free: sharing them is the purpose of the stereo correction.
     return difference<=.02;
 }
+#endif
 }

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // FreeDeltaHead -- one hook, one file. It registers itself at the bottom; Hooks/Hook.hpp says why the
 // stage and order are declared here rather than in a boot function.
 //
@@ -14,6 +15,12 @@
 #include <cstdint>
 #include <cstddef>
 
+#if CVR_RUST_VRIK
+// THE PATCH IS RUST'S (rust/crates/cvr-rig/src/vrik/free_delta_head.rs); the registration stays here, so the install
+// order holds.
+extern "C" bool cvr_hook_free_delta_head_install();
+CVR_HOOK("FreeDeltaHead", ::cvr::hooks::Stage::Boot, 77, cvr_hook_free_delta_head_install);
+#else
 bool InstallFreeDeltaHeadHook() {
     const char* pattern = "\xF3\x0F\x11\x9E\xCC\x0C\x00\x00\x74\x5C";
     const char* mask = "xxxxxxxxxx";
@@ -54,3 +61,5 @@ bool InstallFreeDeltaHeadHook() {
     return true;
 }
 CVR_HOOK("FreeDeltaHead", ::cvr::hooks::Stage::Boot, 77, InstallFreeDeltaHeadHook);
+#endif
+#endif

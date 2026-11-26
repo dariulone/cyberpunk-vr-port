@@ -46,6 +46,78 @@ inline bool Read(ReadMemory read,void* user,uint64_t address,void* output,size_t
 template<class T> bool Field(ReadMemory read,void* user,uint64_t address,uint64_t offset,T& output){
     return address && address<=UINT64_MAX-offset && Read(read,user,address+offset,&output,sizeof(output));
 }
+#if CVR_RUST_VRIK
+// The readers: rust/crates/cvr-render/src/queue_residency.rs. A Snapshot crosses as a view of its vectors.
+struct PageableMembership {
+    uint64_t context{},list{},registry{},sourceSet{},managed{},pageable{},generation{},submitted{};
+    uint32_t sourceIndex{},memberIndex{},kind{},status{};SetHeader header;
+    bool operator==(const PageableMembership&)const=default;
+};
+using PageableSearch=std::array<uint64_t,20>;
+struct SetView {uint64_t address;SetHeader header;const uint64_t* entries;size_t count;};
+struct SnapshotView {
+    uint64_t base,registry,thread,listsAddress,setsAddress,fenceObject,fence,fenceValue,generation,syncManager;
+    Frame frame;const uint64_t* lists;size_t listCount;const SetView* sets;size_t setCount;
+};
+static_assert(sizeof(Frame)==48 && sizeof(SetView)==72 && sizeof(SnapshotView)==160 && sizeof(PageableMembership)==128 &&
+    offsetof(PageableMembership,header)==80,"mirrored by rust/crates/cvr-render/src/queue_residency.rs");
+extern "C" {
+bool cvr_qr_closed(const SetHeader*,uint64_t);
+void* cvr_qr_read_scope(ReadMemory,void*,uint64_t,uint64_t,const Frame*,uint64_t,uint32_t,uint64_t,SnapshotView*,uint32_t*);
+void cvr_qr_snapshot_free(void*);
+bool cvr_qr_same(const SnapshotView*,const SnapshotView*);
+bool cvr_qr_contains_recording(ReadMemory,void*,const SnapshotView*,uint64_t,uint64_t,uint64_t,uint32_t*,std::array<uint64_t,12>*);
+bool cvr_qr_contains(ReadMemory,void*,const SnapshotView*,uint64_t,uint64_t,uint64_t,uint32_t,uint64_t,uint32_t*,
+    std::array<uint64_t,12>*);
+bool cvr_qr_search_invocation_pageable(ReadMemory,void*,const SnapshotView*,uint64_t,uint64_t,PageableSearch*);
+bool cvr_qr_read_pageable_membership(ReadMemory,void*,const SnapshotView*,uint64_t,uint64_t,uint64_t,uint64_t,
+    PageableMembership*,uint32_t*,std::array<uint64_t,12>*);
+}
+// A Snapshot's view (valid while the snapshot lives).
+struct ViewOf {
+    std::vector<SetView> sets;SnapshotView view{};
+    explicit ViewOf(const Snapshot& s){
+        sets.reserve(s.sets.size());
+        for(const auto& set:s.sets)sets.push_back({set.address,set.header,set.entries.data(),set.entries.size()});
+        view={s.base,s.registry,s.thread,s.listsAddress,s.setsAddress,s.fenceObject,s.fence,s.fenceValue,s.generation,s.syncManager,
+            s.frame,s.lists.data(),s.lists.size(),sets.data(),sets.size()};
+    }
+};
+inline bool Closed(const SetHeader& value,uint64_t syncManager){return cvr_qr_closed(&value,syncManager);}
+inline bool ReadScope(ReadMemory read,void* user,uint64_t base,uint64_t thread,const Frame& frame,
+                      uint64_t queue,uint32_t count,uint64_t listsAddress,Snapshot& output,uint32_t* rejection=nullptr){
+    output={};SnapshotView view{};
+    void* held=cvr_qr_read_scope(read,user,base,thread,&frame,queue,count,listsAddress,&view,rejection);
+    if(!held)return false;
+    Snapshot value;value.base=view.base;value.registry=view.registry;value.thread=view.thread;value.listsAddress=view.listsAddress;
+    value.setsAddress=view.setsAddress;value.fenceObject=view.fenceObject;value.fence=view.fence;value.fenceValue=view.fenceValue;
+    value.generation=view.generation;value.syncManager=view.syncManager;value.frame=view.frame;
+    value.lists.assign(view.lists,view.lists+view.listCount);value.sets.reserve(view.setCount);
+    for(size_t i=0;i<view.setCount;++i){const auto& set=view.sets[i];
+        value.sets.push_back({set.address,set.header,std::vector<uint64_t>(set.entries,set.entries+set.count)});}
+    cvr_qr_snapshot_free(held);output=std::move(value);return true;
+}
+inline bool Same(const Snapshot& a,const Snapshot& b){const ViewOf x(a),y(b);return cvr_qr_same(&x.view,&y.view);}
+inline bool ContainsRecording(ReadMemory read,void* user,const Snapshot& scope,uint64_t context,uint64_t list,
+                              uint64_t registry,uint32_t* rejection=nullptr,std::array<uint64_t,12>* observed=nullptr){
+    const ViewOf view(scope);return cvr_qr_contains_recording(read,user,&view.view,context,list,registry,rejection,observed);
+}
+inline bool Contains(ReadMemory read,void* user,const Snapshot& scope,uint64_t context,uint64_t list,
+                     uint64_t registry,uint32_t handle,uint64_t resource,uint32_t* rejection=nullptr,
+                     std::array<uint64_t,12>* observed=nullptr){
+    const ViewOf view(scope);return cvr_qr_contains(read,user,&view.view,context,list,registry,handle,resource,rejection,observed);
+}
+inline bool SearchInvocationPageable(ReadMemory read,void* user,const Snapshot& scope,uint64_t sourceList,uint64_t pageable,
+                                     PageableSearch& output){
+    const ViewOf view(scope);return cvr_qr_search_invocation_pageable(read,user,&view.view,sourceList,pageable,&output);
+}
+inline bool ReadPageableMembership(ReadMemory read,void* user,const Snapshot& scope,uint64_t context,uint64_t list,
+                                  uint64_t registry,uint64_t pageable,PageableMembership& output,uint32_t* rejection=nullptr,
+                                  std::array<uint64_t,12>* observed=nullptr){
+    const ViewOf view(scope);
+    return cvr_qr_read_pageable_membership(read,user,&view.view,context,list,registry,pageable,&output,rejection,observed);
+}
+#else
 inline bool Closed(const SetHeader& value,uint64_t syncManager){
     return value.index==UINT32_MAX && !value.open && !value.outOfMemory && value.count>=0 &&
         uint32_t(value.count)<=value.capacity && uint32_t(value.count)<=MaxSetObjects &&
@@ -282,6 +354,7 @@ inline bool ReadPageableMembership(ReadMemory read,void* user,const Snapshot& sc
         !Field(read,user,context,0x68,kind) || kind!=value.kind)return reject(413);
     output=value;return true;
 }
+#endif
 struct Proof;
 }
 struct Scope {std::shared_ptr<const detail::Proof> proof;explicit operator bool()const{return bool(proof);}};
@@ -289,6 +362,10 @@ struct Scope {std::shared_ptr<const detail::Proof> proof;explicit operator bool(
 // It expires on return and grants no later-frame or prior-subset residency.
 bool Capture(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*,Scope&);
 bool Validate(const Scope&);
+#if CVR_RUST_VRIK
+// The Scope's proof in rust/crates/cvr-render/src/queue_residency.rs (borrowed; null without a proof).
+struct IUnknown* RustHandle(const Scope&);
+#endif
 struct Invocation {
     uint64_t thread{},queue{},listsAddress{};
     std::vector<uint64_t> lists;

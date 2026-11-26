@@ -1,0 +1,194 @@
+{
+  "source": "Visible stereo landmarks and recorded eye depth",
+  "phases": {
+    "before": {
+      "frame": 14901,
+      "notes": "The pointed lower corner of the light skin patch on the raised right elbow is distinct in both eyes. It is a surface feature. The horizontal off arm masks the right shoulder region and the wrist at the grip. The control is the right end of the first bright rib below the rounded cap on the Ajax buttstock.",
+      "surface": {
+        "baselineElbowPatch": {
+          "pixels": [
+            [
+              1193.0,
+              1086.4
+            ],
+            [
+              434.7,
+              1086.4
+            ]
+          ],
+          "worldM": [
+            -1430.083416244891,
+            1265.7984321957879,
+            24.658910384184004
+          ],
+          "forwardDepthM": [
+            0.6585259173627498,
+            0.6586309909001855
+          ]
+        },
+        "stockRib": {
+          "pixels": [
+            [
+              1116.5,
+              1299.0
+            ],
+            [
+              364.5,
+              1299.0
+            ]
+          ],
+          "worldM": [
+            -1430.1431304052062,
+            1265.7806921398615,
+            24.533857186362937
+          ],
+          "forwardDepthM": [
+            0.6962498727210114,
+            0.6963549462584471
+          ]
+        }
+      },
+      "depth": {
+        "baselineElbowPatch": [
+          {
+            "texel": [
+              692,
+              630
+            ],
+            "medianM": 0.6566529467343535,
+            "rangeM": [
+              0.6563133461536561,
+              0.6568132160091923
+            ]
+          },
+          {
+            "texel": [
+              252,
+              630
+            ],
+            "medianM": 0.6566550751118976,
+            "rangeM": [
+              0.6563076095570872,
+              0.6568550434937076
+            ]
+          }
+        ],
+        "stockRib": [
+          {
+            "texel": [
+              647,
+              754
+            ],
+            "medianM": 0.6971067036594079,
+            "rangeM": [
+              0.6965551251068397,
+              0.6989378540202181
+            ]
+          },
+          {
+            "texel": [
+              211,
+              754
+            ],
+            "medianM": 0.6973091122148237,
+            "rangeM": [
+              0.6965678679880095,
+              0.6988990022824035
+            ]
+          }
+        ]
+      },
+      "visibleAngles": null,
+      "joints": {
+        "shoulder": null,
+        "elbow": null,
+        "wrist": null
+      }
+    },
+    "after": {
+      "frame": 15017,
+      "notes": "The background is visible along both former elbow sightlines. The hand on the rifle and part of the lower right upper arm are visible. The foreground off arm overlaps the shoulder, corrected bend and wrist. No consistent set of three joint centers can be identified in both eyes.",
+      "surface": {
+        "stockRib": {
+          "pixels": [
+            [
+              1116.5,
+              1299.0
+            ],
+            [
+              364.5,
+              1299.0
+            ]
+          ],
+          "worldM": [
+            -1430.1431304052062,
+            1265.7806921398615,
+            24.533857186362937
+          ],
+          "forwardDepthM": [
+            0.6962498727210114,
+            0.6963549462584471
+          ]
+        }
+      },
+      "depth": {
+        "baselineElbowPatch": [
+          {
+            "texel": [
+              692,
+              630
+            ],
+            "medianM": 7.061920246478469,
+            "rangeM": [
+              7.052738280516117,
+              7.07112615162585
+            ]
+          },
+          {
+            "texel": [
+              252,
+              630
+            ],
+            "medianM": 6.5960072978424265,
+            "rangeM": [
+              6.588054856309655,
+              6.603978961363655
+            ]
+          }
+        ],
+        "stockRib": [
+          {
+            "texel": [
+              647,
+              753
+            ],
+            "medianM": 0.6968348526667896,
+            "rangeM": [
+              0.6965476693819322,
+              0.6984582421788473
+            ]
+          },
+          {
+            "texel": [
+              211,
+              753
+            ],
+            "medianM": 0.6969675169640005,
+            "rangeM": [
+              0.6965604119903086,
+              0.6985016797356272
+            ]
+          }
+        ]
+      },
+      "visibleAngles": null,
+      "joints": {
+        "shoulder": null,
+        "elbow": null,
+        "wrist": null
+      }
+    }
+  },
+  "reviewed": true,
+  "complete": false
+}

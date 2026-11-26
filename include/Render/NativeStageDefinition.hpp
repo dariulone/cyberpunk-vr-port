@@ -10,12 +10,41 @@ inline constexpr uint32_t HeaderBytes=64,StageBytes=48,MaxStages=definition_tree
 using Header=std::array<uint8_t,HeaderBytes>;
 using Stage=std::array<uint8_t,StageBytes>;
 enum class Failure:uint32_t {None,Arguments,Tree,Graph,Reachability,Identity,Array,Bounds,Read,Changed,Allocation};
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/native/stage_definition.rs through definition_tree_abi.rs
+// (tools/single_pass_tests/native_stage_definition_test runs its cases against them in its Rust variant).
+struct RustStages;
+struct RustStageOut {Header header;const Stage* stages;size_t count;uint32_t failure;};
+static_assert(sizeof(graph_snapshot::Node)==104 && sizeof(RustStageOut)==88,"mirrored by definition_tree_abi.rs");
+extern "C" {
+RustStages* cvr_sd_capture(const graph_snapshot::Node*,const definition_tree::RustView*,bool,uint64_t,bool,uint32_t,
+    ReadMemory,RustStageOut*);
+void cvr_sd_free(RustStages*);
+uint32_t cvr_sd_query(const graph_snapshot::Node*,const definition_tree::RustView*,bool,uint64_t,uint32_t,bool);
+}
+#endif
 
 // Captures native definition bytes only. The caller must hold the original
 // definition owner while reading; a copied tree or this snapshot grants no
 // lifetime, callback, clone, scheduling, resource-state or execution permission.
 class Snapshot {
 public:
+#if CVR_RUST_VRIK
+    static bool Reachable(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree,uint32_t target)try{
+        const auto view=tree.RustRecords();return cvr_sd_query(&graph,&view,tree.Ready(),tree.ImageBase(),target,false)!=0;
+    }catch(...){return false;}
+    bool Capture(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree,ReadMemory read){
+        return Capture(graph,tree,RootIndex(graph,tree),read);
+    }
+    bool Capture(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree,uint32_t target,ReadMemory read)try{
+        *this={};const auto view=tree.RustRecords();RustStageOut out{};
+        const auto stages=cvr_sd_capture(&graph,&view,tree.Ready(),tree.ImageBase(),tree.LayoutGuarded(),target,read,&out);
+        failure_=Failure(out.failure);if(!stages)return false;
+        struct Release{RustStages* stages;~Release(){cvr_sd_free(stages);}}release{stages};
+        graph_=graph;target_=target;header_=out.header;stages_.assign(out.stages,out.stages+out.count);
+        tree_=std::make_shared<const definition_tree::Snapshot>(tree);ready_=true;failure_=Failure::None;return true;
+    }catch(...){*this={};failure_=Failure::Allocation;return false;}
+#else
     static bool Reachable(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree,uint32_t target)try{
         if(!GraphShape(graph,tree) || target>=tree.Nodes().size())return false;
         const auto root=RootIndex(graph,tree);if(root==definition_tree::NoIndex)return false;
@@ -66,6 +95,7 @@ public:
         graph_=graph;target_=target;header_=second;stages_=std::move(after);
         tree_=std::make_shared<const definition_tree::Snapshot>(tree);ready_=true;failure_=Failure::None;return true;
     }catch(...){*this={};failure_=Failure::Allocation;return false;}
+#endif
     bool MatchesBefore(ReadMemory read)const{
         if(!ready_ || !tree_)return false;Snapshot current;
         return current.Capture(graph_,*tree_,target_,read) && current.header_==header_ && current.stages_==stages_;
@@ -78,6 +108,11 @@ public:
     uint64_t Object()const{return ready_?tree_->Nodes()[target_].object:0;}
     bool ExecutionPermission()const{return false;}
 private:
+#if CVR_RUST_VRIK
+    static uint32_t RootIndex(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree){
+        const auto view=tree.RustRecords();return cvr_sd_query(&graph,&view,tree.Ready(),tree.ImageBase(),0,true);
+    }
+#else
     static bool Address(uint64_t address,uint64_t bytes){return address && !(address&7) && address<=UINT64_MAX-bytes;}
     static bool GraphShape(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree){
         const auto base=tree.ImageBase();const auto id=graph.handle&0xDFFFFFFFu;
@@ -105,6 +140,7 @@ private:
         return graph_snapshot::Field<uint64_t>(header,0)==node.vtable && graph_snapshot::Field<uint64_t>(header,0x30)==array.data &&
             graph_snapshot::Field<uint32_t>(header,0x38)==array.capacity && graph_snapshot::Field<uint32_t>(header,0x3C)==array.count;
     }
+#endif
     bool ready_{};Failure failure_=Failure::None;uint32_t target_=definition_tree::NoIndex;
     graph_snapshot::Node graph_;Header header_{};std::vector<Stage> stages_;
     std::shared_ptr<const definition_tree::Snapshot> tree_;

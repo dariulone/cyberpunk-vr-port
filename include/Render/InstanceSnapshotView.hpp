@@ -19,6 +19,21 @@ struct Mapping {
     bool operator==(const Mapping&)const=default;
 };
 namespace detail {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/instance_snapshot_view.rs (tools/single_pass_tests/instance_snapshot_view_test
+// runs its cases against them in its Rust variant).
+static_assert(sizeof(Scope)==40 && sizeof(Mapping)==48 && sizeof(D3D12_VERTEX_BUFFER_VIEW)==16,"mirrored by instance_snapshot_view.rs");
+extern "C" {
+bool cvr_isv_check(uint32_t,const void*);
+bool cvr_isv_reserve(uint64_t,const D3D12_VERTEX_BUFFER_VIEW*,UINT,UINT,uint64_t,Mapping*);
+}
+inline bool ValidScope(const Scope& scope)noexcept{return cvr_isv_check(0,&scope);}
+inline bool ViewShape(const D3D12_VERTEX_BUFFER_VIEW& view)noexcept{return cvr_isv_check(1,&view);}
+inline bool Reserve(uint64_t cursor,const D3D12_VERTEX_BUFFER_VIEW& view,UINT firstInstance,UINT count,
+    uint64_t budget,Mapping& output)noexcept {
+    return cvr_isv_reserve(cursor,&view,firstInstance,count,budget,&output);
+}
+#else
 inline bool ValidScope(const Scope& scope)noexcept {
     return scope.root && scope.list && scope.generation && scope.occurrence && scope.eye<2;
 }
@@ -39,6 +54,7 @@ inline bool Reserve(uint64_t cursor,const D3D12_VERTEX_BUFFER_VIEW& view,UINT fi
     if(base>budget || view.SizeInBytes>budget-base || target>budget || bytes>budget-target)return false;
     output={logical,target,base,bytes,target+bytes,base+view.SizeInBytes};return true;
 }
+#endif
 // Input-layout arithmetic only. Source PSO association is checked separately
 // through shader_snapshot::Capture, not through these element fields alone.
 bool Layout(std::span<const shader_snapshot::Input>,UINT stride)noexcept;

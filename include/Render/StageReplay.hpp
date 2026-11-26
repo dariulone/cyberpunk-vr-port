@@ -42,10 +42,31 @@ enum class Op : uint8_t {
 };
 constexpr uint32_t OpCount = static_cast<uint32_t>(Op::Count);
 
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/stage_replay.rs (tools/single_pass_tests/stage_replay_test runs its cases
+// against them in its Rust variant). The stream and the list shadow stay C++ containers of StageReplay.cpp.
+struct Command;struct Settings;struct Touched;
+namespace detail {
+extern "C" {
+bool cvr_sr_class(uint32_t,uint8_t);
+bool cvr_sr_check(uint32_t,uint64_t,uint64_t,uint64_t,bool);
+uint8_t cvr_sr_decide(const Settings*,int32_t,uint32_t,uint32_t);
+uint32_t cvr_sr_substitute_camera(uint64_t*,uint32_t,uint64_t,uint64_t,uint64_t,uint64_t);
+bool cvr_sr_contains(const void*,uint64_t);
+int32_t cvr_sr_substitute_view(uint64_t*,uint32_t,const void*,const void*);
+void cvr_sr_touched(const Command*,size_t,Touched*);
+}
+}
+inline bool Replayable(Op op) { return detail::cvr_sr_class(0, uint8_t(op)); }
+inline bool Ignored(Op op) { return detail::cvr_sr_class(1, uint8_t(op)); }
+inline bool Blocking(Op op) { return detail::cvr_sr_class(2, uint8_t(op)); }
+inline bool IsDraw(Op op) { return detail::cvr_sr_class(3, uint8_t(op)); }
+#else
 constexpr bool Replayable(Op op) { return op >= Op::Pipeline && op <= Op::Indirect; }
 constexpr bool Ignored(Op op) { return op == Op::Marker || op == Op::Copy || op == Op::ComputeState; }
 constexpr bool Blocking(Op op) { return op >= Op::Dispatch && op < Op::Count; }
 constexpr bool IsDraw(Op op) { return op == Op::Draw || op == Op::DrawIndexed || op == Op::Indirect; }
+#endif
 
 // 32 bytes. Field use per op is documented at the recording sites; arrays go to the payload.
 struct Command {
@@ -88,10 +109,16 @@ public:
         return true;
     }
     const std::vector<Command>& Commands() const { return commands_; }
+#if CVR_RUST_VRIK
+    const uint8_t* Payload(uint64_t offset, size_t bytes) const {
+        return detail::cvr_sr_check(2, offset, bytes, payload_.size(), false) ? payload_.data() + offset : nullptr;
+    }
+#else
     const uint8_t* Payload(uint64_t offset, size_t bytes) const {
         if (offset == NoPayload || offset > payload_.size() || bytes > payload_.size() - offset) return nullptr;
         return payload_.data() + offset;
     }
+#endif
     size_t PayloadBytes() const { return payload_.size(); }
     bool Overflowed() const { return overflow_; }
     uint32_t BlockingOps() const { return blocking_; }
@@ -113,6 +140,12 @@ struct Settings {
     uint64_t stages{};      // bit s: stage s (arguments+0x10, < 64) participates
     uint32_t source{1};     // side that records natively (1 = VRCAM)
 };
+#if CVR_RUST_VRIK
+inline bool StageSelected(uint64_t mask, uint32_t stage) { return detail::cvr_sr_check(0, mask, stage, 0, false); }
+inline Action Decide(const Settings& s, int32_t side, uint32_t node, uint32_t stage) {
+    return static_cast<Action>(detail::cvr_sr_decide(&s, side, node, stage));
+}
+#else
 constexpr bool StageSelected(uint64_t mask, uint32_t stage) { return stage < 64 && ((mask >> stage) & 1); }
 constexpr Action Decide(const Settings& s, int32_t side, uint32_t node, uint32_t stage) {
     if (node != 0x33DDA4u || side < 0 || side > 1 || !StageSelected(s.stages, stage)) return Action::Forward;
@@ -125,6 +158,7 @@ constexpr Action Decide(const Settings& s, int32_t side, uint32_t node, uint32_t
     default: return Action::Forward;
     }
 }
+#endif
 
 // Graphics state of one command list since its last Reset, mirrored from the API calls. It is
 // what the engine believes is bound, so replay restores exactly these values afterwards. A field
@@ -192,6 +226,11 @@ struct Shadow {
 struct Touched {
     bool pso{}, root{}, params{}, topology{}, index{}, vertices{}, viewports{}, scissors{},
         blend{}, stencil{}, depthBounds{}, heaps{}, rate{}, rateImage{}, viewMask{};
+#if CVR_RUST_VRIK
+    static Touched Of(const Stream& s) {
+        Touched t; detail::cvr_sr_touched(s.Commands().data(), s.Commands().size(), &t); return t;
+    }
+#else
     static Touched Of(const Stream& s) {
         Touched t;
         for (const auto& c : s.Commands()) switch (c.op) {
@@ -215,6 +254,7 @@ struct Touched {
         }
         return t;
     }
+#endif
 };
 
 // Why a target call fell back to its native consumer.
@@ -226,6 +266,17 @@ enum class Fallback : uint32_t {
 // Pairs the k-th call of a stage in the target view with the k-th capture of the same stage in the
 // source view of the same engine frame.
 constexpr uint32_t MaxOrdinals = 8;
+#if CVR_RUST_VRIK
+inline bool SameFrame(uint32_t captureFrame, uint32_t targetFrame, bool captureComplete) {
+    return detail::cvr_sr_check(1, captureFrame, targetFrame, 0, captureComplete);
+}
+
+// Replace the source camera descriptor(s) in a table's source list. Returns how many were replaced.
+inline uint32_t SubstituteCamera(uint64_t* sources, uint32_t count, uint64_t fromVs, uint64_t toVs,
+                                 uint64_t fromPs, uint64_t toPs) {
+    return detail::cvr_sr_substitute_camera(sources, count, fromVs, toVs, fromPs, toPs);
+}
+#else
 constexpr bool SameFrame(uint32_t captureFrame, uint32_t targetFrame, bool captureComplete) {
     return captureComplete && captureFrame == targetFrame;
 }
@@ -240,6 +291,7 @@ inline uint32_t SubstituteCamera(uint64_t* sources, uint32_t count, uint64_t fro
     }
     return replaced;
 }
+#endif
 
 // The descriptors a replayed table may hold that belong to the recording VIEW (census 841-843,
 // tools/single_pass_tests/stage_table_diff.py): constant-buffer slot 1 (camera) and slot 0 (view
@@ -250,15 +302,25 @@ inline uint32_t SubstituteCamera(uint64_t* sources, uint32_t count, uint64_t fro
 struct ViewDescriptors {
     enum : uint32_t { CameraVs, CameraPs, ViewVs, ViewPs, TextureVs, TexturePs, Count };
     std::array<uint64_t, Count> d{};
+#if CVR_RUST_VRIK
+    bool Contains(uint64_t v) const { return detail::cvr_sr_contains(d.data(), v); }
+#else
     bool Contains(uint64_t v) const {
         if (!v) return false;
         for (const auto x : d) if (x == v) return true;
         return false;
     }
+#endif
 };
 // Replaces each source view descriptor with the target's. Returns the number replaced, or -1 when
 // an entry belongs to the source view but the target has no counterpart (the table cannot be
 // rebuilt for the target).
+#if CVR_RUST_VRIK
+inline int32_t SubstituteView(uint64_t* sources, uint32_t count, const ViewDescriptors& from, const ViewDescriptors& to) {
+    return detail::cvr_sr_substitute_view(sources, count, from.d.data(), to.d.data());
+}
+static_assert(sizeof(Settings) == 24 && sizeof(Touched) == 15 && sizeof(ViewDescriptors) == 48, "mirrored by stage_replay.rs");
+#else
 inline int32_t SubstituteView(uint64_t* sources, uint32_t count, const ViewDescriptors& from, const ViewDescriptors& to) {
     int32_t replaced = 0;
     for (uint32_t i = 0; i < count; ++i) {
@@ -272,6 +334,7 @@ inline int32_t SubstituteView(uint64_t* sources, uint32_t count, const ViewDescr
     }
     return replaced;
 }
+#endif
 
 // Runtime entry points (src/Render/StageReplay.cpp).
 bool Active();

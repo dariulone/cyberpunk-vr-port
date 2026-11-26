@@ -16,6 +16,24 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The probe -- its work, its lock, the cameras, the native and paired draws, the proofs and the comparison -- is
+// rust/crates/cvr-render/src/paired_geometry_native.rs (the queue detours and the camera trace call it directly). Here:
+// the API the native probe's host (NativeStereoProbe.cpp) calls.
+extern "C" {
+bool cvr_pg2_active();
+bool cvr_pg2_draw(ID3D12GraphicsCommandList*,const cvr::stereo::native_probe::DrawRecord*);
+void cvr_pg2_frame_boundary();
+}
+namespace cvr::stereo::paired_geometry {
+static_assert(sizeof(native_probe::DrawRecord)==1096,"mirrored by geometry_commands.rs");
+bool Active(){return cvr_pg2_active();}
+bool Draw(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& draw){return cvr_pg2_draw(list,&draw);}
+void FrameBoundary(){cvr_pg2_frame_boundary();}
+}
+#endif
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PairedGeometryRequest{},CyberpunkVR_PairedGeometryState{};
@@ -296,3 +314,4 @@ void Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* li
     }
 }
 }
+#endif

@@ -8,6 +8,7 @@
 // leaves only what lies outside the panel's FOV rectangle. Everything outside that rectangle is hidden.
 #include <d3d12.h>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <vector>
@@ -26,6 +27,47 @@ inline constexpr float MinRadius=70, MaxRadius=145;
 struct Fov { float left=-1, right=1, up=1, down=-1; };
 struct Rect { int32_t left, top, right, bottom; };
 
+#if CVR_RUST_VRIK
+}
+// The geometry: rust/crates/cvr-render/src/hidden_area.rs.
+extern "C" {
+cvr::hidden_area::Settings cvr_hidden_area_normalize(cvr::hidden_area::Settings);
+bool cvr_hidden_area_parse_setting(const char*, cvr::hidden_area::Settings*);
+void cvr_hidden_area_write_settings(FILE*, cvr::hidden_area::Settings);
+bool cvr_hidden_area_hidden(const cvr::hidden_area::Fov*, float radiusPercent, float x, float y);
+bool cvr_hidden_area_shader_ellipse_scales(const cvr::hidden_area::Fov*, float radiusPercent, const cvr::hidden_area::Fov* rendered,
+                                           float* scales);
+size_t cvr_hidden_area_build_rects(const cvr::hidden_area::Fov*, float radiusPercent, uint32_t width, uint32_t height,
+                                   const cvr::hidden_area::Fov* rendered, uint32_t cell, uint32_t margin,
+                                   cvr::hidden_area::Rect* out, size_t capacity);
+double cvr_hidden_area_coverage(const cvr::hidden_area::Rect*, size_t count, uint32_t width, uint32_t height);
+}
+namespace cvr::hidden_area {
+static_assert(sizeof(Settings) == 8 && sizeof(Fov) == 16 && sizeof(Rect) == 16, "mirrored by rust/crates/cvr-render/src/hidden_area.rs");
+inline Settings Normalize(Settings s) { return cvr_hidden_area_normalize(s); }
+inline bool ParseSetting(const char* line, Settings& s) { return cvr_hidden_area_parse_setting(line, &s); }
+inline void WriteSettings(FILE* file, Settings s) { cvr_hidden_area_write_settings(file, s); }
+inline bool Hidden(const Fov& f, float radiusPercent, float x, float y) { return cvr_hidden_area_hidden(&f, radiusPercent, x, y); }
+inline std::vector<Rect> BuildRects(const Fov& f, float radiusPercent, uint32_t width, uint32_t height, const Fov& rendered,
+                                    uint32_t cell, uint32_t margin) {
+    std::vector<Rect> rects;
+    if (!cell) return rects;
+    rects.resize(size_t((width + cell - 1) / cell) * ((height + cell - 1) / cell));
+    rects.resize(cvr_hidden_area_build_rects(&f, radiusPercent, width, height, &rendered, cell, margin, rects.data(), rects.size()));
+    return rects;
+}
+inline std::vector<Rect> BuildRects(const Fov& f, float radiusPercent, uint32_t width, uint32_t height, float tanX, float tanY,
+                                    uint32_t cell, uint32_t margin) {
+    if (!(tanX > 0) || !(tanY > 0)) return {};
+    return BuildRects(f, radiusPercent, width, height, Fov{-tanX, tanX, tanY, -tanY}, cell, margin);
+}
+inline bool ShaderEllipseScales(const Fov& f, float radiusPercent, const Fov& rendered, float scales[4]) {
+    return cvr_hidden_area_shader_ellipse_scales(&f, radiusPercent, &rendered, scales);
+}
+inline double Coverage(const std::vector<Rect>& rects, uint32_t width, uint32_t height) {
+    return cvr_hidden_area_coverage(rects.data(), rects.size(), width, height);
+}
+#else
 Settings Normalize(Settings);
 bool ParseSetting(const char*,Settings&);
 void WriteSettings(FILE*,Settings);
@@ -46,6 +88,7 @@ std::vector<Rect> BuildRects(const Fov&,float radiusPercent,uint32_t width,uint3
 // grown uniformly until it holds the whole visible area. False when the centre itself is hidden.
 bool ShaderEllipseScales(const Fov&,float radiusPercent,const Fov& rendered,float scales[4]);
 double Coverage(const std::vector<Rect>&,uint32_t width,uint32_t height);
+#endif
 
 struct Status {
     uint64_t masked[2]{};       // scene-depth clears masked per view (0 MAIN, 1 VRCAM)

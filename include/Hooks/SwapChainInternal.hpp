@@ -34,10 +34,12 @@ extern bool g_cursorClipped;
 extern bool g_dredDumped;
 extern std::atomic<void*> g_eclSeenQueues[16];
 extern std::mutex g_dredMutex;
+#if !CVR_RUST_VRIK
 extern std::mutex g_vtableMutex;
 extern std::unordered_map<uintptr_t, void*> g_originalVtableMethods;
 // Lock-free mirror of g_originalVtableMethods, filled by PatchVtableMethod (Hooks/OriginalMethodTable.hpp).
 extern cvr::hooks::OriginalMethodTable<> g_originalMethodTable;
+#endif
 // 1 (default) = lock-free lookup; 0 = the previous locked lookup, kept only for a same-launch A/B.
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FastOriginalLookup;
 void DumpDredOnce(IDXGISwapChain* swapChain, HRESULT presentHr);
@@ -84,6 +86,14 @@ uintptr_t MakeVtableSlotKey(void** vtable, size_t slot);
 // different function-pointer types. The map it reads is declared above (defined in SwapChain.cpp).
 // Hot hooks call this per API call, from every render job thread: the published mirror answers
 // without a lock; only a key the mirror could not hold falls back to the locked map.
+#if CVR_RUST_VRIK
+// The registry is rust/crates/cvr-engine/src/vtable.rs (PatchVtableMethod forwards there too).
+extern "C" void* cvr_vtable_original(void** vtable, size_t slot);
+template <typename T>
+T GetOriginalMethod(void** vtable, size_t slot) {
+    return reinterpret_cast<T>(cvr_vtable_original(vtable, slot));
+}
+#else
 template <typename T>
 T GetOriginalMethod(void** vtable, size_t slot) {
     const uintptr_t key = MakeVtableSlotKey(vtable, slot);
@@ -93,6 +103,7 @@ T GetOriginalMethod(void** vtable, size_t slot) {
     auto it = g_originalVtableMethods.find(key);
     return it != g_originalVtableMethods.end() ? reinterpret_cast<T>(it->second) : nullptr;
 }
+#endif
 
 // One call site's original, for the hooks the render jobs hit per draw (CopyDescriptorsSimple alone
 // runs tens of thousands of times a frame, and the table probe was a fifth of that hook's own cost).

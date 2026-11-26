@@ -54,6 +54,45 @@
 #include <cstdio>
 #include <tuple>
 #include <set>
+#if CVR_RUST_VRIK
+// The capture is Rust (rust/crates/cvr-render/src/retained_geometry_native.rs: the lock, the work's start, Fail,
+// the observers, the captures, seal, poll, draws, boundary and submissions; retained_work.rs: the work, its eyes and
+// sources, AppendSource); this half keeps the selector catalog, loaded through jsoncpp.
+extern "C" {
+void cvr_nrg2_attach(const void*);
+void cvr_nrg2_frame_boundary();
+bool cvr_nrg2_test(uint32_t);
+}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's host is rust/crates/cvr-render/src/retained_geometry_native.rs'
+namespace cvr::stereo::source_selectors {void* LoadCatalogHandle(const std::filesystem::path&)noexcept;}   // SourceSelectorPlan.cpp
+namespace cvr::stereo::retained_geometry {
+namespace {
+// The selector catalog: loaded once through jsoncpp, its rules' handle kept for the process (retained_sources.rs reads it).
+void* SelectorCatalog(){
+    static void* const handle=[]()->void*{
+        wchar_t path[32768]{};const auto length=GetEnvironmentVariableW(L"CVR_STEREO_SOURCE_SELECTORS",path,32768);
+        if(!length || length>=32768)return nullptr;
+        return source_selectors::LoadCatalogHandle(path);
+    }();
+    return handle;
+}
+struct NrgHost {void*(*selectorCatalog)();};
+const NrgHost kNrgHost{&SelectorCatalog};
+[[maybe_unused]] const bool kNrgAttached=(cvr_nrg2_attach(&kNrgHost),true);
+}
+#else
+namespace cvr::stereo::retained_geometry {
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void FrameBoundary(){cvr_nrg2_frame_boundary();}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool TestInfixCaptureLifetime(){return cvr_nrg2_test(0);}
+bool TestFrontierFailureDisarm(){return cvr_nrg2_test(1);}
+bool TestFrontierObserverModes(){return cvr_nrg2_test(2);}
+#endif
+}
+#else
 
 namespace cvr::detail {
 using PrivateExecuteFn=void(STDMETHODCALLTYPE*)(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*);
@@ -3160,3 +3199,4 @@ bool TestFrontierObserverModes(){
 }
 #endif
 }
+#endif

@@ -60,7 +60,29 @@ local function hideCrosshair()
     return M.hidden
 end
 
+-- THE RUST BUILD RUNS THIS BRIDGE (rust/crates/cvr-ffi/src/mechanics.rs crosshair, bit 6 of VRRustMechanics): the
+-- visibility and the Smart HUD's scale on every crosshair change. The hooks stay here -- the container and the two
+-- updates are reported to the plugin. The reference build has no such native, and the whole bridge keeps running here.
+local rustOwned = nil
+local function rustOwnsBridge()
+    if rustOwned == nil then
+        rustOwned = type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 64) % 2 == 1
+    end
+    return rustOwned
+end
+
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent("onInit", function()
+    if rustOwnsBridge() then
+        if rustHooks() then return end
+        Observe("gameuiCrosshairContainerController", "OnInitialize", function(this) VRCrosshairContainer(this) end)
+        Observe("gameuiCrosshairBaseGameController", "OnCrosshairStateChange", function() VRCrosshairUpdate() end)
+        Observe("gameuiCrosshairBaseGameController", "UpdateCrosshairState", function() VRCrosshairUpdate() end)
+        return
+    end
     -- Controlla se la funzione esiste (dentro onInit)
     if type(GetVRWeaponAim) ~= 'function' then
         print("[VR] ERROR: GetVRWeaponAim function not found!")

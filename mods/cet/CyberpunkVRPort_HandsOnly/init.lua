@@ -374,17 +374,34 @@ local function walk(pl, on, fade)
   end
 end
 
+-- THE RUST BUILD RUNS THIS MOD (rust/crates/cvr-ffi/src/mechanics/hands_only.rs, bit 20 of VRRustMechanics): the
+-- observer and the console calls report to it. The reference build has no such native, and everything runs here.
+local rustOwned = nil
+local function rust()
+  if rustOwned == nil then
+    rustOwned = type(VRRustMechanics) == "function" and math.floor(VRRustMechanics() / 1048576) % 2 == 1
+  end
+  return rustOwned
+end
+local function tri(v) if v == nil then return -1 end return v and 1 or 0 end
+
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent("onInit", function()
-  pcall(function()
+  if not rustHooks() then pcall(function()
     ObserveBefore("PlayerPuppet", "OnDetach", function()
+      if rust() then VRHandsOnlyDetach(); return end
       -- the session's components go with it: forget them without touching them
       S.hidden, S.masks, S.copies, S.on = {}, {}, {}, false
       S.pending, S.fading, S.revealing = {}, {}, 0
     end)
-  end)
+  end) end
 end)
 
 registerForEvent("onUpdate", function(dt)
+  if rust() then return end
   S.t = S.t + (dt or 0.016)
   runPending(false)
   -- the mode's state every frame (a scene starting is a frame's work, not a scan's); the passes every SCAN_EVERY,
@@ -404,6 +421,7 @@ registerForEvent("onUpdate", function(dt)
 end)
 
 registerForEvent("onShutdown", function()
+  if rust() then return end
   runPending(true)
   if S.on then
     local pl = Game.GetPlayer()
@@ -413,9 +431,9 @@ end)
 
 return {
   -- GetMod("CyberpunkVRPort_HandsOnly").force(true | false | nil): override the setting (nil = follow it)
-  force = function(v) S.force = v return wanted() end,
+  force = function(v) if rust() then VRHandsOnlyForce(tri(v), -2) end S.force = v return wanted() end,
   -- GetMod("CyberpunkVRPort_HandsOnly").scene(true | false | nil): pretend a scene plays the body (nil = the game's)
-  scene = function(v) S.scene = v return wanted() end,
+  scene = function(v) if rust() then VRHandsOnlyForce(-2, tri(v)) end S.scene = v return wanted() end,
   -- the tables read again (after tools/hands_only/make_hand_*.py), the arms re-cut on the next pass
   hot = function()
     local f1, e1 = loadfile("data/hand_masks.lua")

@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include "Render/NativeSourceSrvBinding.hpp"
 #include "Render/NativeIndirectCopy.hpp"
 #include "Render/RegisteredConstantUpload.hpp"
@@ -35,21 +36,60 @@ struct PrivateRange {
 namespace detail {
 inline constexpr uint64_t SourceBytes=1024*1024,Stride=128,MaxCopyBytes=4096,MaxArenaBytes=8*1024*1024,Alignment=16;
 inline constexpr uint32_t AllowedHeapFlags=D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES|D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES;
+#if CVR_RUST_VRIK
+// The rules below: rust/crates/cvr-render/src/structured_snapshot.rs (tools/single_pass_tests/
+// structured_buffer_snapshot_test runs its cases against them in its Rust variant).
+struct Admission;struct FullVersion;
+extern "C" {
+bool cvr_sb_no_protected_session(HRESULT,bool);
+bool cvr_sb_read_mask(const geometry::ReadState*,uint32_t,bool);
+bool cvr_sb_recovery_mask(uint32_t,const geometry::ReadState*,uint32_t,uint32_t*);
+bool cvr_sb_recovery_identity(const geometry::NativeBuffer*,const std::array<uint8_t,0xB0>*,const source_cbv_details::Context*,uint64_t,
+    const geometry::NativeBuffer*,const std::array<uint8_t,0xB0>*,const source_cbv_details::Context*,uint64_t);
+bool cvr_sb_copy_extent(uint32_t,uint32_t,uint64_t,uint64_t);
+bool cvr_sb_range(const Admission*);
+uint32_t cvr_sb_admit(const Admission*);
+bool cvr_sb_reserve(uint32_t,uint32_t,uint32_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t*,uint64_t*,uint64_t*);
+bool cvr_sb_reuse_matches(const FullVersion*,const copy_windows::Span*,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
+bool cvr_sb_epoch(const ReadEpochCertificate*,uint64_t,uint64_t,uint64_t);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool NoProtectedSession(HRESULT result,bool present)noexcept{return cvr_sb_no_protected_session(result,present);}
+#else
 inline bool NoProtectedSession(HRESULT result,bool present)noexcept {
     return !present && (result==DXGI_ERROR_NOT_FOUND || result==E_NOINTERFACE || SUCCEEDED(result));
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ReadMask(geometry::ReadState state,uint32_t kind,bool ready=false)noexcept{return cvr_sb_read_mask(&state,kind,ready);}
+#else
 inline bool ReadMask(geometry::ReadState state,uint32_t kind,bool ready=false)noexcept{
     return (kind==0 || kind==3) && state.kind==kind && state.status==2 &&
         (state.value&D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) && !(state.value&~UINT(D3D12_RESOURCE_STATE_GENERIC_READ)) &&
         (!ready || (state.value&D3D12_RESOURCE_STATE_COPY_SOURCE));
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool RecoveryMask(uint32_t previous,geometry::ReadState current,uint32_t kind,uint32_t& required)noexcept{
+    return cvr_sb_recovery_mask(previous,&current,kind,&required);
+}
+#else
 inline bool RecoveryMask(uint32_t previous,geometry::ReadState current,uint32_t kind,uint32_t& required)noexcept{
     required=0;if(!ReadMask({previous,2,kind},kind) || current.status!=2 || current.kind!=kind ||
         (current.value&~UINT(D3D12_RESOURCE_STATE_GENERIC_READ)))return false;
     required=previous|current.value;return true;
 }
+#endif
 // Recovery may flush a genuine pending barrier only after the exact saved
 // context and B0 identity still match. Pending is not a readable state proof.
+#if CVR_RUST_VRIK
+inline bool RecoveryIdentity(const geometry::NativeBuffer& expected,const std::array<uint8_t,0xB0>& savedRecord,
+    const source_cbv_details::Context& savedContext,uint64_t savedAddress,const geometry::NativeBuffer& current,
+    const std::array<uint8_t,0xB0>& currentRecord,const source_cbv_details::Context& currentContext,uint64_t currentAddress)noexcept{
+    return cvr_sb_recovery_identity(&expected,&savedRecord,&savedContext,savedAddress,&current,&currentRecord,&currentContext,currentAddress);
+}
+#else
 inline bool RecoveryIdentity(const geometry::NativeBuffer& expected,const std::array<uint8_t,0xB0>& savedRecord,
     const source_cbv_details::Context& savedContext,uint64_t savedAddress,const geometry::NativeBuffer& current,
     const std::array<uint8_t,0xB0>& currentRecord,const source_cbv_details::Context& currentContext,uint64_t currentAddress)noexcept{
@@ -64,6 +104,7 @@ inline bool RecoveryIdentity(const geometry::NativeBuffer& expected,const std::a
         expected.handle && current.handle==expected.handle && (expected.kind==0 || expected.kind==3) && current.kind==expected.kind &&
         savedAddress && currentAddress==savedAddress && savedRecord==currentRecord;
 }
+#endif
 struct Admission {
     uint64_t resource{},gpu{},nativeResource{},nativeGpu{},nativeBytes{},viewOffset{},viewBytes{},sourceOffset{},bytes{};
     D3D12_RESOURCE_DESC desc{};D3D12_HEAP_PROPERTIES heap{};uint32_t heapFlags{},creationKind{};
@@ -72,10 +113,21 @@ struct Admission {
     bool sourceCurrent{},creationKnown{},unprotected{},sameDevice{},recordingCurrent{};
     Extent extent=Extent::SelectedRange;Layout layout=Layout::Dense;
 };
+#if CVR_RUST_VRIK
+inline bool CopyExtent(Extent extent,Layout layout,uint64_t offset,uint64_t bytes)noexcept{
+    static_assert(sizeof(Admission)==280 && offsetof(Admission,desc)==72 && offsetof(Admission,view)==184 &&
+        offsetof(Admission,state)==224 && offsetof(Admission,sourceCurrent)==260,"mirrored by structured_snapshot.rs");
+    return cvr_sb_copy_extent(uint32_t(extent),uint32_t(layout),offset,bytes);
+}
+#else
 inline bool CopyExtent(Extent extent,Layout layout,uint64_t offset,uint64_t bytes)noexcept{
     if(extent==Extent::SelectedRange)return bytes && bytes<=MaxCopyBytes;
     return extent==Extent::FullOriginalView && layout==Layout::OriginalIndices && !offset && bytes==SourceBytes;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Range(const Admission& a)noexcept{return cvr_sb_range(&a);}
+#else
 inline bool Range(const Admission& a)noexcept{
     if(!a.resource || !a.gpu || a.gpu>UINT64_MAX-a.desc.Width || !CopyExtent(a.extent,a.layout,a.sourceOffset,a.bytes) ||
         a.bytes%Stride || a.sourceOffset%Stride || a.sourceOffset>a.desc.Width || a.bytes>a.desc.Width-a.sourceOffset ||
@@ -85,6 +137,10 @@ inline bool Range(const Admission& a)noexcept{
         a.nativeBytes && a.nativeBytes<=a.desc.Width-(a.nativeGpu-a.gpu) && a.gpu+a.sourceOffset>=a.nativeGpu &&
         a.gpu+a.sourceOffset-a.nativeGpu<=a.nativeBytes && a.bytes<=a.nativeBytes-(a.gpu+a.sourceOffset-a.nativeGpu);
 }
+#endif
+#if CVR_RUST_VRIK
+inline Failure Admit(const Admission& a)noexcept{return Failure(cvr_sb_admit(&a));}
+#else
 inline Failure Admit(const Admission& a)noexcept{
     if(!a.sourceCurrent || !a.sameDevice || !a.recordingCurrent || !a.handle || a.handle>source_srv::MaxHandles ||
         a.stage!=source_srv::StageIndex || a.shaderRegister!=source_srv::ShaderRegister ||
@@ -105,11 +161,24 @@ inline Failure Admit(const Admission& a)noexcept{
         a.viewOffset || a.viewBytes!=SourceBytes))return Failure::Range;
     return ReadMask(a.state,a.nativeKind)?Failure::None:Failure::State;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Reserve(uint64_t cursor,uint64_t capacity,uint64_t bytes,uint64_t& offset,uint64_t& end)noexcept{
+    return cvr_sb_reserve(0,0,0,cursor,capacity,0,bytes,&offset,&end,nullptr);
+}
+#else
 inline bool Reserve(uint64_t cursor,uint64_t capacity,uint64_t bytes,uint64_t& offset,uint64_t& end)noexcept{
     offset=end=0;if(!capacity || capacity>MaxArenaBytes || capacity%Alignment || cursor>capacity || cursor%Alignment ||
         !bytes || bytes>MaxCopyBytes || bytes%Stride || bytes>capacity-cursor)return false;
     offset=cursor;end=cursor+bytes;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ReserveView(uint64_t cursor,uint64_t capacity,uint64_t sourceOffset,uint64_t bytes,
+    uint64_t& offset,uint64_t& end,uint64_t& viewEnd)noexcept{
+    return cvr_sb_reserve(1,0,0,cursor,capacity,sourceOffset,bytes,&offset,&end,&viewEnd);
+}
+#else
 inline bool ReserveView(uint64_t cursor,uint64_t capacity,uint64_t sourceOffset,uint64_t bytes,
     uint64_t& offset,uint64_t& end,uint64_t& viewEnd)noexcept{
     offset=end=viewEnd=0;
@@ -119,6 +188,13 @@ inline bool ReserveView(uint64_t cursor,uint64_t capacity,uint64_t sourceOffset,
     if(first>capacity || SourceBytes>capacity-first)return false;
     offset=target;end=target+bytes;viewEnd=first+SourceBytes;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ReserveExtent(Extent extent,Layout layout,uint64_t cursor,uint64_t capacity,uint64_t sourceOffset,uint64_t bytes,
+                          uint64_t& offset,uint64_t& end,uint64_t& viewEnd)noexcept{
+    return cvr_sb_reserve(2,uint32_t(extent),uint32_t(layout),cursor,capacity,sourceOffset,bytes,&offset,&end,&viewEnd);
+}
+#else
 inline bool ReserveExtent(Extent extent,Layout layout,uint64_t cursor,uint64_t capacity,uint64_t sourceOffset,uint64_t bytes,
                           uint64_t& offset,uint64_t& end,uint64_t& viewEnd)noexcept{
     offset=end=viewEnd=0;if(!CopyExtent(extent,layout,sourceOffset,bytes))return false;
@@ -128,12 +204,20 @@ inline bool ReserveExtent(Extent extent,Layout layout,uint64_t cursor,uint64_t c
     if(!capacity || capacity>MaxArenaBytes || capacity%Stride || cursor%Stride || cursor>capacity || bytes>capacity-cursor)return false;
     offset=cursor;end=viewEnd=cursor+bytes;return true;
 }
+#endif
 // Internal copy records are populated only after an authorized GPU copy. A
 // Window span is a no-write cache hint, never native source/read authority.
 struct FullVersion {
     uint64_t list{},generation{},resource{},gpu{},destination{},occurrence{};
     bool recorded{};
 };
+#if CVR_RUST_VRIK
+inline bool ReuseMatches(const FullVersion& prior,const copy_windows::Span& span,uint64_t list,uint64_t generation,
+                         uint64_t resource,uint64_t gpu,uint64_t occurrence,uint64_t cursor,uint64_t capacity)noexcept{
+    static_assert(sizeof(FullVersion)==56 && sizeof(copy_windows::Span)==56,"mirrored by structured_snapshot.rs");
+    return cvr_sb_reuse_matches(&prior,&span,list,generation,resource,gpu,occurrence,cursor,capacity);
+}
+#else
 inline bool ReuseMatches(const FullVersion& prior,const copy_windows::Span& span,uint64_t list,uint64_t generation,
                          uint64_t resource,uint64_t gpu,uint64_t occurrence,uint64_t cursor,uint64_t capacity)noexcept{
     return prior.recorded && list && generation && resource && gpu && occurrence &&
@@ -144,9 +228,17 @@ inline bool ReuseMatches(const FullVersion& prior,const copy_windows::Span& span
         span.resource==resource && span.gpu==gpu && span.backing==SourceBytes && !span.offset && span.bytes==SourceBytes &&
         span.destination==prior.destination && span.occurrence==prior.occurrence;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Epoch(const ReadEpochCertificate& epoch,uint64_t list,uint64_t generation,uint64_t occurrence)noexcept{
+    static_assert(sizeof(ReadEpochCertificate)==32,"mirrored by structured_snapshot.rs");
+    return cvr_sb_epoch(&epoch,list,generation,occurrence);
+}
+#else
 inline bool Epoch(const ReadEpochCertificate& epoch,uint64_t list,uint64_t generation,uint64_t occurrence)noexcept{
     return epoch.certified && list && generation && occurrence && epoch.list==list && epoch.generation==generation && epoch.occurrence==occurrence;
 }
+#endif
 }
 class ActualCallScope {
 public:

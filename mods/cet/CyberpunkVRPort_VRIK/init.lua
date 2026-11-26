@@ -328,6 +328,18 @@ registerForEvent('onInit', function()
     isReady = true
 end)
 
+-- THE RUST BUILD RUNS THE PER-FRAME PUMP (rust/crates/cvr-ffi/src/mechanics/vrik.rs, bit 19 of VRRustMechanics): the neck
+-- cap, the settings poll, the recenter, the locomotion states, the camera write, the sprint input, the pitch limits, the
+-- arms' restore, UpdateVRIKAnimInputs and SetVRPlayerYaw. The mirror double and the console's EquipCyberware stay here;
+-- the load observer and the hotkeys report to it. The reference build has no such native, and all of it runs here.
+local rustPumpOwned = nil
+local function rustPump()
+    if rustPumpOwned == nil then
+        rustPumpOwned = type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 524288) % 2 == 1
+    end
+    return rustPumpOwned
+end
+
 local vrTrackingEnabled = false
 local mouseDisableEnabled = true  -- Mouse/look pitch (Y) disabled by default for VR
 
@@ -368,15 +380,18 @@ end
 local function ensureObservers()
     if observersRegistered then return end
     observersRegistered = true
+    -- the Rust build hooks OnGameAttached itself (mechanics/game_hooks.rs, bit 1 of VRRustMechanics2)
+    if type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1 then return end
     pcall(function()
         Observe('PlayerPuppet', 'OnGameAttached', function()
-            recenterPending = 3.5
+            if rustPump() then VRIKGameAttached() else recenterPending = 3.5 end
         end)
     end)
 end
 
 registerHotkey('ToggleVRHands', 'Toggle VR Hands', function()
     vrTrackingEnabled = not vrTrackingEnabled
+    if rustPump() then pcall(VRIKTrackingEnabled, vrTrackingEnabled) end
     if vrTrackingEnabled then
         pcall(function() Game.InstallVRAnimPoseHook() end)
         pcall(function() Game.ArmVRAnimPosePlayer() end)
@@ -396,6 +411,7 @@ local lastCamQuat = nil
 
 
 registerHotkey('LogVRDiag', 'Log VR Hand Diagnostic', function()
+    if rustPump() then pcall(VRIKLogDiag); return end
     if type(SetVRDiagCapture) == 'function' then pcall(function() SetVRDiagCapture(1) end) end
     if type(LogVRDiag) == 'function' and lastCamPos and lastCamQuat then
         pcall(function()
@@ -423,8 +439,26 @@ local function finishCyberware(status)
     pendingCyberware = nil
     cyberwareStatus = status
 end
-function api.GetCyberwareStatus() return cyberwareStatus end
+-- THE RUST BUILD RUNS THE MIRROR DOUBLE AND THE CYBERWARE CHANGE (rust/crates/cvr-ffi/src/mechanics/vrik_mirror.rs,
+-- bit 0 of VRRustMechanics2): the console's functions ask it (VRIKEquipCyberware / VRIKCyberwareStatus). The
+-- reference build has no such native, and both run here.
+local rustRestOwned = nil
+local function rustRest()
+    if rustRestOwned == nil then
+        rustRestOwned = type(VRRustMechanics2) == 'function' and VRRustMechanics2() % 2 == 1
+    end
+    return rustRestOwned
+end
+function api.GetCyberwareStatus()
+    if rustRest() then return VRIKCyberwareStatus() end
+    return cyberwareStatus
+end
 function api.EquipCyberware(kind)
+    if rustRest() then
+        local answer = VRIKEquipCyberware(tostring(kind))
+        if string.sub(answer, 1, 3) == "ok:" then return true, string.sub(answer, 4) end
+        return false, answer
+    end
     if pendingCyberware then return false, "A cyberware change is already in progress" end
     local record = cyberwareRecords[kind]
     local player = Game.GetPlayer()
@@ -529,6 +563,29 @@ local hasPairedAnimNative = nil
 local scannerVisionId, hasScannerStateNative = nil, nil
 local hasWorldTimeNative = nil
 local locomotionDetailedId, hasLocomotionDetailedNative = nil, nil
+local fpsLockTimer, fpsLockValue = 0.0, -1
+local maxFpsOnOff = CName.new('MaximumFPS_OnOff')
+local maxFpsValue = CName.new('MaximumFPS_Value')
+
+local function syncGameFpsLock(dt)
+    fpsLockTimer = fpsLockTimer + (dt or 0.0)
+    if fpsLockTimer < 0.25 then return end
+    fpsLockTimer = 0.0
+    if type(GetVRSharedSlot) ~= 'function' then return end
+    local target = GetVRSharedSlot(226) or 0.0
+    if target < 10.0 then return end
+    local value = math.floor(math.min(240.0, math.max(10.0, target)) + 0.5)
+    if value == fpsLockValue then return end
+    local ok = pcall(function()
+        local settings = Game.GetSettingsSystem()
+        local enabled = settings:GetVar('/video/display', maxFpsOnOff)
+        local cap = settings:GetVar('/video/display', maxFpsValue)
+        if enabled:GetValue() ~= true then enabled:SetValue(true) end
+        if cap:GetValue() ~= value then cap:SetValue(value) end
+    end)
+    if ok then fpsLockValue = value end
+end
+
 local function pushLocomotion(player)
     if hasWorldTimeNative == nil then hasWorldTimeNative = type(SetVRWorldTimeScale) == 'function' end
     if hasWorldTimeNative then
@@ -765,10 +822,25 @@ local function updateMirrorDouble(player, dt)
 end
 
 registerForEvent('onUpdate', function(dt)
-    local okCyberware, cyberwareError = pcall(updateCyberware, dt)
-    if not okCyberware then
-        finishCyberware("error: " .. tostring(cyberwareError))
-        spdlog.error("[VRIK] " .. cyberwareStatus)
+    syncGameFpsLock(dt)
+    if not rustRest() then
+        local okCyberware, cyberwareError = pcall(updateCyberware, dt)
+        if not okCyberware then
+            finishCyberware("error: " .. tostring(cyberwareError))
+            spdlog.error("[VRIK] " .. cyberwareStatus)
+        end
+    end
+    if rustPump() then
+        -- The pump is the plugin's; the load observer stays here, and the mirror double without VRRustMechanics2.
+        if not isReady then return end
+        ensureObservers()
+        if rustRest() then return end
+        local player = Game.GetPlayer()
+        if player and type(VRMirrorDouble) == 'function' and not pcall(updateMirrorDouble, player, dt or 0.0) then
+            if mirrorBound then pcall(VRMirrorDoubleClear) end
+            mirrorBound, mirror = false, nil
+        end
+        return
     end
     -- The first-person neck cap follows the body's skin tone (src/Natives/NeckCap.cpp) -- in the main menu's
     -- lobby too, where the rest of this update waits for the rig.

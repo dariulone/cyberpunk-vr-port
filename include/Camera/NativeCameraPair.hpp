@@ -2,6 +2,9 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::camera {
 using FixedPosition=std::array<int32_t,3>;
@@ -10,6 +13,23 @@ struct CameraEntitySample {
     std::array<float,3> cameraMinusEntity{},bodyMinusEntity{};
     bool valid{};
 };
+enum class CameraPacketState { Valid, Unavailable, Invalidated };
+#if CVR_RUST_ROOM
+// rust/crates/cvr-camera/src/frames.rs
+static_assert(sizeof(CameraEntitySample) == 60);
+inline CameraEntitySample MakeCameraEntitySample(const FixedPosition& centre,
+        const FixedPosition& bodyBase,const FixedPosition& entity,
+        const float* cameraQuat,const float* entityQuat) {
+    CameraEntitySample out{};
+    cvr_camera_entity_sample(centre.data(),bodyBase.data(),entity.data(),cameraQuat,entityQuat,&out);
+    return out;
+}
+inline CameraPacketState CameraPacketStatus(uintptr_t owner,uint64_t origin,uint64_t stamp,
+        uintptr_t currentOwner,uint64_t currentOrigin,uint64_t now,bool valid,bool unavailable) {
+    return static_cast<CameraPacketState>(
+        cvr_camera_packet_status(owner,origin,stamp,currentOwner,currentOrigin,now,valid,unavailable));
+}
+#else
 inline CameraEntitySample MakeCameraEntitySample(const FixedPosition& centre,
         const FixedPosition& bodyBase,const FixedPosition& entity,
         const float* cameraQuat,const float* entityQuat) {
@@ -33,7 +53,6 @@ inline CameraEntitySample MakeCameraEntitySample(const FixedPosition& centre,
     out.valid=std::isfinite(span) && span>=.0001f && span<9.0f;
     return out;
 }
-enum class CameraPacketState { Valid, Unavailable, Invalidated };
 inline CameraPacketState CameraPacketStatus(uintptr_t owner,uint64_t origin,uint64_t stamp,
         uintptr_t currentOwner,uint64_t currentOrigin,uint64_t now,bool valid,bool unavailable) {
     if(!owner || owner!=currentOwner || origin!=currentOrigin)return CameraPacketState::Invalidated;
@@ -41,4 +60,5 @@ inline CameraPacketState CameraPacketStatus(uintptr_t owner,uint64_t origin,uint
     if(!stamp || now<stamp || now-stamp>250)return CameraPacketState::Unavailable;
     return CameraPacketState::Valid;
 }
+#endif
 }

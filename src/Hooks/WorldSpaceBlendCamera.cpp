@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 #include "Utils/DebugGate.hpp"
 #include "Camera/CameraState.hpp"
 #include "Camera/PoseIdentity.hpp"
@@ -10,12 +11,23 @@
 #include <cstring>
 #include <cstdio>
 
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/world_blend.rs: CvrWorldBlendBeforeNotify (called from CameraPoseLeafThunks.asm) and the
+// install, the same site and relay.
+extern "C" bool cvr_hook_world_blend_install();
+CVR_HOOK("WorldSpaceBlendCamera",::cvr::hooks::Stage::Boot,82,cvr_hook_world_blend_install);
+#else
+// The counters are defined in src/Camera/CameraLinkState.cpp (both builds); the reset, the origin and MAIN's
+// camera are asked through the services, as the Rust port asks them.
 extern "C" {
 void CvrWorldBlendNotifyDetour();
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseCalls{};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseApplied{};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseMissing{};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseChanged{};
+extern std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseCalls;
+extern std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseApplied;
+extern std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseMissing;
+extern std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseChanged;
+bool cvr_cpp_xr_external_pose_reset_pending();
+uint64_t cvr_cpp_xr_tracking_origin_serial();
+uintptr_t cvr_cpp_cam_obj_main();
 }
 
 namespace {
@@ -33,11 +45,11 @@ extern "C" void CvrWorldBlendBeforeNotify(uintptr_t component) {
     if(component<0x10000)return;
     cvr::camera::InvalidatePoseAddress(component+0xE0);
     if(g_menuModeValue!=0 || DeviceCamActive() || g_bdActive.load(std::memory_order_relaxed) ||
-       OpenXRManager::Get().ExternalPoseResetPending())return;
+       cvr_cpp_xr_external_pose_reset_pending())return;
     uintptr_t source{},owner{},sourceOwner{};
     const auto player=cvr::roomscale::PlayerIdentity();
     if(!player || !ReadPtrSafe(component+0x1E0,&source) || !source ||
-       source!=g_camObjMain.load(std::memory_order_acquire) ||
+       source!=cvr_cpp_cam_obj_main() ||
        !ReadPtrSafe(component+0x50,&owner) || owner!=player ||
        !ReadPtrSafe(source+0x50,&sourceOwner) || sourceOwner!=player)return;
 
@@ -46,7 +58,7 @@ extern "C" void CvrWorldBlendBeforeNotify(uintptr_t component) {
     // Copy that completed write; do not locate a newer head or add HMD twice.
     const auto receipt=cvr::camera::CapturePoseAddress(source+0xE0);
     if(!receipt || receipt.payload.component!=source || receipt.payload.view!=1 ||
-       receipt.payload.head.originSerial!=OpenXRManager::Get().GetTrackingOriginSerial()) {
+       receipt.payload.head.originSerial!=cvr_cpp_xr_tracking_origin_serial()) {
         CVR_DIAGNOSTIC(++CyberpunkVR_WorldBlendPoseMissing);return;
     }
     if(!WritePose(component,receipt.fingerprint))return;
@@ -96,3 +108,5 @@ bool InstallWorldSpaceBlendCamera() {
 }
 CVR_HOOK("WorldSpaceBlendCamera",::cvr::hooks::Stage::Boot,82,InstallWorldSpaceBlendCamera);
 }
+#endif
+#endif

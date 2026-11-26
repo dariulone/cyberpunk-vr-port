@@ -4,6 +4,72 @@
 #include <utility>
 
 namespace cvr::stereo::queue_residency {
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The runtime: rust/crates/cvr-render/src/queue_residency.rs. A Scope holds the Rust proof (a COM object); the
+// pending pageable use's Data stays here, filled by Rust.
+struct CvrQrInvocation {uint64_t thread,queue,listsAddress;const uint64_t* lists;size_t count;};
+extern "C" {
+bool cvr_qr_capture(ID3D12CommandQueue*,uint32_t,uint64_t,IUnknown**);
+bool cvr_qr_validate(IUnknown*);
+bool cvr_qr_contains_recording_runtime(IUnknown*,const native_recording::Lease*);
+bool cvr_qr_contains_runtime(IUnknown*,const native_recording::Lease*,uint64_t,uint32_t,uint64_t);
+bool cvr_qr_describe_invocation(IUnknown*,CvrQrInvocation*);
+bool cvr_qr_bind_pageable_use(IUnknown*,const native_recording::Lease*,const texture_read::ImmutableLease*,
+    texture_read::ImmutablePageable*,detail::PageableMembership*,uint32_t*);
+bool cvr_qr_validate_pageable_use(IUnknown*,const native_recording::Lease*,const texture_read::ImmutablePageable*,
+    const detail::PageableMembership*);
+uint32_t cvr_qr_last_failure();
+void cvr_qr_last_details(std::array<uint64_t,12>*);
+void cvr_qr_membership_details(std::array<uint64_t,12>*);
+void cvr_qr_pageable_search_details(std::array<uint64_t,20>*);
+}
+static_assert(sizeof(native_recording::Lease)==40 && sizeof(texture_read::ImmutablePageable)==64 && sizeof(CvrQrInvocation)==40,
+    "mirrored by rust/crates/cvr-render/src/queue_residency.rs");
+namespace detail {
+struct Proof {Microsoft::WRL::ComPtr<IUnknown> rust;};
+}
+struct PendingPageableUse::Data {
+    Scope scope;native_recording::Lease source;
+    texture_read::ImmutablePageable physical;detail::PageableMembership membership;uint32_t pageableKind{};
+};
+namespace {
+IUnknown* Rust(const Scope& scope){return scope.proof?scope.proof->rust.Get():nullptr;}
+}
+IUnknown* RustHandle(const Scope& scope){return Rust(scope);}
+uint32_t LastFailure(){return cvr_qr_last_failure();}
+std::array<uint64_t,12> LastDetails(){std::array<uint64_t,12> value{};cvr_qr_last_details(&value);return value;}
+std::array<uint64_t,12> MembershipDetails(){std::array<uint64_t,12> value{};cvr_qr_membership_details(&value);return value;}
+std::array<uint64_t,20> PageableSearchDetails(){std::array<uint64_t,20> value{};cvr_qr_pageable_search_details(&value);return value;}
+bool Capture(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists,Scope& output){
+    output={};auto proof=std::make_shared<detail::Proof>();
+    if(!cvr_qr_capture(queue,count,reinterpret_cast<uintptr_t>(lists),proof->rust.GetAddressOf()))return false;
+    output.proof=std::move(proof);return true;
+}
+bool Validate(const Scope& scope){return cvr_qr_validate(Rust(scope));}
+bool ContainsRecording(const Scope& scope,const native_recording::Lease& source){
+    return cvr_qr_contains_recording_runtime(Rust(scope),&source);
+}
+bool DescribeInvocation(const Scope& scope,Invocation& output){
+    output={};CvrQrInvocation value{};if(!cvr_qr_describe_invocation(Rust(scope),&value))return false;
+    output={value.thread,value.queue,value.listsAddress,std::vector<uint64_t>(value.lists,value.lists+value.count)};return true;
+}
+bool Contains(const Scope& scope,const native_recording::Lease& source,uint64_t registry,uint32_t handle,uint64_t resource){
+    return cvr_qr_contains_runtime(Rust(scope),&source,registry,handle,resource);
+}
+bool BindPageableUse(const Scope& scope,const native_recording::Lease& source,const texture_read::ImmutableLease& asset,
+                     PendingPageableUse& output){
+    output={};auto data=std::make_shared<PendingPageableUse::Data>();data->scope=scope;data->source=source;
+    if(!cvr_qr_bind_pageable_use(Rust(scope),&source,&asset,&data->physical,&data->membership,&data->pageableKind))return false;
+    output.data_=std::move(data);return true;
+}
+bool ValidatePageableUse(const PendingPageableUse& value){
+    const auto* data=value.data_.get();
+    return cvr_qr_validate_pageable_use(data?Rust(data->scope):nullptr,data?&data->source:nullptr,
+        data?&data->physical:nullptr,data?&data->membership:nullptr);
+}
+#endif
+#else
 namespace detail {
 struct Proof {
     Snapshot snapshot;
@@ -218,9 +284,12 @@ bool ValidatePageableUse(const PendingPageableUse& value)try{
     Stage(10);if(!texture_read::ValidateImmutable(saved.physical.source,scope.queue.Get()))return false;
     Stage(0);return true;
 }catch(...){Stage(9);return false;}
+#endif
+#if !CVR_RUST_VRIK
 bool DescribePageableUse(const PendingPageableUse& value,PageableUseDescription& output){
     output={};if(!value.data_)return false;
     const auto& saved=*value.data_;const auto& member=saved.membership;
     output={member.managed,member.pageable,member.memberIndex,member.list,member.sourceSet,member.generation,saved.pageableKind};return true;
 }
+#endif
 }

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // CameraPair -- natives lifted out of src/Natives/Natives.cpp, which held every family at once.
 //
 // The camera-pair publisher: the one place the pose the camera was written from is
@@ -81,33 +82,66 @@
 
 
 
+#if CVR_RUST_VRIK
+#else
 volatile float g_VRPlayerYaw = 0.0f;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 volatile float g_VRCamI = 0.0f;
+#endif
+#if CVR_RUST_VRIK
+#else
 volatile float g_VRCamJ = 0.0f;
+#endif
+#if CVR_RUST_VRIK
+#else
 volatile float g_VRCamK = 0.0f;
+#endif
+#if CVR_RUST_VRIK
+#else
 volatile float g_VRCamR = 1.0f;
+#endif
 
 // FPP camera (HMD) world position + player entity world position, pushed from Lua each
 // frame (init.lua getCameraWorldPose + player:GetWorldPosition). The full-arm IK converts
 // the gizmo's WORLD hand target into the bone buffer's MODEL space using these, so the
 // hand lands exactly on the gizmo. See VRIK camModel block in vrik_hook.h.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
 volatile float g_VRCamPosX = 0.0f, g_VRCamPosY = 0.0f, g_VRCamPosZ = 0.0f;
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
 volatile float g_VREntityPosX = 0.0f, g_VREntityPosY = 0.0f, g_VREntityPosZ = 0.0f;
+#endif
 // THE single stabilized camera-local offset (cam - entity, world axes), low-passed in
 // SetVRTransforms from the coherent same-push Lua pair. Consumed by the VRIK skeleton
 // (these globals) AND by the rendered view (published to shared [124..127], applied by
 // dxgi's camera stabilizer) -- one value, two consumers, so body and view are welded
 // and bob/sway/dash/recoil kicks exist in neither. Tear-safe: cm-scale bounded quantity
 // (all fast world motion lives in the entity and cancels out of the difference).
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
 volatile float g_VRCamPairLocalX = 0.0f, g_VRCamPairLocalY = 0.0f, g_VRCamPairLocalZ = 0.0f;
+#endif
+#if CVR_RUST_VRIK
+#else
 volatile int   g_VRCamPairValid = 0;
+#endif
+#if CVR_RUST_VRIK
+#else
 volatile int   g_VRCamPosValid = 0;   // 0 until Lua has pushed a camera/entity pose
+#endif
 // Player entity world ORIENTATION quaternion (i,j,k,r). The world->model rotation is its
 // conjugate; the full-arm IK uses it to convert the gizmo world target into model space.
 // GetWorldOrientation().yaw was nil (silently 0), so we now take the real quaternion.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
 volatile float g_VREntityQI = 0.0f, g_VREntityQJ = 0.0f, g_VREntityQK = 0.0f, g_VREntityQR = 1.0f;
+#endif
 
+#if CVR_RUST_VRIK
+// The pair's work and the snapshot are rust/crates/cvr-rig/src/vrik/calibration.rs; the solve reads the snapshot
+// through this name (tools/vrik_tests gives its own).
+#else
 namespace {
 std::atomic<uint32_t> s_vrikTransformSeq{0};   // even = stable, odd = write in progress
 // A sequence counter alone does not make concurrent plain struct accesses legal in C++: the reader
@@ -450,3 +484,5 @@ void SetVRPlayerYaw(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
 
     if (aOut) *aOut = 1;
 }
+#endif
+#endif

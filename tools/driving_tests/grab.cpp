@@ -4,31 +4,26 @@
 #include "Core/LiveControls.hpp"
 #include "Utils/SharedSlots.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Core/VrCoreShared.hpp"
 #include "Anim/VrikHook.hpp"
-#include "Anim/VrikState.hpp"
-#include "Camera/CameraState.hpp"
-#include "Camera/CameraLink.hpp"
-#include "Camera/PlayerCameraState.hpp"
 #include <windows.h>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+// g_fkPos/g_fkRot, the wheel's published atomics and its test hooks are src/Anim/CharacterRigState.cpp's.
 LiveControls g_liveControls{};
 std::atomic<bool> g_isDriving{true};
-bool g_hasWeaponEquipped=false,g_isInVehicle=true;
+extern "C" bool g_hasWeaponEquipped=false,g_isInVehicle=true;
 volatile int g_menuModeValue=0;
-float slots[256]{};float* g_pSharedHands=slots;
-float g_fkPos[VRIK_MAX_BONES][3]{},g_fkRot[VRIK_MAX_BONES][4]{};
-volatile int g_VRSmokeFingerActive=0,g_VRSmokeFingerActiveL=0,g_VRSmokeFingerCount=0,g_VRSmokeFingerCountL=0;
-int g_VRSmokeFingerIdx[32]{},g_VRSmokeFingerIdxL[32]{};
+float slots[256]{};extern "C" float* g_pSharedHands=slots;
+extern "C" volatile int g_VRSmokeFingerActive=0,g_VRSmokeFingerActiveL=0,g_VRSmokeFingerCount=0,g_VRSmokeFingerCountL=0;
+extern "C" int g_VRSmokeFingerIdx[32]{},g_VRSmokeFingerIdxL[32]{};
 // Boundaries unused by this ownership test must never silently emulate tracking.
 OpenXRManager& OpenXRManager::Get(){std::abort();}
 bool OpenXRManager::GetGestureHandFrame(OpenXRHeadPose*,OpenXRHeadPose*,uint64_t*,uint64_t*,bool)const{std::abort();}
-void Log(const char*,...){}
-void VRIK_QuatNorm(float* q){const float n=std::sqrt(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]);for(int i=0;i<4;++i)q[i]/=n;}
-namespace cvr::anim {bool WeaponInLeftHand(){return false;}}
-namespace cvr::gestures {bool OwnsHand(int){return false;}}
-float SharedPose(int index) {return slots[index];}
+extern "C" void VRIK_QuatNorm(float*){std::abort();}
+namespace cvr::anim { bool WeaponInLeftHand(){return false;} }
+extern "C" float SharedPose(int index) {return slots[index];}
 bool OverlayIsVisible(){return false;}
 // The vehicle minimap anchor (PublishMinimapAnchor) is not under test: no camera pair, so it never publishes.
 bool VRIK_ReadTransformSnapshot(VrikTransformSnapshot*){return false;}

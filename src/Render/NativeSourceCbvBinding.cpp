@@ -7,6 +7,47 @@
 #include <mutex>
 #include <tuple>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The observer: rust/crates/cvr-render/src/source_cbv_observe.rs (the observations, the CBV origins, the upload
+// writer's scopes and the read at the source; CyberpunkVR_SourceCbvBindingEnable is defined there). The API forwards.
+namespace cvr::stereo::source_cbv {
+namespace {
+struct RustOrigin {uint64_t cookie,id;IUnknown* owner;};
+struct RustAnnotation {uint64_t cpu;D3D12_CONSTANT_BUFFER_VIEW_DESC view;RustOrigin origin;};
+static_assert(sizeof(RustAnnotation)==48 && sizeof(Annotation)==48 && offsetof(Annotation,origin)==24 &&
+    sizeof(descriptors::CbvOrigin)==24,"mirrored by source_cbv_observe.rs' Annotation and RawOrigin");
+static_assert(sizeof(SourceCbvBacking)==472 && offsetof(SourceCbvBacking,recording)==192 && offsetof(SourceCbvBacking,native)==232 &&
+    offsetof(SourceCbvBacking,descriptorBytes)==336 && offsetof(SourceCbvBacking,creationRecording)==368 &&
+    offsetof(SourceCbvBacking,writerBytes)==424 && offsetof(SourceCbvBacking,writerRecording)==432,
+    "mirrored by source_cbv_observe.rs' Backing");
+}
+extern "C" {
+uint32_t cvr_scbo_bind(uint32_t,uint32_t,uint32_t,uint32_t,RustAnnotation*);
+void cvr_scbo_last_diagnostic(std::array<uint64_t,16>*);
+void cvr_scbo_writer_enter(uint32_t,uint32_t,detail::UploadWriterStamp*);
+void cvr_scbo_writer_exit(const detail::UploadWriterStamp*);
+uint32_t cvr_scbo_read_at_source(uint64_t,uint64_t,uint32_t,uint32_t,const descriptors::DescriptorStamp*,IUnknown*,SourceCbvBacking*);
+}
+namespace {
+descriptors::CbvOrigin Adopt(const RustOrigin& raw){
+    descriptors::CbvOrigin result;result.cookie=raw.cookie;result.id=raw.id;result.owner.Attach(raw.owner);return result;
+}
+std::vector<Annotation> Annotations(uint32_t which,uint32_t reg,uint32_t handle,uint32_t stages){
+    RustAnnotation raw[2]{};const auto count=cvr_scbo_bind(which,reg,handle,stages,raw);
+    std::vector<Annotation> result;
+    for(uint32_t i=0;i<count;++i){Annotation value;value.cpu=raw[i].cpu;value.view=raw[i].view;value.origin=Adopt(raw[i].origin);
+        result.push_back(std::move(value));}
+    return result;
+}
+}
+UploadWriterScope::UploadWriterScope(uint32_t handle,uint32_t bytes)noexcept{cvr_scbo_writer_enter(handle,bytes,&stamp_);}
+UploadWriterScope::~UploadWriterScope(){cvr_scbo_writer_exit(&stamp_);}
+std::vector<Annotation> ObserveBindMask(uint32_t reg,uint32_t handle,uint32_t stages){return Annotations(0,reg,handle,stages);}
+std::vector<Annotation> ObserveBindStage(uint32_t reg,uint32_t handle,uint32_t stage){return Annotations(1,reg,handle,stage);}
+}
+#endif
+#else
 extern "C" {__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SourceCbvBindingEnable{};}
 namespace cvr::stereo::source_cbv {
 using Microsoft::WRL::ComPtr;
@@ -399,3 +440,4 @@ Status ReadAtSource(ID3D12GraphicsCommandList* list,uint64_t root,UINT parameter
     At(Phase::Complete);last=observed && saved.kind!=4?Status::Registered:Status::Created;return last;
 }catch(...){out={};last=Status::Failure;return last;}
 }
+#endif

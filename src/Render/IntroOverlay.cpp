@@ -6,8 +6,18 @@
 #include <algorithm>
 #include <cmath>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
+#endif
 
+#if CVR_RUST_VRIK
+// The overlay is Rust's (rust/crates/cvr-render/src/lobby_intro.rs): the curtain over each eye's image and the intro's
+// picture at its heading, seen through that eye.
+extern "C" {
+}
+namespace cvr::lobby::intro {
+}  // namespace cvr::lobby::intro
+#else
 namespace cvr::lobby::intro {
 namespace {
 // The view an sRGB-encoded image is read or written through so that blending happens in linear light: the 8-bit ones
@@ -77,3 +87,4 @@ void Overlay::Shutdown() {
     loggedIntro_ = 0;
 }
 }  // namespace cvr::lobby::intro
+#endif

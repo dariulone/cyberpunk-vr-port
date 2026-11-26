@@ -3,15 +3,40 @@
 #include <atomic>
 #include <memory>
 #include <new>
+#include <cstddef>
+#include <mutex>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdImageWrites[2]{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdCaptured[2]{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdCaptureMiss[2]{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdLastCapture[2]{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdLastSubmit[2]{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdImageGeneration[2]{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE LEDGER IS RUST'S (rust/crates/cvr-rig/src/vrik/image_pose.rs over rust/crates/cvr-camera/src/image_ledger.rs):
+// the images' pose labels and the lifetime records on the lists and resources behind their addresses. This file keeps
+// the exports above, the submission mutex its C++ callers lock and the C++ names.
+extern "C" {
+}
+namespace cvr::camera {
+static_assert(sizeof(PoseIdentity) == 136 && sizeof(ImagePoseIdentity) == 168 && offsetof(ImagePoseIdentity, pose) == 32,
+              "ImagePoseIdentity is mirrored in rust/crates/cvr-camera/src/image_ledger.rs");
+extern "C" {
+}
+}  // namespace cvr::camera
+#endif
+#else
 namespace cvr::camera {
 namespace {
 using Ledger=ImagePoseLedger<PoseIdentity>;
@@ -82,3 +107,4 @@ ID3D12Resource* LatestSubmittedVrcamImage() {
     return reinterpret_cast<ID3D12Resource*>(s_images->LatestStable().resource);
 }
 }
+#endif

@@ -10,8 +10,48 @@
 #include <mutex>
 #include <string>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
+#endif
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The Rust build's notice is rust/crates/cvr-render/src/notice.rs: the languages, the player's settings file, the boot
+// video and its restore; here the C++ face over it.
+extern "C" {
+struct CvrNoticeWord {
+    const wchar_t* lines[2];
+    uint32_t lengths[2];
+    float rows[2];
+    float size, light;
+    const wchar_t* locale;
+    uint32_t localeLength;
+    bool rightToLeft;
+};
+void cvr_notice_word(CvrNoticeWord* out);
+}
+
+namespace cvr::lobby::notice {
+const cvr::render::CaptionText& Word() {
+    static const cvr::render::CaptionText word = [] {
+        CvrNoticeWord w{};
+        cvr_notice_word(&w);
+        cvr::render::CaptionText text;
+        text.lines = {{std::wstring(w.lines[0], w.lengths[0]), w.rows[0]}, {std::wstring(w.lines[1], w.lengths[1]), w.rows[1]}};
+        text.size = w.size;
+        text.light = w.light;
+        text.locale.assign(w.locale, w.localeLength);
+        text.rightToLeft = w.rightToLeft;
+        return text;
+    }();
+    return word;
+}
+
+
+
+}  // namespace cvr::lobby::notice
+#endif
+#else
 namespace cvr::lobby::notice {
 namespace {
 // A language the game is translated into: its name in the settings, the suffix of its legal notice's bink (the boot
@@ -173,3 +213,4 @@ void BootOver() {
     Log("[notice] booted: the loading screens loop the game's logo again\n");
 }
 }  // namespace cvr::lobby::notice
+#endif

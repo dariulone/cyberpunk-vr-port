@@ -4,6 +4,49 @@
 #include <atomic>
 #include <mutex>
 #include <utility>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE CONTRACT IS RUST'S (rust/crates/cvr-render/src/native_recording.rs): the tokens, held by the lists as private
+// data, the captures, the submissions and the failures; this face hands it the C++ half's arguments and leases.
+extern "C" {
+struct CvrRecordingLease { void* token; uint64_t generation, context, list, registry; };
+bool cvr_native_recording_compatible();
+bool cvr_native_recording_capture(ID3D12GraphicsCommandList* list, const cvr::stereo::camera_upload::Context* context,
+                                  CvrRecordingLease* out);
+bool cvr_native_recording_validate_recording(const CvrRecordingLease* lease, ID3D12GraphicsCommandList* list,
+                                              const cvr::stereo::camera_upload::Context* context);
+bool cvr_native_recording_validate_submission(const CvrRecordingLease* lease, ID3D12CommandQueue* queue);
+uint32_t cvr_native_recording_last_failure();
+}
+namespace cvr::stereo::native_recording {
+static_assert(sizeof(Lease) == sizeof(CvrRecordingLease) && offsetof(Lease, generation) == 8 && offsetof(Lease, registry) == 32 &&
+                  sizeof(camera_upload::Context) == 24,
+              "mirrored by Lease and Context in rust/crates/cvr-render/src/native_recording.rs");
+namespace {
+const CvrRecordingLease* Raw(const Lease& lease) { return reinterpret_cast<const CvrRecordingLease*>(&lease); }
+}  // namespace
+bool Compatible() { return cvr_native_recording_compatible(); }
+uint32_t LastFailure() { return cvr_native_recording_last_failure(); }
+bool Capture(ID3D12GraphicsCommandList* list, camera_upload::Context context, Lease& output) {
+    output = {};
+    CvrRecordingLease raw{};
+    const bool captured = cvr_native_recording_capture(list, &context, &raw);
+    output.token.Attach(static_cast<IUnknown*>(raw.token));
+    output.generation = raw.generation;
+    output.context = raw.context;
+    output.list = raw.list;
+    output.registry = raw.registry;
+    return captured;
+}
+bool ValidateRecording(const Lease& lease, ID3D12GraphicsCommandList* list, camera_upload::Context context) {
+    return cvr_native_recording_validate_recording(Raw(lease), list, &context);
+}
+bool ValidateSubmission(const Lease& lease, ID3D12CommandQueue* queue) {
+    return cvr_native_recording_validate_submission(Raw(lease), queue);
+}
+}  // namespace cvr::stereo::native_recording
+#endif
+#else
 
 namespace cvr::stereo::native_recording {
 using Microsoft::WRL::ComPtr;
@@ -206,3 +249,4 @@ void Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* li
     }catch(...){failure=11;}
 }
 }
+#endif

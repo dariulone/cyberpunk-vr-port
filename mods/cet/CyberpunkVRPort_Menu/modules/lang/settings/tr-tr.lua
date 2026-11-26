@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "Temiz bir cyberpunkvrport.log için varsayılan olarak kapalı. Yalnızca\nClipCursor / derinlik / kanca tanılaması kaydederken aç.",
   ["FRAMEGEN"] = "KARE ÜRETİMİ",
   ["Enable frame generation"] = "Kare üretimini etkinleştir",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "Kare üretimi açıkken el yumuşatma, kendi hızının xr_hand_lerp_framegen_scale katıyla çalışır (1.25; 0 kapatır).",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "Kare üretimi açıkken el yumuşatma, kendi hızının xr_hand_lerp_framegen_scale katıyla çalışır (1.10; 0 kapatır).",
   ["Frame generator"] = "Kare üreteci",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

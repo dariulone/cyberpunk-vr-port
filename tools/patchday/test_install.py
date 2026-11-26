@@ -47,6 +47,9 @@ PORT_LUA = sorted(n for n in os.listdir(os.path.join(REPO, 'mods', 'cet'))
 LUA_SKIP = ('db.sqlite3', '.log', '.bak', '.orig', '.rar', '.zip', '.md')
 # The plugin's one folder (include/Core/Paths.hpp) and the folder an earlier release used.
 PLUGIN = 'red4ext/plugins/cyberpunkvrport'
+MERGED_ARCHIVES = [f'{folder}/{name}.archive'
+                   for folder in (PLUGIN + '/archive', 'archive/pc/mod')
+                   for name in ('cpvr_blade_mark', 'cpvr_scope_housings', 'cpvr_lobby_controls')]
 LEGACY_PLUGIN = 'red4ext/plugins/CyberpunkVR_Stereo'
 # The DirectX shader compiler single-pass stereo loads beside the plugin (dxc\), as tools/vr_bench deploys it.
 DXC_SOURCE = r'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64'
@@ -229,7 +232,8 @@ def deploy_port(a):
     stamp = time.strftime('%Y%m%d-%H%M%S')
     keep = os.path.join(REPO, 'build', 'patchday', 'deploy', stamp)
     files = port_files(a)
-    rows, stale = [], []
+    rows = []
+    stale = [rel for rel in MERGED_ARCHIVES if os.path.isfile(os.path.join(GAME, rel))]
     retired = retire_legacy_plugin(keep)
     old_scripts = retire_legacy_scripts(keep)
     shaders = PLUGIN + '/shaders/'
@@ -323,6 +327,16 @@ def install(a):
         shutil.copy2(src, dst)
         journal['port'].append(row)
         json.dump(journal, open(JOURNAL, 'w', encoding='utf-8'), indent=1)
+    for rel in MERGED_ARCHIVES:
+        old = os.path.join(GAME, rel)
+        if os.path.isfile(old):
+            saved = os.path.join(keep, rel)
+            os.makedirs(os.path.dirname(saved), exist_ok=True)
+            previous = dict(sha256=sha(old), kept=os.path.relpath(saved, REPO))
+            shutil.copy2(old, saved)
+            journal['port'].append(dict(rel=rel, previous=previous))
+            json.dump(journal, open(JOURNAL, 'w', encoding='utf-8'), indent=1)
+            os.remove(old)
     print(f'installed: {len(journal["frameworks"])} framework files, {len(journal["port"])} port files; '
           f'journal {JOURNAL}')
 

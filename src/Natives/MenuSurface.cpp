@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // Dedicated native ink surfaces. The engine still renders the menu's world geometry with
 // each eye's scene depth. Only its UI allocation changes: no shared-atlas slot or coverage LOD.
 #include "Natives/MenuSurface.hpp"
@@ -19,10 +20,24 @@
 #include <unordered_map>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
 // Allocations, native updates, readiness polls, armed polls, recorded writes,
 // submitted producer fences, completed surfaces, currently retained surfaces.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_MenuSurfaceStats[8]{};
+#endif
+#if CVR_RUST_VRIK
+// The surfaces, the two hooks, the readiness watch and VRMenuSurfaceReady are
+// rust/crates/cvr-rig/src/vrik/menu_surface.rs; the counters above, the registration and the names the command-list
+// hooks call stay.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("MenuSurface",::cvr::hooks::Stage::Boot,83,cvr_hook_menu_surface_install);
+#endif
+#else
 namespace cvr::menu_surface {
 namespace {
 using namespace RED4ext;
@@ -336,3 +351,5 @@ void VRMenuSurfaceReady(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* 
     const bool ready=cvr::menu_surface::Ready(component,root);
     if(out)*out=ready;
 }
+#endif
+#endif

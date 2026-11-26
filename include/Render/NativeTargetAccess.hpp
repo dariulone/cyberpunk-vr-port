@@ -23,6 +23,15 @@ struct RecordingPlan {
 };
 // Reset discards the previous commands on this list. Other active recordings
 // and every source generation must remain intact, including failed sources.
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/target_access.rs (tools/single_pass_tests/target_access_test runs its cases
+// against them in its Rust variant). The records are mirrored there.
+extern "C" bool cvr_ta_plan_recording(const RecordingSlot*,size_t,uint64_t,uint64_t,uint64_t,uint64_t,RecordingPlan*);
+inline bool PlanRecording(std::span<const RecordingSlot> slots,uint64_t list,uint64_t generation,
+                          uint64_t rows,uint64_t markers,RecordingPlan& output){
+    return cvr_ta_plan_recording(slots.data(),slots.size(),list,generation,rows,markers,&output);
+}
+#else
 inline bool PlanRecording(std::span<const RecordingSlot> slots,uint64_t list,uint64_t generation,
                           uint64_t rows,uint64_t markers,RecordingPlan& output){
     output={};
@@ -48,7 +57,15 @@ inline bool PlanRecording(std::span<const RecordingSlot> slots,uint64_t list,uin
     }
     output={index,generation+1,rows,markers,Failure::None};return true;
 }
+#endif
 struct PressurePlan {uint32_t index=UINT32_MAX;uint64_t rows{},markers{};Failure failure{};};
+#if CVR_RUST_VRIK
+extern "C" bool cvr_ta_plan_pressure(const RecordingSlot*,size_t,uint32_t,uint64_t,uint64_t,bool,PressurePlan*);
+inline bool PlanPressure(std::span<const RecordingSlot> slots,uint32_t current,uint64_t rows,uint64_t markers,
+                         bool appendMarker,PressurePlan& output){
+    return cvr_ta_plan_pressure(slots.data(),slots.size(),current,rows,markers,appendMarker,&output);
+}
+#else
 inline bool PlanPressure(std::span<const RecordingSlot> slots,uint32_t current,uint64_t rows,uint64_t markers,
                          bool appendMarker,PressurePlan& output){
     output={UINT32_MAX,rows,markers,Failure::None};
@@ -68,6 +85,7 @@ inline bool PlanPressure(std::span<const RecordingSlot> slots,uint32_t current,u
     if(output.markers>output.rows)return reject(Failure::Recording);
     return true;
 }
+#endif
 struct Resource {uint64_t pointer{};texture_read::detail::Allocation allocation;uint32_t flags{};};
 struct ReceiptRecord {
     uint64_t list{},generation{},nativeGeneration{},token{},context{},registry{},rows{},markers{};
@@ -81,6 +99,20 @@ struct ReceiptKey {
     bool operator==(const ReceiptKey&)const=default;
 };
 struct ReceiptStatus {ReceiptKey key;bool observing{},finished{},unavailable{};Failure failure{};};
+#if CVR_RUST_VRIK
+// The invocation crosses as its identity and its lists borrowed for the call.
+struct RawInvocation {uint64_t thread{},queue{},listsAddress{};const uint64_t* lists{};size_t count{};};
+extern "C" {
+bool cvr_ta_receipt_matches(const ReceiptKey*,const ReceiptStatus*);
+bool cvr_ta_receipt_boundary(const submission_frontier::Boundary*,const RawInvocation*,const std::array<uint64_t,2>*);
+}
+inline bool ReceiptMatches(const ReceiptKey& saved,const ReceiptStatus& current){return cvr_ta_receipt_matches(&saved,&current);}
+inline bool ReceiptBoundary(const submission_frontier::Boundary& boundary,const queue_residency::Invocation& invocation,
+                            const std::array<uint64_t,2>& sources){
+    const RawInvocation raw{invocation.thread,invocation.queue,invocation.listsAddress,invocation.lists.data(),invocation.lists.size()};
+    return cvr_ta_receipt_boundary(&boundary,&raw,&sources);
+}
+#else
 inline bool ReceiptMatches(const ReceiptKey& saved,const ReceiptStatus& current){
     if(!current.observing || current.finished || current.unavailable || current.failure!=Failure::None ||
         !saved.epoch || !saved.queue || !saved.thread || !saved.scope || !saved.frame || saved!=current.key)return false;
@@ -108,9 +140,16 @@ inline bool ReceiptBoundary(const submission_frontier::Boundary& boundary,const 
     }
     return true;
 }
+#endif
 enum class CreationMatch:uint32_t {Conflict,Same,Upgrade};
 // Only an authenticated breadcrumb lease may supply the observed metadata.
 // API placement is immutable while this exact resource is retained.
+#if CVR_RUST_VRIK
+extern "C" uint32_t cvr_ta_compare_creation(const Resource*,const Resource*);
+inline CreationMatch CompareAuthenticatedCreation(const Resource& cached,const Resource& authenticated){
+    return CreationMatch(cvr_ta_compare_creation(&cached,&authenticated));
+}
+#else
 inline CreationMatch CompareAuthenticatedCreation(const Resource& cached,const Resource& authenticated){
     if(!cached.pointer || cached.pointer!=authenticated.pointer || cached.flags!=authenticated.flags ||
         !texture_read::detail::KnownAllocation(authenticated.allocation))return CreationMatch::Conflict;
@@ -119,6 +158,7 @@ inline CreationMatch CompareAuthenticatedCreation(const Resource& cached,const R
     return texture_read::detail::KnownAllocation(a) && a.kind==b.kind && a.heap==b.heap && a.offset==b.offset && a.bytes==b.bytes?
         CreationMatch::Same:CreationMatch::Conflict;
 }
+#endif
 struct Event {
     Kind kind{};uint32_t resource=NoResource,other=NoResource,subresource=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     uint32_t before{},after{},flags{},proof{},tag{};
@@ -132,6 +172,17 @@ struct Check {
         if(failure==Failure::None){failure=why;failureRow=row;resource=target;}return false;
     }
 };
+#if CVR_RUST_VRIK
+extern "C" bool cvr_ta_check_window(const Event*,size_t,const Resource*,size_t,const std::array<Watch,4>*,bool,Check*);
+inline bool CheckWindow(std::span<const Event> events,std::span<const Resource> resources,
+                        const std::array<Watch,4>& watched,bool ownSource,Check& out){
+    return cvr_ta_check_window(events.data(),events.size(),resources.data(),resources.size(),&watched,ownSource,&out);
+}
+static_assert(sizeof(RecordingSlot)==40 && sizeof(RecordingPlan)==40 && sizeof(PressurePlan)==32 && sizeof(Resource)==48 &&
+    sizeof(ReceiptRecord)==136 && offsetof(ReceiptRecord,om)==96 && sizeof(ReceiptKey)==320 && sizeof(ReceiptStatus)==328 &&
+    sizeof(submission_frontier::Boundary)==104 && sizeof(Event)==36 && sizeof(Watch)==64 && sizeof(Check)==120,
+    "mirrored by target_access.rs");
+#else
 inline bool CheckWindow(std::span<const Event> events,std::span<const Resource> resources,
                         const std::array<Watch,4>& watched,bool ownSource,Check& out){
     out={};bool source=!ownSource,exit=!ownSource;uint32_t proof{};bool proofTouched{};
@@ -246,6 +297,7 @@ inline bool CheckWindow(std::span<const Event> events,std::span<const Resource> 
     if(proof)return out.Reject(Failure::Proof,uint32_t(events.size()));
     return true;
 }
+#endif
 }
 // Arm before the source recordings' successful creation/Reset. Events before a
 // Reset cannot establish whole-recording coverage. Finish preserves the report.

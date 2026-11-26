@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // Mirror -- the desktop window that shows what the headset sees, and the thread that drives it.
 //
@@ -56,39 +57,83 @@ namespace detail {
 // CopyToTexture runs earlier (build order) -> its target is the pre-final (black),
 // which is why capturing it gave black regardless of copy state.
 // Final-color producer work-fns (main-only by cull; enable for VRCAM via node-needed).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<bool> g_mirror_copy_armed{false};
+#endif
+#if !CVR_RUST_VRIK
 std::atomic<uint32_t> g_mirror_src_state{ (uint32_t)D3D12_RESOURCE_STATE_COMMON };
+#endif
 // VRCAM own committed render target: the engine renders the vrcam final DIRECTLY into a
 // stable resource WE own (redirected at the ctx-keyed RenderFinal2D node -> view-aware,
 // NOT resolution-based, scales to identical VR eyes). Committed => never aliased with
 // main's transients => always holds the correct vrcam final (kills the bright/dark race).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 ID3D12Resource*             g_own_target = nullptr;
 ID3D12DescriptorHeap*       g_own_rtv_heap = nullptr;
 D3D12_CPU_DESCRIPTOR_HANDLE g_own_rtv{0};
 std::mutex                  g_own_target_mtx;
 ID3D12Resource*       g_d12_mtex = nullptr;
+#endif
 // mtex was created with ALLOW_RENDER_TARGET, so the HUD debug overlay may be drawn onto it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 bool                  g_d12_mtex_is_rt = false;
+#endif
 // Fullscreen premultiplied-alpha pass used only for that overlay. Lives here rather than in the
 // capture path because it runs on OUR mirror list, which exists whenever the mirror window does.
+#if CVR_RUST_VRIK
+#else
 static ColorBlit             g_hud_mirror_blit;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 ID3D12Fence*          g_d12_fence = nullptr;
+#endif
+#if CVR_RUST_VRIK
+#else
 static std::atomic<uint64_t> g_d12_fence_next{1};
 static std::atomic<uint64_t> g_d12_ready{0};
 static std::atomic<bool>     g_d12_present_started{false};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::mutex            g_d12_mtx;
 UINT                  g_d12_w = 0, g_d12_h = 0;
 DXGI_FORMAT           g_d12_fmt = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMirrorSrcState = 0;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_NoStateLies;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugForeignStateRefusals;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorBarrierHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorPendingHits = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<uint64_t> g_mirror_vrcam_serial{0};
 std::atomic<uint64_t> g_mirror_armed_serial{0};
+#endif
 
 // Defined with the mirror capture code below; these are used by the real-device
 // command-list hooks installed before the vrcam resource is created.
+#if CVR_RUST_VRIK
+#else
 static ID3D12Resource* g_mirror_stage = nullptr;
 static D3D12_RESOURCE_DESC g_mirror_stage_desc{};
 static ID3D12Fence* g_mirror_game_fence = nullptr;
@@ -98,8 +143,18 @@ static uint64_t g_mirror_game_copy_inflight = 0;
 static std::mutex g_mirror_game_copy_mtx;
 static std::atomic<uint64_t> g_mirror_game_fence_next{1};
 static std::atomic<uint64_t> g_mirror_ready_fence{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<ID3D12GraphicsCommandList*> g_mirror_pending_list{nullptr};
+#endif
 
+#if CVR_RUST_VRIK
+// THE MIRROR'S SUBMIT AND ITS PRESENT THREAD ARE RUST'S (rust/crates/cvr-render/src/mirror.rs).
+// Its table is built in Rust (mirror.rs, from stereo_shared.rs's objects).
+static_assert(sizeof(TmInCap) == 16, "mirrored by stereo_shared.rs");
+#else
 void d12_submit_mirror_copy(ID3D12CommandQueue* queue) {
     if (!CyberpunkVR_MirrorOutput || !queue || !g_game_device) return;
     const bool use_own = (CyberpunkVR_VrcamOwnTarget && g_own_target);
@@ -773,6 +828,8 @@ void d12_present_thread() {
         }
     }
 }
+#endif
 
 }  // namespace detail
 }  // namespace cvr
+#endif

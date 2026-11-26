@@ -1,4 +1,10 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Core/GameSettings.hpp"
+
+#if CVR_RUST_VRIK
+// The Rust build's settings are rust/crates/cvr-settings (game_settings.rs); nothing in the plugin calls the header's
+// functions, and the test's adapter over the Rust half is tools/game_settings_tests/rust_settings.cpp.
+#else
 #include <windows.h>
 #include <json/json.h>
 #include <fstream>
@@ -228,3 +234,5 @@ std::string GetGameSetting(const std::filesystem::path& player,std::string_view 
     return {};
 }
 }
+#endif
+#endif

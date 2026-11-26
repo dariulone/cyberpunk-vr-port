@@ -4,6 +4,17 @@
 #include "Anim/BodyBend.hpp"
 
 namespace cvr::roomscale {
+#if CVR_RUST_BODY
+// rust/crates/cvr-body/src/look_down.rs
+inline float HeadDownDegrees(float x,float y,float z,float w) { return cvr_head_down_degrees(x,y,z,w); }
+inline float LookDownFreeLookCone(float downDegrees,float normalDegrees,float loweredDegrees,float bodyBendRadians=0) {
+    return cvr_look_down_free_look_cone(downDegrees,normalDegrees,loweredDegrees,bodyBendRadians);
+}
+inline float BodyFreeLookCone(bool swimming,float swimmingDegrees,float downDegrees,
+                             float normalDegrees,float loweredDegrees,float bodyBendRadians=0) {
+    return cvr_body_free_look_cone(swimming,swimmingDegrees,downDegrees,normalDegrees,loweredDegrees,bodyBendRadians);
+}
+#else
 // Pitch from the head's forward vector, independent of yaw and local roll.
 // OpenXR forward is -Z; positive result means looking toward the floor.
 inline float HeadDownDegrees(float x,float y,float z,float w) {
@@ -28,4 +39,5 @@ inline float BodyFreeLookCone(bool swimming,float swimmingDegrees,float downDegr
     if(swimming)return std::clamp(std::isfinite(swimmingDegrees) ? swimmingDegrees:5.0f,0.0f,90.0f);
     return LookDownFreeLookCone(downDegrees,normalDegrees,loweredDegrees,bodyBendRadians);
 }
+#endif
 }

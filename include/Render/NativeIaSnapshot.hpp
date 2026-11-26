@@ -55,10 +55,39 @@ struct PrivateIa {
 };
 namespace detail {
 inline constexpr uint64_t MaxArenaBytes=64*1024*1024,Alignment=16;
+#if CVR_RUST_VRIK
+// The rules below: rust/crates/cvr-render/src/ia_snapshot.rs (tools/single_pass_tests/native_ia_snapshot_test runs its
+// cases against them in its Rust variant).
+struct GeometryPool;struct PlacedAllocation;struct CopyRange;struct RecoveryContext;
+using AllocationOffsetReader=bool(*)(void*,uint64_t,uint64_t&);
+extern "C" {
+bool cvr_ia_selection(uint32_t,uint32_t,uint32_t*);
+bool cvr_ia_read_placed_offset(geometry::MemoryReader,AllocationOffsetReader,void*,uint64_t,uint64_t,const PlacedAllocation*,PlacedAllocation*);
+bool cvr_ia_logical_range(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
+bool cvr_ia_read_geometry_pool(geometry::MemoryReader,void*,uint64_t,const geometry::NativeBuffer*,const std::array<uint8_t,0xB0>*,
+    uint64_t,uint64_t,uint64_t,uint64_t,GeometryPool*,uint8_t);
+bool cvr_ia_requires_uniform_state_proof(uint32_t,uint32_t);
+uint32_t cvr_ia_read_bit(uint64_t);
+bool cvr_ia_read_mask(const geometry::ReadState*,uint32_t,uint32_t,bool);
+bool cvr_ia_recovery_mask(uint32_t,const geometry::ReadState*,uint32_t,uint32_t,uint32_t*);
+bool cvr_ia_barrier_capacity(uint64_t,uint32_t,uint32_t);
+bool cvr_ia_reserve(uint64_t,uint64_t,uint64_t,uint64_t*,uint64_t*);
+bool cvr_ia_plan_copies(const CopyRange*,size_t,uint64_t,uint64_t,CopyRange*,size_t*,uint64_t*,uint64_t*,uint64_t*);
+bool cvr_ia_index_view(uint64_t,uint64_t,uint64_t,const D3D12_INDEX_BUFFER_VIEW*,D3D12_INDEX_BUFFER_VIEW*);
+bool cvr_ia_vertex_view(uint64_t,uint64_t,uint64_t,const D3D12_VERTEX_BUFFER_VIEW*,D3D12_VERTEX_BUFFER_VIEW*);
+uint64_t cvr_ia_admit(const Observation*);
+bool cvr_ia_recovery_identity(const geometry::NativeBuffer*,const std::array<uint8_t,0xB0>*,uint64_t,const RecoveryContext*,
+    const geometry::NativeBuffer*,const std::array<uint8_t,0xB0>*,uint64_t,const RecoveryContext*);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool Selection(uint32_t original,uint32_t separate,uint32_t& copied)noexcept{return cvr_ia_selection(original,separate,&copied);}
+#else
 inline bool Selection(uint32_t original,uint32_t separate,uint32_t& copied)noexcept {
     copied=0;if(original&~65535u || (separate!=0 && separate!=128) || (separate&original)!=separate)return false;
     copied=original&~separate;return true;
 }
+#endif
 enum Flag:uint64_t {RecordKnown=1,CreationKnown=2,AllocationKnown=4,AllocatorKnown=8,SameDevice=16,
     ScopeCurrent=32,BindingsCurrent=64,ParentCurrent=128,ContextKnown=256,CodeKnown=512,FullBacking=1024,Pinned=2048,GeometryPoolKnown=4096,PlacedKnown=8192};
 inline constexpr uint64_t RequiredFlags=RecordKnown|CreationKnown|AllocationKnown|AllocatorKnown|SameDevice|
@@ -79,6 +108,13 @@ struct PlacedAllocation {
 using AllocationOffsetReader=bool(*)(void*,uint64_t,uint64_t&);
 // GetOffset uses metadata's virtual lookup; its handle is not a byte offset.
 // The caller pins the typed allocation/allocator before invoking this reader.
+#if CVR_RUST_VRIK
+inline bool ReadPlacedOffset(geometry::MemoryReader reader,AllocationOffsetReader getter,void* user,uint64_t base,uint64_t imageBytes,
+    const PlacedAllocation& expected,PlacedAllocation& output){
+    static_assert(sizeof(PlacedAllocation)==88,"mirrored by texture_immutable.rs");
+    return cvr_ia_read_placed_offset(reader,getter,user,base,imageBytes,&expected,&output);
+}
+#else
 inline bool ReadPlacedOffset(geometry::MemoryReader reader,AllocationOffsetReader getter,void* user,uint64_t base,uint64_t imageBytes,
     const PlacedAllocation& expected,PlacedAllocation& output){
     output={};if(!reader || !getter || !base || imageBytes<=0x306EC50 || imageBytes>UINT64_MAX-base ||
@@ -102,13 +138,27 @@ inline bool ReadPlacedOffset(geometry::MemoryReader reader,AllocationOffsetReade
     };
     PlacedAllocation first,again;if(!once(first) || !once(again) || first!=again)return false;output=first;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool LogicalRange(uint64_t gpu,uint64_t bytes,uint64_t nativeGpu,uint64_t nativeBytes,uint64_t viewGpu,uint64_t viewBytes)noexcept{
+    return cvr_ia_logical_range(gpu,bytes,nativeGpu,nativeBytes,viewGpu,viewBytes);
+}
+#else
 inline bool LogicalRange(uint64_t gpu,uint64_t bytes,uint64_t nativeGpu,uint64_t nativeBytes,uint64_t viewGpu,uint64_t viewBytes)noexcept {
     return gpu && bytes && gpu<=UINT64_MAX-bytes && nativeGpu>=gpu && nativeBytes && nativeGpu-gpu<=bytes &&
         nativeBytes<=bytes-(nativeGpu-gpu) && viewGpu>=nativeGpu && viewBytes && viewGpu-nativeGpu<=nativeBytes &&
         viewBytes<=nativeBytes-(viewGpu-nativeGpu);
 }
+#endif
 // AE7CD0's geometry pools use five size classes. Occupancy and the typed
 // allocation owner are separate from the arithmetic logical-view bounds.
+#if CVR_RUST_VRIK
+inline bool ReadGeometryPool(geometry::MemoryReader reader,void* user,uint64_t base,const geometry::NativeBuffer& native,
+    const std::array<uint8_t,0xB0>& saved,uint64_t gpu,uint64_t bytes,uint64_t viewGpu,uint64_t viewBytes,GeometryPool& output,uint8_t lowType=5){
+    static_assert(sizeof(GeometryPool)==104,"mirrored by ia_snapshot.rs");
+    return cvr_ia_read_geometry_pool(reader,user,base,&native,&saved,gpu,bytes,viewGpu,viewBytes,&output,lowType);
+}
+#else
 inline bool ReadGeometryPool(geometry::MemoryReader reader,void* user,uint64_t base,const geometry::NativeBuffer& native,
     const std::array<uint8_t,0xB0>& saved,uint64_t gpu,uint64_t bytes,uint64_t viewGpu,uint64_t viewBytes,GeometryPool& output,uint8_t lowType=5){
     output={};
@@ -149,33 +199,71 @@ inline bool ReadGeometryPool(geometry::MemoryReader reader,void* user,uint64_t b
     };
     GeometryPool first,again;if(!once(first) || !once(again) || first!=again)return false;output=first;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool RequiresUniformStateProof(uint32_t first,uint32_t second)noexcept{return cvr_ia_requires_uniform_state_proof(first,second);}
+#else
 inline bool RequiresUniformStateProof(uint32_t first,uint32_t second)noexcept {
     return first==0 || first==3 || second==0 || second==3;
 }
+#endif
+#if CVR_RUST_VRIK
+inline uint32_t ReadBit(Role role)noexcept{return cvr_ia_read_bit(uint64_t(role));}
+#else
 inline uint32_t ReadBit(Role role)noexcept{return role==Role::Index?D3D12_RESOURCE_STATE_INDEX_BUFFER:D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;}
+#endif
+#if CVR_RUST_VRIK
+inline bool ReadMask(geometry::ReadState state,uint32_t kind,uint32_t reads,bool ready=false)noexcept{return cvr_ia_read_mask(&state,kind,reads,ready);}
+#else
 inline bool ReadMask(geometry::ReadState state,uint32_t kind,uint32_t reads,bool ready=false)noexcept {
     return (kind==0 || kind==3) && state.kind==kind && state.status==2 && reads &&
         (state.value&reads)==reads && !(state.value&~UINT(D3D12_RESOURCE_STATE_GENERIC_READ)) &&
         (!ready || (state.value&D3D12_RESOURCE_STATE_COPY_SOURCE));
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool RecoveryMask(uint32_t previous,geometry::ReadState current,uint32_t kind,uint32_t reads,uint32_t& required)noexcept{
+    return cvr_ia_recovery_mask(previous,&current,kind,reads,&required);
+}
+#else
 inline bool RecoveryMask(uint32_t previous,geometry::ReadState current,uint32_t kind,uint32_t reads,uint32_t& required)noexcept {
     required=0;if(!ReadMask({previous,2,kind},kind,reads) || current.status!=2 || current.kind!=kind ||
         (current.value&~UINT(D3D12_RESOURCE_STATE_GENERIC_READ)))return false;
     required=previous|current.value;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool BarrierCapacity(uint64_t data,uint32_t capacity,uint32_t pending)noexcept{return cvr_ia_barrier_capacity(data,capacity,pending);}
+#else
 inline bool BarrierCapacity(uint64_t data,uint32_t capacity,uint32_t pending)noexcept {
     return data && capacity && capacity<=1048576 && !pending && data<=UINT64_MAX-uint64_t(capacity)*32;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Reserve(uint64_t cursor,uint64_t capacity,uint64_t bytes,uint64_t& offset,uint64_t& end)noexcept{
+    return cvr_ia_reserve(cursor,capacity,bytes,&offset,&end);
+}
+#else
 inline bool Reserve(uint64_t cursor,uint64_t capacity,uint64_t bytes,uint64_t& offset,uint64_t& end)noexcept {
     offset=end=0;if(!capacity || capacity>MaxArenaBytes || capacity%Alignment || cursor%Alignment || cursor>capacity ||
         !bytes || bytes>UINT32_MAX || bytes>UINT64_MAX-(Alignment-1))return false;
     const auto padded=(bytes+Alignment-1)&~(Alignment-1);if(padded>capacity-cursor)return false;
     offset=cursor;end=cursor+padded;return true;
 }
+#endif
 struct CopyRange {uint64_t resource{},sourceOffset{},bytes{},destination{};};
 struct CopyPlan {std::vector<CopyRange> ranges;std::vector<uint64_t> destinations;uint64_t next{},copied{};};
 // Union only overlapping/touching views of one resource at one original call.
 // Never bridges an unread gap or shares a version across source occurrences.
+#if CVR_RUST_VRIK
+inline bool PlanCopies(std::span<const CopyRange> input,uint64_t cursor,uint64_t capacity,CopyPlan& output){
+    static_assert(sizeof(CopyRange)==32,"mirrored by ia_snapshot.rs");
+    output={};CopyPlan plan;plan.ranges.resize(input.size());plan.destinations.resize(input.size());size_t count{};
+    if(!cvr_ia_plan_copies(input.data(),input.size(),cursor,capacity,plan.ranges.data(),&count,plan.destinations.data(),
+        &plan.next,&plan.copied))return false;
+    plan.ranges.resize(count);output=std::move(plan);return true;
+}
+#else
 inline bool PlanCopies(std::span<const CopyRange> input,uint64_t cursor,uint64_t capacity,CopyPlan& output){
     output={};if(input.empty() || input.size()>Observations::MaxViews)return false;
     auto sorted=std::vector<CopyRange>(input.begin(),input.end());
@@ -199,16 +287,32 @@ inline bool PlanCopies(std::span<const CopyRange> input,uint64_t cursor,uint64_t
     }
     plan.next=cursor;output=std::move(plan);return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool IndexView(uint64_t gpu,uint64_t offset,uint64_t capacity,const D3D12_INDEX_BUFFER_VIEW& source,D3D12_INDEX_BUFFER_VIEW& out)noexcept{
+    return cvr_ia_index_view(gpu,offset,capacity,&source,&out);
+}
+#else
 inline bool IndexView(uint64_t gpu,uint64_t offset,uint64_t capacity,const D3D12_INDEX_BUFFER_VIEW& source,D3D12_INDEX_BUFFER_VIEW& out)noexcept {
     out={};const UINT unit=source.Format==DXGI_FORMAT_R16_UINT?2:source.Format==DXGI_FORMAT_R32_UINT?4:0;
     if(!unit || !gpu || gpu>UINT64_MAX-capacity || !source.SizeInBytes || offset>capacity || source.SizeInBytes>capacity-offset ||
         gpu>UINT64_MAX-offset || (gpu+offset)%unit || source.SizeInBytes%unit)return false;
     out=source;out.BufferLocation=gpu+offset;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool VertexView(uint64_t gpu,uint64_t offset,uint64_t capacity,const D3D12_VERTEX_BUFFER_VIEW& source,D3D12_VERTEX_BUFFER_VIEW& out)noexcept{
+    return cvr_ia_vertex_view(gpu,offset,capacity,&source,&out);
+}
+#else
 inline bool VertexView(uint64_t gpu,uint64_t offset,uint64_t capacity,const D3D12_VERTEX_BUFFER_VIEW& source,D3D12_VERTEX_BUFFER_VIEW& out)noexcept {
     out={};if(!gpu || gpu>UINT64_MAX-capacity || !source.SizeInBytes || !source.StrideInBytes || offset>capacity || source.SizeInBytes>capacity-offset || gpu>UINT64_MAX-offset)return false;
     out=source;out.BufferLocation=gpu+offset;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline Failure Admit(const Observation& a)noexcept{return Failure(cvr_ia_admit(&a));}
+#else
 inline Failure Admit(const Observation& a)noexcept {
     if(!(a.flags&ScopeCurrent))return Failure::Scope;
     if(!(a.flags&CodeKnown))return Failure::Code;
@@ -259,7 +363,16 @@ inline Failure Admit(const Observation& a)noexcept {
     }else return Failure::ClassDeferred;
     return Failure::None;
 }
+#endif
 struct RecoveryContext {uint64_t address{},list{},state{},submitted{};UINT kind{},pending{};bool known{};};
+#if CVR_RUST_VRIK
+inline bool RecoveryIdentity(const geometry::NativeBuffer& saved,const std::array<uint8_t,0xB0>& raw,
+    uint64_t address,const RecoveryContext& context,const geometry::NativeBuffer& current,
+    const std::array<uint8_t,0xB0>& currentRaw,uint64_t currentAddress,const RecoveryContext& now)noexcept{
+    static_assert(sizeof(RecoveryContext)==48,"mirrored by ia_snapshot.rs");
+    return cvr_ia_recovery_identity(&saved,&raw,address,&context,&current,&currentRaw,currentAddress,&now);
+}
+#else
 inline bool RecoveryIdentity(const geometry::NativeBuffer& saved,const std::array<uint8_t,0xB0>& raw,
     uint64_t address,const RecoveryContext& context,const geometry::NativeBuffer& current,
     const std::array<uint8_t,0xB0>& currentRaw,uint64_t currentAddress,const RecoveryContext& now)noexcept {
@@ -270,6 +383,7 @@ inline bool RecoveryIdentity(const geometry::NativeBuffer& saved,const std::arra
         saved.registry && current.registry==saved.registry && saved.handle && current.handle==saved.handle && saved.kind==current.kind &&
         (saved.kind==0 || saved.kind==3) && address && currentAddress==address && raw==currentRaw;
 }
+#endif
 struct NativePins {Microsoft::WRL::ComPtr<IUnknown> allocator,allocation;}; // Allocation releases first.
 enum class Stage:UINT {Prepared,Recording,Recorded,Failed};
 class Once {

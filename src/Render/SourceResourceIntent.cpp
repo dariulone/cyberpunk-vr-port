@@ -11,6 +11,102 @@
 #include <vector>
 
 namespace cvr::stereo::source_resource_intent {
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The cache: rust/crates/cvr-render/src/source_intent.rs (tools/single_pass_tests/source_resource_intent_test and
+// structured_intent_cache_test run their cases against it in their Rust variants). A Candidate's payload is a Rust
+// payload handle with its immutable bytes and labels.
+using Microsoft::WRL::ComPtr;
+struct RustPayloadView {const uint8_t* bytes;size_t length;uint64_t producerList,sequence,sourceResource,destinationOffset,sourceOffset,copiedBytes;};
+struct RustCapture {const void* payload;RustPayloadView view;size_t dataOffset,viewOffset;bool composed;};
+static_assert(sizeof(RustPayloadView)==64 && sizeof(RustCapture)==96 && sizeof(Statistics)==96,"mirrored by source_intent.rs");
+extern "C" {
+void cvr_sri_invalidate(ID3D12Resource*);
+void cvr_sri_invalidate_range(ID3D12Resource*,uint64_t,uint64_t);
+bool cvr_sri_record_intended_copy(ID3D12GraphicsCommandList*,ID3D12Resource*,uint64_t,uint64_t,const uint8_t*,size_t);
+bool cvr_sri_mark_structured_view(ID3D12Resource*,const D3D12_SHADER_RESOURCE_VIEW_DESC*,const std::atomic<uint32_t>*);
+bool cvr_sri_observe_copy(ID3D12GraphicsCommandList*,ID3D12Resource*,uint64_t,ID3D12Resource*,uint64_t,uint64_t,const std::atomic<uint32_t>*);
+bool cvr_sri_query_diagnostic(ID3D12Resource*,bool,void*);
+bool cvr_sri_query_coverage(uint32_t,ID3D12Resource*,uint64_t,size_t,void*);
+bool cvr_sri_capture(bool,ID3D12Resource*,uint64_t,size_t,RustCapture*,void*,void(*)(void*,const PieceReceipt*,size_t));
+void cvr_sri_payload_release(const void*);
+void cvr_sri_clear();
+void cvr_sri_statistics(Statistics*);
+}
+namespace detail {
+struct Payload {
+    const void* rust{};RustPayloadView view{};
+    explicit Payload(const RustPayloadView& value):view(value){}
+    Payload(const Payload&)=delete;Payload& operator=(const Payload&)=delete;
+    ~Payload(){cvr_sri_payload_release(rust);}
+};
+}
+namespace {
+void AppendPieces(void* pieces,const PieceReceipt* values,size_t count){static_cast<std::vector<PieceReceipt>*>(pieces)->assign(values,values+count);}
+// The payload handle is owned before anything can throw: a failed allocation releases it.
+struct Handle {const void* payload;~Handle(){cvr_sri_payload_release(payload);}};
+}
+std::span<const uint8_t> Candidate::Bytes()const noexcept{
+    return data_?std::span<const uint8_t>(data_->view.bytes,data_->view.length).subspan(dataOffset_,viewBytes_):std::span<const uint8_t>{};
+}
+uint64_t Candidate::ProducerList()const noexcept{return data_?data_->view.producerList:0;}
+uint64_t Candidate::CopySequence()const noexcept{return data_?data_->view.sequence:0;}
+uint64_t Candidate::DestinationOffset()const noexcept{return data_?data_->view.destinationOffset:0;}
+uint64_t Candidate::SourceOffset()const noexcept{return data_?data_->view.sourceOffset:0;}
+uint64_t Candidate::ViewOffset()const noexcept{return viewOffset_;}
+size_t Candidate::CopiedBytes()const noexcept{return data_?size_t(data_->view.copiedBytes):0;}
+bool Candidate::IsComposed()const noexcept{return composed_;}
+std::span<const PieceReceipt> Candidate::Pieces()const noexcept{return pieces_;}
+ID3D12Resource* Candidate::Destination()const noexcept{return destination_.Get();}
+Candidate::operator bool()const noexcept{return data_ && destination_ && viewBytes_;}
+void Invalidate(ID3D12Resource* resource){cvr_sri_invalidate(resource);}
+void Invalidate(ID3D12Resource* resource,uint64_t offset,uint64_t bytes){cvr_sri_invalidate_range(resource,offset,bytes);}
+bool RecordIntendedCopy(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,uint64_t offset,uint64_t sourceOffset,std::span<const uint8_t> bytes){
+    return cvr_sri_record_intended_copy(list,resource,offset,sourceOffset,bytes.data(),bytes.size());
+}
+bool MarkStructuredView(ID3D12Resource* resource,const D3D12_SHADER_RESOURCE_VIEW_DESC* view,const std::atomic<uint32_t>* enabled){
+    return cvr_sri_mark_structured_view(resource,view,enabled);
+}
+bool ObserveCopy(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,uint64_t offset,ID3D12Resource* source,uint64_t sourceOffset,uint64_t bytes,const std::atomic<uint32_t>* enabled){
+    return cvr_sri_observe_copy(list,resource,offset,source,sourceOffset,bytes,enabled);
+}
+bool QueryCopyDiagnostic(const ComPtr<ID3D12Resource>& resource,CopyDiagnostic& output)noexcept{
+    output={};CopyDiagnostic value{};if(!cvr_sri_query_diagnostic(resource.Get(),false,&value))return false;output=value;return true;
+}
+bool QueryMarkDiagnostic(const ComPtr<ID3D12Resource>& resource,MarkDiagnostic& output)noexcept{
+    output={};MarkDiagnostic value{};if(!cvr_sri_query_diagnostic(resource.Get(),true,&value))return false;output=value;return true;
+}
+bool QueryGenericCoverage(const ComPtr<ID3D12Resource>& resource,uint64_t offset,size_t bytes,GenericCoverageDiagnostic& output)noexcept{
+    output={};return cvr_sri_query_coverage(0,resource.Get(),offset,bytes,&output);
+}
+bool QueryCacheEvents(const ComPtr<ID3D12Resource>& resource,uint64_t offset,size_t bytes,CacheEventDiagnostic& output)noexcept{
+    output={};return cvr_sri_query_coverage(1,resource.Get(),offset,bytes,&output);
+}
+bool QueryStructuredCoverage(const ComPtr<ID3D12Resource>& resource,uint64_t offset,size_t bytes,StructuredCoverageDiagnostic& output)noexcept{
+    output={};return cvr_sri_query_coverage(2,resource.Get(),offset,bytes,&output);
+}
+bool CaptureAtDraw(const ComPtr<ID3D12Resource>& resource,uint64_t address,size_t bytes,Candidate& output){
+    output={};try{Candidate captured;RustCapture value{};
+        if(!cvr_sri_capture(false,resource.Get(),address,bytes,&value,&captured.pieces_,&AppendPieces))return false;
+        Handle handle{value.payload};auto payload=std::make_shared<detail::Payload>(value.view);payload->rust=std::exchange(handle.payload,nullptr);
+        captured.data_=std::move(payload);captured.destination_=resource;captured.dataOffset_=value.dataOffset;captured.viewOffset_=value.viewOffset;
+        captured.viewBytes_=bytes;captured.composed_=value.composed;output=std::move(captured);return true;
+    }catch(...){output={};return false;}
+}
+bool CaptureStructuredAtDraw(const ComPtr<ID3D12Resource>& resource,uint64_t address,size_t bytes,Candidate& output){
+    output={};try{Candidate captured;RustCapture value{};
+        if(!cvr_sri_capture(true,resource.Get(),address,bytes,&value,&captured.pieces_,&AppendPieces))return false;
+        Handle handle{value.payload};auto payload=std::make_shared<detail::Payload>(value.view);payload->rust=std::exchange(handle.payload,nullptr);
+        captured.data_=std::move(payload);captured.destination_=resource;captured.dataOffset_=value.dataOffset;captured.viewOffset_=value.viewOffset;
+        captured.viewBytes_=bytes;captured.composed_=value.composed;output=std::move(captured);return true;
+    }catch(...){output={};return false;}
+}
+void Clear(){cvr_sri_clear();}
+Statistics GetStatistics(){Statistics value{};cvr_sri_statistics(&value);return value;}
+uint64_t CurrentBytes(){return GetStatistics().currentBytes;}
+uint64_t RangeCount(){return GetStatistics().rangeCount;}
+#endif
+#else
 using Microsoft::WRL::ComPtr;
 namespace detail {
 struct ResourceBudget {std::atomic<size_t> bytes{};};
@@ -593,4 +689,5 @@ Statistics GetStatistics(){auto& state=State();std::lock_guard lock(state.mutex)
     state.sequence,state.evictions,state.captures,state.rejected,state.generation,state.structuredBytes,state.structuredRanges};}
 uint64_t CurrentBytes(){return GetStatistics().currentBytes;}
 uint64_t RangeCount(){return GetStatistics().rangeCount;}
+#endif
 }

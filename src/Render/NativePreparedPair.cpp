@@ -20,6 +20,221 @@
 #include <mutex>
 #include <set>
 #include <intrin.h>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The orchestration is Rust's (rust/crates/cvr-render/src/prepared_pair_native.rs: the work, the pairing, the
+// banks, the recording, the submissions, the readbacks, the membership banks); this half keeps the sources (lent as
+// views) and lends their tables' SRV coverage receipts and the export's targets.
+#include "Render/NativeIndirectPolicy.hpp"
+extern "C" bool cvr_rl_same_owner(ID3D12Pageable*,ID3D12Pageable*);   // residency_lease.rs
+extern "C" bool cvr_npp_full_t5(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
+namespace cvr::detail {
+using PrivateExecuteFn=void(STDMETHODCALLTYPE*)(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*);
+PrivateExecuteFn command_queue_original_execute(ID3D12CommandQueue*);
+}
+namespace cvr::stereo::prepared_pair {
+namespace {
+struct CvrLease {ID3D12Resource* resource;uint64_t gpu,bytes;};
+struct CvrResources {CvrLease index;std::array<CvrLease,16> vertices;const native_probe::DrawRecord* draw;const uint8_t* instances;size_t instanceCount;};
+struct CvrState {ID3D12PipelineState* pipeline;ID3D12Resource* rateImage;scene_state::Bindings::Rate rate;int32_t topology;uint32_t stencil;float blend[4];};
+struct CvrTable {UINT parameter,offset,count;ID3D12DescriptorHeap* cpuHeap;IUnknown* const* leases;size_t leaseCount;uint64_t identity,version,storageScope;
+    UINT storageExtent;};
+struct CvrMaterial {UINT parameter,offset,kind;bool hasBuffer;descriptors::DescriptorStamp stamp;ID3D12Resource* resource;ID3D12Resource* counter;
+    IUnknown* immutableOwner;ID3D12Resource* immutableResource;IUnknown* bufferOwner;ID3D12Resource* bufferResource;D3D12_SHADER_RESOURCE_VIEW_DESC bufferView;
+    const texture_read::ImmutableLease* immutable;const descriptors::SourceResourceBinding* binding;const material_buffer_snapshot::Copy* buffer;};
+struct CvrInput {ID3D12Resource* resource;IUnknown* owner;uint64_t offset;const uint8_t* expected;size_t expectedLength;};
+struct CvrExit {const void* identity;ID3D12Resource* readback;UINT width,height,eye,sourceSide,frame;uint64_t list,generation;const NativeExitPlane* planes;
+    size_t planeCount;};
+struct CvrSource {
+    uint64_t ordinal;const native_recording::Lease* recording;ID3D12CommandQueue* sourceQueue;CvrResources owned;CvrState ownedState;
+    const native_probe::DrawRecord* originalDraw;ID3D12PipelineState* originalPipeline;ID3D12RootSignature* root;const void* shader;
+    const uint8_t* shaderRoot;size_t shaderRootLength;const source_cbv_snapshot::PrivateCbv* cbvs;size_t cbvCount;
+    const source_cbv_snapshot::PreparedCopies* cbvReceipt;const CvrTable* tables;size_t tableCount;const CvrTable* referenceTables;
+    size_t referenceTableCount;const CvrMaterial* materials;size_t materialCount;const CvrInput* inputs;size_t inputCount;
+    const source_binding_assembly::GuardedT5View* t5;const Source::FullT5* fullT5;ID3D12Resource* rateImage;const void* baseline;
+    bool baselineCaptured,allowVrsRefinement;scene_state::detail::GeometryTargetsRaw baselineTargets;const CvrExit* nativeExit;
+    ID3D12Resource* passDepth;void* rateCapture;IUnknown* const* owners;size_t ownerCount;
+};
+struct CvrPlan {const uint8_t* serialized;size_t serializedLength;const PairedBindingLocation* bindings;size_t bindingCount;
+    std::array<UINT,2> parameters,descriptors;UINT originalParameters,rootDwords;};
+struct CvrFamily {ID3D12PipelineState* pipeline;ID3D12RootSignature* sourceRoot;ID3D12RootSignature* root;CvrPlan plan;const families::ResourceUse* uses;
+    size_t useCount;D3D12_DEPTH_STENCIL_DESC depthState;UINT renderTargets;bool pairedRoot,instanceRebaseSafe,depthStateKnown;};
+static_assert(sizeof(CvrResources)==432 && sizeof(CvrState)==72 && sizeof(CvrTable)==72 && sizeof(CvrMaterial)==304 && sizeof(CvrInput)==40 &&
+    sizeof(CvrExit)==72 && sizeof(CvrSource)==1072 && offsetof(CvrSource,baselineTargets)==704 && offsetof(CvrSource,nativeExit)==1032 &&
+    sizeof(CvrPlan)==56 && sizeof(CvrFamily)==160 && offsetof(CvrFamily,depthState)==96 &&
+    sizeof(source_cbv_snapshot::PrivateCbv)==72 && sizeof(source_cbv_snapshot::PreparedCopies)==48 && sizeof(source_binding_assembly::GuardedT5View)==72 &&
+    sizeof(Source::FullT5)==152 && offsetof(Source::FullT5,range)==72 && sizeof(structured_buffer_snapshot::PreparedCopy)==72 &&
+    sizeof(native_recording::Lease)==40 && sizeof(NativeExitPlane)==56 && sizeof(NativeOutputCopy::RustTarget)==56 &&
+    sizeof(Microsoft::WRL::ComPtr<IUnknown>)==sizeof(IUnknown*) && std::is_standard_layout_v<StereoVrsSnapshot> && sizeof(StereoVrsSnapshot)==8,
+    "mirrored by prepared_pair_native.rs");
+// The sources and the C++ objects of one work: the Rust work owns it.
+struct Aux {
+    std::vector<Source> sources;
+    std::vector<CvrSource> views;
+    std::vector<CvrExit> exits;
+    std::vector<std::vector<CvrTable>> tables,referenceTables;
+    std::vector<std::vector<std::vector<IUnknown*>>> tableLeases,referenceLeases;
+    std::vector<std::vector<CvrMaterial>> materials;
+    std::vector<std::vector<CvrInput>> inputs;   // the immutable uses: prepared_pair_native.rs'
+    // The residency leases: prepared_pair_native.rs'; the export targets' borrowed pageables stay here for them.
+    std::array<gpu::residency::BorrowedTarget,8> exportTargets;std::array<target_lifetime::BorrowedPageable,8> exportPageables;
+    target_access::Receipt exportReceipt;
+    std::array<target_lifetime::BorrowedScope,8> exportLifetimes;
+};
+CvrTable LendTable(const SharedBankTable& table,std::vector<IUnknown*>& leases){
+    leases.clear();for(const auto& lease:table.leases)leases.push_back(lease.Get());
+    return {table.parameter,table.offset,table.count,table.cpuHeap.Get(),leases.data(),leases.size(),table.identity,table.version,table.storageScope,
+        table.storageExtent};
+}
+void LendTables(const std::vector<SharedBankTable>& source,std::vector<CvrTable>& rows,std::vector<std::vector<IUnknown*>>& leases){
+    leases.resize(source.size());rows.clear();rows.reserve(source.size());
+    for(size_t i=0;i<source.size();++i)rows.push_back(LendTable(source[i],leases[i]));
+}
+void Lend(Aux& a){
+    const auto n=a.sources.size();
+    a.views.assign(n,CvrSource{});a.exits.assign(n,CvrExit{});a.tables.resize(n);a.referenceTables.resize(n);a.tableLeases.resize(n);
+    a.referenceLeases.resize(n);a.materials.resize(n);a.inputs.resize(n);
+    for(size_t i=0;i<n;++i){const auto& s=a.sources[i];auto& v=a.views[i];
+        v.ordinal=s.ordinal;v.recording=&s.sourceRecording;v.sourceQueue=s.sourceQueue.Get();
+        const auto lease=[](const geometry::BufferLease& value){return CvrLease{value.resource.Get(),value.gpu,value.bytes};};
+        v.owned.index=lease(s.owned.index);for(UINT k=0;k<16;++k)v.owned.vertices[k]=lease(s.owned.vertices[k]);
+        v.owned.draw=&s.owned.draw;v.owned.instances=s.owned.instances.data();v.owned.instanceCount=s.owned.instances.size();
+        const auto& state=s.owned.state;
+        v.ownedState={state.original.Get(),state.rateImage.Get(),state.rate,int32_t(state.topology),state.stencil,
+            {state.blendFactor[0],state.blendFactor[1],state.blendFactor[2],state.blendFactor[3]}};
+        v.originalDraw=&s.original.draw;v.originalPipeline=s.original.state.original.Get();v.root=s.root.Get();v.shader=s.shader.get();
+        if(s.shader){v.shaderRoot=s.shader->root.data();v.shaderRootLength=s.shader->root.size();}
+        v.cbvs=s.cbvs.data();v.cbvCount=s.cbvs.size();v.cbvReceipt=&s.cbvReceipt;
+        LendTables(s.tables,a.tables[i],a.tableLeases[i]);v.tables=a.tables[i].data();v.tableCount=a.tables[i].size();
+        LendTables(s.referenceTables,a.referenceTables[i],a.referenceLeases[i]);
+        v.referenceTables=a.referenceTables[i].data();v.referenceTableCount=a.referenceTables[i].size();
+        auto& materials=a.materials[i];materials.reserve(s.materials.size());
+        for(const auto& m:s.materials){const auto& b=m.binding;
+            materials.push_back({b.parameter,b.offset,UINT(b.type),bool(m.buffer),b.stamp,b.resource.Get(),b.counter.Get(),m.immutable.owner.Get(),
+                m.immutable.source.resource.Get(),m.buffer?m.buffer->owner.Get():nullptr,m.buffer?m.buffer->resource.Get():nullptr,
+                m.buffer?m.buffer->view:D3D12_SHADER_RESOURCE_VIEW_DESC{},&m.immutable,&b,m.buffer?&*m.buffer:nullptr});}
+        v.materials=materials.data();v.materialCount=materials.size();
+        auto& inputs=a.inputs[i];inputs.reserve(s.inputChecks.size());
+        for(const auto& check:s.inputChecks)inputs.push_back({check.resource.Get(),check.owner.Get(),check.offset,check.expected.data(),check.expected.size()});
+        v.inputs=inputs.data();v.inputCount=inputs.size();
+        v.t5=s.t5?&*s.t5:nullptr;v.fullT5=s.fullT5?&*s.fullT5:nullptr;v.rateImage=s.rateImage.Get();v.baseline=s.passBaseline.get();
+        v.baselineCaptured=s.passBaseline && s.passBaseline->Captured();v.allowVrsRefinement=s.allowVrsRefinement;
+        if(v.baselineCaptured){const auto& targets=s.passBaseline->Targets();
+            for(UINT k=0;k<5;++k){v.baselineTargets.resources[k]=targets.resources[k].Get();v.baselineTargets.views[k]=targets.views[k];
+                v.baselineTargets.handles[k]=targets.handles[k];}
+            v.baselineTargets.colors=targets.colors;}
+        if(s.nativeExit){const auto& x=*s.nativeExit;
+            a.exits[i]={s.nativeExit.get(),x.readback.Get(),x.width,x.height,x.eye,x.sourceSide,x.frame,uint64_t(x.list),x.generation,x.planes.data(),
+                x.planes.size()};
+            v.nativeExit=&a.exits[i];}
+        v.passDepth=s.passDepth.Get();v.rateCapture=s.rateCapture?*reinterpret_cast<void* const*>(s.rateCapture.get()):nullptr;
+        v.owners=reinterpret_cast<IUnknown* const*>(s.owners.data());v.ownerCount=s.owners.size();
+    }
+}
+Aux* Make(std::vector<Source> sources){auto aux=std::make_unique<Aux>();aux->sources=std::move(sources);Lend(*aux);return aux.release();}
+// The families, the signature receipts, the original Execute and the submission order: prepared_pair_native.rs.
+struct Host {
+    void(*auxFree)(void*);
+    bool(*coverage)(void*,size_t,uint32_t,size_t,const source_binding_assembly::Scope*,uint32_t,const descriptors::DescriptorStamp*);
+    ID3D12Pageable*(*targetPageable)(void*,uint32_t,ID3D12Device*);bool(*targetReauth)(void*,uint32_t,ID3D12Device*);
+    uint32_t(*exportDescribe)(void*,ID3D12Device*,const void*,const void*,ID3D12CommandQueue*,uint32_t,const uint64_t*,NativeOutputCopy::RustTarget(*)[8]);
+    bool(*exportValidate)(void*,ID3D12CommandQueue*,uint32_t,bool*);
+    void*(*exportNew)();
+};
+const Host kHost{
+    [](void* aux){delete static_cast<Aux*>(aux);},
+    // The material checks, the full T5 view, the membership table and banks: prepared_pair_native.rs.
+    [](void* aux,size_t index,uint32_t reference,size_t tableIndex,const source_binding_assembly::Scope* scope,uint32_t offset,
+       const descriptors::DescriptorStamp* stamp){
+        const auto& source=static_cast<Aux*>(aux)->sources[index];const auto& tables=reference?source.referenceTables:source.tables;
+        try{if(tableIndex>=tables.size())return false;source_binding_assembly::OwnedSrvCoverageView coverage;
+            return stamp?source_binding_assembly::MatchesOwnedSrvCoverage(tables[tableIndex],*scope,offset,*stamp,coverage):
+                source_binding_assembly::DescribeOwnedSrvCoverage(tables[tableIndex],*scope,coverage);}
+        catch(...){return false;}},
+    [](void* aux,uint32_t index,ID3D12Device* device)->ID3D12Pageable*{
+        auto& a=*static_cast<Aux*>(aux);
+        try{const auto& target=a.exportTargets[index];auto& kept=a.exportPageables[index];
+            return target_lifetime::GetBorrowedPageable(device,target.identity,target.lifetime,kept)?kept.pageable.Get():nullptr;}
+        catch(...){return nullptr;}},
+    [](void* aux,uint32_t index,ID3D12Device* device){
+        const auto& kept=static_cast<Aux*>(aux)->exportPageables[index];
+        try{target_lifetime::BorrowedPageable now;
+            return target_lifetime::GetBorrowedPageable(device,kept.identity,kept.lifetime,now) && cvr_rl_same_owner(now.pageable.Get(),kept.pageable.Get());}
+        catch(...){return false;}},
+    // The immutable uses: prepared_pair_native.rs.
+    [](void* aux,ID3D12Device* device,const void* receipt,const void* lifetimes,ID3D12CommandQueue* queue,uint32_t frame,const uint64_t* exits,
+       NativeOutputCopy::RustTarget(*rows)[8])->uint32_t{
+        auto& a=*static_cast<Aux*>(aux);
+        try{const auto& r=*static_cast<const target_access::Receipt*>(receipt);
+            const auto& l=*static_cast<const std::array<target_lifetime::BorrowedScope,8>*>(lifetimes);
+            a.exportReceipt=r;a.exportLifetimes=l;
+            std::array<target_handoff::SourceSnapshot,2> targets;
+            if(!target_access::Describe(r,queue,frame,targets))return 2;
+            std::array<gpu::residency::BorrowedTarget,8> resident;
+            for(UINT side=0;side<2;++side){const auto& source=targets[side];const UINT other=1-side;
+                if(source.side!=side || source.frame!=frame || source.recording.list!=exits[other*2] ||
+                    source.recording.generation!=exits[other*2+1])return 3;
+                for(UINT i=0;i<4;++i){const auto& target=source.targets[i];
+                    if(target.slot!=(i==3?4:i) || !target_lifetime::Validate(l[side*4+i]))return 4;
+                    const auto& c=target.identity.creation;
+                    (*rows)[side*4+i]={c.kind,c.resource.Get(),c.heap.Get(),c.heapOffset,c.allocationBytes,target.planes,
+                        {target.finalStates[0],target.finalStates[1]}};
+                    resident[side*4+i]={target.identity,l[side*4+i]};
+                }
+            }
+            a.exportTargets=resident;return 0;}   // their residency: prepared_pair_native.rs (targetPageable)
+        catch(...){return 10;}},
+    [](void* aux,ID3D12CommandQueue* queue,uint32_t frame,bool* live){
+        auto& a=*static_cast<Aux*>(aux);
+        try{const bool valid=target_access::Validate(a.exportReceipt,queue,frame);bool alive=true;
+            for(const auto& lifetime:a.exportLifetimes)alive=target_lifetime::Validate(lifetime) && alive;*live=alive;return valid;}
+        catch(...){*live=false;return false;}},
+    // The export-only holder of a Rust caller's sources (pair_source.rs).
+    []()->void*{try{return new Aux();}catch(...){return nullptr;}}
+};
+}
+}
+extern "C" {
+void cvr_npp2_attach(const void*);
+bool cvr_npp2_start(ID3D12Device*,void*,const void*,size_t,bool,void*);
+bool cvr_npp2_start_current(ID3D12Device*,void*,const void*,size_t,ID3D12CommandQueue*,uint32_t);
+uint32_t cvr_npp2_compatibility(const void*,const void*);
+bool cvr_npp2_wants_native_export(uint32_t);
+void cvr_npp2_cancel_current(uint32_t);
+bool cvr_npp2_prepare_export(ID3D12CommandQueue*,uint32_t,const void*,const void*);
+bool cvr_npp2_test_binding_modes();
+bool cvr_npp2_test_released_reset_race();
+}
+namespace cvr::stereo::prepared_pair {
+namespace {[[maybe_unused]] const bool kAttached=(cvr_npp2_attach(&kHost),true);}
+uint32_t CompatibilityFailure(const Source& a,const Source& b){
+    std::unique_ptr<Aux> lent(Make({a,b}));return cvr_npp2_compatibility(&lent->views[0],&lent->views[1]);
+}
+bool Start(ID3D12Device* device,std::array<Source,2> sources,std::shared_ptr<const families::Family> family)try{
+    std::vector<Source> input;input.reserve(2);for(auto& source:sources)input.push_back(std::move(source));
+    auto* aux=Make(std::move(input));
+    // The family's lookup key: the left draw's pipeline (prepared_pair_native.rs looks it up in families_native.rs).
+    return cvr_npp2_start(device,aux,aux->views.data(),aux->views.size(),false,family?aux->sources[0].owned.state.original.Get():nullptr);
+}catch(...){return false;}
+bool StartSequence(ID3D12Device* device,std::vector<Source> sources)try{
+    auto* aux=Make(std::move(sources));return cvr_npp2_start(device,aux,aux->views.data(),aux->views.size(),true,nullptr);
+}catch(...){return false;}
+bool StartCurrentSequence(ID3D12Device* device,std::vector<Source> sources,ID3D12CommandQueue* queue,UINT frame)try{
+    auto* aux=Make(std::move(sources));return cvr_npp2_start_current(device,aux,aux->views.data(),aux->views.size(),queue,frame);
+}catch(...){return false;}
+bool WantsNativeExport(UINT frame){return cvr_npp2_wants_native_export(frame);}
+void CancelCurrent(UINT frame){cvr_npp2_cancel_current(frame);}
+bool PrepareNativeExport(ID3D12CommandQueue* queue,UINT frame,const target_access::Receipt& receipt,
+                         const std::array<target_lifetime::BorrowedScope,8>& lifetimes){
+    return cvr_npp2_prepare_export(queue,frame,&receipt,&lifetimes);
+}
+#ifdef CVR_PREPARED_PAIR_TESTING
+bool TestNativeBindingModes(){return cvr_npp2_test_binding_modes();}
+bool TestReleasedResetRace(){return cvr_npp2_test_released_reset_race();}
+#endif
+}
+#endif
+#else
 #ifdef CVR_PREPARED_PAIR_TESTING
 #include <thread>
 #endif
@@ -785,7 +1000,9 @@ bool Active(){return active.load(std::memory_order_acquire);}
 bool NeedsNativeBindings(){
     if(!Active())return false;std::lock_guard lock(mutex);return Active() && work && !work->current;
 }
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 bool CurrentActive(UINT frame){std::lock_guard lock(mutex);return Active() && work && work->current && work->sourceFrame==frame;}
+#endif
 bool WantsNativeExport(UINT frame){std::lock_guard lock(mutex);
     return work && work->current && work->sourceFrame==frame && work->exportRequested;
 }
@@ -1036,7 +1253,7 @@ bool SubmitCurrent(ID3D12CommandQueue* queue,UINT frame)try{
     ID3D12CommandList* lists[]{w.ownedList.Get(),w.exportList.Get()};
     const UINT listCount=w.exportPrepared?2u:1u;
     w.ownedFlight=gpu::PrepareCommandResources(listCount,lists);
-    if(w.ownedFlight.batches.empty()){FailCurrent(4);return false;}
+    if(gpu::SubmissionEmpty(w.ownedFlight)){FailCurrent(4);return false;}
     auto resources=w.ownedFlight;
     std::array<gpu::residency::Lease*,2> leases{};UINT leaseCount{};
     if(w.residency.SourceCount())leases[leaseCount++]=&w.residency;
@@ -1364,3 +1581,4 @@ bool TestReleasedResetRace(){
 }
 #endif
 }
+#endif

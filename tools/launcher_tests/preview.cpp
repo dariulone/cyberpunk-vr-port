@@ -5,6 +5,12 @@
 #include <cstdio>
 #include <string>
 #include "Overlay/LauncherDialog.hpp"
+#include "Render/MonitorOutput.hpp"
+namespace cvr {
+static MonitorOutput savedMonitor = MonitorOutput::Default;
+MonitorOutput GetMonitorOutput() { return savedMonitor; }
+void SetMonitorOutput(MonitorOutput output) { savedMonitor = output; }
+}
 
 HWND g_gameHwnd = nullptr;
 void Log(const char*, ...) {}
@@ -25,6 +31,10 @@ extern "C" void SetLauncherCustomResolution(int on) { savedCustom = on; }
 extern "C" int GetLauncherLobby() { return savedLobby; }
 extern "C" void SetLauncherLobbyAndPersist(int on) { savedLobby = on; }
 int savedInterface = 1, savedPhysics = 1;
+int savedVr = 1, savedPlane = 0;
+extern "C" int GetLauncherVrEnabled(){return savedVr;}
+extern "C" int GetLauncherWeaponPlane(){return savedPlane;}
+extern "C" void SetLauncherModes(int vr,int plane){savedVr=vr;savedPlane=plane;}
 extern "C" int GetLauncherInterface() { return savedInterface; }
 extern "C" void SetLauncherInterfaceAndPersist(int on) { savedInterface = on; }
 extern "C" int GetLauncherHandPhysics() { return savedPhysics; }

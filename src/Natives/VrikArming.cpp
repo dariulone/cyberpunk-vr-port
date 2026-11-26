@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // VrikArming -- natives lifted out of src/Natives/Natives.cpp, which held every family at once.
 //
 // The VRIK arming core: turning the engine's own IK on and pointing it at a
@@ -68,6 +69,8 @@
 #include "Anim/CharacterRig.hpp"
 #include "Anim/Cyberware.hpp"
 #include "Anim/SkeletonPolicy.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's arming; the Rust build's is rust/crates/cvr-rig/src/vrik/vrik_arming.rs.
 #include "Anim/WeaponAim.hpp"
 #include "Natives/NativeState.hpp"
 #include "Natives/NativeHelpers.hpp"
@@ -358,9 +361,7 @@ static int ArmPlayerLocked() {
     // match, fall back to the shortest name containing the needles (so we get the
     // hand root, not a finger like "RightHandThumb1").
     auto* metaRig = animObj->metaRig;
-    // The rig comes from the player's typed AnimatedObject; low Windows allocations are valid too.
-    // Keep the address-range heuristic for untyped scans, and check this known object's memory directly.
-    if (VRIK_IsReadable(metaRig, sizeof(*metaRig)))
+    if (metaRig && std::strcmp(ClassifyQword(reinterpret_cast<uint64_t>(metaRig)), "HEAP") == 0)
     {
         const uint32_t boneCount = metaRig->boneNames.Size();
         if (boneCount > 0 && boneCount < 8192)
@@ -748,3 +749,5 @@ int VRIK_DoArmPlayer() {
         ReleaseSRWLockExclusive(&g_PlayerPoseStateLock);
     }
 }
+#endif
+#endif

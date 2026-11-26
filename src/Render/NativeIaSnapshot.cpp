@@ -8,6 +8,53 @@
 #include <windows.h>
 #include <algorithm>
 #include <new>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The snapshots at the actual call: rust/crates/cvr-render/src/ia_snapshot_receipt.rs (the collection, the arena, the
+// receipt, the registration and its recovery, the proofs; CyberpunkVR_NativeIaSnapshotsEnable is defined there). This
+// half lends its DrawResources copies, the list's current bindings and the graph parent's revalidation through its
+// host table.
+namespace cvr::stereo::ia_snapshot {
+static_assert(offsetof(geometry::DrawResources,vertices)==80 && offsetof(geometry::DrawResources,draw)==1360,
+    "read by ia_snapshot_receipt.rs");
+static_assert(sizeof(Observations)==8720 && sizeof(ReadEpochCertificate)==32 && sizeof(PreparedCopies)==64 &&
+    sizeof(PrivateIa)==112 && offsetof(PrivateIa,index)==80 && sizeof(native_recording::Lease)==40,
+    "mirrored by ia_snapshot_receipt.rs");
+extern "C" {
+bool cvr_ias_same_lease(const void*,const void*);
+void cvr_iasn_attach(const void*);
+void cvr_iasn_scope_enter(uint64_t,uint64_t,uint64_t,indirect_copy::detail::ScopeStamp*);
+void cvr_iasn_scope_exit(const indirect_copy::detail::ScopeStamp*);
+bool cvr_iasn_read_pinned_placed_offset(const detail::PlacedAllocation*,detail::PlacedAllocation*);
+bool cvr_iasn_copied_shape(const PreparedCopies*,geometry::DrawResources*);
+}
+namespace {
+struct Host {
+    void* (*clone)(const void*);
+    void (*free)(void*);
+    void (*assign)(void*,const void*);   // the current bindings' check is ia_snapshot_receipt.rs' (geometry_leases.rs)
+};
+const geometry::DrawResources& Draw(const void* draw){return *static_cast<const geometry::DrawResources*>(draw);}
+const Host kHost{
+    [](const void* draw)->void*{try{return new geometry::DrawResources(Draw(draw));}catch(...){return nullptr;}},
+    [](void* draw){delete static_cast<geometry::DrawResources*>(draw);},
+    [](void* output,const void* saved){try{*static_cast<geometry::DrawResources*>(output)=Draw(saved);}catch(...){}},
+};
+}  // namespace
+namespace {
+[[maybe_unused]] const bool kAttached=(cvr_iasn_attach(&kHost),true);
+}
+struct SnapshotArena::Storage:IUnknown {};   // the Rust storage's IUnknown face
+SnapshotArena::SnapshotArena()=default;SnapshotArena::~SnapshotArena()=default;
+ActualCallScope::ActualCallScope(ID3D12GraphicsCommandList* list,uint64_t generation,uint64_t occurrence)noexcept{
+    cvr_iasn_scope_enter(reinterpret_cast<uintptr_t>(list),generation,occurrence,&stamp_);}
+ActualCallScope::~ActualCallScope(){cvr_iasn_scope_exit(&stamp_);}
+bool ReadPinnedPlacedOffset(const detail::PlacedAllocation& expected,detail::PlacedAllocation& output){
+    return cvr_iasn_read_pinned_placed_offset(&expected,&output);}
+bool CopiedSourceShape(const PreparedCopies& proof,geometry::DrawResources& output){return cvr_iasn_copied_shape(&proof,&output);}
+}  // namespace cvr::stereo::ia_snapshot
+#endif
+#else
 
 extern "C" {__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_NativeIaSnapshotsEnable{};}
 namespace cvr::stereo::ia_snapshot {
@@ -499,3 +546,4 @@ bool ValidateSourceSubmission(const PreparedCopies& proof,ID3D12CommandQueue* qu
     failure=Failure::None;return true;
 }catch(...){failure=Failure::Exception;return false;}
 }
+#endif

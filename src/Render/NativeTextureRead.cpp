@@ -14,17 +14,86 @@
 #include <mutex>
 #include <vector>
 
+#if CVR_RUST_VRIK
+// THE RECEIPTS' REGISTRY IS RUST'S (rust/crates/cvr-render/src/texture_receipts.rs): the observers, the receipts'
+// acquisition and their registry check; the rest of this module asks it.
+extern "C" {
+void cvr_tr_resource_created(ID3D12Resource*,uint32_t,bool,ID3D12Heap*,uint64_t,uint64_t);
+bool cvr_tr_alias_affects_resources(ID3D12Resource*,ID3D12Resource*,ID3D12Resource*);
+bool cvr_tr_query_observed_allocation(ID3D12Resource*,uint32_t*,void**,uint64_t*,uint64_t*);
+bool cvr_tr_native_queue(uint64_t,ID3D12CommandQueue*,bool);
+// The Lease path (rust/crates/cvr-render/src/texture_lease.rs) and the module's failure code.
+uint32_t cvr_tr_failure();
+void cvr_tr_set_failure(uint32_t);
+void cvr_tr_lease_attach(void (*)(uint64_t,void*));
+bool cvr_tr_identity(const void*);
+uint64_t cvr_tr_fixed_owner_of(const void*);
+bool cvr_tr_validate(const void*,ID3D12CommandQueue*);
+bool cvr_tr_copy_subresource(ID3D12GraphicsCommandList*,const void*,UINT,ID3D12Resource*,const D3D12_PLACED_SUBRESOURCE_FOOTPRINT*);
+// The immutable leases (rust/crates/cvr-render/src/texture_immutable.rs); the owner functions serve the fixed pins.
+void cvr_tr_immutable_attach(bool(*)(ID3D12Resource*,void*),bool(*)(const void*,void*));
+bool cvr_tr_validate_immutable(const void*,ID3D12CommandQueue*);
+bool cvr_tr_immutable_pageable(ID3D12Device*,const void*,void*);
+bool cvr_tr_register_immutable_use(ID3D12GraphicsCommandList*,const void*,void*);
+bool cvr_tr_validate_immutable_use(const void*,ID3D12CommandQueue*);
+// The fixed pins (rust/crates/cvr-render/src/texture_pins.rs).
+void cvr_tr_pins_attach(bool(*)(uint64_t,uint64_t,bool,uint32_t*));
+void cvr_tr_fixed_pin_details(std::array<uint64_t,8>*);
+bool cvr_tr_pin_fixed_asset(ID3D12GraphicsCommandList*,uint64_t,void*);
+bool cvr_tr_fixed_pinned_resource(const void*,ID3D12Resource**);
+bool cvr_tr_acquire_pinned_immutable(ID3D12GraphicsCommandList*,const void*,void*);
+// The writable identities (rust/crates/cvr-render/src/texture_writable.rs).
+bool cvr_tr_validate_writable_target(ID3D12GraphicsCommandList*,ID3D12Resource*,uint32_t);
+bool cvr_tr_capture_writable_identity(ID3D12GraphicsCommandList*,ID3D12Resource*,uint32_t,void*);
+bool cvr_tr_validate_writable_identity(const void*,const void*,ID3D12CommandQueue*);
+}
+#endif
 namespace cvr::stereo::texture_read {
 namespace {
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The failure code is Rust's (texture_lease.rs): writes and reads of `failure` go through it.
+struct FailureCode {
+    FailureCode& operator=(uint32_t value){cvr_tr_set_failure(value);return *this;}
+    operator uint32_t()const{return cvr_tr_failure();}
+};
+FailureCode failure;
+static_assert(sizeof(Lease)==48 && offsetof(Lease,native)==8 && offsetof(Lease,receipt)==32 && offsetof(Lease,owner)==40 &&
+    sizeof(Microsoft::WRL::ComPtr<ID3D12Resource>)==8,"mirrored by rust/crates/cvr-render/src/texture_lease.rs");
+void CurrentContextForRust(uint64_t game,void* out){*static_cast<camera_upload::Context*>(out)=camera_upload::CurrentContext(uintptr_t(game));}
+[[maybe_unused]] const bool kLeaseAttached=(cvr_tr_lease_attach(&CurrentContextForRust),true);
+// texture_immutable.rs asks the creation receipts and the engine's placed offsets of the C++ (their records as POD:
+// the creation's ComPtrs land zeroed-then-assigned in Rust's record and become its references).
+static_assert(sizeof(constants::ResourceCreationInfo)==48 && offsetof(constants::ResourceCreationInfo,resource)==16 &&
+    offsetof(constants::ResourceCreationInfo,heap)==24 && offsetof(constants::ResourceCreationInfo,heapOffset)==32 &&
+    sizeof(ia_snapshot::detail::PlacedAllocation)==88 && sizeof(ImmutableLease)==56 && offsetof(ImmutableLease,source)==8 &&
+    sizeof(ImmutablePageable)==64 && offsetof(ImmutablePageable,pageable)==56 && sizeof(ImmutableUse)==96 &&
+    offsetof(ImmutableUse,recording)==56,"mirrored by rust/crates/cvr-render/src/texture_immutable.rs");
+bool QueryCreationForRust(ID3D12Resource* resource,void* out){
+    return constants::QueryResourceCreation(Microsoft::WRL::ComPtr<ID3D12Resource>(resource),*static_cast<constants::ResourceCreationInfo*>(out));
+}
+bool PlacedOffsetForRust(const void* wanted,void* out){
+    return ia_snapshot::ReadPinnedPlacedOffset(*static_cast<const ia_snapshot::detail::PlacedAllocation*>(wanted),
+        *static_cast<ia_snapshot::detail::PlacedAllocation*>(out));
+}
+[[maybe_unused]] const bool kImmutableAttached=(cvr_tr_immutable_attach(&QueryCreationForRust,&PlacedOffsetForRust),true);
+#endif
+#else
 thread_local uint32_t failure{};
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's pins: rust/crates/cvr-render/src/texture_pins.rs
 thread_local std::array<uint64_t,8> fixedPinDetails{};
+#endif
+#if !CVR_RUST_VRIK
 constexpr GUID nativeHandleKey{0xe9165914,0x664a,0x4174,{0xb1,0x1b,0x20,0x3a,0xad,0xd5,0x34,0x87}};
 constexpr GUID placementKey{0xe9165914,0x664a,0x4174,{0xb1,0x1b,0x20,0x3a,0xad,0xd5,0x34,0x88}};
 constexpr GUID heapOwnerKey{0xe9165914,0x664a,0x4174,{0xb1,0x1b,0x20,0x3a,0xad,0xd5,0x34,0x89}};
 constexpr GUID receiptKey{0xe9165914,0x664a,0x4174,{0xb1,0x1b,0x20,0x3a,0xad,0xd5,0x34,0x8a}};
 constexpr GUID recordingCookieKey{0xe9165914,0x664a,0x4174,{0xb1,0x1b,0x20,0x3a,0xad,0xd5,0x34,0x8b}};
 constexpr GUID recordingLifetimeKey{0xe9165914,0x664a,0x4174,{0xb1,0x1b,0x20,0x3a,0xad,0xd5,0x34,0x8c}};
+#endif
 struct Placement {detail::Allocation allocation;uint64_t receipt{};};
+#if !CVR_RUST_VRIK  // the Rust build's registry: rust/crates/cvr-render/src/texture_receipts.rs
 struct Receipt;
 std::atomic<Receipt*> retired{};
 struct Receipt final:IUnknown {
@@ -70,12 +139,18 @@ bool receiptFailure{};
 constexpr size_t ReceiptLimit=16384;
 constexpr size_t RecordingLimit=2048;
 constexpr size_t WriteLimit=4096;
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 bool Observe(){return native_probe::ObserveBindings();}
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's placements: texture_receipts.rs
 Placement PlacementOf(ID3D12Resource* resource){
     Placement result{};UINT bytes=sizeof(result);
     if(!resource || FAILED(resource->GetPrivateData(placementKey,&bytes,&result)) || bytes!=sizeof(result))return {};
     return result;
 }
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's registry: rust/crates/cvr-render/src/texture_receipts.rs
 void DrainRetired(){
     auto* receipt=retired.exchange(nullptr,std::memory_order_acquire);
     while(receipt){auto* next=receipt->next;const auto found=receipts.find(receipt->id);
@@ -96,11 +171,22 @@ Recording* RecordingOf(ID3D12CommandList* list){
     const auto found=recordings.find(cookie);
     return found!=recordings.end() && found->second->list==list?found->second:nullptr;
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 void ReceiptError(){std::lock_guard lock(receiptMutex);receiptFailure=true;}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 bool Read(void*,uint64_t address,void* output,size_t bytes){
     SIZE_T copied{};return address && address<=UINT64_MAX-bytes &&
         ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(address),output,bytes,&copied) && copied==bytes;
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool Identity(const NativeTexture& source){return cvr_tr_identity(&source);}
+#endif
+#else
 bool Identity(const NativeTexture& source){
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     uint64_t registry{},resource{};
@@ -109,6 +195,9 @@ bool Identity(const NativeTexture& source){
         source.registry<=UINT64_MAX-0x2f1e0-uint64_t(source.handle-1)*0xb0 &&
         Read(nullptr,source.registry+0x2f1d8+uint64_t(source.handle-1)*0xb0,&resource,8) && resource==source.resource;
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 bool ResolveNative(ID3D12Resource* resource,NativeTexture& native){
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));uint64_t registry{};
     if(!resource || !Read(nullptr,base+0x3bcdca8,&registry,8) || !registry)return false;
@@ -123,7 +212,11 @@ bool ResolveNative(ID3D12Resource* resource,NativeTexture& native){
     failure=5;if(!Identity(native))return false;
     return SUCCEEDED(resource->SetPrivateData(nativeHandleKey,sizeof(native),&native));
 }
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 bool Shape(const D3D12_RESOURCE_DESC& desc){return detail::Shape(desc);}
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's layouts: texture_receipts.rs
 bool DefaultHeap(ID3D12Resource* resource){
     D3D12_HEAP_PROPERTIES properties{};D3D12_HEAP_FLAGS flags{};
     return SUCCEEDED(resource->GetHeapProperties(&properties,&flags)) && properties.Type==D3D12_HEAP_TYPE_DEFAULT;
@@ -131,10 +224,15 @@ bool DefaultHeap(ID3D12Resource* resource){
 bool MipLayout(ID3D12Device* device,const D3D12_RESOURCE_DESC& desc,UINT mip,uint64_t offset,MipFootprint& output){
     return detail::SubresourceLayout(device,desc,mip,offset,output);
 }
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 bool SameLayout(const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& a,const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& b){
     return a.Offset==b.Offset && a.Footprint.Format==b.Footprint.Format && a.Footprint.Width==b.Footprint.Width &&
         a.Footprint.Height==b.Footprint.Height && a.Footprint.Depth==b.Footprint.Depth && a.Footprint.RowPitch==b.Footprint.RowPitch;
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 bool FixedCompatible(){
     static const bool compatible=[] {
         const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
@@ -159,6 +257,18 @@ bool FixedCompatible(){
         return true;
     }();return compatible;
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's texture_pins.rs reads the chains itself (target_lifetime.rs)
+// texture_pins.rs's FixedPinCompatible asks the resize / shutdown hook chains of target_lifetime (C++ for now).
+bool ChainForRust(uint64_t base,uint64_t cet,bool shutdown,uint32_t* rejected){
+    target_lifetime::detail::ResizeChain chain;
+    return shutdown?target_lifetime::detail::ReadShutdownChain(Read,nullptr,base,cet,chain,rejected):
+        target_lifetime::detail::ReadResizeChain(Read,nullptr,base,cet,chain,rejected);
+}
+[[maybe_unused]] const bool kPinsAttached=(cvr_tr_pins_attach(&ChainForRust),true);
+#endif
+#else
 bool FixedPinCompatible(){
     struct Result {bool accepted{};uint64_t rva{},expected{},actual{};};
     static const Result result=[] {
@@ -250,6 +360,12 @@ void ReleaseFixedHandle(void* opaque,uint32_t handle)noexcept{
 void UnlockFixed(void*,uint64_t address)noexcept{
     _InterlockedExchange8(reinterpret_cast<volatile char*>(address),0);
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+uint64_t FixedOwner(const NativeTexture& source){return cvr_tr_fixed_owner_of(&source);}
+#endif
+#else
 uint64_t FixedOwner(const NativeTexture& source){
     if(!Identity(source) || source.registry>UINT64_MAX-0x2f1d8-uint64_t(source.handle-1)*0xb0-0x58)return 0;
     std::array<uint8_t,0x58> record{};uint64_t resource{};
@@ -257,11 +373,16 @@ uint64_t FixedOwner(const NativeTexture& source){
     std::memcpy(&resource,record.data(),8);
     return resource==source.resource?detail::FixedOwner(record):0;
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 bool FixedContext(const camera_upload::Context& context){
     uint32_t kind{},pending{};uint64_t list{};
     return context && context.context<=UINT64_MAX-0x538 && Read(nullptr,context.context+0x68,&kind,4) && (kind==1 || kind==2) &&
         Read(nullptr,context.context+0x30,&list,8) && list==context.list && Read(nullptr,context.context+0x534,&pending,4) && !pending;
 }
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's registry: rust/crates/cvr-render/src/texture_receipts.rs
 struct UploadOrigin {uint64_t registry{};Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;};
 UploadOrigin InitialUploader(ID3D12GraphicsCommandList* list){
     if(!list || list->GetType()!=D3D12_COMMAND_LIST_TYPE_COPY || !FixedCompatible())return {};
@@ -273,6 +394,12 @@ UploadOrigin InitialUploader(ID3D12GraphicsCommandList* list){
     UploadOrigin origin;origin.registry=registry;origin.queue=reinterpret_cast<ID3D12CommandQueue*>(queue);
     return origin.queue->GetDesc().Type==D3D12_COMMAND_LIST_TYPE_COPY?std::move(origin):UploadOrigin{};
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool NativeQueue(uint64_t registry,ID3D12CommandQueue* queue,bool upload){return cvr_tr_native_queue(registry,queue,upload);}
+#endif
+#else
 bool NativeQueue(uint64_t registry,ID3D12CommandQueue* queue,bool upload){
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));uint64_t current{},expected{};
     const uint64_t offset=upload?0x1410630:0x14104d0;
@@ -280,6 +407,8 @@ bool NativeQueue(uint64_t registry,ID3D12CommandQueue* queue,bool upload){
         Read(nullptr,registry+offset,&expected,8) && expected==reinterpret_cast<uintptr_t>(queue) &&
         queue->GetDesc().Type==(upload?D3D12_COMMAND_LIST_TYPE_COPY:D3D12_COMMAND_LIST_TYPE_DIRECT);
 }
+#endif
+#if !CVR_RUST_VRIK  // the Rust build acquires in texture_receipts.rs
 uint64_t AcquireReceipt(ID3D12Resource* resource,uint64_t registry){
     const auto placement=PlacementOf(resource);std::lock_guard lock(receiptMutex);DrainRetired();
     const auto found=receipts.find(placement.receipt);
@@ -294,7 +423,16 @@ uint64_t AcquireReceipt(ID3D12Resource* resource,uint64_t registry){
     failure=68;if(!found->second->proof.Acquire())return 0;
     return placement.receipt;
 }
+#endif
 }
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void ResourceCreated(ID3D12Resource* resource,D3D12_RESOURCE_STATES initialState,bool placed,ID3D12Heap* heap,
+                     uint64_t offset,uint64_t allocationBytes){
+    cvr_tr_resource_created(resource,uint32_t(initialState),placed,heap,offset,allocationBytes);
+}
+#endif
+#else
 void ResourceCreated(ID3D12Resource* resource,D3D12_RESOURCE_STATES initialState,bool placed,ID3D12Heap* heap,
                      uint64_t offset,uint64_t allocationBytes){
     if(!Observe() || !resource)return;
@@ -314,6 +452,14 @@ void ResourceCreated(ID3D12Resource* resource,D3D12_RESOURCE_STATES initialState
         if(placement.receipt)receipts.emplace(placement.receipt,receipt.Get());
     }catch(...){ReceiptError();}
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool AliasAffects(ID3D12Resource* watched,ID3D12Resource* before,ID3D12Resource* after){
+    return cvr_tr_alias_affects_resources(watched,before,after);
+}
+#endif
+#else
 bool AliasAffects(ID3D12Resource* watched,ID3D12Resource* before,ID3D12Resource* after)try{
     if(!watched || !Observe())return true;
     std::lock_guard lock(receiptMutex);if(receiptFailure)return true;
@@ -321,6 +467,19 @@ bool AliasAffects(ID3D12Resource* watched,ID3D12Resource* before,ID3D12Resource*
     return detail::AliasAffects(reinterpret_cast<uintptr_t>(watched),source.allocation,
         reinterpret_cast<uintptr_t>(before),from.allocation,reinterpret_cast<uintptr_t>(after),to.allocation);
 }catch(...){return true;}
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool QueryObservedAllocation(const Microsoft::WRL::ComPtr<ID3D12Resource>& heldResource,constants::ResourceCreationInfo& output)try{
+    // The held resource may be the output's own (an aliased query): keep it before clearing the output.
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource=heldResource;output={};uint32_t kind{};void* heap{};uint64_t offset{},bytes{};
+    if(!cvr_tr_query_observed_allocation(resource.Get(),&kind,&heap,&offset,&bytes))return false;
+    constants::ResourceCreationInfo result;result.kind=kind;result.resource=resource;
+    result.heap.Attach(static_cast<ID3D12Heap*>(heap));result.heapOffset=offset;result.allocationBytes=bytes;
+    output=std::move(result);return true;
+}catch(...){output={};return false;}
+#endif
+#else
 bool QueryObservedAllocation(const Microsoft::WRL::ComPtr<ID3D12Resource>& heldResource,constants::ResourceCreationInfo& output)try{
     Microsoft::WRL::ComPtr<ID3D12Resource> resource=heldResource;output={};
     if(!resource || !Observe())return false;
@@ -349,6 +508,9 @@ bool QueryObservedAllocation(const Microsoft::WRL::ComPtr<ID3D12Resource>& heldR
         current.allocation.bytes!=allocation.bytes || current.allocation.kind!=allocation.kind)return false;
     output=std::move(result);return true;
 }catch(...){output={};return false;}
+#endif
+#if CVR_RUST_VRIK
+#else
 void Barriers(ID3D12GraphicsCommandList*,UINT count,const D3D12_RESOURCE_BARRIER* barriers){
     if(!Observe() || !count)return;
     if(!barriers){ReceiptError();return;}
@@ -370,6 +532,9 @@ void Barriers(ID3D12GraphicsCommandList*,UINT count,const D3D12_RESOURCE_BARRIER
         }
     }catch(...){ReceiptError();}
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 void Written(ID3D12GraphicsCommandList* list,ID3D12Resource* destination){
     if(!Observe())return;
     if(!destination){ReceiptError();return;}
@@ -393,6 +558,9 @@ void Written(ID3D12GraphicsCommandList* list,ID3D12Resource* destination){
         receipt.registry=origin.registry;receipt.uploadQueue=origin.queue;receipt.proof.Written(recording->generation);
     }catch(...){ReceiptError();}
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 void Reset(ID3D12GraphicsCommandList* list){
     if(!Observe() || !list || list->GetType()!=D3D12_COMMAND_LIST_TYPE_COPY)return;
     try{
@@ -410,6 +578,9 @@ void Reset(ID3D12GraphicsCommandList* list){
         recordings.emplace(created->cookie,created.Get());
     }catch(...){ReceiptError();}
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 void BeforeSubmit(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists){
     if(!Observe() || !count)return;
     if(!queue || !lists){ReceiptError();return;}
@@ -424,6 +595,9 @@ void BeforeSubmit(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const*
         }
     }catch(...){ReceiptError();}
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 void Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists){
     if(!Observe() || !count)return;
     if(!queue || !lists){ReceiptError();return;}
@@ -438,6 +612,12 @@ void Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* li
         }
     }catch(...){ReceiptError();}
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool Validate(const Lease& source,ID3D12CommandQueue* submissionQueue){return cvr_tr_validate(&source,submissionQueue);}
+#endif
+#else
 bool Validate(const Lease& source,ID3D12CommandQueue* submissionQueue){
     if(!source.resource || source.native.resource!=reinterpret_cast<uintptr_t>(source.resource.Get()) || !Identity(source.native))return false;
     if(!source.receipt)return true;
@@ -449,8 +629,16 @@ bool Validate(const Lease& source,ID3D12CommandQueue* submissionQueue){
         found->second->resource==source.resource.Get() && found->second->registry==source.native.registry &&
         found->second->proof.valid && found->second->proof.acquired && found->second->proof.uploaded && !found->second->proof.pending;
 }
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 uint32_t LastFailure(){return failure;}
+#endif
+#if CVR_RUST_VRIK
+#else
 void ObserverUnavailable(){ReceiptError();}
+#endif
+#if CVR_RUST_VRIK
+#else
 bool Compatible(){
     static const bool result=[] {
         const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
@@ -464,6 +652,9 @@ bool Compatible(){
         return true;
     }();return result;
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 bool Acquire(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,Lease& output)try{
     output={};failure=1;if(!list || !resource || !Compatible() || list->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT || !Shape(resource->GetDesc()))return false;
     const auto desc=resource->GetDesc();
@@ -488,7 +679,11 @@ bool Acquire(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,Lease& out
     }else if(!detail::SourceReadState(state,UINT(desc.MipLevels)*desc.DepthOrArraySize))return false;
     output.resource=resource;output.native=native;failure=0;return true;
 }catch(...){failure=6;return false;}
+#endif
+#if !CVR_RUST_VRIK
 namespace {
+#endif
+#if !CVR_RUST_VRIK
 constexpr GUID immutableOwnerType{0x22c496a1,0x7e0b,0x45f7,{0x94,0x9a,0x42,0x11,0xc7,0x09,0x80,0x31}};
 struct ImmutableOwner final:IUnknown {
     std::atomic<ULONG> refs{1};Microsoft::WRL::ComPtr<IUnknown> allocatorPin,allocationPin;
@@ -533,11 +728,42 @@ bool Unprotected(ID3D12Resource* resource){
     const auto result=extended->GetProtectedResourceSession(IID_PPV_ARGS(&session));
     return structured_buffer_snapshot::detail::NoProtectedSession(result,bool(session));
 }
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 struct FixedAssetPins::Data {
+#if CVR_RUST_VRIK
+    Microsoft::WRL::ComPtr<IUnknown> held;  // texture_immutable.rs's owner (texture_pins.rs writes the record)
+#else
     Microsoft::WRL::ComPtr<ImmutableOwner> held;
+#endif
     camera_upload::Context context;native_recording::Lease recording;
 };
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+std::array<uint64_t,8> FixedPinLastDetails(){std::array<uint64_t,8> details{};cvr_tr_fixed_pin_details(&details);return details;}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool PinFixedAsset(ID3D12GraphicsCommandList* list,uint64_t candidate,FixedAssetPins& output){
+    static_assert(sizeof(FixedAssetPins::Data)==72 && offsetof(FixedAssetPins::Data,context)==8 && offsetof(FixedAssetPins::Data,recording)==32,
+        "mirrored by PinsData in rust/crates/cvr-render/src/texture_pins.rs");
+    output={};auto data=std::make_shared<FixedAssetPins::Data>();
+    if(!cvr_tr_pin_fixed_asset(list,candidate,data.get()))return false;
+    output.data_=std::move(data);return true;
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool GetFixedPinnedResource(const FixedAssetPins& pins,Microsoft::WRL::ComPtr<ID3D12Resource>& output){
+    output.Reset();return cvr_tr_fixed_pinned_resource(pins.data_.get(),output.GetAddressOf());
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool AcquirePinnedImmutable(ID3D12GraphicsCommandList* list,const FixedAssetPins& pins,ImmutableLease& output){
+    output={};return cvr_tr_acquire_pinned_immutable(list,pins.data_.get(),&output);
+}
+#endif
+#else
 std::array<uint64_t,8> FixedPinLastDetails(){return fixedPinDetails;}
 bool PinFixedAsset(ID3D12GraphicsCommandList* list,uint64_t candidate,FixedAssetPins& output)try{
     output={};fixedPinDetails={};failure=120;
@@ -617,6 +843,9 @@ bool AcquirePinnedImmutable(ID3D12GraphicsCommandList* list,const FixedAssetPins
         camera_upload::CurrentContext(base)!=context || !native_recording::ValidateRecording(captured.recording,list,context))return false;
     output={owner,owner->source};failure=0;return true;
 }catch(...){output={};failure=134;return false;}
+#endif
+#if CVR_RUST_VRIK
+#else
 bool AcquireImmutable(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,ImmutableLease& output)try{
     output={};failure=85;
     if(!list || !resource || !Observe() || !Compatible() || !FixedCompatible() || !detail::ImmutableShape(resource->GetDesc()) ||
@@ -642,6 +871,12 @@ bool AcquireImmutable(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,I
         camera_upload::CurrentContext(base)!=context)return false;
     output={owner,owner->source};failure=0;return true;
 }catch(...){output={};failure=94;return false;}
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool ValidateImmutable(const ImmutableLease& value,ID3D12CommandQueue* queue){return cvr_tr_validate_immutable(&value,queue);}
+#endif
+#else
 bool ValidateImmutable(const ImmutableLease& value,ID3D12CommandQueue* queue)try{
     Microsoft::WRL::ComPtr<ImmutableOwner> owner;failure=93;
     if(!value.owner || FAILED(value.owner->QueryInterface(immutableOwnerType,reinterpret_cast<void**>(owner.GetAddressOf()))) || !owner)return false;
@@ -651,6 +886,14 @@ bool ValidateImmutable(const ImmutableLease& value,ID3D12CommandQueue* queue)try
         !Validate(saved,queue) || !Physical(*owner.Get()))return false;
     failure=0;return true;
 }catch(...){failure=94;return false;}
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool GetImmutablePageable(ID3D12Device* device,const ImmutableLease& value,ImmutablePageable& output){
+    ImmutablePageable next;const bool ok=cvr_tr_immutable_pageable(device,&value,&next);output=std::move(next);return ok;
+}
+#endif
+#else
 bool GetImmutablePageable(ID3D12Device* device,const ImmutableLease& value,ImmutablePageable& output)try{
     output={};failure=100;if(!device || device->GetNodeCount()!=1)return false;
     if(!ValidateImmutable(value))return false;
@@ -666,6 +909,8 @@ bool GetImmutablePageable(ID3D12Device* device,const ImmutableLease& value,Immut
     if(!ValidateImmutable(next.source))return false;
     output=std::move(next);failure=0;return true;
 }catch(...){output={};failure=94;return false;}
+#endif
+#if !CVR_RUST_VRIK
 bool RegisterImmutableUse(ID3D12GraphicsCommandList* list,const ImmutableLease& source,ImmutableUse& output)try{
     output={};failure=96;if(!list || probe::internalCommands || !ValidateImmutable(source))return false;
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));const auto context=camera_upload::CurrentContext(base);
@@ -685,9 +930,42 @@ bool RegisterImmutableUse(ID3D12GraphicsCommandList* list,const ImmutableLease& 
         !gpu::KeepCommandResources(list,{source.owner.Get(),recording.token.Get()}))return false;
     output={source,recording};failure=0;return true;
 }catch(...){output={};failure=99;return false;}
+#endif
+#if !CVR_RUST_VRIK
 bool ValidateImmutableUse(const ImmutableUse& use,ID3D12CommandQueue* queue){
     return queue && use.recording.token && native_recording::ValidateSubmission(use.recording,queue) && ValidateImmutable(use.source,queue);
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool ValidateWritableTarget(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES expected){
+    return cvr_tr_validate_writable_target(list,resource,uint32_t(expected));
+}
+#endif
+struct WritableTargetIdentity::Data {WritableTargetIdentity captured;};
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool CaptureWritableIdentity(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,
+                             D3D12_RESOURCE_STATES expected,WritableTargetIdentity& output){
+    static_assert(sizeof(WritableTargetIdentity)==384 && offsetof(WritableTargetIdentity,resourceDesc)==136 &&
+        offsetof(WritableTargetIdentity,nativeRecord)==268 && offsetof(WritableTargetIdentity,allocatorOwnerObservation)==360,
+        "mirrored by rust/crates/cvr-render/src/texture_writable.rs");
+    Microsoft::WRL::ComPtr<ID3D12Resource> held=resource;output={};WritableTargetIdentity next;
+    if(!cvr_tr_capture_writable_identity(list,held.Get(),uint32_t(expected),&next))return false;
+    auto authenticated=std::make_shared<WritableTargetIdentity::Data>();authenticated->captured=next;
+    next.data_=std::move(authenticated);output=std::move(next);return true;
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool ValidateWritableIdentity(const WritableTargetIdentity& value,ID3D12CommandQueue* queue){
+    return cvr_tr_validate_writable_identity(&value,value.data_?&value.data_->captured:nullptr,queue);
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void AuthenticateWritableIdentity(WritableTargetIdentity& value){
+    auto authenticated=std::make_shared<WritableTargetIdentity::Data>();authenticated->captured=value;value.data_=std::move(authenticated);
+}
+#endif
+#else
 bool ValidateWritableTarget(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES expected)try{
     failure=80;if(!list || !resource || !Compatible() || list->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT ||
         !detail::WritableState({uint32_t(expected),1},uint32_t(expected)))return false;
@@ -762,6 +1040,9 @@ bool ValidateWritableIdentity(const WritableTargetIdentity& value,ID3D12CommandQ
     failure=110;if(queue && !native_recording::ValidateSubmission(captured.recording,queue))return false;
     failure=0;return true;
 }catch(...){failure=111;return false;}
+#endif
+#if CVR_RUST_VRIK
+#else
 bool ViewFootprints(ID3D12Device* device,const Lease& source,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,
                     uint64_t offset,std::vector<MipFootprint>& output)try{
     output.clear();failure=70;if(!device || !source.resource || offset%D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT || !Validate(source))return false;
@@ -771,9 +1052,19 @@ bool ViewFootprints(ID3D12Device* device,const Lease& source,const D3D12_SHADER_
     if(!detail::ViewLayouts(device,source.resource->GetDesc(),view,offset,result))return false;
     output=std::move(result);failure=0;return true;
 }catch(...){output.clear();failure=70;return false;}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 bool Copy(ID3D12GraphicsCommandList* list,const Lease& source,ID3D12Resource* buffer,const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout){
     return CopySubresource(list,source,0,buffer,layout);
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool CopySubresource(ID3D12GraphicsCommandList* list,const Lease& source,UINT mip,ID3D12Resource* buffer,const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout){
+    return cvr_tr_copy_subresource(list,&source,mip,buffer,&layout);
+}
+#endif
+#else
 bool CopySubresource(ID3D12GraphicsCommandList* list,const Lease& source,UINT mip,ID3D12Resource* buffer,const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout){
     failure=20;if(!list || !source.resource || !buffer || !Compatible() || list->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT || !Identity(source.native) ||
         source.native.resource!=reinterpret_cast<uintptr_t>(source.resource.Get()))return false;
@@ -835,4 +1126,5 @@ bool CopySubresource(ID3D12GraphicsCommandList* list,const Lease& source,UINT mi
     list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
     failure=0;return true;
 }
+#endif
 }

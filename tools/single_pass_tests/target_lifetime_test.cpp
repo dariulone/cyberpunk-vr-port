@@ -1,10 +1,14 @@
 #include "Render/NativeTargetLifetime.hpp"
 #include <cstdio>
 #include <map>
+#include <source_location>
 #include <stdexcept>
+#include <string>
 
 using namespace cvr::stereo::target_lifetime;
-static void Require(bool value){if(!value)throw std::runtime_error("target lifetime assertion failed");}
+static void Require(bool value,std::source_location at=std::source_location::current()){
+    if(!value)throw std::runtime_error("target lifetime assertion failed at line "+std::to_string(at.line()));
+}
 struct Memory {
     std::map<uint64_t,uint8_t> bytes;
     uint64_t changeAt{};uint32_t readCount{};
@@ -120,7 +124,7 @@ struct Fixture {
     Memory memory;detail::Key key{Registry,Context,List,Resource,Heap,Bytes,Alignment,1};
     Fixture(){
         memory.Put(Base+detail::RegistryRva,Registry);memory.Put(Registry+1,uint8_t(0));
-        memory.Put(Registry+0x13BC730,uint32_t(8));memory.Put(Registry+0x13BC734,uint8_t(0));
+        memory.Put(Registry+0x1410730,uint32_t(8));memory.Put(Registry+0x1410734,uint8_t(0));
         memory.Put(Retirement+0x20CD0,uint8_t(0));memory.Put(Retirement+0x20CC0,Index);
         memory.Put(Bucket,uint64_t(0));memory.Put(Bucket+8,uint64_t(0));memory.Put(Bucket+16,uint32_t(0));
         memory.Put(Retirement,uint64_t(1000));memory.Put(Retirement+0x20040,uint64_t(1000));memory.Put(Retirement+0x20080,uint64_t(1000));
@@ -136,13 +140,13 @@ struct Fixture {
         memory.Put(Allocation,std::array<uint8_t,0x68>{});memory.Put(Allocation,Base+cvr::stereo::source_cbv_details::detail::AllocationVtable);
         memory.Put(Allocation+8,uint32_t(1));memory.Put(Allocation+0x10,Pimpl);memory.Put(Allocation+0x18,Bytes);
         memory.Put(Allocation+0x58,Heap);memory.Put(Allocation+0x60,uint32_t(2));
-        memory.Put(Registry+0x13BC540,Allocator);memory.Put(Allocator,std::array<uint8_t,0x18>{});
+        memory.Put(Registry+0x1410540,Allocator);memory.Put(Allocator,std::array<uint8_t,0x18>{});
         memory.Put(Allocator,Base+cvr::stereo::source_cbv_details::detail::AllocatorVtable);
         memory.Put(Allocator+8,uint32_t(1));memory.Put(Allocator+0x10,Pimpl);
         memory.Put(Base+cvr::stereo::source_cbv_details::detail::AllocationVtable,
-            std::array<uint64_t,5>{Base+0x2A462D0,Base+0x18E9720,Base+0x8780A4,Base+0x878238,Base+0x8780C8});
+            std::array<uint64_t,5>{Base+0x2FAC534,Base+0x2FAAF80,Base+0x348220,Base+0x3483A4,Base+0x348244});
         memory.Put(Base+cvr::stereo::source_cbv_details::detail::AllocatorVtable,
-            std::array<uint64_t,5>{Base+0x2A462D0,Base+0x18E9720,Base+0x8780A4,Base+0x1892658,Base+0x18925EC});
+            std::array<uint64_t,5>{Base+0x2FAC534,Base+0x2FAAF80,Base+0x348220,Base+0x18F3FB4,Base+0x18F3F48});
     }
     bool Read(detail::Snapshot& output,bool source=true,uint32_t* failure=nullptr){
         return detail::ReadSnapshot(Memory::Read,&memory,Base,key,source,output,failure);
@@ -241,8 +245,8 @@ int main()try{
     reject([](auto& v){v.key.bytes=UINT64_MAX;},1);
     reject([](auto& v){v.memory.Put(Fixture::Base+detail::RegistryRva,Fixture::Registry+8);},2);
     reject([](auto& v){v.memory.Put(Fixture::Registry+1,uint8_t(1));},2);
-    reject([](auto& v){v.memory.Put(Fixture::Registry+0x13BC730,uint32_t(0));},2);
-    reject([](auto& v){v.memory.Put(Fixture::Registry+0x13BC734,uint8_t(1));},2);
+    reject([](auto& v){v.memory.Put(Fixture::Registry+0x1410730,uint32_t(0));},2);
+    reject([](auto& v){v.memory.Put(Fixture::Registry+0x1410734,uint8_t(1));},2);
     reject([](auto& v){v.memory.Put(Fixture::Retirement+0x20CD0,uint8_t(1));},2);
     reject([](auto& v){v.memory.Put(Fixture::Retirement+0x20CC0,uint32_t(128));},2);
     reject([](auto& v){v.memory.Put(Fixture::Bucket,uint64_t(9));},2);
@@ -275,7 +279,7 @@ int main()try{
     reject([](auto& v){v.Retire();v.memory.Put(Fixture::Bucket+16,uint32_t(0));},9,false);
     reject([](auto& v){v.Retire();v.memory.Put(Fixture::Bucket+16,uint32_t(2));
         v.memory.Put(Fixture::Retirement+0x20040,uint64_t(999));v.memory.Put(Fixture::Retirement+8+4*999,uint32_t(1));},9,false);
-    reject([](auto& v){v.memory.changeAt=Fixture::Registry+0x13BC730;},10);
+    reject([](auto& v){v.memory.changeAt=Fixture::Registry+0x1410730;},10);
     reject([](auto& v){v.memory.Put(Fixture::Swapchains,Fixture::RegistryLock+8);},11);
     reject([](auto& v){v.memory.Put(Fixture::RegistryLock,uint8_t(1));},11);
     reject([](auto& v){v.memory.Put(Fixture::Swapchains+8,uint32_t(33));},11);
@@ -303,6 +307,6 @@ int main()try{
     altered=current;altered.allocator.raw[0x10]^=1;Require(!detail::SameIdentity(current,altered));
     altered=current;altered.swapchains.lock+=8;Require(!detail::SameIdentity(current,altered));
     altered=current;altered.swapchains.handles[31]=19;Require(!detail::SameIdentity(current,altered));
-    Require(detail::Contract.size()==49);
+    Require(detail::Contract.size()==46);  // 2.5: see the Contract table
     std::puts("native target borrowed lifetime tests passed");return 0;
 }catch(const std::exception& e){std::fprintf(stderr,"%s\n",e.what());return 1;}

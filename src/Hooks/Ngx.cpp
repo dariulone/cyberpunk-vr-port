@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // NGX DLSS EvaluateFeature read-only hook.
 //
@@ -29,7 +30,11 @@
 #include "Hooks/Ngx.hpp"
 #include "Framegen/Inputs.hpp"
 #include "Render/PhysicalOpticsShaders.hpp"
+#if CVR_RUST_VRIK
+#include "Stereo/RenderTls.hpp"
+#else
 namespace cvr::detail { extern thread_local int32_t t_view_side; }
+#endif
 #include <MinHook.h>
 
 #include <cstdint>
@@ -38,12 +43,25 @@ namespace cvr::detail { extern thread_local int32_t t_view_side; }
 #include <atomic>
 #include "Stereo/EngineStereoDlss.hpp"
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
+#if !CVR_RUST_VRIK
 extern volatile int g_verboseLog;
+#endif
 
 // Internal A/B switch. Production framegen uses RecordTags below, not these
 // legacy single-view diagnostic snapshots.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_NgxLegacyCapture = 0;
+#endif
+
+#if CVR_RUST_VRIK
+// The Rust build's hook is rust/crates/cvr-render/src/ngx.rs (slSetTag, the legacy snapshot, the install); this file
+// keeps the export above and the C++ face; its table is built in rust/crates/cvr-render/src/stereo_tables.rs.
+#else
 
 namespace {
 
@@ -665,3 +683,5 @@ unsigned int NgxGetMvWidth() { return g_mvWidth.load(std::memory_order_relaxed);
 unsigned int NgxGetMvHeight() { return g_mvHeight.load(std::memory_order_relaxed); }
 unsigned int NgxGetMvFormat() { return g_mvFormat.load(std::memory_order_relaxed); }
 unsigned int NgxGetEvalCount() { return g_evalCount.load(std::memory_order_relaxed); }
+#endif
+#endif

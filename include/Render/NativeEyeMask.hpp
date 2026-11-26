@@ -6,8 +6,32 @@
 #include <functional>
 
 namespace cvr::stereo::packets {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/eye_membership.rs (tools/single_pass_tests/eye_membership_test runs its cases
+// against them in its Rust variant).
+struct RustEyeMembership;struct RustBytes;
+extern "C" {
+bool cvr_em_key(const std::array<uint8_t,64>*,const uint8_t*,size_t,uint8_t*,size_t*);
+bool cvr_em_identities(uint64_t,uint64_t,uint32_t,uint32_t,uint8_t*);
+RustEyeMembership* cvr_em_new();
+void cvr_em_free(RustEyeMembership*);
+bool cvr_em_add(RustEyeMembership*,uint32_t,uint64_t,const Inputs*,const uint8_t*,size_t,uint32_t*);
+bool cvr_em_plan(RustEyeMembership*,const std::array<uint8_t,64>*,const uint8_t*,size_t,uint32_t,uint8_t*,size_t,uint32_t*);
+uint32_t cvr_em_known_extras(const RustEyeMembership*);
+RustBytes* cvr_em_extras(RustEyeMembership*,const std::array<uint8_t,64>*,uint32_t);
+const uint8_t* cvr_em_bytes(const RustBytes*,size_t*);
+void cvr_em_bytes_free(RustBytes*);
+}
+#endif
 // Address identities are a prospective matching domain, never instance bytes.
 // Their users must compare owned GPU snapshots before accepting the peer result.
+#if CVR_RUST_VRIK
+inline bool GpuInstanceIdentities(uint64_t resource,uint64_t address,uint32_t count,uint32_t stride,std::vector<uint8_t>& output){
+    if(!cvr_em_identities(resource,address,count,stride,nullptr))return false;
+    std::vector<uint8_t> result(size_t(count)*stride);cvr_em_identities(resource,address,count,stride,result.data());
+    output=std::move(result);return true;
+}
+#else
 inline bool GpuInstanceIdentities(uint64_t resource,uint64_t address,uint32_t count,uint32_t stride,std::vector<uint8_t>& output){
     if(!resource || !address || stride!=48 || !count || count>32767 || address>UINT64_MAX-uint64_t(count)*stride)return false;
     std::vector<uint8_t> result(size_t(count)*stride);
@@ -15,8 +39,17 @@ inline bool GpuInstanceIdentities(uint64_t resource,uint64_t address,uint32_t co
         std::memcpy(result.data()+size_t(i)*stride,identity,sizeof(identity));}
     output=std::move(result);return true;
 }
+#endif
 // Prospective geometry membership only. Materials, native IA bindings and camera
 // constants must still match at the actual peer draw before accepting this plan.
+#if CVR_RUST_VRIK
+inline bool GeometryInstanceKey(std::array<uint8_t,64> draw,std::span<const uint8_t> instance,std::string& key){
+    static_assert(sizeof(Inputs)==256,"mirrored by eye_membership.rs");
+    std::array<uint8_t,128> bytes{};size_t length{};
+    if(!cvr_em_key(&draw,instance.data(),instance.size(),bytes.data(),&length))return false;
+    key.assign(reinterpret_cast<const char*>(bytes.data()),length);return true;
+}
+#else
 inline bool GeometryInstanceKey(std::array<uint8_t,64> draw,std::span<const uint8_t> instance,std::string& key){
     if(draw[0] || (instance.size()!=48 && instance.size()!=64))return false;
     std::fill(draw.begin()+1,draw.begin()+8,uint8_t{});std::fill(draw.begin()+0x2d,draw.end(),uint8_t{});
@@ -27,6 +60,44 @@ inline bool GeometryInstanceKey(std::array<uint8_t,64> draw,std::span<const uint
     key.assign(reinterpret_cast<const char*>(draw.data()),draw.size());
     key.append(reinterpret_cast<const char*>(instance.data()),instance.size());return true;
 }
+#endif
+#if CVR_RUST_VRIK
+class EyeMembership {
+public:
+    EyeMembership():rust_(cvr_em_new()){}
+    ~EyeMembership(){cvr_em_free(rust_);}
+    EyeMembership(const EyeMembership&)=delete;
+    EyeMembership& operator=(const EyeMembership&)=delete;
+    // A reset (membership={}) swaps in a fresh Rust membership; the temporary frees the old one.
+    EyeMembership(EyeMembership&& other)noexcept:totals(other.totals),unresolved(other.unresolved),rust_(other.rust_){other.rust_=nullptr;}
+    EyeMembership& operator=(EyeMembership&& other)noexcept{
+        if(this!=&other){std::swap(rust_,other.rust_);totals=other.totals;unresolved=other.unresolved;}return *this;
+    }
+    bool Add(unsigned side,Packet packet,const Inputs& input,std::span<const uint8_t> blob){
+        std::array<uint32_t,4> state{};
+        const bool added=cvr_em_add(rust_,side,packet.second,&input,blob.data(),blob.size(),state.data());
+        totals={state[0],state[1]};unresolved={state[2],state[3]};return added;
+    }
+    bool Plan(const std::array<uint8_t,64>& draw,std::span<const uint8_t> instances,uint32_t stride,std::vector<uint8_t>& masks,uint32_t* reason=nullptr){
+        uint32_t why=1;
+        std::vector<uint8_t> result((stride==48 || stride==64) && instances.size()<=16384?instances.size()/stride:0);
+        const bool planned=cvr_em_plan(rust_,&draw,instances.data(),instances.size(),stride,result.data(),result.size(),&why);
+        if(reason)*reason=why;
+        if(planned)masks=std::move(result);
+        return planned;
+    }
+    // Refreshed from the Rust membership after every Add.
+    std::array<uint32_t,2> totals{},unresolved{};
+    uint32_t KnownExtras()const{return cvr_em_known_extras(rust_);}
+    bool Extras(const std::array<uint8_t,64>& draw,uint32_t stride,std::vector<uint8_t>& output){
+        const auto bytes=cvr_em_extras(rust_,&draw,stride);if(!bytes)return false;
+        struct Release{RustBytes* bytes;~Release(){cvr_em_bytes_free(bytes);}}release{bytes};
+        size_t length{};const auto data=cvr_em_bytes(bytes,&length);output.assign(data,data+length);return true;
+    }
+private:
+    RustEyeMembership* rust_;
+};
+#else
 class EyeMembership {
 public:
     bool Add(unsigned side,Packet packet,const Inputs& input,std::span<const uint8_t> blob){
@@ -111,4 +182,5 @@ private:
     std::unordered_map<std::string,std::vector<std::string>> peerGeometry;
     std::unordered_set<std::string> claimed;
 };
+#endif
 }

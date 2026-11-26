@@ -25,6 +25,22 @@ struct Declaration {
     bool operator==(const Declaration&)const=default;
 };
 static_assert(sizeof(Declaration)==72);
+#if CVR_RUST_VRIK
+// The capture: rust/crates/cvr-render/src/native/resource_uses.rs through resource_uses_abi.rs
+// (tools/single_pass_tests/resource_uses_test runs its cases against it in its Rust variant).
+struct RustUses;
+struct RustUsesOut {
+    uint64_t pool,contextRoot;std::array<uint8_t,4> poolHeader;uint32_t failure;std::array<uint32_t,14> kinds;bool opaque;
+    const graph_snapshot::Node* sourceNodes;size_t sourceCount;const uint64_t* useIds;size_t useCount;
+    const uint64_t* boundaryIds;size_t boundaryCount;const uint32_t* auxiliaryKeys;size_t auxiliaryCount;
+    const Declaration* declarations;size_t declarationCount;
+};
+static_assert(sizeof(RustUsesOut)==168,"mirrored by resource_uses_abi.rs");
+extern "C" {
+RustUses* cvr_ru_capture(uint64_t,const graph_snapshot::Node*,size_t,uint32_t,ReadMemory,void*,uint64_t,RustUsesOut*);
+void cvr_ru_free(RustUses*);
+}
+#endif
 struct Snapshot {
     uint64_t pool{},contextRoot{};
     std::array<uint8_t,4> poolHeader{};
@@ -43,6 +59,21 @@ struct Snapshot {
     // pool+2 is1 and native declaration jobs have completed. sourceGraph is
     // the caller-owned exact graph used by those jobs, not a frame-context ptr.
     // No native pointer in a captured declaration is dereferenced or retained.
+#if CVR_RUST_VRIK
+    bool CapturePool(uint64_t address,const graph_snapshot::Snapshot& graph,ReadMemory read,
+                     void* user=nullptr,uint64_t root=0)try{
+        *this={};RustUsesOut out{};
+        const auto captured=cvr_ru_capture(address,graph.nodes.data(),graph.nodes.size(),graph.failure,read,user,root,&out);
+        struct Release{RustUses* uses;~Release(){cvr_ru_free(uses);}}release{captured};
+        // A refusal leaves the reset snapshot with its reason, as by the C++ rules.
+        pool=out.pool;contextRoot=out.contextRoot;poolHeader=out.poolHeader;kinds=out.kinds;opaqueStateUnsupported=out.opaque;
+        sourceNodes.assign(out.sourceNodes,out.sourceNodes+out.sourceCount);useIds.assign(out.useIds,out.useIds+out.useCount);
+        boundaryIds.assign(out.boundaryIds,out.boundaryIds+out.boundaryCount);
+        auxiliaryKeys.assign(out.auxiliaryKeys,out.auxiliaryKeys+out.auxiliaryCount);
+        declarations.assign(out.declarations,out.declarations+out.declarationCount);
+        failure=Failure(out.failure);return failure==Failure::None;
+    }catch(...){*this={};failure=Failure::Allocation;return false;}
+#else
     bool CapturePool(uint64_t address,const graph_snapshot::Snapshot& graph,ReadMemory read,
                      void* user=nullptr,uint64_t root=0)try{
         *this={};
@@ -118,6 +149,7 @@ struct Snapshot {
             !memory(BoundaryCount,&boundariesAgain,4) || boundariesAgain!=boundaries)return reject(Failure::Changed);
         next.failure=Failure::None;*this=std::move(next);return true;
     }catch(...){*this={};failure=Failure::Allocation;return false;}
+#endif
 };
 inline bool CapturePool(uint64_t pool,const graph_snapshot::Snapshot& graph,ReadMemory read,Snapshot& out,
                         void* user=nullptr,uint64_t contextRoot=0){return out.CapturePool(pool,graph,read,user,contextRoot);}

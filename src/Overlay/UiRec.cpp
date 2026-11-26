@@ -13,6 +13,32 @@
 #include <unordered_map>
 #include <vector>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE RECORDER AND THE UI:: FACADE ARE RUST'S (rust/crates/cvr-render/src/ui_rec.rs, ui.rs). These forward for the C++
+// half's own callers: the record pass (Overlay/ImGuiOverlay.cpp), the CET natives (Natives/VrMenu.cpp) and the
+// full-body tracking section (Fbt/Game/Menu.cpp). Text is formatted here and handed over finished.
+extern "C" {
+size_t cvr_uirec_latest(int page, char* out, size_t capacity);
+}
+namespace cvr::uirec {
+std::string Latest(int page) {
+    std::string text(8192, '\0');
+    for (;;) {
+        const size_t n = cvr_uirec_latest(page, text.data(), text.size());
+        if (n <= text.size()) {
+            text.resize(n);
+            return text;
+        }
+        text.assign(n, '\0');
+    }
+}
+}  // namespace cvr::uirec
+
+namespace UI {
+}  // namespace UI
+#endif
+#else
 namespace cvr::uirec {
 
 const char* const kPageNames[kPageCount] = {"GENERAL", "FRAMEGEN", "HUD", "CONTROLS", "STEREO", "AVATAR", "OVERLAY"};
@@ -496,3 +522,4 @@ void PlotLines(const char* label, const float* values, int count, int offset, co
 ImGuiIO& GetIO() { return ImGui::GetIO(); }
 
 }  // namespace UI
+#endif

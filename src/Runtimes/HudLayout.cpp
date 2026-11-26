@@ -1,4 +1,21 @@
 #include "Runtimes/HudLayout.hpp"
+
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE LAYOUT IS RUST'S (rust/crates/cvr-settings/src/hud_layout.rs): the elements' edits and status, and the
+// hud_element_<key> lines read with sscanf and written with fprintf. These are the C++ names.
+extern "C" {
+void cvr_hud_layout_set_settings(const cvr::hud::ElementSettings* value);
+bool cvr_hud_layout_parse(const char* line, cvr::hud::ElementSettings* settings);
+}
+namespace cvr::hud {
+static_assert(sizeof(ElementSettings) == 20 && sizeof(ElementStatus) == 20 && ElementCount == 40,
+              "mirrored in rust/crates/cvr-settings/src/hud_layout.rs");
+void SetLayoutSettings(const LayoutSettings& value) { cvr_hud_layout_set_settings(value.data()); }
+bool ParseLayoutSetting(const char* line, LayoutSettings& value) { return cvr_hud_layout_parse(line, value.data()); }
+}  // namespace cvr::hud
+#endif
+#else
 #include <mutex>
 #include <cstring>
 
@@ -32,3 +49,4 @@ void SaveLayoutSettings(FILE* file,const LayoutSettings& value) {
     }
 }
 }
+#endif

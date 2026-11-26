@@ -493,9 +493,11 @@ local function recordHash(gun)
 end
 
 local function publishRecords(player, left)
-    if type(SetVRDualWieldRecords) ~= 'function' then return end
     local right = left and gunIn(player, 1) or nil
-    pcall(SetVRDualWieldRecords, left and recordHash(left) or 0, right and recordHash(right) or 0)
+    if type(SetVRDualWieldWeapons) == 'function' then pcall(SetVRDualWieldWeapons, left, right) end
+    if type(SetVRDualWieldRecords) == 'function' then
+        pcall(SetVRDualWieldRecords, left and recordHash(left) or 0, right and recordHash(right) or 0)
+    end
 end
 
 -- Once per frame, before the hand-driven reload. Returns true while two guns are in hand.
@@ -545,6 +547,7 @@ end
 
 -- Everything put back: the guns' magazines on, the dropped ones taken out of the world (init.lua onShutdown).
 function M.release()
+    if type(SetVRDualWieldWeapons) == 'function' then pcall(SetVRDualWieldWeapons, nil, nil) end
     for side = 0, 1 do
         showMag(hands[side])
         hands[side].out = false

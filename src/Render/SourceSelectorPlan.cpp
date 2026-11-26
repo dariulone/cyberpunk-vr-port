@@ -7,8 +7,50 @@
 #include <memory>
 #include <set>
 #include <stdexcept>
+#if CVR_RUST_VRIK
+#include "Rust/JsonTree.hpp"
+#endif
 
 namespace cvr::stereo::source_selectors {
+#if CVR_RUST_VRIK
+namespace {
+// The rules: rust/crates/cvr-render/src/source_selector_plan.rs; its flat views are mirrored here. jsoncpp still reads
+// the text (the external library, configured as before); its tree is lent there flattened (Rust/JsonTree.hpp).
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void Require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+#endif
+struct RustStr {const char* p;size_t n;};
+struct RustCbvKey {RustStr root;uint32_t visibility,shaderRegister,space,parameter,tableOffset;};
+struct RustTableKey {RustStr root;uint32_t visibility,parameter,space,shaderRegisterBase,originalTableOffset,declaredExtent;};
+struct RustRequirement {RustCbvKey key;uint32_t reflectedBytes,requiredByteExtent;const uint32_t* offsets;size_t offsetCount;};
+struct RustSite {RustStr shader,createHandleSSA,indexSSA;uint32_t createHandleLine,byteOffset;RustCbvKey cbv;RustTableKey table;};
+struct RustFamily {RustStr root,vertex,pixel;uint32_t number;bool supported;RustStr unsupportedReason;const RustStr* unresolved;size_t unresolvedCount;
+    const RustRequirement* cbvs;size_t cbvCount;const RustSite* sites;size_t siteCount;};
+struct RustCatalog {RustStr evidence;const RustFamily* families;size_t familyCount;};
+struct RustInput {RustCbvKey key;const uint8_t* bytes;size_t length;};
+struct RustTable {RustTableKey key;const uint32_t* offsets;size_t offsetCount;uint32_t count;const SlotInterval* uses;size_t useCount;};
+struct RustEvaluation {uint32_t evaluatedSites;const SiteSelection* selections;size_t selectionCount;const RustTable* tables;size_t tableCount;};
+static_assert(sizeof(RustFamily)==120 && sizeof(RustSite)==136 && sizeof(RustRequirement)==64 &&
+    sizeof(RustInput)==56 && sizeof(RustTable)==80 && sizeof(RustEvaluation)==40 && sizeof(RustCatalog)==32 &&
+    sizeof(SiteSelection)==16 && sizeof(SlotInterval)==12,"mirrored by source_selector_plan.rs");
+extern "C" void* cvr_ssp_load(const json_tree::Node*,size_t,const RustCatalog**,RustStr*);
+extern "C" void* cvr_ssp_evaluate(const RustFamily*,const RustInput*,size_t,const RustEvaluation**,RustStr*);
+extern "C" void cvr_ssp_free(void*);
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+using Held=std::unique_ptr<void,void(*)(void*)>;
+std::string Owned(RustStr s){return s.n?std::string(s.p,s.n):std::string();}
+CbvKey Owned(const RustCbvKey& k){return {Owned(k.root),k.visibility,k.shaderRegister,k.space,k.parameter,k.tableOffset};}
+TableKey Owned(const RustTableKey& k){
+    return {Owned(k.root),k.visibility,k.parameter,k.space,k.shaderRegisterBase,k.originalTableOffset,k.declaredExtent};
+}
+RustStr Lent(const std::string& s){return {s.data(),s.size()};}
+RustCbvKey Lent(const CbvKey& k){return {Lent(k.rootSha256),k.visibility,k.shaderRegister,k.space,k.parameter,k.tableOffset};}
+RustTableKey Lent(const TableKey& k){
+    return {Lent(k.rootSha256),k.visibility,k.parameter,k.space,k.shaderRegisterBase,k.originalTableOffset,k.declaredExtent};
+}
+#endif
+}
+#else
 namespace {
 void Require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 bool Digest(const std::string& value){return value.size()==64 && std::all_of(value.begin(),value.end(),[](char c){return (c>='0' && c<='9') || (c>='a' && c<='f');});}
@@ -114,9 +156,58 @@ FamilyPlan Family(const Json::Value& value){
     Validate(result);return result;
 }
 }
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 const FamilyPlan* Catalog::Find(const FamilyKey& key)const{
     const FamilyPlan* result{};for(const auto& plan:families)if(plan.key==key){if(result)return nullptr;result=&plan;}return result;
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool LoadCatalogJson(std::string_view text,Catalog& output,std::string& error){
+    output={};error.clear();
+    try{
+        Require(!text.empty() && text.size()<=MaxCatalogBytes,"Invalid selector catalog byte extent");
+        Json::CharReaderBuilder builder;builder["collectComments"]=false;builder["allowComments"]=false;builder["failIfExtra"]=true;
+        builder["rejectDupKeys"]=true;builder["strictRoot"]=true;builder["allowTrailingCommas"]=false;builder["stackLimit"]=32;
+        std::unique_ptr<Json::CharReader> reader(builder.newCharReader());Json::Value manifest;std::string diagnostic;
+        Require(reader->parse(text.data(),text.data()+text.size(),&manifest,&diagnostic),"Invalid selector catalog JSON");
+        std::vector<json_tree::Node> nodes(1);json_tree::Flatten(manifest,nodes,0);
+        const RustCatalog* view{};RustStr fail{};
+        const Held held(cvr_ssp_load(nodes.data(),nodes.size(),&view,&fail),cvr_ssp_free);
+        if(!held){error=Owned(fail);return false;}
+        Catalog pending;pending.evidenceSha256=Owned(view->evidence);
+        for(size_t f=0;f<view->familyCount;++f){const auto& family=view->families[f];FamilyPlan plan;
+            plan.key={Owned(family.root),Owned(family.vertex),Owned(family.pixel)};plan.number=family.number;plan.supported=family.supported;
+            plan.unsupportedReason=Owned(family.unsupportedReason);
+            for(size_t i=0;i<family.unresolvedCount;++i)plan.unresolvedInputs.push_back(Owned(family.unresolved[i]));
+            for(size_t i=0;i<family.cbvCount;++i){const auto& r=family.cbvs[i];
+                plan.cbvs.push_back({Owned(r.key),r.reflectedBytes,r.requiredByteExtent,std::vector<uint32_t>(r.offsets,r.offsets+r.offsetCount)});}
+            for(size_t i=0;i<family.siteCount;++i){const auto& s=family.sites[i];
+                plan.sites.push_back({Owned(s.shader),Owned(s.createHandleSSA),Owned(s.indexSSA),s.createHandleLine,s.byteOffset,Owned(s.cbv),Owned(s.table)});}
+            pending.families.push_back(std::move(plan));}
+        output=std::move(pending);return true;
+    }catch(const std::exception& exception){error=exception.what();return false;}catch(...){error="Selector catalog exception";return false;}
+}
+#endif
+// The retained sources' catalog (retained_sources.rs reads its rules): the file's text through jsoncpp as LoadCatalogFile
+// reads it, cvr_ssp_load's handle kept by the caller; null when absent or invalid.
+void* LoadCatalogHandle(const std::filesystem::path& path)noexcept{
+    try{
+        const auto size=std::filesystem::file_size(path);if(!size || size>MaxCatalogBytes)return nullptr;
+        std::string text(size,'\0');std::ifstream file(path,std::ios::binary);file.read(text.data(),std::streamsize(text.size()));
+        if(!file)return nullptr;
+        Json::CharReaderBuilder builder;builder["collectComments"]=false;builder["allowComments"]=false;builder["failIfExtra"]=true;
+        builder["rejectDupKeys"]=true;builder["strictRoot"]=true;builder["allowTrailingCommas"]=false;builder["stackLimit"]=32;
+        std::unique_ptr<Json::CharReader> reader(builder.newCharReader());Json::Value manifest;std::string diagnostic;
+        if(!reader->parse(text.data(),text.data()+text.size(),&manifest,&diagnostic))return nullptr;
+        std::vector<json_tree::Node> nodes(1);json_tree::Flatten(manifest,nodes,0);
+        const RustCatalog* view{};RustStr fail{};return cvr_ssp_load(nodes.data(),nodes.size(),&view,&fail);
+    }catch(...){return nullptr;}
+}
+// The plugin's retained geometry loads it from Rust (retained_geometry_native.rs): the path NUL-terminated.
+extern "C" void* cvr_cpp_load_selector_catalog(const wchar_t* path) { return LoadCatalogHandle(path); }
+#else
 bool LoadCatalogJson(std::string_view text,Catalog& output,std::string& error){
     output={};error.clear();
     try{
@@ -137,6 +228,8 @@ bool LoadCatalogJson(std::string_view text,Catalog& output,std::string& error){
         output=std::move(pending);return true;
     }catch(const std::exception& exception){error=exception.what();return false;}catch(...){error="Selector catalog exception";return false;}
 }
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 bool LoadCatalogFile(const std::filesystem::path& path,Catalog& output,std::string& error){
     output={};error.clear();
     try{
@@ -145,6 +238,34 @@ bool LoadCatalogFile(const std::filesystem::path& path,Catalog& output,std::stri
         Require(bool(file),"Cannot read selector catalog file");return LoadCatalogJson(text,output,error);
     }catch(const std::exception& exception){error=exception.what();return false;}catch(...){error="Selector catalog file exception";return false;}
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool Evaluate(const FamilyPlan& plan,std::span<const OwnedCbvBytes> bytes,Result& output,std::string& error){
+    output={};error.clear();
+    try{
+        std::vector<RustStr> unresolved;for(const auto& input:plan.unresolvedInputs)unresolved.push_back(Lent(input));
+        std::vector<RustRequirement> cbvs;
+        for(const auto& r:plan.cbvs)cbvs.push_back({Lent(r.key),r.reflectedBytes,r.requiredByteExtent,r.dwordOffsets.data(),r.dwordOffsets.size()});
+        std::vector<RustSite> sites;
+        for(const auto& s:plan.sites)sites.push_back({Lent(s.shaderSha256),Lent(s.createHandleSSA),Lent(s.indexSSA),s.createHandleLine,s.byteOffset,
+            Lent(s.cbv),Lent(s.table)});
+        const RustFamily family{Lent(plan.key.rootSha256),Lent(plan.key.vertexSha256),Lent(plan.key.pixelSha256),plan.number,plan.supported,
+            Lent(plan.unsupportedReason),unresolved.data(),unresolved.size(),cbvs.data(),cbvs.size(),sites.data(),sites.size()};
+        std::vector<RustInput> inputs;for(const auto& input:bytes)inputs.push_back({Lent(input.key),input.bytes.data(),input.bytes.size()});
+        const RustEvaluation* view{};RustStr fail{};
+        const Held held(cvr_ssp_evaluate(&family,inputs.data(),inputs.size(),&view,&fail),cvr_ssp_free);
+        if(!held){error=Owned(fail);return false;}
+        Result pending;pending.family=plan.key;pending.evaluatedSites=view->evaluatedSites;
+        pending.selections.assign(view->selections,view->selections+view->selectionCount);
+        for(size_t i=0;i<view->tableCount;++i){const auto& t=view->tables[i];TableSelection table;table.key=Owned(t.key);
+            table.offsets.assign(t.offsets,t.offsets+t.offsetCount);table.count=t.count;table.uses.assign(t.uses,t.uses+t.useCount);
+            pending.tables.push_back(std::move(table));}
+        pending.selectorEvaluationComplete=true;output=std::move(pending);return true;
+    }catch(const std::exception& exception){error=exception.what();return false;}catch(...){error="Selector evaluation exception";return false;}
+}
+#endif
+#else
 bool Evaluate(const FamilyPlan& plan,std::span<const OwnedCbvBytes> bytes,Result& output,std::string& error){
     output={};error.clear();
     try{
@@ -168,4 +289,5 @@ bool Evaluate(const FamilyPlan& plan,std::span<const OwnedCbvBytes> bytes,Result
         pending.evaluatedSites=uint32_t(plan.sites.size());pending.selectorEvaluationComplete=true;output=std::move(pending);return true;
     }catch(const std::exception& exception){error=exception.what();return false;}catch(...){error="Selector evaluation exception";return false;}
 }
+#endif
 }

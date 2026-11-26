@@ -70,33 +70,56 @@ namespace cvr {
 namespace detail {
 
 // 0 = MAIN, 1 = the second eye, -1 = a view that is neither (reflection-probe faces) or unknown.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local int32_t t_view_side = -1;
+#endif
 
+#if !CVR_RUST_VRIK
 constexpr uintptr_t OFF_B_1C0     = 0x1C0;  // byte (view-active flag)
 constexpr uintptr_t OFF_QPC_2B8   = 0x2B8;  // qword (QPC timestamp)
 constexpr uintptr_t OFF_S_348     = 0x348;  // dword (CALLER1-only scalar)
+#endif
 
 // Renderer global + view-state (render_camera_RE/STATE.md, verified addresses).
 // renderer = *(qword_143BBCAE8); shared view-state = renderer + 0x4658.
 // RVA_RENDERER_GLOBAL moved to Stereo/StereoInternal.hpp.
+#if !CVR_RUST_VRIK
 constexpr size_t VIEW_STATE_SNAPSHOT_OFFSET = 0x20;
 constexpr size_t VIEW_STATE_SNAPSHOT_SIZE = 0x488;    // through last-frame token at +0x4A0
+#endif
 // Never wait for Present while holding the FG serialization lock. The 100 ms
 // diagnostic barrier collapses stereo throughput to roughly 10 FPS whenever
 // the offscreen/right graph intentionally has no desktop Present.
+#if !CVR_RUST_VRIK
 constexpr bool HAS_DXGI_PRESENT_OBSERVER = false;
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 uint8_t*               g_exe_base   = nullptr;
+#endif
 
 // Retained globals still referenced by the kept node dispatcher, record_node_dispatch and init
 // (the rest of the old Type-A globals block was orphaned and removed).
 using WaitOnAddressFn = BOOL (WINAPI *)(volatile VOID*, PVOID, SIZE_T, DWORD);
+#if !CVR_RUST_VRIK
 using WakeByAddressAllFn = VOID (WINAPI *)(PVOID);
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_start.rs
 WaitOnAddressFn         g_wait_on_address = nullptr;
 WakeByAddressAllFn      g_wake_by_address_all = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 NodeDispatchFn          g_node_dispatch_orig = nullptr;
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool>       g_node_dispatch_hooked{false};
+#endif
 
+#if CVR_RUST_VRIK
+#else
 static bool is_vrcam_copy_to_texture(uintptr_t* node, uint8_t* work_context) {
     if (!node || !work_context) return false;
     __try {
@@ -115,6 +138,7 @@ static bool is_vrcam_copy_to_texture(uintptr_t* node, uint8_t* work_context) {
         return false;
     }
 }
+#endif
 
 // ---- per-node CPU audit (phase 0) ------------------------------------------
 // Successor of the removed record_node_dispatch audit: instead of exec ORDER it
@@ -122,11 +146,19 @@ static bool is_vrcam_copy_to_texture(uintptr_t* node, uint8_t* work_context) {
 // keyed by work-fn RVA; dumped+reset on demand (overlay button) to cyberpunkvrport_stereo.log.
 // Identifies exactly which node types cost CPU twice for simultaneous stereo.
 // ProfNode moved to Stereo/StereoInternal.hpp.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
 ProfNode g_prof_nodes[512];      // ~few hundred distinct work fns in practice
+#endif
 // First-seen order counters. The graph is stable frame to frame, so first-seen order ==
 // dispatch order, which is what makes the dump diffable against the older audits.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_prof_ord_main{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_prof_ord_vrcam{0};
+#endif
 // The per-node profiler accounting moved to src/Stereo/Profiler.cpp.
 // The HUD capability grant moved to src/Stereo/Hud.cpp.
 // The per-node profiler accounting moved to src/Stereo/Profiler.cpp.
@@ -163,6 +195,7 @@ std::atomic<uint32_t> g_prof_ord_vrcam{0};
 // those on for the second eye is not a fix, it is a debug overlay. The earlier blanket grant
 // (CapGrant 2) did turn them on.
 // struct RenderMaskEntry now lives in Stereo/StereoInternal.hpp: FrameGraph.cpp reads this table.
+#if !CVR_RUST_VRIK   // the Rust build's table is rust/crates/cvr-render/src/render_mask_report.rs
 const RenderMaskEntry kRenderMasks[] = {
     { "DistantLights",       0x3C1CDF0 },   // bit 0 -- the unlit lamps           [on by default]
     { "AutoGrass",           0x3C1D120 },   // bit 1 -- terrain scatter + its cascade
@@ -203,6 +236,7 @@ const RenderMaskEntry kRenderMasks[] = {
 };
 const uint32_t kRenderMaskCount =
     static_cast<uint32_t>(sizeof(kRenderMasks) / sizeof(kRenderMasks[0]));
+#endif
 
 // THE VIEW BITSET IS NOT ONE CONTIGUOUS BITSET -- corrected 2026-07-31 by static reverse.
 // The live diff named one clean MAIN-set/VRCAM-zero run in the graph context, 1870-1873{1},
@@ -234,9 +268,15 @@ const uint32_t kRenderMaskCount =
 // PrepareAutoSpawn V=0/5337, i.e. no grass in that eye at all -- the shadows still flickered.
 // Do not re-suspect this bit. The symptom is two shadow SETS alternating, it is specific to
 // where the head is standing and pointing, and grass is not in it.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_RenderMaskGrant =
     (1u << 0) | (1u << 1) | (1u << 11);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRenderMaskGrants = 0;
+#endif
 
 // 1 = NEVER declare a StateBefore for a resource this port does not own unless that state was
 // observed, for that exact resource, on this thread. 0 = the old behaviour, which falls back
@@ -251,16 +291,26 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRenderMaskGrants = 0;
 // distinction that the flags now carry is not thrown away.
 // Defined in ViewReuse.cpp: the unscoped composition lend. Named here because the viewData fill
 // further down is what installs it, so that fill has to run whenever the lend is armed.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CompLendSet;
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_NoStateLies = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugForeignStateRefusals = 0;
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uintptr_t> g_vrcam_ctx_seen{0};
+#endif
 // render_mask_report is declared in Stereo/StereoInternal.hpp; its definition moved to another file.
 
 // The mask lives on the view object, which outlives the frame, so in practice this is one-shot
 // per view: after the first pass nothing is missing and the loop finds no work. Re-checking on
 // every node dispatch is what keeps it correct across a view being recreated.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/node_features.rs
 static std::array<uint64_t,32> g_world_render_mask{};
 static std::array<uint64_t,32> g_world_render_source{};
 static std::mutex g_world_render_mask_mutex;
@@ -291,6 +341,7 @@ static void share_world_render_mask_locked(uintptr_t ctx,bool eye) {
         cloud_cb_raw_copy(reinterpret_cast<void*>(ctx+0x2688),have.data(),sizeof(have));
     }
 }
+#endif
 
 // THE SAME RESULT WITHOUT THE LOCK. This runs on every VRCAM node and every scope node, so the
 // mutex above made the render jobs of both views queue on one lock, and the scope path rewrote
@@ -299,6 +350,9 @@ static void share_world_render_mask_locked(uintptr_t ctx,bool eye) {
 // this thread saw and locks only when the eye's mask changed; the scope path keeps a per-thread
 // copy of the shared mask (refreshed by generation) and ORs in only the words that are missing.
 // 0 = the original locked path, kept for A/B.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_MaskShareFast = 1;
 // Cost instrument: 1 = accumulate QPC ticks and calls of every share below.
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_MaskShareTiming = 0;
@@ -307,7 +361,12 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_MaskShareCalls = 0;
 // The whole per-node pre-work of a scope node (grants, weapon-plane clear, viewData fill).
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsPreworkTicks = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsPreworkCalls = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// THE RENDER MASK IS RUST'S (rust/crates/cvr-render/src/node_features.rs): the grant, the world share, the scope's
+// weapon plane.
+#else
 static void or_missing_mask_words(uintptr_t ctx,const uint64_t* mask,const uint64_t* have) {
     __try {
         uint64_t* dst = reinterpret_cast<uint64_t*>(ctx + 0x2688);
@@ -387,6 +446,7 @@ static void render_mask_grant(uintptr_t ctx,bool eye=true) {
     share_world_render_mask(ctx,eye);
     if(eye)g_vrcam_ctx_seen.store(ctx, std::memory_order_release);
 }
+#endif
 
 // THE SCOPE CAMERA MUST NOT SEE THE PLAYER'S OWN FIRST-PERSON PLANE. Its RTT view is a camera on
 // the player, and the engine grants it RenderMask/WeaponPlane every frame like any view (native
@@ -395,9 +455,15 @@ static void render_mask_grant(uintptr_t ctx,bool eye=true) {
 // its real geometry would sit. Measured live 2026-10-13: holding the WeaponPlane-only bits clear
 // in the view mask removes the gun from the raw camera image and nothing else. Cleared at every
 // scope node, after the grants above, since the engine rewrites the mask once per frame.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OpticsHideWeaponPlane = 1;
+#endif
 // Bits WeaponPlane requires that no other category does (the categories share their view-type
 // bits; clearing those would refuse every pass).
+#if CVR_RUST_VRIK
+#else
 static const std::array<uint64_t,32>& weapon_plane_only_bits() {
     static const std::array<uint64_t,32> only = [] {
         std::array<uint64_t,32> weapon{},others{},result{};
@@ -429,14 +495,24 @@ static void optics_hide_weapon_plane(uintptr_t ctx) {
             if (have[i] & only[i]) have[i] &= ~only[i];
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
+#endif
 
 // Capability-refusal census. sub_14021BE28 is not the HUD's private gate: ClusteredLightsCull
 // runs its whole body only `if (... || sub_14021BE28(a2, &word_143C1CDF0) != 0)`, and other
 // nodes use it with their own descriptors. DrawHUD's refusal was found by hand and cost a
 // session; enumerating every (node, descriptor) the engine denies the second view is the same
 // work done once, for all of them.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CapCensus = 1;   // OFF: [cap] per-view gate refusals -- the first thing to switch on for a new "the second eye is missing X"
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCapDenies = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/node_features.rs
 struct CapDeny { uint32_t node_rva, desc_rva; uint64_t hits; };
 static std::array<CapDeny, 32> g_cap_deny{};
 static uint32_t g_cap_deny_n = 0;
@@ -472,6 +548,7 @@ static void cap_census_note(uintptr_t work, uintptr_t required) {
         }
     }
 }
+#endif
 
 // Granting = making the test pass HONESTLY, by OR-ing the bits the descriptor asks for into the
 // view's own 32-qword mask at ctx+6304 -- exactly what fixed the HUD. Not the same thing as
@@ -491,9 +568,18 @@ static void cap_census_note(uintptr_t work, uintptr_t required) {
 // fired on EVERY refusal, which includes a dozen `Rendering/Debug/...` overlays the engine is
 // right to withhold. The named table above grants one specific category from the engine's own
 // descriptor. Kept only so the census can still be run with the grant off.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CapGrant = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCapGrants = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/node_features.rs
 static bool cap_grant_required(uintptr_t work_context, uintptr_t required) {
     if (!work_context || !required) return false;
     __try {
@@ -510,6 +596,7 @@ static bool cap_grant_required(uintptr_t work_context, uintptr_t required) {
         return changed;
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+#endif
 
 // ---- WHICH FEATURE BITS THE SHADOW-MASK PASS ASKS ABOUT, and whether the two views answer alike -----
 //
@@ -544,9 +631,14 @@ static bool cap_grant_required(uintptr_t work_context, uintptr_t required) {
 // apart in EngineRvas.hpp: sub_14021BE28 answers about a render-mask DESCRIPTOR (that is the HUD/AutoGrass
 // gate), sub_14033E358 answers about a BIT INDEX (that is what the nodes ask). A silent probe is not a
 // negative result, and the yes/no counters are printed so an empty answer can be told from an unreached one.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_FeatBitProbe = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_FeatBitNode = RENDER_SHADOWMASK_RVA;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/node_features.rs
 namespace {
 struct FeatBit { uint32_t bit; uint64_t yes[2]; uint64_t no[2]; };
 FeatBit g_featbits[32];
@@ -591,15 +683,25 @@ void featbit_report() {
         CyberpunkVR_FeatBitNode, used ? line : "(none seen)");
 }
 }  // namespace
+#endif
 
 // The per-bit test itself. Hooked separately from Detour_ViewFeatureCheck because they are different
 // engine functions: that one is sub_14021BE28 and answers about a render-mask DESCRIPTOR, this one is
 // sub_14033E358 and answers about a BIT INDEX. The shadow-mask pass asks this one, which is why the first
 // version of this probe -- attached to the other -- printed nothing at all.
+#if !CVR_RUST_VRIK
 using FeatureBitFn = uint8_t (__fastcall*)(uintptr_t, uintptr_t);
+#endif
+#if !CVR_RUST_VRIK
 static FeatureBitFn g_orig_feature_bit = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_AutoGrassReadiness[4]{};
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/node_features.rs
 static uint8_t __fastcall Detour_FeatureBit(uintptr_t work_context, uintptr_t bit) {
     const uint8_t r = g_orig_feature_bit(work_context, bit);
     if (CyberpunkVR_FeatBitProbe && g_exe_base && bit < 64) {
@@ -612,7 +714,10 @@ static uint8_t __fastcall Detour_FeatureBit(uintptr_t work_context, uintptr_t bi
     }
     return r;
 }
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/node_features.rs
 CVR_DETOUR("[featbit] per-bit feature test sub_14033E358", FEATURE_BIT_TEST_RVA, Detour_FeatureBit, g_orig_feature_bit)
+#endif
 
 // The scope view's first-person pass. The render-element pass driver (sub_14033DDA4) draws a pass
 // flagged 0x20 -- the weapon plane -- only if THIS test passes for RenderMask/WeaponPlane.
@@ -620,10 +725,15 @@ CVR_DETOUR("[featbit] per-bit feature test sub_14033E358", FEATURE_BIT_TEST_RVA,
 // frame and the engine rewrites its mask from another thread, so the bit was back by the time
 // the node asked in some frames and the barrel blinked in the lens. The answer is given here,
 // from the view the node renders.
+#if !CVR_RUST_VRIK  // the reference branch reads it; the Rust build's readers are Rust
 static uint64_t optics_view_key() {
     static const uint64_t key = cvr::cname_hash("vr_optics_feed");
     return key;
 }
+#endif
+#if CVR_RUST_VRIK
+// THE CAPABILITY TEST IS RUST'S (rust/crates/cvr-render/src/node_features.rs); the C++ name stays for SyncStereo.cpp.
+#else
 static bool optics_refuses(uintptr_t work_context, uintptr_t required) {
     if (!g_exe_base || !CyberpunkVR_OpticsHideWeaponPlane ||
         required != reinterpret_cast<uintptr_t>(g_exe_base) + kRenderMasks[23].desc_rva) return false;
@@ -683,6 +793,7 @@ uint8_t __fastcall Detour_ViewFeatureCheck(uintptr_t work_context, uintptr_t req
     }
     return 1;
 }
+#endif
 
 // A REFUSED WEAPON PLANE IS TAKEN OUT OF THE PASS LIST, NOT SKIPPED. The render-element pass driver
 // sub_14033DDA4 (2.31: sub_14023A938; the node's work function, its return ignored) remembers each
@@ -695,9 +806,18 @@ uint8_t __fastcall Detour_ViewFeatureCheck(uintptr_t work_context, uintptr_t req
 // refused the weapon plane runs on a copy of itself whose list leaves those passes out. The driver
 // reads the node at +24/+32/+40 (callbacks given the work context), +48 (passes, 48 bytes each,
 // flags at +8) and +60 (count) only.
+#if !CVR_RUST_VRIK
 using PassDriverFn = void(__fastcall*)(uintptr_t node, uintptr_t work, uintptr_t args);
+#endif
+#if !CVR_RUST_VRIK
 static PassDriverFn g_orig_pass_driver = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_WeaponPassListsFiltered = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/node_features.rs
 constexpr uint32_t kPassEntry = 48, kPassFlags = 8, kWeaponPass = 0x20;
 // The node's pass count when its list holds a weapon-plane pass, else 0.
 static uint32_t weapon_pass_count(uintptr_t node, uintptr_t* list) {
@@ -764,7 +884,10 @@ static void __fastcall Detour_PassDriver(uintptr_t node, uintptr_t work, uintptr
     }
     g_orig_pass_driver(reinterpret_cast<uintptr_t>(copy), work, args);
 }
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/node_features.rs
 CVR_DETOUR("[optics] render-element pass driver sub_14033DDA4", 0x33DDA4, Detour_PassDriver, g_orig_pass_driver)
+#endif
 
 // Defined with the cloud block further down; called from here because the node dispatch is the
 // EARLIEST point in a view's frame, and a hole has to be filled before its consumer runs. The
@@ -773,9 +896,11 @@ CVR_DETOUR("[optics] render-element pass driver sub_14033DDA4", 0x33DDA4, Detour
 // viewdata_fill_from_wc moved with the view-reuse family; declared in Stereo/StereoInternal.hpp.
 // Worth knowing about this one: it appeared in a crash stack as a STALE frame once, and the
 // investigation that cleared it turned on its call site being here rather than in the detour.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ViewDataFixMask;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_FogMirrorMask;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_EnvMirrorMask;
+#endif
 
 // ---- per-view node census ---------------------------------------------------------------
 // Which passes does the engine actually dispatch for each view? "VRCAM is missing effect X"
@@ -784,7 +909,14 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_EnvMirrorMask;
 // runs and logs the difference, so the answer arrives in one pass over a live frame.
 // (The two arrays have existed as exports for a long time but nothing ever filled them, which
 // is why they always read back zero.)
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_NodeCensus = 1;
+#endif
+#if CVR_RUST_VRIK
+// THE NODE DISPATCH'S PROBES ARE RUST'S (rust/crates/cvr-render/src/node_probes.rs).
+#else
 static std::mutex g_census_mtx;
 
 static void node_census_add(uint32_t rva, bool vrcam) {
@@ -838,6 +970,7 @@ static void node_census_dump() {
             count, na, count ? line : "(none)");
     }
 }
+#endif
 
 // ---- the sky pass, as reversed -----------------------------------------------------------
 //
@@ -865,11 +998,21 @@ static void node_census_dump() {
 // MAIN's AA mode onto VRCAM. So our own fix is an input to the sky decision, which nobody knew.
 //
 // Report both, for both views. Reading only; nothing here changes engine state.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SkyProbe = 1;   // answered: both views index sky record 0, AA mode 0
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugSkyIdxMain  = 0xFFFF;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugSkyIdxVrcam = 0xFFFF;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainAaMode;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamAaMode;
+#endif
 
 // ---- the cloud lighting shader selector -----------------------------------------------------
 //
@@ -888,11 +1031,19 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamAaMode;
 //
 // Probe first, write second. CloudLightMirror defaults OFF: swapping a shader permutation is not
 // the same class of change as copying a float, and the measurement costs nothing.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CloudLightProbe  = 1;   // answered: selector 2 on both; the state object is pooled per frame and not diffable across views
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CloudLightMirror = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugCloudSelMain  = 0xFFFFFFFF;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugCloudSelVrcam = 0xFFFFFFFF;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCloudSelWrites = 0;
+#endif
 
 // RULED OUT: the selector reads 2 on both views, so they light the clouds with the same shader
 // (-298149306, the else branch). Kept as a live probe because it cost nothing and the answer is
@@ -903,6 +1054,8 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCloudSelWrites = 0;
 // have been, and each of the three named its own defect. Same instrument, last structure. The
 // known fields are +24/+28 (resources), +32 (the selector) and +40 (read by the clouds node), so
 // 256 bytes with the chunked copy covers it without assuming a size.
+#if CVR_RUST_VRIK
+#else
 static uint8_t g_cloudst_main[256];
 static std::atomic<size_t> g_cloudst_len{0};
 static std::mutex g_cloudst_mtx;
@@ -923,6 +1076,7 @@ static uintptr_t cloudst_ptr(uintptr_t ctx) {
     __try { return *reinterpret_cast<uintptr_t*>(ctx + 0x2BD8); }
     __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
+#endif
 
 
 // ---- the same snapshot, taken at the SAME point of the frame -------------------------------
@@ -935,8 +1089,14 @@ static uintptr_t cloudst_ptr(uintptr_t ctx) {
 //
 // Hooking the clouds node instead puts both snapshots at one place: the node's own entry. Then a
 // field that still differs really differs.
+#if !CVR_RUST_VRIK
 using CloudsNodeFn = char(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 CloudsNodeFn g_orig_clouds_node = nullptr;
+#endif
+#if CVR_RUST_VRIK
+#else
 static uint8_t g_cst_snap[2][256];
 static size_t  g_cst_len[2] = { 0, 0 };
 static std::mutex g_cst_mtx;
@@ -1054,9 +1214,16 @@ static void sky_probe_note(uintptr_t ctx, bool vrcam) {
             : "<- separate records",
         CyberpunkVR_DebugMainAaMode, CyberpunkVR_DebugVrcamAaMode);
 }
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OpticsRenderProbe=0;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OpticsFreezeCopy=0;
+#endif
+#if CVR_RUST_VRIK
+#else
 static void optics_render_probe(uintptr_t ctx,void* work,uint64_t key,uint32_t rva) {
     if(!CyberpunkVR_OpticsRenderProbe || !ctx || !work)return;
     const int side=key==0?0:key==g_vrcam_ctx_key?1:key==cvr::cname_hash("vr_optics_feed")?2:-1;
@@ -1075,7 +1242,14 @@ static void optics_render_probe(uintptr_t ctx,void* work,uint64_t key,uint32_t r
             static_cast<const uint8_t*>(work)[48],mgr?*reinterpret_cast<const uint32_t*>(mgr+408):0);
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE DISPATCHER IS RUST'S (rust/crates/cvr-render/src/node_dispatch.rs); the hook keeps this name, and the pose,
+// fog-context, preparation and optics-probe calls reach their C++ owners through the adapters below.
+// The tables of node_dispatch.rs, node_features.rs and node_probes.rs are built in Rust (from stereo_shared.rs's
+// objects); the render-mask table and its report are rust/crates/cvr-render/src/render_mask_report.rs's.
+#else
 uint8_t __fastcall Detour_NodeDispatch(
         uintptr_t* node, uint8_t* work_context, void* args) {
     // Attribution FIRST (work-fn, vrcam view, SceneDrv rtId): used by the profiler,
@@ -1533,6 +1707,12 @@ uint8_t __fastcall Detour_NodeDispatch(
     if(traceCopy)cvr::stereo::preparation::SetCopySource(previousCopy);
     return result;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE FEATURE AND CAPABILITY TESTS AND THE PASS DRIVER ARE RUST'S (rust/crates/cvr-render/src/node_features.rs),
+// registered here with this file's trampolines; Rust is handed the node dispatch's thread state and the stereo log.
+// The two detours and their originals register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#endif
 }  // namespace detail
 }  // namespace cvr

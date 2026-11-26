@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.24)
+project(NpcGripTests LANGUAGES CXX)
+enable_testing()
+set(NPC_GRIP_SOURCE "${CMAKE_CURRENT_LIST_DIR}/../../src/Anim/NpcArmGrip.cpp" CACHE FILEPATH "Production solver, or a baseline for a negative control")
+option(NPC_TEST_LEGACY "Build a baseline without the new bounded joint fields" OFF)
+add_executable(npc_grip_tests main.cpp)
+target_compile_features(npc_grip_tests PRIVATE cxx_std_20)
+target_include_directories(npc_grip_tests PRIVATE ../../include
+    ../../build/patchday/framework-src/RED4ext.SDK/include
+    ../../build/patchday/sdk25-build/_deps/nlohmann_json-src/single_include)
+target_compile_definitions(npc_grip_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN RED4EXT_STATIC_LIB
+    NPC_GRIP_SOURCE="${NPC_GRIP_SOURCE}" NPC_FIXTURES="${CMAKE_CURRENT_LIST_DIR}/fixtures")
+if(NPC_TEST_LEGACY)
+    target_compile_definitions(npc_grip_tests PRIVATE NPC_TEST_LEGACY)
+endif()
+target_link_libraries(npc_grip_tests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../build/patchday/sdk25-build/externals/RED4ext.SDK/Release/RED4ext.SDK.lib")
+if(MSVC)
+    target_compile_options(npc_grip_tests PRIVATE /W4 /permissive- /Gy /Gw)
+    target_link_options(npc_grip_tests PRIVATE /OPT:REF /OPT:ICF /INCREMENTAL:NO)
+endif()
+add_test(NAME npc_joint_limits COMMAND npc_grip_tests)
+add_executable(npc_grip_trace trace.cpp)
+target_compile_features(npc_grip_trace PRIVATE cxx_std_20)

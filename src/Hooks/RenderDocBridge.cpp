@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // RenderDocBridge -- let this plugin's detours coexist with a RenderDoc capture layer.
 //
 // THE FAILURE THIS FIXES, from RenderDoc's own log rather than from a guess. Launching the game under
@@ -31,6 +32,9 @@
 
 #include <windows.h>
 
+#if CVR_RUST_VRIK
+// The bridge is rust/crates/cvr-gpu/src/renderdoc_bridge.rs.
+#else
 extern void Log(const char* fmt, ...);
 
 namespace {
@@ -223,3 +227,5 @@ bool RenderDocAllowNvApi() {
 }
 
 }  // namespace cvr
+#endif
+#endif

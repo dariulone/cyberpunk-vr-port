@@ -3,6 +3,7 @@
 #include "Render/NativeQueueResidencyScope.hpp"
 #include "Render/NativeSourceCbvDetails.hpp"
 #include <climits>
+#include <cstddef>
 
 namespace cvr::stereo::target_lifetime {
 namespace detail {
@@ -93,6 +94,43 @@ struct ResizeChain {
     uint64_t relay{},cet{},singleton{},trampoline{};uint32_t mode{};
     bool operator==(const ResizeChain&)const=default;
 };
+#if CVR_RUST_VRIK
+// The readers: rust/crates/cvr-render/src/target_lifetime.rs.
+static_assert(sizeof(Key)==64 && sizeof(Epoch)==72 && sizeof(Swapchains)==280 && sizeof(Snapshot)==768 &&
+    offsetof(Snapshot,key)==40 && offsetof(Snapshot,control)==456 && offsetof(Snapshot,allocation)==512 &&
+    sizeof(ResizeChain)==40,"mirrored by rust/crates/cvr-render/src/target_lifetime.rs");
+extern "C" {
+bool cvr_tl_relative_target(uint64_t,int32_t,uint64_t*);
+bool cvr_tl_read_hook_chain(ReadMemory,void*,uint64_t,uint64_t,bool,ResizeChain*,uint32_t*);
+bool cvr_tl_read_swapchains(ReadMemory,void*,const Key*,Swapchains*);
+bool cvr_tl_read_epoch(ReadMemory,void*,uint64_t,uint64_t,Epoch*);
+bool cvr_tl_current_member(ReadMemory,void*,const Epoch*,uint32_t,uint64_t*);
+bool cvr_tl_read_snapshot(ReadMemory,void*,uint64_t,const Key*,bool,Snapshot*,uint32_t*);
+bool cvr_tl_same_identity(const Snapshot*,const Snapshot*);
+bool cvr_tl_same_borrowed_identity(const texture_read::WritableTargetIdentity*,const texture_read::WritableTargetIdentity*);
+}
+inline bool RelativeTarget(uint64_t next,int32_t displacement,uint64_t& output){return cvr_tl_relative_target(next,displacement,&output);}
+inline bool ReadResizeChain(ReadMemory read,void* user,uint64_t base,uint64_t cet,ResizeChain& output,uint32_t* failure=nullptr){
+    return cvr_tl_read_hook_chain(read,user,base,cet,false,&output,failure);
+}
+inline bool ReadShutdownChain(ReadMemory read,void* user,uint64_t base,uint64_t cet,ResizeChain& output,uint32_t* failure=nullptr){
+    return cvr_tl_read_hook_chain(read,user,base,cet,true,&output,failure);
+}
+inline bool ReadSwapchains(ReadMemory read,void* user,const Key& key,Swapchains& output){
+    return cvr_tl_read_swapchains(read,user,&key,&output);
+}
+inline bool ReadEpoch(ReadMemory read,void* user,uint64_t base,uint64_t registry,Epoch& output){
+    return cvr_tl_read_epoch(read,user,base,registry,&output);
+}
+inline bool CurrentMember(ReadMemory read,void* user,const Epoch& epoch,uint32_t handle,uint64_t& slot){
+    return cvr_tl_current_member(read,user,&epoch,handle,&slot);
+}
+inline bool ReadSnapshot(ReadMemory read,void* user,uint64_t base,const Key& key,bool source,
+                         Snapshot& output,uint32_t* failure=nullptr){
+    return cvr_tl_read_snapshot(read,user,base,&key,source,&output,failure);
+}
+inline bool SameIdentity(const Snapshot& a,const Snapshot& b){return cvr_tl_same_identity(&a,&b);}
+#else
 inline bool RelativeTarget(uint64_t next,int32_t displacement,uint64_t& output){
     output=0;
     if(displacement<0){const auto distance=uint64_t(-int64_t(displacement));if(next<distance)return false;output=next-distance;}
@@ -277,10 +315,16 @@ inline bool SameIdentity(const Snapshot& a,const Snapshot& b){
         SameExceptRef(a.allocation.raw,b.allocation.raw,8) && a.allocator.address==b.allocator.address &&
         SameExceptRef(a.allocator.raw,b.allocator.raw,8);
 }
+#endif
 struct CaptureProof;
 struct BorrowProof;
 // Both operands must separately pass their private WritableTargetIdentity
 // authentication. Cross-capture matching excludes unrelated mutable record bytes.
+#if CVR_RUST_VRIK
+inline bool SameBorrowedIdentity(const texture_read::WritableTargetIdentity& a,const texture_read::WritableTargetIdentity& b){
+    return cvr_tl_same_borrowed_identity(&a,&b);
+}
+#else
 inline bool SameBorrowedIdentity(const texture_read::WritableTargetIdentity& a,const texture_read::WritableTargetIdentity& b){
     return a.creation.resource && a.creation.heap && a.recording.token &&
         texture_read::detail::SameCreationMetadata(a.creation,b.creation) &&
@@ -295,6 +339,7 @@ inline bool SameBorrowedIdentity(const texture_read::WritableTargetIdentity& a,c
         a.resourceHeapFlags==b.resourceHeapFlags && a.allocatorOwnerObservation==b.allocatorOwnerObservation &&
         texture_read::detail::WritableRecord(a.nativeRecord)==texture_read::detail::WritableRecord(b.nativeRecord);
 }
+#endif
 }
 struct BorrowedPageable;
 class Lease {

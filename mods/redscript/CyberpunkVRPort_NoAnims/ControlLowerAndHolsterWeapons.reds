@@ -48,16 +48,8 @@
 // its own timer again and a manual lower never reached it. Everything here is about THE firearm in hand -- the right
 // hand's, or with the left-handed controls a lone one in the left hand (CyberpunkVRPort_LeftHanded) -- so it is
 // that hand's timestamp. Two guns are the right one's, as before.
-public func VRPortFirearmIsLeft(scriptInterface: ref<StateGameScriptInterface>) -> Bool {
-  let ts: ref<TransactionSystem> = scriptInterface.GetTransactionSystem();
-  return !IsDefined(ts.GetItemInSlot(scriptInterface.executionOwner, t"AttachmentSlots.WeaponRight") as WeaponObject)
-    && IsDefined(ts.GetItemInSlot(scriptInterface.executionOwner, t"AttachmentSlots.WeaponLeft") as WeaponObject);
-}
-
-public func VRPortFirearm(scriptInterface: ref<StateGameScriptInterface>) -> ref<WeaponObject> {
-  let slot: TweakDBID = VRPortFirearmIsLeft(scriptInterface) ? t"AttachmentSlots.WeaponLeft" : t"AttachmentSlots.WeaponRight";
-  return scriptInterface.GetTransactionSystem().GetItemInSlot(scriptInterface.executionOwner, slot) as WeaponObject;
-}
+// VRPortFirearmIsLeft and VRPortFirearm: CyberpunkVRPort_Engine/vrport_firearm_shared.reds (CyberpunkVRPort_LeftHanded
+// calls them too).
 
 public func VRPortSafeTimeStamp(scriptInterface: ref<StateGameScriptInterface>) -> CName {
   return VRPortFirearmIsLeft(scriptInterface) ? n"LeftTurnOffPublicSafeTimeStamp" : n"RightTurnOffPublicSafeTimeStamp";

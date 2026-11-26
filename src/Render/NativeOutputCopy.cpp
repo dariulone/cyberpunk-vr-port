@@ -1,4 +1,6 @@
 #include "Render/NativeOutputCopy.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's copy; the Rust build's is rust/crates/cvr-gpu/src/output_copy.rs (the header calls it).
 #include <algorithm>
 #include <climits>
 #include <new>
@@ -138,3 +140,4 @@ bool NativeOutputCopy::Record(ID3D12GraphicsCommandList* list){
     if(count)list->ResourceBarrier(count,barriers.data());recorded_=true;return true;
 }
 }
+#endif

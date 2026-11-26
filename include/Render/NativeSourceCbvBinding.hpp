@@ -21,6 +21,23 @@ struct Slot {
 };
 namespace detail {
 template<class T,size_t N>T Field(const std::array<uint8_t,N>& bytes,size_t offset){T value{};std::memcpy(&value,bytes.data()+offset,sizeof(value));return value;}
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/source_cbv_binding.rs (tools/single_pass_tests/source_cbv_binding_test runs its
+// cases against them in its Rust variant). UploadWriterLedger's members stay here, mirrored there.
+extern "C" {
+bool cvr_scb_track_stage_mask(uint32_t,uint32_t*);
+bool cvr_scb_slot(uint32_t,geometry::MemoryReader,void*,uint64_t,uint32_t,uint32_t,uint64_t,bool,Slot*);
+bool cvr_scb_descriptor(uint64_t,uint64_t,uint64_t,uint32_t);
+bool cvr_scb_decode_creation(const void*,geometry::MemoryReader,void*,void*);
+bool cvr_scb_check(uint32_t,const void*,const void*,uint32_t,uint64_t,uint64_t);
+bool cvr_scb_ledger(void*,uint32_t,const void*,const void*,const void*,uint32_t,uint32_t,void*,void*);
+}
+inline bool TrackStageMask(uint32_t stages,uint32_t& tracked)noexcept{return cvr_scb_track_stage_mask(stages,&tracked);}
+inline bool ReadSlot(geometry::MemoryReader read,void* user,uint64_t state,uint32_t stage,uint32_t reg,Slot& out){
+    return cvr_scb_slot(0,read,user,state,stage,reg,0,false,&out);
+}
+inline bool Descriptor(uint64_t gpu,uint64_t width,uint64_t address,uint32_t bytes)noexcept{return cvr_scb_descriptor(gpu,width,address,bytes);}
+#else
 inline bool TrackStageMask(uint32_t stages,uint32_t& tracked)noexcept {
     tracked=0;if(stages!=1 && stages!=2 && stages!=3 && stages!=7)return false;
     tracked=stages&3;return true;
@@ -45,6 +62,7 @@ inline bool Descriptor(uint64_t gpu,uint64_t width,uint64_t address,uint32_t byt
     return gpu && width && gpu<=UINT64_MAX-width && address && !(address&255) && bytes && bytes<=65536 && !(bytes&255) &&
         address>=gpu && address-gpu<=width && bytes<=width-(address-gpu);
 }
+#endif
 struct CreationFrame {uint64_t rva{},rsp{},rbx{},rbp{},rdi{},rsi{},r12{},r13{},r14{},r15{};};
 inline constexpr uint32_t DirectCreatorRva=0x3362A0,DirectMemcpyReturnRva=0x33626F;
 struct Creation {
@@ -52,6 +70,12 @@ struct Creation {
     uint32_t caller{},handle{},logicalBytes{},reservedBytes{},completedProducerRva{};
     bool operator==(const Creation&)const=default;
 };
+#if CVR_RUST_VRIK
+inline bool DirectProducer(const Creation& creation,uint32_t viewBytes)noexcept{return cvr_scb_check(0,&creation,nullptr,viewBytes,0,0);}
+inline bool DecodeCreation(const CreationFrame& frame,geometry::MemoryReader read,void* user,Creation& output){
+    return cvr_scb_decode_creation(&frame,read,user,&output);
+}
+#else
 inline bool DirectProducer(const Creation& creation,uint32_t viewBytes)noexcept {
     return creation.caller==DirectCreatorRva && creation.completedProducerRva==DirectMemcpyReturnRva &&
         creation.logicalBytes && creation.logicalBytes<=65536 && creation.reservedBytes && creation.reservedBytes<=65536 &&
@@ -79,6 +103,18 @@ inline bool DecodeCreation(const CreationFrame& frame,geometry::MemoryReader rea
     }else return false;
     if(!next.resource || !next.cpu)return false;output=next;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool SameView(const descriptors::DescriptorStamp& stamp,uint64_t address,uint32_t bytes)noexcept{return cvr_scb_check(1,&stamp,nullptr,bytes,address,0);}
+inline bool SameOrigin(const descriptors::DescriptorStamp& stamp,uint64_t cookie,uint64_t id)noexcept{return cvr_scb_check(2,&stamp,nullptr,0,cookie,id);}
+inline bool DirectCreation(uint32_t stage,uint32_t reg,uint32_t caller)noexcept{return cvr_scb_check(3,nullptr,nullptr,stage,reg,caller);}
+inline bool SelectSlot(geometry::MemoryReader read,void* user,uint64_t state,uint32_t stage,uint32_t reg,
+    uint64_t descriptor,bool requireCurrent,Slot& out){
+    return cvr_scb_slot(1,read,user,state,stage,reg,descriptor,requireCurrent,&out);
+}
+inline bool SameSourceSlot(const Slot& a,const Slot& b)noexcept{return cvr_scb_check(4,&a,&b,0,0,0);}
+inline bool SameBuffer(const geometry::NativeBuffer& x,const geometry::NativeBuffer& y)noexcept{return cvr_scb_check(5,&x,&y,0,0,0);}
+#else
 inline bool SameView(const descriptors::DescriptorStamp& stamp,uint64_t address,uint32_t bytes)noexcept {
     return stamp.gpu && stamp.heap && stamp.value[0]==1 && stamp.value[4]==address && stamp.value[5]==bytes;
 }
@@ -99,12 +135,17 @@ inline bool SameBuffer(const geometry::NativeBuffer& x,const geometry::NativeBuf
     return x.resource==y.resource && x.gpu==y.gpu && x.bytes==y.bytes && x.registry==y.registry &&
         x.context==y.context && x.handle==y.handle && x.kind==y.kind;
 }
+#endif
 inline constexpr UINT MaxUploadWriterDepth=8;
 inline constexpr uint32_t UploadWriterRva=0x334328,UploadWriterMemcpyReturnRva=0x33435E;
 struct UploadWriterContext {
     uint64_t thread{},token{},list{},generation{},context{},registry{};
     bool operator==(const UploadWriterContext&)const=default;
+#if CVR_RUST_VRIK
+    bool Valid()const noexcept;
+#else
     bool Valid()const noexcept{return thread && token && list && generation && context && registry;}
+#endif
 };
 struct UploadWriterStamp {
     uint64_t nonce{};UINT depth{};
@@ -116,9 +157,43 @@ struct UploadWriterJoin {
 };
 struct UploadWriterCompletion {uint64_t nonce{},origin{},destination{};uint32_t bytes{},producerRva{};};
 // Exact nearest native return chain from the OS unwinder, never caller labels.
+#if CVR_RUST_VRIK
+inline bool UploadWriterPath(std::span<const uint64_t> returns)noexcept{return cvr_scb_check(6,returns.data(),nullptr,0,returns.size(),0);}
+#else
 inline bool UploadWriterPath(std::span<const uint64_t> returns)noexcept {
     return returns.size()==3 && returns[0]==0x3346B1 && returns[1]==0x334469 && returns[2]==0x33434B;
 }
+#endif
+#if CVR_RUST_VRIK
+class UploadWriterLedger {
+    struct Entry {UploadWriterStamp stamp;UploadWriterContext context;UploadWriterJoin joined;uint32_t handle{},bytes{};bool valid{};};
+    std::array<Entry,MaxUploadWriterDepth> entries_{};UINT depth_{};uint64_t nonce_{};
+    bool Call(uint32_t which,const UploadWriterStamp* stamp,const UploadWriterContext* context,const UploadWriterJoin* joined,
+        uint32_t a,uint32_t b,UploadWriterStamp* stampOut,UploadWriterCompletion* completion)noexcept{
+        return cvr_scb_ledger(this,which,stamp,context,joined,a,b,stampOut,completion);
+    }
+public:
+    UploadWriterStamp Current()const noexcept{
+        UploadWriterStamp stamp;cvr_scb_ledger(const_cast<UploadWriterLedger*>(this),0,nullptr,nullptr,nullptr,0,0,&stamp,nullptr);return stamp;
+    }
+    UINT Depth()const noexcept{return depth_;}
+    UploadWriterStamp Enter(const UploadWriterContext& context,uint32_t handle,uint32_t bytes)noexcept {
+        UploadWriterStamp stamp;Call(1,nullptr,&context,nullptr,handle,bytes,&stamp,nullptr);return stamp;
+    }
+    bool Join(const UploadWriterStamp& stamp,const UploadWriterContext& context,const UploadWriterJoin& joined)noexcept {
+        return Call(2,&stamp,&context,&joined,0,0,nullptr,nullptr);
+    }
+    bool Finish(const UploadWriterStamp& stamp,const UploadWriterContext& context,UploadWriterCompletion& output)noexcept {
+        return Call(3,&stamp,&context,nullptr,0,0,nullptr,&output);
+    }
+    bool Cancel(const UploadWriterStamp& stamp)noexcept{return Call(4,&stamp,nullptr,nullptr,0,0,nullptr,nullptr);}
+    void Invalidate()noexcept{Call(5,nullptr,nullptr,nullptr,0,0,nullptr,nullptr);}
+};
+inline bool UploadWriterContext::Valid()const noexcept{return cvr_scb_check(7,this,nullptr,0,0,0);}
+static_assert(sizeof(Slot)==56 && sizeof(CreationFrame)==80 && sizeof(Creation)==56 && sizeof(descriptors::DescriptorStamp)==176 &&
+    sizeof(UploadWriterContext)==48 && sizeof(UploadWriterStamp)==16 && sizeof(UploadWriterJoin)==48 &&
+    sizeof(UploadWriterCompletion)==32 && sizeof(UploadWriterLedger)==1040,"mirrored by source_cbv_binding.rs");
+#else
 class UploadWriterLedger {
     struct Entry {UploadWriterStamp stamp;UploadWriterContext context;UploadWriterJoin joined;uint32_t handle{},bytes{};bool valid{};};
     std::array<Entry,MaxUploadWriterDepth> entries_{};UINT depth_{};uint64_t nonce_{};
@@ -150,6 +225,7 @@ public:
     }
     void Invalidate()noexcept{for(UINT n=0;n<depth_;++n)entries_[n].valid=false;}
 };
+#endif
 }
 class UploadWriterScope {
 public:

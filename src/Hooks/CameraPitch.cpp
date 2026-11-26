@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // CameraPitch -- one hook, one file. It registers itself at the bottom; Hooks/Hook.hpp says why the
 // stage and order live here rather than in a boot function.
 //
@@ -19,6 +20,12 @@
 #include <cmath>
 #include <cstdint>
 #include <cstddef>
+
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/camera_pitch.rs: the same site, stub and pitch.
+extern "C" bool cvr_hook_camera_pitch_install();
+CVR_HOOK("CameraPitch", ::cvr::hooks::Stage::Boot, 30, cvr_hook_camera_pitch_install);
+#else
 
 // State private to this hook -- it moved out of the hub with the code that uses it.
 namespace {
@@ -141,3 +148,5 @@ bool InstallPitchHook() {
     return true;
 }
 CVR_HOOK("CameraPitch", ::cvr::hooks::Stage::Boot, 30, InstallPitchHook);
+#endif
+#endif

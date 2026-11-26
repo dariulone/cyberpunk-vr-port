@@ -10,6 +10,8 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 int16_t g_VRBoneParent[2048];   // VRIK_MAX_BONES (include/Anim/VrikState.hpp)
 volatile int g_VRBoneCount = 0, g_VRRightBoneIdx = -1, g_VRLeftBoneIdx = -1, g_VRSmokeCigIdx = -1, g_VRSmokeLighterIdx = -1;
@@ -67,7 +69,7 @@ bool VRIK_ReferenceFingerRotation(int b, float* r) {
 bool VRIK_ReferenceLocal(int, float*, float*) { return false; }   // the harness buffer is the reference already
 int VRIK_LadderFingerBone(int side, int slot) { return (side < 0 || side > 1 || slot < 0 || slot >= 19) ? -1 : s_fingers[side][slot]; }
 
-#include "C:/Users/dariulone/Desktop/CyberpunkVRPort/src/Anim/GraspPose.cpp"
+#include "../../src/Anim/GraspPose.cpp"
 
 // ---------------------------------------------------------------- the scene
 
@@ -100,7 +102,9 @@ static float Map(const Scene& s, const float* p, int& what) {
         { float d = PalmDist(s.pm, p) - 0.002f; if (d < best) { best = d; what = 2; } }
     }
     float l[3]; ToFrame(s.obj, p, l);
-    { float d = s.rq.lathe.knots >= 2 ? LatheSdf(s.rq.lathe, l) : Sdf(s.rq.shape, s.rq.half, l); if (d < best) { best = d; what = 3; } }
+    // a cooked mesh's own surface when the fitter gave one (tools/grip_generator/pose_batch.cpp)
+    { float d = g_graspSurfaceDistance ? g_graspSurfaceDistance(l, g_graspSurfaceContext) :
+                s.rq.lathe.knots >= 2 ? LatheSdf(s.rq.lathe, l) : Sdf(s.rq.shape, s.rq.half, l); if (d < best) { best = d; what = 3; } }
     for (const Capsule& c : s.context) { float d = SegDist(p, c); if (d < best) { best = d; what = 4; } }
     return best;
 }
@@ -311,14 +315,26 @@ int main(int argc, char** argv) {
         float partZ = 0.0f;
         if (shape == 5) {
             // a bottle's hull: rings of 16 points -- the base, the body's top, the shoulder, the neck's foot, the mouth
-            const float R = c.half[0], r = c.half[1], L = c.half[2];
-            const float rings[6][2] = {{-L, R * 0.96f}, {-L + 0.01f, R}, {L * 0.15f, R}, {L * 0.42f, R * 0.72f}, {L * 0.55f, r * 1.05f}, {L, r * 1.12f}};
+            float R = c.half[0], r = c.half[1], L = c.half[2];
             std::vector<float> pts;
-            for (const auto& g : rings)
+            const auto ring=[&](float z,float radius) {
                 for (int k = 0; k < 16; ++k) {
                     const float a = 6.2831853f * k / 16.0f;
-                    pts.push_back(g[1] * std::cos(a)); pts.push_back(g[1] * std::sin(a)); pts.push_back(g[0]);
+                    pts.push_back(radius * std::cos(a)); pts.push_back(radius * std::sin(a)); pts.push_back(z);
                 }
+            };
+            const char* profilePath=std::getenv("GRASP_PROFILE");
+            if(profilePath) {
+                std::ifstream input(profilePath);nlohmann::json doc;input>>doc;
+                const auto& profile=doc.at("round_profile");const auto& radii=profile.at("radii");
+                if(radii.size()!=16)throw std::runtime_error("GRASP_PROFILE needs sixteen radial slices");
+                L=.5f*(profile.at("high").get<float>()-profile.at("low").get<float>());R=0;
+                for(int k=0;k<16;++k){const float radius=radii.at(k).get<float>();R=std::max(R,radius);ring(-L+(2*L/16)*(k+.5f),radius);}
+                std::printf("%s: cooked-mesh radial profile %s\n",c.name.c_str(),profilePath);
+            } else {
+                const float rings[6][2] = {{-L, R * 0.96f}, {-L + 0.01f, R}, {L * 0.15f, R}, {L * 0.42f, R * 0.72f}, {L * 0.55f, r * 1.05f}, {L, r * 1.12f}};
+                for(const auto& g:rings)ring(g[0],g[1]);
+            }
             const char* gz = std::getenv("GRASP_Z");
             const float zg = gz ? (float)std::atof(gz) : 0.0f;
             // the bottle's middle: its point zg under the grab point
@@ -338,9 +354,10 @@ int main(int argc, char** argv) {
                 if (!std::getenv("GRASP_NOLATHE")) lathe = gp.lathe;
                 for (int k = 0; k < 3; ++k) at[k] += zAx[k] * gp.z;
                 std::printf("%s: the %s, z %.3f half %.3f radius %.3f, ends %d (palm at z %.3f)\n", c.name.c_str(),
-                            gp.neck ? "neck" : "body", gp.z, gp.half, gp.radius, gp.ends, hand[2]);
+                            gp.stem ? "stem" : gp.neck ? "neck" : "body", gp.z, gp.half, gp.radius, gp.ends, hand[2]);
             } else {
                 shape = 2; half[0] = half[1] = R; half[2] = L;
+                if(profilePath&&!std::getenv("GRASP_NOLATHE"))lathe=gp.lathe;
                 std::printf("%s: no neck found, the whole\n", c.name.c_str());
             }
             whole.push_back({{0.0f, 0.0f, -L + R}, {0.0f, 0.0f, L * 0.15f}, R});
@@ -429,8 +446,7 @@ int main(int argc, char** argv) {
         const int hand = c.side ? g_VRRightBoneIdx : g_VRLeftBoneIdx;
         Scene sc;
         sc.pm = S.pm; sc.rq = S.req; sc.obj = Compose(S.pm.slot, S.req.obj);
-        int axis;
-        const Kind kind = person ? static_cast<Kind>(S.req.force) : Seated(shape, half, Compose(S.pm.slot, S.req.obj), S.pm, axis, part);
+        const Kind kind = static_cast<Kind>(CyberpunkVR_DebugGraspAngles[c.side][0]);
         const bool fixed = c.name == "p_live_fixed";
         if (regress) {
             for (int s = 0; s < kSlots; ++s)

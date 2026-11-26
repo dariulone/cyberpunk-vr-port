@@ -6,6 +6,7 @@ local ordinary=require('ordinary_melee')
 M.state={ticks=0}
 local cachedId, cachedKind, hands = nil, 0, {}
 local cachedOrdinary=false
+local classified=false
 local previousStamp,realClock=nil,0
 local function sub(a,b) return {x=a.x-b.x,y=a.y-b.y,z=a.z-b.z} end
 local function length(v) return math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z) end
@@ -24,14 +25,29 @@ local function relative(points,origin)
 end
 local function fresh(now) return {history={},soundHistory={},armed=false,mute=now+tuning.equipMute,lastWhoosh=-10,episode=false} end
 
+-- Visual/holster queries can refer to a different weapon in a dual-wield
+-- frame. Only the combat update owns the tracking history.
+function M.peekKind(weapon,player)
+    if not weapon or not player or not player.VRCyberwareKind then return 0 end
+    if tostring(weapon:GetEntityID().hash)==cachedId then return cachedKind end
+    return player:VRCyberwareKind(weapon)
+end
 function M.kind(weapon,player)
     local id=weapon and tostring(weapon:GetEntityID().hash) or ''
     if id~=cachedId then
         if cachedKind==3 and player and player.VRCyberwareWireEffect then player:VRCyberwareWireEffect(nil,false) end
         cachedId,cachedKind,hands=id,0,{}
-        previousStamp=nil;cachedOrdinary=false;ordinary.reset()
-        if weapon and player and player.VRCyberwareKind then cachedKind=player:VRCyberwareKind(weapon) end
-        if weapon and cachedKind==0 then cachedOrdinary=WeaponObject.IsMelee(weapon:GetItemID()) end
+        previousStamp=nil;cachedOrdinary=false;classified=false;ordinary.reset()
+    end
+    if not classified and weapon and player and player.VRCyberwareKind then
+        -- An entity can enter its slot before the equipment record is ready,
+        -- particularly during restore. Retry the same entity on the next tick.
+        if not weapon.VRPhysicalWeaponRecordReady or weapon:VRPhysicalWeaponRecordReady() then
+            cachedKind=player:VRCyberwareKind(weapon)
+            cachedOrdinary=cachedKind==0 and (WeaponObject.IsMelee(weapon:GetItemID()) or
+                (weapon.VRBladeKind and weapon:VRBladeKind()>0)) or false
+            classified=true
+        end
     end
     M.state.kind=cachedKind;M.state.weapon=cachedId
     M.state.ordinary=cachedOrdinary
@@ -69,7 +85,7 @@ function M.update(dt,player,weapon,kind,now,supplied,ordinaryLever)
     local soundThreshold=kind==1 and tuning.gorillaWhooshSpeed or tuning.whooshSpeed
     M.state.ticks=M.state.ticks+1;M.state.phase='input'
     if kind==4 then M.state.phase='launcher';return end
-    if not player.VRCyberwareBeginSwing then M.state.phase='missing script helper';return end
+    if not player.VRCyberwareContacts then M.state.phase='missing script helper';return end
     if not dt or dt<=0 or dt>.1 or Game.GetSystemRequestsHandler():IsGamePaused() then hands={};return end
     local data=supplied or Game.VRCyberwareFrame()
     M.state.frameSize=data and #data or -1
@@ -99,12 +115,13 @@ function M.update(dt,player,weapon,kind,now,supplied,ordinaryLever)
             local control,rotation=data[tracking+side],data[tracking+2+side]
             local teleport=s.origin and length(sub(origin,s.origin))>.6
             if s.trackOrigin and s.trackOrigin~=control.w then teleport=true end
-            if s.control and length(sub(control,s.control))>tuning.teleport then teleport=true end
+            if s.time and now-s.time>.1 then teleport=true end
+            if s.control and length(sub(control,s.control))>math.max(tuning.teleport,(now-s.time)*20) then teleport=true end
             local instantSpeed,fastestDir=0,{x=0,y=0,z=0}
             if s.rel and #s.rel==count then
                 for i=1,count do
                     local move=sub(rel[i],s.rel[i]);local distance=length(move)
-                    if kind~=3 and distance>.65 then teleport=true end
+                    if kind~=3 and distance>math.max(.65,(now-s.time)*25) then teleport=true end
                     local speed=distance/math.max(now-s.time,.001)
                     if speed>instantSpeed then instantSpeed,fastestDir=speed,move end
                 end
@@ -136,16 +153,18 @@ function M.update(dt,player,weapon,kind,now,supplied,ordinaryLever)
             -- 100ms average. Admit the current tracked sweep immediately;
             -- its geometry includes both ends of that same sample interval.
             if instantSpeed>speed then speed,velocity=instantSpeed,fastestDir end
-            -- Sound uses the same 90ms window / 40ms minimum as ordinary
-            -- melee, and only physical controller motion. A falling or
-            -- oscillating wire tip must never manufacture a whoosh.
+            -- Measure the solved item over the audio window. Require tracked
+            -- motion too, so passive wire oscillation stays silent.
             local sound=s.soundHistory
-            sound[#sound+1]={time=now,control=control,rotation=rotation}
+            sound[#sound+1]=s.history[#s.history]
             while sound[1] and now-sound[1].time>tuning.window do table.remove(sound,1) end
             local soundSpeed=0
-            if sound[1] and now-sound[1].time>=tuning.minSpan then
-                local span=now-sound[1].time
-                soundSpeed=math.max(length(sub(control,sound[1].control)),angle(rotation,sound[1].rotation)*lever)/span
+            local oldest=sound[1]
+            if oldest and #oldest.points==count and now-oldest.time>=tuning.minSpan then
+                local tracked=math.max(length(sub(control,oldest.control)),angle(rotation,oldest.rotation)*lever)
+                local solved=0
+                for i=1,count do solved=math.max(solved,length(sub(rel[i],oldest.points[i]))) end
+                soundSpeed=math.min(instantSpeed,math.min(tracked,solved)/(now-oldest.time))
             end
             M.state[side==0 and 'leftSwingSpeed' or 'rightSwingSpeed']=speed
             M.state[side==0 and 'leftSoundSpeed' or 'rightSoundSpeed']=soundSpeed
@@ -168,31 +187,24 @@ function M.update(dt,player,weapon,kind,now,supplied,ordinaryLever)
             if s.armed and speed>=threshold and now>=s.mute and now-(s.lastBegin or -10)>=.12 then
                 local trigger=Game.GetVRSharedSlot(side==0 and 154 or 160)
                 s.strong=trigger>.5
-                s.episode=player:VRCyberwareBeginSwing(weapon,side,s.strong,speed)
+                s.episode=true;s.beganOnHit=false;s.peak=speed
+                M.state.fullSwingStarts=(M.state.fullSwingStarts or 0)+1
                 s.lastBegin=now
                 if kind==3 and s.episode then s.wireLiveUntil=now+.45 end
                 s.armed=false;s.direction=velocity;s.whoosh=false
             end
-            if s.episode and player.VRCyberwareUpdateSwing then player:VRCyberwareUpdateSwing(weapon,side,speed) end
+            if s.episode then s.peak=math.max(s.peak,speed) end
             if s.episode and soundSpeed>=soundThreshold and not s.whoosh and now-s.lastWhoosh>=tuning.minGap then
                 player:VRMeleeWhoosh(weapon,soundSpeed>=tuning.fastSpeed,s.strong)
                 s.whoosh=true;s.lastWhoosh=now
                 M.state.whooshes=(M.state.whooshes or 0)+1
             end
             if s.points and #s.points==count then
-                if kind==3 then
-                    if now-(s.lastContactCheck or -10)>=.04 then
-                        local active=s.episode or now<(s.wireLiveUntil or -1)
-                        player:VRCyberwareContacts(weapon,side,points,s.contactPoints or s.points,.035,not(active and wireMotionSpeed>=threshold))
-                        s.lastContactCheck=now
-                        s.contactPoints=points
-                    end
-                elseif kind==0 then
-                    local direction=sub(points[2],points[1])
-                    player:VRMeleeBladeHit(weapon,points[1],Vector4.new(direction.x,direction.y,direction.z,0),.22,s.strong or false,not(s.episode and instantSpeed>=threshold))
-                else
-                    player:VRCyberwareContacts(weapon,side,points,s.points,kind==1 and .08 or .10,not(s.episode and instantSpeed>=threshold))
-                end
+                local active=s.episode and instantSpeed>=threshold
+                    or kind==3 and now<(s.wireLiveUntil or -1) and wireMotionSpeed>=threshold
+                local hit=player:VRCyberwareContacts(weapon,side,points,s.points,kind==3 and .035 or .08,
+                    not active,not s.beganOnHit,s.strong or false,s.peak or speed)
+                if hit and hit>0 then s.beganOnHit=true end
             end
             s.rel,s.points,s.origin,s.time=rel,points,origin,now
             s.control,s.rotation=control,rotation

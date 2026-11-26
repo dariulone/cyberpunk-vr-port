@@ -46,5 +46,5 @@ Items.VRPortGrenade:
   #     means nothing.
   placementSlots:
     - AttachmentSlots.VRPortBelt6
-    - AttachmentSlots.WeaponLeft
-    - AttachmentSlots.WeaponRight
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight

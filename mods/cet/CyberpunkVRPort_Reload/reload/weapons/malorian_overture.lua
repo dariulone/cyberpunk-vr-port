@@ -71,6 +71,7 @@ return {
     hatch = {
         which = 1, bone = 4,
         manual    = true,
+        closedRotation = { 0, 0, 0, 1 }, -- base1.rig: parent-local bind of magazine_open
         axis      = { 0, 0, 1 },
         angle     = 100.0,
         sign      = -1.0,
@@ -120,10 +121,6 @@ return {
         -- tangent's cross product gives; if it ever reads backwards in the headset this is the one number to flip.
         gain   = 1.0,
         detent = 60.0,          -- six chambers, so it clicks every sixth of a turn
-        -- ...and it turns with the cylinder SHUT as well as swung out. A real bolt locks a closed cylinder, but the
-        -- game does not model one and a hand laid on a cylinder expects it to turn, so the bolt is not worth the
-        -- gesture. The offset it accumulates stands until the gun is put away or reloaded.
-        whenShut = true,
 
         -- ...AND IT KEEPS GOING. Flick it and it free-wheels, slowing on a viscous term plus dry bearing friction.
         -- The pair was chosen by integrating it rather than by feel -- a firm 600 deg/s flick runs 3.3 s and two

@@ -1,0 +1,2380 @@
+[
+ {
+  "en": "EQUIPMENT",
+  "ru": "К СНАРЯЖЕНИЮ",
+  "where": [
+   "backpack_view.lua:115",
+   "inventory_view.lua:283",
+   "menu.lua:1367",
+   "wardrobe_view.lua:113"
+  ]
+ },
+ {
+  "en": "Junk: ",
+  "ru": "Мусор: ",
+  "where": [
+   "backpack_view.lua:120"
+  ]
+ },
+ {
+  "en": "No junk",
+  "ru": "Мусора нет",
+  "where": [
+   "backpack_view.lua:120"
+  ]
+ },
+ {
+  "en": "CONFIRM",
+  "ru": "ПОДТВЕРДИТЬ",
+  "where": [
+   "backpack_view.lua:121",
+   "backpack_view.lua:192",
+   "backpack_view.lua:195",
+   "backpack_view.lua:224",
+   "glamdoc_view.lua:91",
+   "inventory_view.lua:386",
+   "load_view.lua:63",
+   "gameplay.lua:LABELS.confirm"
+  ]
+ },
+ {
+  "en": "Items disassembled: ",
+  "ru": "Разобрано предметов: ",
+  "where": [
+   "backpack_view.lua:125"
+  ]
+ },
+ {
+  "en": "No items in this category",
+  "ru": "Нет предметов в этой категории",
+  "where": [
+   "backpack_view.lua:163",
+   "stash_view.lua:106",
+   "trade_view.lua:92"
+  ]
+ },
+ {
+  "en": "MAX",
+  "ru": "МАКС.",
+  "where": [
+   "backpack_view.lua:214",
+   "crafting_view.lua:104",
+   "stash_view.lua:118",
+   "summary_view.lua:51",
+   "trade_view.lua:181"
+  ]
+ },
+ {
+  "en": "Item dropped",
+  "ru": "Предмет выброшен",
+  "where": [
+   "backpack_view.lua:221",
+   "inventory_view.lua:382"
+  ]
+ },
+ {
+  "en": "Item disassembled",
+  "ru": "Предмет разобран",
+  "where": [
+   "backpack_view.lua:227",
+   "inventory_view.lua:389"
+  ]
+ },
+ {
+  "en": "The iconic weapon will be disassembled",
+  "ru": "Культовое оружие будет разобрано",
+  "where": [
+   "backpack_view.lua:229"
+  ]
+ },
+ {
+  "en": "Point at an item for its details; select it for actions",
+  "ru": "Наведите на предмет, чтобы увидеть подробности; выберите его для действий",
+  "where": [
+   "backpack_view.lua:230"
+  ]
+ },
+ {
+  "en": "Crafting",
+  "ru": "Создание",
+  "where": [
+   "crafting_view.lua:48"
+  ]
+ },
+ {
+  "en": "Upgrading",
+  "ru": "Улучшение",
+  "where": [
+   "crafting_view.lua:48"
+  ]
+ },
+ {
+  "en": "Crafted: ",
+  "ru": "Изготовлено: ",
+  "where": [
+   "crafting_view.lua:108"
+  ]
+ },
+ {
+  "en": "Not available right now",
+  "ru": "Сейчас недоступно",
+  "where": [
+   "crafting_view.lua:156",
+   "inventory_view.lua:70",
+   "menu.lua:TEXT.blocked"
+  ]
+ },
+ {
+  "en": "Upgraded: ",
+  "ru": "Улучшено: ",
+  "where": [
+   "crafting_view.lua:158"
+  ]
+ },
+ {
+  "en": "Nothing here yet",
+  "ru": "Здесь пока ничего нет",
+  "where": [
+   "crafting_view.lua:179",
+   "menu.lua:TEXT.empty"
+  ]
+ },
+ {
+  "en": "Select a recipe",
+  "ru": "Выберите чертёж",
+  "where": [
+   "crafting_view.lua:186"
+  ]
+ },
+ {
+  "en": "Select a weapon to upgrade",
+  "ru": "Выберите оружие для улучшения",
+  "where": [
+   "crafting_view.lua:186"
+  ]
+ },
+ {
+  "en": "CAPACITY",
+  "ru": "ЛИМИТ",
+  "where": [
+   "cyberware_view.lua:82",
+   "cyberware_view.lua:181"
+  ]
+ },
+ {
+  "en": "ARMOR",
+  "ru": "БРОНЯ",
+  "where": [
+   "cyberware_view.lua:82",
+   "cyberware_view.lua:97",
+   "summary_view.lua:20"
+  ]
+ },
+ {
+  "en": "CYBERWARE CAPACITY",
+  "ru": "ЛИМИТ ИМПЛАНТОВ",
+  "where": [
+   "cyberware_view.lua:97"
+  ]
+ },
+ {
+  "en": "Installed: ",
+  "ru": "Установлено: ",
+  "where": [
+   "cyberware_view.lua:102",
+   "glamdoc_view.lua:40"
+  ]
+ },
+ {
+  "en": "Base capacity: ",
+  "ru": "Базовый лимит: ",
+  "where": [
+   "cyberware_view.lua:103"
+  ]
+ },
+ {
+  "en": "Edgerunner: +",
+  "ru": "Настоящий киберпанк: +",
+  "where": [
+   "cyberware_view.lua:104"
+  ]
+ },
+ {
+  "en": "Capacity above the base limit: ",
+  "ru": "Превышение базового лимита: ",
+  "where": [
+   "cyberware_view.lua:105"
+  ]
+ },
+ {
+  "en": "Health reduction: -",
+  "ru": "Уменьшение запаса здоровья: -",
+  "where": [
+   "cyberware_view.lua:106"
+  ]
+ },
+ {
+  "en": "Fury chance: ",
+  "ru": "Вероятность ярости: ",
+  "where": [
+   "cyberware_view.lua:107"
+  ]
+ },
+ {
+  "en": "Armor determines your resistance to damage. Increase it with Skeleton and Integumentary System cyberware.",
+  "ru": "Броня определяет вашу устойчивость к урону. Её можно повысить имплантами категорий «Скелет» и «Кожа».",
+  "where": [
+   "cyberware_view.lua:110"
+  ]
+ },
+ {
+  "en": "Damage reduction at the armor cap for your level: ",
+  "ru": "Снижение урона при максимальной броне для вашего уровня: ",
+  "where": [
+   "cyberware_view.lua:111"
+  ]
+ },
+ {
+  "en": "Related perk: License to Chrome, rank 2.",
+  "ru": "Влияющая способность: Лицензия на хром, уровень 2.",
+  "where": [
+   "cyberware_view.lua:112"
+  ]
+ },
+ {
+  "en": "EDGERUNNER",
+  "ru": "НАСТОЯЩИЙ КИБЕРПАНК",
+  "where": [
+   "cyberware_view.lua:119"
+  ]
+ },
+ {
+  "en": "LICENSE TO CHROME — 2",
+  "ru": "ЛИЦЕНЗИЯ НА ХРОМ — 2",
+  "where": [
+   "cyberware_view.lua:119"
+  ]
+ },
+ {
+  "en": "Click the meter to open the perk tree",
+  "ru": "Нажмите на шкалу: дерево способностей",
+  "where": [
+   "cyberware_view.lua:120"
+  ]
+ },
+ {
+  "en": "CYBERWARE",
+  "ru": "КИБЕРИМПЛАНТЫ",
+  "where": [
+   "cyberware_view.lua:126",
+   "cyberware_view.lua:157",
+   "menu.lua:1367"
+  ]
+ },
+ {
+  "en": "UPGRADE — SELECT BONUSES",
+  "ru": "УЛУЧШЕНИЕ — ВЫБЕРИТЕ БОНУСЫ",
+  "where": [
+   "cyberware_view.lua:130"
+  ]
+ },
+ {
+  "en": "Components: ",
+  "ru": "Компоненты: ",
+  "where": [
+   "cyberware_view.lua:147"
+  ]
+ },
+ {
+  "en": "UPGRADE",
+  "ru": "УЛУЧШИТЬ",
+  "where": [
+   "cyberware_view.lua:148",
+   "cyberware_view.lua:194"
+  ]
+ },
+ {
+  "en": "Insufficient resources or requirements changed",
+  "ru": "Недостаточно ресурсов или изменились условия",
+  "where": [
+   "cyberware_view.lua:149"
+  ]
+ },
+ {
+  "en": "REQUIRES",
+  "ru": "ТРЕБУЕТСЯ",
+  "where": [
+   "cyberware_view.lua:181"
+  ]
+ },
+ {
+  "en": "Capacity shortfall: ",
+  "ru": "Не хватает лимита: ",
+  "where": [
+   "cyberware_view.lua:191"
+  ]
+ },
+ {
+  "en": "BUY AND INSTALL",
+  "ru": "КУПИТЬ И УСТАНОВИТЬ",
+  "where": [
+   "cyberware_view.lua:197"
+  ]
+ },
+ {
+  "en": "Visit a ripperdoc to install or upgrade cyberware.",
+  "ru": "Посетите рипера, чтобы установить или улучшить импланты.",
+  "where": [
+   "cyberware_view.lua:211"
+  ]
+ },
+ {
+  "en": "WEAPONS",
+  "ru": "ОРУЖИЕ",
+  "where": [
+   "inventory_view.lua:51"
+  ]
+ },
+ {
+  "en": "HEAD",
+  "ru": "ГОЛОВА",
+  "where": [
+   "inventory_view.lua:51"
+  ]
+ },
+ {
+  "en": "FACE",
+  "ru": "ЛИЦО",
+  "where": [
+   "inventory_view.lua:51"
+  ]
+ },
+ {
+  "en": "OUTER TORSO",
+  "ru": "ВЕРХНЯЯ ОДЕЖДА",
+  "where": [
+   "inventory_view.lua:52"
+  ]
+ },
+ {
+  "en": "INNER TORSO",
+  "ru": "НИЖНЯЯ ОДЕЖДА",
+  "where": [
+   "inventory_view.lua:52"
+  ]
+ },
+ {
+  "en": "LEGS",
+  "ru": "НОГИ",
+  "where": [
+   "inventory_view.lua:53"
+  ]
+ },
+ {
+  "en": "FEET",
+  "ru": "ОБУВЬ",
+  "where": [
+   "inventory_view.lua:53"
+  ]
+ },
+ {
+  "en": "OUTFIT",
+  "ru": "КОМПЛЕКТ ОДЕЖДЫ",
+  "where": [
+   "inventory_view.lua:53"
+  ]
+ },
+ {
+  "en": "INVENTORY",
+  "ru": "СНАРЯЖЕНИЕ",
+  "where": [
+   "inventory_view.lua:218"
+  ]
+ },
+ {
+  "en": "MODEL: ON",
+  "ru": "МОДЕЛЬ: ВКЛ",
+  "where": [
+   "inventory_view.lua:220"
+  ]
+ },
+ {
+  "en": "MODEL: OFF",
+  "ru": "МОДЕЛЬ: ВЫКЛ",
+  "where": [
+   "inventory_view.lua:220"
+  ]
+ },
+ {
+  "en": "Unable to save preference",
+  "ru": "Не удалось сохранить настройку",
+  "where": [
+   "inventory_view.lua:182",
+   "inventory_view.lua:222",
+   "inventory_view.lua:229"
+  ]
+ },
+ {
+  "en": "SLOT ",
+  "ru": "СЛОТ ",
+  "where": [
+   "inventory_view.lua:243"
+  ]
+ },
+ {
+  "en": "LEFT",
+  "ru": "ЛЕВАЯ",
+  "where": [
+   "inventory_view.lua:247"
+  ]
+ },
+ {
+  "en": "L",
+  "ru": "Л",
+  "where": [
+   "inventory_view.lua:248"
+  ]
+ },
+ {
+  "en": "Appearance is set by your wardrobe outfit",
+  "ru": "Внешний вид задан комплектом гардероба",
+  "where": [
+   "inventory_view.lua:278"
+  ]
+ },
+ {
+  "en": "REMOVE OUTFIT",
+  "ru": "СНЯТЬ КОМПЛЕКТ",
+  "where": [
+   "inventory_view.lua:279"
+  ]
+ },
+ {
+  "en": "LEFT HAND",
+  "ru": "ЛЕВАЯ РУКА",
+  "where": [
+   "inventory_view.lua:285"
+  ]
+ },
+ {
+  "en": "ATTACHMENTS AND MODS",
+  "ru": "НАСАДКИ И МОДИФИКАЦИИ",
+  "where": [
+   "inventory_view.lua:296"
+  ]
+ },
+ {
+  "en": "This weapon has no available attachment slots",
+  "ru": "У этого оружия нет доступных слотов",
+  "where": [
+   "inventory_view.lua:297"
+  ]
+ },
+ {
+  "en": "Mod",
+  "ru": "Модификация",
+  "where": [
+   "inventory_view.lua:302"
+  ]
+ },
+ {
+  "en": "Appearance: wardrobe outfit",
+  "ru": "Внешний вид: комплект гардероба",
+  "where": [
+   "inventory_view.lua:309"
+  ]
+ },
+ {
+  "en": "UNEQUIP",
+  "ru": "СНЯТЬ",
+  "where": [
+   "inventory_view.lua:312"
+  ]
+ },
+ {
+  "en": "REMOVE ATTACHMENT",
+  "ru": "СНЯТЬ НАСАДКУ",
+  "where": [
+   "inventory_view.lua:314"
+  ]
+ },
+ {
+  "en": "This installed mod cannot be removed",
+  "ru": "Установленный мод нельзя снять",
+  "where": [
+   "inventory_view.lua:315"
+  ]
+ },
+ {
+  "en": "ALL",
+  "ru": "ВСЁ",
+  "where": [
+   "backpack_view.lua:178",
+   "inventory_view.lua:320",
+   "trade_view.lua:70",
+   "trade_view.lua:153"
+  ]
+ },
+ {
+  "en": "RANGED",
+  "ru": "ОГНЕСТРЕЛ",
+  "where": [
+   "inventory_view.lua:320",
+   "trade_view.lua:70"
+  ]
+ },
+ {
+  "en": "MELEE",
+  "ru": "БЛИЖНИЙ БОЙ",
+  "where": [
+   "inventory_view.lua:320",
+   "trade_view.lua:70"
+  ]
+ },
+ {
+  "en": "Weapon mod",
+  "ru": "Модификация оружия",
+  "where": [
+   "inventory_view.lua:361"
+  ]
+ },
+ {
+  "en": "Katana",
+  "ru": "Катана",
+  "where": [
+   "inventory_view.lua:361"
+  ]
+ },
+ {
+  "en": "DPS: ",
+  "ru": "Урон в секунду: ",
+  "where": [
+   "inventory_view.lua:362"
+  ]
+ },
+ {
+  "en": "Ammo: ",
+  "ru": "Боеприпасы: ",
+  "where": [
+   "inventory_view.lua:362"
+  ]
+ },
+ {
+  "en": "INSTALL",
+  "ru": "УСТАНОВИТЬ",
+  "where": [
+   "inventory_view.lua:365"
+  ]
+ },
+ {
+  "en": "EQUIP",
+  "ru": "ЭКИПИРОВАТЬ",
+  "where": [
+   "inventory_view.lua:365"
+  ]
+ },
+ {
+  "en": "First equip slot ",
+  "ru": "Сначала возьмите в слот ",
+  "where": [
+   "inventory_view.lua:392"
+  ]
+ },
+ {
+  "en": " with a dual-wield gun",
+  "ru": " оружие для двух рук",
+  "where": [
+   "inventory_view.lua:392"
+  ]
+ },
+ {
+  "en": "No compatible items",
+  "ru": "Нет подходящих предметов",
+  "where": [
+   "inventory_view.lua:393"
+  ]
+ },
+ {
+  "en": "Select an item",
+  "ru": "Выберите предмет",
+  "where": [
+   "inventory_view.lua:393"
+  ]
+ },
+ {
+  "en": "km",
+  "ru": "км",
+  "where": [
+   "journal_view.lua:61"
+  ]
+ },
+ {
+  "en": "m",
+  "ru": "м",
+  "where": [
+   "journal_view.lua:61"
+  ]
+ },
+ {
+  "en": "SHARDS",
+  "ru": "ЧИПЫ",
+  "where": [
+   "journal_view.lua:96",
+   "journal_view.lua:254",
+   "reference_view.lua:442"
+  ]
+ },
+ {
+  "en": "DATABASE",
+  "ru": "БАЗА ДАННЫХ",
+  "where": [
+   "journal_view.lua:255",
+   "menu.lua:1373",
+   "gameplay.lua:LABELS.codex"
+  ]
+ },
+ {
+  "en": "New: ",
+  "ru": "Новые: ",
+  "where": [
+   "journal_view.lua:264"
+  ]
+ },
+ {
+  "en": "Encrypted",
+  "ru": "Зашифровано",
+  "where": [
+   "journal_view.lua:269"
+  ]
+ },
+ {
+  "en": "CRACK SHARD",
+  "ru": "ВЗЛОМАТЬ ЧИП",
+  "where": [
+   "journal_view.lua:283"
+  ]
+ },
+ {
+  "en": "[ No entry selected ]",
+  "ru": "[ Запись не выбрана ]",
+  "where": [
+   "journal_view.lua:287"
+  ]
+ },
+ {
+  "en": "#save",
+  "ru": "сохранение|сохранения|сохранений",
+  "where": [
+   "load_view.lua:10"
+  ],
+  "note": "plural: forms of \"save\" / \"saves\" after a number"
+ },
+ {
+  "en": "NOMAD",
+  "ru": "КОЧЕВНИК",
+  "where": [
+   "load_view.lua:17",
+   "summary_view.lua:43"
+  ]
+ },
+ {
+  "en": "CORPO",
+  "ru": "КОРПОРАТ",
+  "where": [
+   "load_view.lua:18",
+   "summary_view.lua:43"
+  ]
+ },
+ {
+  "en": "STREETKID",
+  "ru": "ДИТЯ УЛИЦ",
+  "where": [
+   "load_view.lua:19",
+   "summary_view.lua:43"
+  ]
+ },
+ {
+  "en": "PLAYTHROUGH",
+  "ru": "ПРОХОЖДЕНИЕ",
+  "where": [
+   "load_view.lua:20"
+  ]
+ },
+ {
+  "en": " h ",
+  "ru": " ч. ",
+  "where": [
+   "load_view.lua:24"
+  ]
+ },
+ {
+  "en": " min",
+  "ru": " мин.",
+  "where": [
+   "load_view.lua:24"
+  ]
+ },
+ {
+  "en": "MOD VERIFICATION",
+  "ru": "ПРОВЕРКА МОДИФИКАЦИЙ",
+  "where": [
+   "load_view.lua:52"
+  ]
+ },
+ {
+  "en": "LOAD THIS SAVE?",
+  "ru": "ЗАГРУЗИТЬ ЭТО СОХРАНЕНИЕ?",
+  "where": [
+   "load_view.lua:52"
+  ]
+ },
+ {
+  "en": "This save was created in a modified version of the game.\nLoading it may cause errors on this system.\nContinue?",
+  "ru": "Этот файл сохранения создан в модифицированной версии игры.\nЕго загрузка может привести к ошибкам в этой системе.\nПродолжить?",
+  "where": [
+   "load_view.lua:57"
+  ]
+ },
+ {
+  "en": "Unsaved progress will be lost.",
+  "ru": "Несохранённый прогресс будет потерян.",
+  "where": [
+   "load_view.lua:58"
+  ]
+ },
+ {
+  "en": "Checking save…",
+  "ru": "Проверка сохранения…",
+  "where": [
+   "load_view.lua:61"
+  ]
+ },
+ {
+  "en": "CANCEL",
+  "ru": "ОТМЕНА",
+  "where": [
+   "appearance_view.lua:46",
+   "glamdoc_view.lua:123",
+   "load_view.lua:68",
+   "gameplay.lua:LABELS.cancel"
+  ]
+ },
+ {
+  "en": "LOAD GAME",
+  "ru": "ЗАГРУЗИТЬ ИГРУ",
+  "where": [
+   "load_view.lua:73"
+  ]
+ },
+ {
+  "en": "REFRESH",
+  "ru": "ОБНОВИТЬ",
+  "where": [
+   "load_view.lua:74"
+  ]
+ },
+ {
+  "en": "MENU",
+  "ru": "МЕНЮ",
+  "where": [
+   "load_view.lua:75"
+  ]
+ },
+ {
+  "en": "Play time ",
+  "ru": "Время в игре ",
+  "where": [
+   "load_view.lua:90"
+  ]
+ },
+ {
+  "en": "Max level ",
+  "ru": "Макс. уровень ",
+  "where": [
+   "load_view.lua:90"
+  ]
+ },
+ {
+  "en": "Last saved",
+  "ru": "Последнее сохранение",
+  "where": [
+   "load_view.lua:91"
+  ]
+ },
+ {
+  "en": "Corrupted save",
+  "ru": "Повреждённое сохранение",
+  "where": [
+   "load_view.lua:103"
+  ]
+ },
+ {
+  "en": "Phantom Liberty required",
+  "ru": "Требуется Phantom Liberty",
+  "where": [
+   "load_view.lua:104"
+  ]
+ },
+ {
+  "en": "Version ",
+  "ru": "Версия ",
+  "where": [
+   "load_view.lua:107"
+  ]
+ },
+ {
+  "en": "Level ",
+  "ru": "Уровень ",
+  "where": [
+   "load_view.lua:109"
+  ]
+ },
+ {
+  "en": "Could not read saves. Select Refresh.",
+  "ru": "Не удалось прочитать сохранения. Нажмите «Обновить».",
+  "where": [
+   "load_view.lua:122"
+  ]
+ },
+ {
+  "en": "No saves found",
+  "ru": "Нет сохранений",
+  "where": [
+   "load_view.lua:122"
+  ]
+ },
+ {
+  "en": "#playthrough",
+  "ru": "прохождение|прохождения|прохождений",
+  "where": [
+   "load_view.lua:124"
+  ],
+  "note": "plural: forms of \"playthrough\" / \"playthroughs\" after a number"
+ },
+ {
+  "en": "Some data is missing. Select Refresh.",
+  "ru": "Не все данные получены. Нажмите «Обновить».",
+  "where": [
+   "load_view.lua:124"
+  ]
+ },
+ {
+  "en": "Saves changed. Select the save again.",
+  "ru": "Список сохранений изменился. Выберите сохранение снова.",
+  "where": [
+   "load_view.lua:137"
+  ]
+ },
+ {
+  "en": "Could not verify the save",
+  "ru": "Не удалось проверить сохранение",
+  "where": [
+   "load_view.lua:141"
+  ]
+ },
+ {
+  "en": "CHARACTER",
+  "ru": "ПЕРСОНАЖ",
+  "where": [
+   "menu.lua:1367",
+   "menu.lua:TEXT.character",
+   "gameplay.lua:LABELS.character"
+  ]
+ },
+ {
+  "en": "CRAFTING",
+  "ru": "СОЗДАНИЕ",
+  "where": [
+   "menu.lua:1368"
+  ]
+ },
+ {
+  "en": "TRADE",
+  "ru": "ТОРГОВЛЯ",
+  "where": [
+   "menu.lua:1369",
+   "trade_view.lua:59"
+  ]
+ },
+ {
+  "en": "STASH",
+  "ru": "ТАЙНИК",
+  "where": [
+   "menu.lua:1370"
+  ]
+ },
+ {
+  "en": "QUESTS",
+  "ru": "КВЕСТЫ",
+  "where": [
+   "menu.lua:1373"
+  ]
+ },
+ {
+  "en": "TAROT CARDS",
+  "ru": "КАРТЫ ТАРО",
+  "where": [
+   "menu.lua:1373",
+   "reference_view.lua:370"
+  ]
+ },
+ {
+  "en": "Purchase is still in progress",
+  "ru": "Покупка ещё выполняется",
+  "where": [
+   "menu.lua:1615"
+  ]
+ },
+ {
+  "en": "SKILL PROGRESSION",
+  "ru": "РАЗВИТИЕ НАВЫКОВ",
+  "where": [
+   "reference_view.lua:88",
+   "reference_view.lua:361"
+  ]
+ },
+ {
+  "en": "BACK",
+  "ru": "НАЗАД",
+  "where": [
+   "glamdoc_view.lua:90",
+   "reference_view.lua:89",
+   "gameplay.lua:LABELS.back"
+  ]
+ },
+ {
+  "en": "Point at a reward to read its effect",
+  "ru": "Наведите на награду, чтобы прочитать её эффект",
+  "where": [
+   "reference_view.lua:90"
+  ]
+ },
+ {
+  "en": "< TREE",
+  "ru": "< ВЕТКА",
+  "where": [
+   "reference_view.lua:177"
+  ]
+ },
+ {
+  "en": "ATTRIBUTES",
+  "ru": "ХАРАКТЕРИСТИКИ",
+  "where": [
+   "reference_view.lua:177",
+   "gameplay.lua:LABELS.closeDetails"
+  ]
+ },
+ {
+  "en": "UPGRADE +1",
+  "ru": "ПОВЫСИТЬ +1",
+  "where": [
+   "gameplay.lua:LABELS.upgrade"
+  ]
+ },
+ {
+  "en": "MASTER",
+  "ru": "МАСТЕР",
+  "where": [
+   "reference_view.lua:257"
+  ]
+ },
+ {
+  "en": "EXPERT",
+  "ru": "ЭКСПЕРТ",
+  "where": [
+   "reference_view.lua:257"
+  ]
+ },
+ {
+  "en": "PRO",
+  "ru": "ПРОФИ",
+  "where": [
+   "reference_view.lua:257"
+  ]
+ },
+ {
+  "en": "ROOKIE",
+  "ru": "НОВИЧОК",
+  "where": [
+   "reference_view.lua:257"
+  ]
+ },
+ {
+  "en": "CLICK TO OPEN THE PERK TREE",
+  "ru": "НАЖМИТЕ, ЧТОБЫ ОТКРЫТЬ ВЕТКУ",
+  "where": [
+   "reference_view.lua:326"
+  ]
+ },
+ {
+  "en": "COLLECTION",
+  "ru": "К КОЛЛЕКЦИИ",
+  "where": [
+   "reference_view.lua:372"
+  ]
+ },
+ {
+  "en": "COMPARE: ON",
+  "ru": "СРАВНЕНИЕ: ВКЛ",
+  "where": [
+   "reference_view.lua:402"
+  ]
+ },
+ {
+  "en": "COMPARE: OFF",
+  "ru": "СРАВНЕНИЕ: ВЫКЛ",
+  "where": [
+   "reference_view.lua:402"
+  ]
+ },
+ {
+  "en": "V'S STASH",
+  "ru": "ТАЙНИК ВИ",
+  "where": [
+   "stash_view.lua:71"
+  ]
+ },
+ {
+  "en": "Open your stash to transfer items.",
+  "ru": "Откройте тайник, чтобы перемещать предметы.",
+  "where": [
+   "stash_view.lua:72"
+  ]
+ },
+ {
+  "en": "V'S EQUIPMENT",
+  "ru": "СНАРЯЖЕНИЕ ВИ",
+  "where": [
+   "stash_view.lua:82"
+  ]
+ },
+ {
+  "en": "STORAGE",
+  "ru": "ХРАНИЛИЩЕ",
+  "where": [
+   "stash_view.lua:82"
+  ]
+ },
+ {
+  "en": "ALL ITEMS",
+  "ru": "ВСЕ ПРЕДМЕТЫ",
+  "where": [
+   "stash_view.lua:83"
+  ]
+ },
+ {
+  "en": "CONFIRM TRANSFER",
+  "ru": "ПОДТВЕРДИТЬ ПЕРЕНОС",
+  "where": [
+   "stash_view.lua:121"
+  ]
+ },
+ {
+  "en": "STORE →",
+  "ru": "ПОЛОЖИТЬ В ТАЙНИК →",
+  "where": [
+   "stash_view.lua:121"
+  ]
+ },
+ {
+  "en": "← TAKE",
+  "ru": "← ЗАБРАТЬ",
+  "where": [
+   "stash_view.lua:121"
+  ]
+ },
+ {
+  "en": "Transferring…",
+  "ru": "Перемещение…",
+  "where": [
+   "stash_view.lua:125"
+  ]
+ },
+ {
+  "en": "The equipped item will be unequipped",
+  "ru": "Экипированный предмет будет снят",
+  "where": [
+   "stash_view.lua:128"
+  ]
+ },
+ {
+  "en": "This item cannot be transferred right now",
+  "ru": "Этот предмет сейчас нельзя переместить",
+  "where": [
+   "stash_view.lua:129"
+  ]
+ },
+ {
+  "en": "Select an item to store or take",
+  "ru": "Выберите предмет, чтобы положить его в тайник или забрать",
+  "where": [
+   "stash_view.lua:130"
+  ]
+ },
+ {
+  "en": "Item transferred",
+  "ru": "Предмет перемещён",
+  "where": [
+   "stash_view.lua:164"
+  ]
+ },
+ {
+  "en": "Transfer did not complete",
+  "ru": "Перенос не выполнен",
+  "where": [
+   "stash_view.lua:165"
+  ]
+ },
+ {
+  "en": "DAMAGE PER SECOND",
+  "ru": "УРОН В СЕКУНДУ",
+  "where": [
+   "summary_view.lua:19"
+  ]
+ },
+ {
+  "en": "HEALTH",
+  "ru": "ЗДОРОВЬЕ",
+  "where": [
+   "summary_view.lua:20"
+  ]
+ },
+ {
+  "en": "OTHER",
+  "ru": "ДРУГОЕ",
+  "where": [
+   "summary_view.lua:29",
+   "trade_view.lua:70"
+  ]
+ },
+ {
+  "en": "LEVEL",
+  "ru": "УРОВЕНЬ",
+  "where": [
+   "summary_view.lua:48"
+  ]
+ },
+ {
+  "en": "STREET CRED",
+  "ru": "РЕПУТАЦИЯ",
+  "where": [
+   "summary_view.lua:48"
+  ]
+ },
+ {
+  "en": "BLUEPRINT",
+  "ru": "ЧЕРТЁЖ",
+  "where": [
+   "trade_view.lua:20"
+  ]
+ },
+ {
+  "en": "Open a shop with a vendor to trade.",
+  "ru": "Откройте магазин у продавца, чтобы торговать.",
+  "where": [
+   "trade_view.lua:60"
+  ]
+ },
+ {
+  "en": "CLOTHING",
+  "ru": "ОДЕЖДА",
+  "where": [
+   "trade_view.lua:70"
+  ]
+ },
+ {
+  "en": "MODS",
+  "ru": "МОДИФИКАЦИИ",
+  "where": [
+   "trade_view.lua:70"
+  ]
+ },
+ {
+  "en": "CONSUMABLES",
+  "ru": "РАСХОДНИКИ",
+  "where": [
+   "trade_view.lua:70"
+  ]
+ },
+ {
+  "en": "YOUR ITEMS",
+  "ru": "ВАШИ ПРЕДМЕТЫ",
+  "where": [
+   "trade_view.lua:80"
+  ]
+ },
+ {
+  "en": "VENDOR",
+  "ru": "ПРОДАВЕЦ",
+  "where": [
+   "trade_view.lua:81"
+  ]
+ },
+ {
+  "en": "No matching items",
+  "ru": "Нет подходящих предметов",
+  "where": [
+   "trade_view.lua:92"
+  ]
+ },
+ {
+  "en": "BUYBACK",
+  "ru": "ВЫКУП",
+  "where": [
+   "trade_view.lua:106"
+  ]
+ },
+ {
+  "en": "BLUEPRINT · ",
+  "ru": "ЧЕРТЁЖ · ",
+  "where": [
+   "trade_view.lua:174"
+  ]
+ },
+ {
+  "en": "SELL",
+  "ru": "ПРОДАТЬ",
+  "where": [
+   "trade_view.lua:183-184"
+  ]
+ },
+ {
+  "en": "BUY BACK",
+  "ru": "ВЫКУПИТЬ",
+  "where": [
+   "trade_view.lua:183-184"
+  ]
+ },
+ {
+  "en": "BUY",
+  "ru": "КУПИТЬ",
+  "where": [
+   "glamdoc_view.lua:79",
+   "trade_view.lua:183-184"
+  ]
+ },
+ {
+  "en": "Applying…",
+  "ru": "Применение…",
+  "where": [
+   "trade_view.lua:190",
+   "gameplay.lua:LABELS.pending"
+  ]
+ },
+ {
+  "en": "Selling an iconic or equipped item",
+  "ru": "Будет продан культовый или экипированный предмет",
+  "where": [
+   "trade_view.lua:193"
+  ]
+ },
+ {
+  "en": "This item cannot be sold",
+  "ru": "Этот предмет нельзя продать",
+  "where": [
+   "trade_view.lua:194"
+  ]
+ },
+ {
+  "en": "Insufficient funds, stock or requirements",
+  "ru": "Недостаточно денег, запаса или не выполнены требования",
+  "where": [
+   "trade_view.lua:194"
+  ]
+ },
+ {
+  "en": "Select an item to buy or sell",
+  "ru": "Выберите предмет для покупки или продажи",
+  "where": [
+   "trade_view.lua:195"
+  ]
+ },
+ {
+  "en": "WAIT",
+  "ru": "ОЖИДАНИЕ",
+  "where": [
+   "wait_view.lua:8",
+   "gameplay.lua:LABELS.timeskip"
+  ]
+ },
+ {
+  "en": "NOW",
+  "ru": "СЕЙЧАС",
+  "where": [
+   "wait_view.lua:38"
+  ]
+ },
+ {
+  "en": "AFTER WAITING",
+  "ru": "ПОСЛЕ ОЖИДАНИЯ",
+  "where": [
+   "wait_view.lua:39"
+  ]
+ },
+ {
+  "en": " h",
+  "ru": " ч.",
+  "where": [
+   "wait_view.lua:50"
+  ]
+ },
+ {
+  "en": "Morning",
+  "ru": "Утро",
+  "where": [
+   "wait_view.lua:51"
+  ]
+ },
+ {
+  "en": "Day",
+  "ru": "День",
+  "where": [
+   "wait_view.lua:51"
+  ]
+ },
+ {
+  "en": "Evening",
+  "ru": "Вечер",
+  "where": [
+   "wait_view.lua:51"
+  ]
+ },
+ {
+  "en": "Night",
+  "ru": "Ночь",
+  "where": [
+   "wait_view.lua:51"
+  ]
+ },
+ {
+  "en": "CONTACTS",
+  "ru": "КОНТАКТЫ",
+  "where": [
+   "menu.lua:TEXT.contacts",
+   "menu.lua:TEXT.contactsTab"
+  ]
+ },
+ {
+  "en": "VEHICLES",
+  "ru": "ТРАНСПОРТ",
+  "where": [
+   "menu.lua:TEXT.vehicles"
+  ]
+ },
+ {
+  "en": "RADIO",
+  "ru": "РАДИО",
+  "where": [
+   "menu.lua:TEXT.radio"
+  ]
+ },
+ {
+  "en": "VR SETTINGS",
+  "ru": "НАСТРОЙКИ VR",
+  "where": [
+   "menu.lua:TEXT.settings"
+  ]
+ },
+ {
+  "en": "CALL",
+  "ru": "ПОЗВОНИТЬ",
+  "where": [
+   "menu.lua:TEXT.call"
+  ]
+ },
+ {
+  "en": "MESSAGES",
+  "ru": "СООБЩЕНИЯ",
+  "where": [
+   "menu.lua:TEXT.messages",
+   "menu.lua:TEXT.messagesTab"
+  ]
+ },
+ {
+  "en": "ON",
+  "ru": "ВКЛ",
+  "where": [
+   "menu.lua:TEXT.on"
+  ]
+ },
+ {
+  "en": "OFF",
+  "ru": "ВЫКЛ",
+  "where": [
+   "menu.lua:TEXT.off"
+  ]
+ },
+ {
+  "en": "VOLUME",
+  "ru": "ГРОМКОСТЬ",
+  "where": [
+   "menu.lua:TEXT.volume"
+  ]
+ },
+ {
+  "en": "NOW PLAYING",
+  "ru": "СЕЙЧАС ИГРАЕТ",
+  "where": [
+   "menu.lua:TEXT.playing"
+  ]
+ },
+ {
+  "en": "Calling…",
+  "ru": "Вызов…",
+  "where": [
+   "menu.lua:TEXT.calling"
+  ]
+ },
+ {
+  "en": "On its way",
+  "ru": "Уже едет",
+  "where": [
+   "menu.lua:TEXT.summoned"
+  ]
+ },
+ {
+  "en": "You are driving already",
+  "ru": "Вы уже за рулём",
+  "where": [
+   "menu.lua:TEXT.mounted"
+  ]
+ },
+ {
+  "en": "Being repaired",
+  "ru": "В ремонте",
+  "where": [
+   "menu.lua:TEXT.repair"
+  ]
+ },
+ {
+  "en": "No messages",
+  "ru": "Нет сообщений",
+  "where": [
+   "menu.lua:TEXT.noMessages"
+  ]
+ },
+ {
+  "en": "GAME",
+  "ru": "ИГРА",
+  "where": [
+   "menu.lua:TEXT.game"
+  ]
+ },
+ {
+  "en": "Save Game",
+  "ru": "Сохранить игру",
+  "where": [
+   "menu.lua:TEXT.save"
+  ]
+ },
+ {
+  "en": "Load Game",
+  "ru": "Загрузить игру",
+  "where": [
+   "menu.lua:TEXT.load"
+  ]
+ },
+ {
+  "en": "Settings",
+  "ru": "Настройки",
+  "where": [
+   "menu.lua:TEXT.options"
+  ]
+ },
+ {
+  "en": "Credits",
+  "ru": "Титры",
+  "where": [
+   "menu.lua:TEXT.credits"
+  ]
+ },
+ {
+  "en": "All messages",
+  "ru": "Все сообщения",
+  "where": [
+   "menu.lua:TEXT.allMessages"
+  ]
+ },
+ {
+  "en": "Show read",
+  "ru": "Показать прочитанные",
+  "where": [
+   "menu.lua:TEXT.showRead"
+  ]
+ },
+ {
+  "en": "Hide read",
+  "ru": "Скрыть прочитанные",
+  "where": [
+   "menu.lua:TEXT.hideRead"
+  ]
+ },
+ {
+  "en": "CALL VEHICLE",
+  "ru": "ВЫЗВАТЬ",
+  "where": [
+   "menu.lua:TEXT.summon"
+  ]
+ },
+ {
+  "en": "Ready",
+  "ru": "Готов",
+  "where": [
+   "menu.lua:TEXT.ready"
+  ]
+ },
+ {
+  "en": "Exit to Main Menu",
+  "ru": "Выйти в главное меню",
+  "where": [
+   "menu.lua:TEXT.exit"
+  ]
+ },
+ {
+  "en": "Press again: main menu",
+  "ru": "Ещё раз — в главное меню",
+  "where": [
+   "menu.lua:TEXT.confirmExit"
+  ]
+ },
+ {
+  "en": "Exit Game",
+  "ru": "Выйти из игры",
+  "where": [
+   "menu.lua:TEXT.quit"
+  ]
+ },
+ {
+  "en": "Press again: quit the game",
+  "ru": "Ещё раз — выход из игры",
+  "where": [
+   "menu.lua:TEXT.confirmQuit"
+  ]
+ },
+ {
+  "en": "The game menu is not ready yet",
+  "ru": "Меню игры ещё не готово",
+  "where": [
+   "menu.lua:TEXT.noMenu"
+  ]
+ },
+ {
+  "en": "Point at a setting to read what it does",
+  "ru": "Наведите на параметр — здесь будет подсказка",
+  "where": [
+   "menu.lua:TEXT.hint"
+  ]
+ },
+ {
+  "en": "Reading the settings…",
+  "ru": "Чтение настроек…",
+  "where": [
+   "menu.lua:TEXT.loading"
+  ]
+ },
+ {
+  "en": "JOURNAL",
+  "ru": "ЖУРНАЛ",
+  "where": [
+   "gameplay.lua:LABELS.journal"
+  ]
+ },
+ {
+  "en": "Attributes",
+  "ru": "Характеристики",
+  "where": [
+   "gameplay.lua:LABELS.attributes"
+  ]
+ },
+ {
+  "en": "Perks",
+  "ru": "Способности",
+  "where": [
+   "gameplay.lua:LABELS.perks"
+  ]
+ },
+ {
+  "en": "Skills",
+  "ru": "Навыки",
+  "where": [
+   "gameplay.lua:LABELS.skills"
+  ]
+ },
+ {
+  "en": "Level",
+  "ru": "Уровень",
+  "where": [
+   "gameplay.lua:LABELS.level"
+  ]
+ },
+ {
+  "en": "Attribute points",
+  "ru": "Очки характеристик",
+  "where": [
+   "gameplay.lua:LABELS.points"
+  ]
+ },
+ {
+  "en": "Perk points",
+  "ru": "Очки способностей",
+  "where": [
+   "gameplay.lua:LABELS.perkPoints"
+  ]
+ },
+ {
+  "en": "Relic",
+  "ru": "Биочип",
+  "where": [
+   "gameplay.lua:LABELS.relic"
+  ]
+ },
+ {
+  "en": "LEARN",
+  "ru": "ИЗУЧИТЬ",
+  "where": [
+   "gameplay.lua:LABELS.buy"
+  ]
+ },
+ {
+  "en": "REFUND",
+  "ru": "ВЕРНУТЬ ОЧКИ",
+  "where": [
+   "gameplay.lua:LABELS.refund"
+  ]
+ },
+ {
+  "en": "Requires",
+  "ru": "Требуется",
+  "where": [
+   "gameplay.lua:LABELS.requires"
+  ]
+ },
+ {
+  "en": "Cost",
+  "ru": "Стоимость",
+  "where": [
+   "gameplay.lua:LABELS.cost"
+  ]
+ },
+ {
+  "en": "Active",
+  "ru": "Активные",
+  "where": [
+   "gameplay.lua:LABELS.active"
+  ]
+ },
+ {
+  "en": "Completed",
+  "ru": "Завершённые",
+  "where": [
+   "gameplay.lua:LABELS.completed"
+  ]
+ },
+ {
+  "en": "Failed",
+  "ru": "Проваленные",
+  "where": [
+   "gameplay.lua:LABELS.failed"
+  ]
+ },
+ {
+  "en": "All",
+  "ru": "Все",
+  "where": [
+   "gameplay.lua:LABELS.all"
+  ]
+ },
+ {
+  "en": "TRACK OBJECTIVE",
+  "ru": "ОТСЛЕЖИВАТЬ ЦЕЛЬ",
+  "where": [
+   "gameplay.lua:LABELS.track"
+  ]
+ },
+ {
+  "en": "Tracked",
+  "ru": "Отслеживается",
+  "where": [
+   "gameplay.lua:LABELS.tracked"
+  ]
+ },
+ {
+  "en": "Optional",
+  "ru": "Необязательно",
+  "where": [
+   "gameplay.lua:LABELS.optional"
+  ]
+ },
+ {
+  "en": "Select an entry",
+  "ru": "Выберите запись",
+  "where": [
+   "gameplay.lua:LABELS.choose"
+  ]
+ },
+ {
+  "en": "No entries",
+  "ru": "Нет записей",
+  "where": [
+   "gameplay.lua:LABELS.empty"
+  ]
+ },
+ {
+  "en": "Unable to read game data",
+  "ru": "Не удалось прочитать данные игры",
+  "where": [
+   "gameplay.lua:LABELS.readError"
+  ]
+ },
+ {
+  "en": "RETRY",
+  "ru": "ПОВТОРИТЬ",
+  "where": [
+   "gameplay.lua:LABELS.retry"
+  ]
+ },
+ {
+  "en": "SKIP",
+  "ru": "ПОДОЖДАТЬ",
+  "where": [
+   "gameplay.lua:LABELS.skip"
+  ]
+ },
+ {
+  "en": "hours",
+  "ru": "ч.",
+  "where": [
+   "gameplay.lua:LABELS.hours"
+  ]
+ },
+ {
+  "en": "Now",
+  "ru": "Сейчас",
+  "where": [
+   "gameplay.lua:LABELS.now"
+  ]
+ },
+ {
+  "en": "After skipping",
+  "ru": "После ожидания",
+  "where": [
+   "gameplay.lua:LABELS.target"
+  ]
+ },
+ {
+  "en": "Next day",
+  "ru": "Следующий день",
+  "where": [
+   "gameplay.lua:LABELS.tomorrow"
+  ]
+ },
+ {
+  "en": "Unavailable right now",
+  "ru": "Сейчас недоступно",
+  "where": [
+   "gameplay.lua:LABELS.blocked"
+  ]
+ },
+ {
+  "en": "Done",
+  "ru": "Готово",
+  "where": [
+   "gameplay.lua:LABELS.done"
+  ]
+ },
+ {
+  "en": "Characters",
+  "ru": "Персонажи",
+  "where": [
+   "gameplay.lua:LABELS.characters"
+  ]
+ },
+ {
+  "en": "Locations",
+  "ru": "Места",
+  "where": [
+   "gameplay.lua:LABELS.locations"
+  ]
+ },
+ {
+  "en": "World",
+  "ru": "Мир",
+  "where": [
+   "gameplay.lua:LABELS.lore"
+  ]
+ },
+ {
+  "en": "RESET FILTER",
+  "ru": "СБРОСИТЬ ФИЛЬТР",
+  "where": [
+   "gameplay.lua:LABELS.reset"
+  ]
+ },
+ {
+  "en": "XP",
+  "ru": "Опыт",
+  "where": [
+   "gameplay.lua:LABELS.xp"
+  ]
+ },
+ {
+  "en": "Spend points?",
+  "ru": "Потратить очки?",
+  "where": [
+   "gameplay.lua:LABELS.spend"
+  ]
+ },
+ {
+  "en": "YES",
+  "ru": "ДА",
+  "where": [
+   "gameplay.lua:LABELS.yes"
+  ]
+ },
+ {
+  "en": "Spend 1 attribute point?",
+  "ru": "Потратить 1 очко характеристики?",
+  "where": [
+   "gameplay.lua:LABELS.upgradeQuestion"
+  ]
+ },
+ {
+  "en": "Future +1 clicks spend points immediately.",
+  "ru": "В дальнейшем нажатие +1 сразу потратит очко.",
+  "where": [
+   "gameplay.lua:LABELS.upgradeHint"
+  ]
+ },
+ {
+  "en": "Abilities",
+  "ru": "Способности",
+  "where": [
+   "gameplay.lua:LABELS.ability"
+  ]
+ },
+ {
+  "en": "GENERAL",
+  "ru": "ОБЩИЕ",
+  "where": [
+   "settings_data.lua:PAGES"
+  ],
+  "note": "settings tab: keep it short, about 12 letters at most"
+ },
+ {
+  "en": "FRAMEGEN",
+  "ru": "ГЕН. КАДРОВ",
+  "where": [
+   "settings_data.lua:PAGES"
+  ],
+  "note": "settings tab: keep it short, about 12 letters at most"
+ },
+ {
+  "en": "HUD",
+  "ru": "HUD",
+  "where": [
+   "settings_data.lua:PAGES"
+  ],
+  "note": "settings tab: keep it short, about 12 letters at most"
+ },
+ {
+  "en": "CONTROLS",
+  "ru": "УПРАВЛЕНИЕ",
+  "where": [
+   "settings_data.lua:PAGES"
+  ],
+  "note": "settings tab: keep it short, about 12 letters at most"
+ },
+ {
+  "en": "STEREO",
+  "ru": "СТЕРЕО",
+  "where": [
+   "settings_data.lua:PAGES"
+  ],
+  "note": "settings tab: keep it short, about 12 letters at most"
+ },
+ {
+  "en": "AVATAR",
+  "ru": "АВАТАР",
+  "where": [
+   "settings_data.lua:PAGES"
+  ],
+  "note": "settings tab: keep it short, about 12 letters at most"
+ },
+ {
+  "en": "OVERLAY",
+  "ru": "ОВЕРЛЕЙ",
+  "where": [
+   "settings_data.lua:PAGES"
+  ],
+  "note": "settings tab: keep it short, about 12 letters at most"
+ },
+ {
+  "en": "AUTO",
+  "ru": "АВТО",
+  "where": [
+   "inventory_view.lua:17"
+  ]
+ },
+ {
+  "en": "NOT\nCARRIED",
+  "ru": "НЕ\nНОСИТЬ",
+  "where": [
+   "inventory_view.lua:17"
+  ]
+ },
+ {
+  "en": "RIGHT\nHIP",
+  "ru": "ПРАВОЕ\nБЕДРО",
+  "where": [
+   "inventory_view.lua:18"
+  ]
+ },
+ {
+  "en": "LEFT\nHIP",
+  "ru": "ЛЕВОЕ\nБЕДРО",
+  "where": [
+   "inventory_view.lua:18"
+  ]
+ },
+ {
+  "en": "RIGHT\nTHIGH",
+  "ru": "ПРАВАЯ\nНОГА",
+  "where": [
+   "inventory_view.lua:19"
+  ]
+ },
+ {
+  "en": "LEFT\nTHIGH",
+  "ru": "ЛЕВАЯ\nНОГА",
+  "where": [
+   "inventory_view.lua:19"
+  ]
+ },
+ {
+  "en": "UNDER\nLEFT ARM",
+  "ru": "ПОД ЛЕВОЙ\nРУКОЙ",
+  "where": [
+   "inventory_view.lua:20"
+  ]
+ },
+ {
+  "en": "UNDER\nRIGHT ARM",
+  "ru": "ПОД ПРАВОЙ\nРУКОЙ",
+  "where": [
+   "inventory_view.lua:20"
+  ]
+ },
+ {
+  "en": "LEFT\nCHEST",
+  "ru": "ГРУДЬ\nСЛЕВА",
+  "where": [
+   "inventory_view.lua:21"
+  ]
+ },
+ {
+  "en": "RIGHT\nCHEST",
+  "ru": "ГРУДЬ\nСПРАВА",
+  "where": [
+   "inventory_view.lua:21"
+  ]
+ },
+ {
+  "en": "RIGHT\nSHOULDER",
+  "ru": "ЗА ПРАВЫМ\nПЛЕЧОМ",
+  "where": [
+   "inventory_view.lua:22"
+  ]
+ },
+ {
+  "en": "LEFT\nSHOULDER",
+  "ru": "ЗА ЛЕВЫМ\nПЛЕЧОМ",
+  "where": [
+   "inventory_view.lua:22"
+  ]
+ },
+ {
+  "en": "LOWER\nBACK",
+  "ru": "ПОЯСНИЦА",
+  "where": [
+   "inventory_view.lua:23"
+  ]
+ },
+ {
+  "en": "HOLSTERS: HIDDEN",
+  "ru": "ХОЛСТЕРЫ: СКРЫТЫ",
+  "where": [
+   "inventory_view.lua:227"
+  ]
+ },
+ {
+  "en": "HOLSTERS: SHOWN",
+  "ru": "ХОЛСТЕРЫ: ВИДНЫ",
+  "where": [
+   "inventory_view.lua:227"
+  ]
+ },
+ {
+  "en": "The previous mod will be destroyed",
+  "ru": "Предыдущий мод будет уничтожен",
+  "where": [
+   "inventory_view.lua:366"
+  ]
+ },
+ {
+  "en": "Dual wielding: both guns hang on the hips",
+  "ru": "Две пушки висят на бёдрах",
+  "where": [
+   "inventory_view.lua:153"
+  ]
+ },
+ {
+  "en": "APPEARANCE",
+  "ru": "ВНЕШНОСТЬ",
+  "where": [
+   "appearance_view.lua:14"
+  ]
+ },
+ {
+  "en": "Changes are shown in the mirror",
+  "ru": "Изменения видны в зеркале",
+  "where": [
+   "appearance_view.lua:40"
+  ]
+ },
+ {
+  "en": "ACCEPT",
+  "ru": "ПРИНЯТЬ",
+  "where": [
+   "appearance_view.lua:47"
+  ]
+ },
+ {
+  "en": "DONE",
+  "ru": "ГОТОВО",
+  "where": [
+   "backpack_view.lua:147",
+   "trade_view.lua:84"
+  ]
+ },
+ {
+  "en": "SELECT",
+  "ru": "ВЫДЕЛЕНИЕ",
+  "where": [
+   "backpack_view.lua:147",
+   "glamdoc_view.lua:73",
+   "trade_view.lua:84"
+  ]
+ },
+ {
+  "en": "Selected: ",
+  "ru": "Выбрано: ",
+  "where": [
+   "backpack_view.lua:177",
+   "trade_view.lua:152"
+  ]
+ },
+ {
+  "en": "pcs ",
+  "ru": "шт. ",
+  "where": [
+   "backpack_view.lua:177",
+   "trade_view.lua:152"
+  ]
+ },
+ {
+  "en": "Pick the items",
+  "ru": "Выберите предметы",
+  "where": [
+   "backpack_view.lua:177"
+  ]
+ },
+ {
+  "en": "NONE",
+  "ru": "СНЯТЬ",
+  "where": [
+   "backpack_view.lua:182",
+   "trade_view.lua:157"
+  ]
+ },
+ {
+  "en": ", skipped: ",
+  "ru": ", пропущено: ",
+  "where": [
+   "backpack_view.lua:189",
+   "trade_view.lua:165"
+  ]
+ },
+ {
+  "en": "Dropped: ",
+  "ru": "Выброшено: ",
+  "where": [
+   "backpack_view.lua:193"
+  ]
+ },
+ {
+  "en": "Disassembled: ",
+  "ru": "Разобрано: ",
+  "where": [
+   "backpack_view.lua:196"
+  ]
+ },
+ {
+  "en": "GLAMDOC",
+  "ru": "ГЛЭМДОК",
+  "where": [
+   "glamdoc_view.lua:29"
+  ]
+ },
+ {
+  "en": "No arm cyberware installed. You can purchase styles; preview and apply require compatible arm cyberware.",
+  "ru": "Имплант рук не установлен. Покупка доступна, примерка и применение требуют совместимого импланта.",
+  "where": [
+   "glamdoc_view.lua:41"
+  ]
+ },
+ {
+  "en": "OWNED",
+  "ru": "В СОБСТВЕННОСТИ",
+  "where": [
+   "glamdoc_view.lua:56"
+  ]
+ },
+ {
+  "en": "No available styles in this category",
+  "ru": "Нет доступных стилей для этой категории",
+  "where": [
+   "glamdoc_view.lua:65"
+  ]
+ },
+ {
+  "en": "Preview the style on your own arms.",
+  "ru": "Примерьте стиль и посмотрите на свои руки.",
+  "where": [
+   "glamdoc_view.lua:70"
+  ]
+ },
+ {
+  "en": "Preview and apply require different arm cyberware. You can buy this style for later.",
+  "ru": "Для примерки и применения нужен другой имплант рук. Стиль можно купить заранее.",
+  "where": [
+   "glamdoc_view.lua:71"
+  ]
+ },
+ {
+  "en": "PREVIEW",
+  "ru": "ПРИМЕРИТЬ",
+  "where": [
+   "glamdoc_view.lua:73"
+  ]
+ },
+ {
+  "en": "Style is currently unavailable",
+  "ru": "Стиль сейчас недоступен",
+  "where": [
+   "glamdoc_view.lua:74"
+  ]
+ },
+ {
+  "en": "Select a style on the left",
+  "ru": "Выберите стиль слева",
+  "where": [
+   "glamdoc_view.lua:83"
+  ]
+ },
+ {
+  "en": "Confirm purchase: ",
+  "ru": "Подтвердить покупку: ",
+  "where": [
+   "glamdoc_view.lua:87"
+  ]
+ },
+ {
+  "en": "Style will be purchased without equipping",
+  "ru": "Стиль будет куплен без установки",
+  "where": [
+   "glamdoc_view.lua:89"
+  ]
+ },
+ {
+  "en": "Purchase unavailable: check funds and requirements",
+  "ru": "Покупка недоступна: проверьте баланс и условия",
+  "where": [
+   "glamdoc_view.lua:93"
+  ]
+ },
+ {
+  "en": "PREVIEW COLORS",
+  "ru": "ЦВЕТА ПРИМЕРКИ",
+  "where": [
+   "glamdoc_view.lua:99"
+  ]
+ },
+ {
+  "en": "STYLE COLORS",
+  "ru": "ЦВЕТА СТИЛЯ",
+  "where": [
+   "glamdoc_view.lua:99"
+  ]
+ },
+ {
+  "en": "Primary",
+  "ru": "Основной",
+  "where": [
+   "glamdoc_view.lua:102"
+  ]
+ },
+ {
+  "en": "Secondary",
+  "ru": "Дополнительный",
+  "where": [
+   "glamdoc_view.lua:102"
+  ]
+ },
+ {
+  "en": "DEFAULT COLORS",
+  "ru": "ПО УМОЛЧАНИЮ",
+  "where": [
+   "glamdoc_view.lua:112"
+  ]
+ },
+ {
+  "en": "SWAP COLORS",
+  "ru": "ПОМЕНЯТЬ МЕСТАМИ",
+  "where": [
+   "glamdoc_view.lua:113"
+  ]
+ },
+ {
+  "en": "CANCEL PREVIEW",
+  "ru": "ЗАКОНЧИТЬ ПРИМЕРКУ",
+  "where": [
+   "glamdoc_view.lua:116"
+  ]
+ },
+ {
+  "en": "REMOVE STYLE",
+  "ru": "СНЯТЬ СТИЛЬ",
+  "where": [
+   "glamdoc_view.lua:118"
+  ]
+ },
+ {
+  "en": "Purchase in progress…",
+  "ru": "Покупка выполняется…",
+  "where": [
+   "glamdoc_view.lua:121"
+  ]
+ },
+ {
+  "en": "Purchase not confirmed yet. Check your inventory and funds.",
+  "ru": "Покупка пока не подтверждена. Проверьте инвентарь и баланс.",
+  "where": [
+   "glamdoc_view.lua:122"
+  ]
+ },
+ {
+  "en": "BUY AND APPLY",
+  "ru": "КУПИТЬ И ПРИМЕНИТЬ",
+  "where": [
+   "glamdoc_view.lua:124"
+  ]
+ },
+ {
+  "en": "APPLY",
+  "ru": "ПРИМЕНИТЬ",
+  "where": [
+   "glamdoc_view.lua:124"
+  ]
+ },
+ {
+  "en": "Compatible arm cyberware is required to apply this style",
+  "ru": "Для применения нужен совместимый имплант рук",
+  "where": [
+   "glamdoc_view.lua:127"
+  ]
+ },
+ {
+  "en": "TRACKING",
+  "ru": "ОТСЛЕЖИВАЕТСЯ",
+  "where": [
+   "journal_view.lua:38"
+  ]
+ },
+ {
+  "en": "TRACK",
+  "ru": "ОТСЛЕЖИВАТЬ",
+  "where": [
+   "journal_view.lua:44"
+  ]
+ },
+ {
+  "en": "TRACKED",
+  "ru": "ОТСЛЕЖИВАЕТСЯ",
+  "where": [
+   "journal_view.lua:129"
+  ]
+ },
+ {
+  "en": "ICONIC",
+  "ru": "КУЛЬТОВОЕ",
+  "where": [
+   "trade_view.lua:111"
+  ]
+ },
+ {
+  "en": "Mark the items to sell",
+  "ru": "Отметьте предметы для продажи",
+  "where": [
+   "trade_view.lua:152"
+  ]
+ },
+ {
+  "en": "Sold: ",
+  "ru": "Продано: ",
+  "where": [
+   "trade_view.lua:165"
+  ]
+ },
+ {
+  "en": "Iconic: ",
+  "ru": "Культовых: ",
+  "where": [
+   "trade_view.lua:169"
+  ]
+ },
+ {
+  "en": "equipped stay: ",
+  "ru": "экипированные останутся: ",
+  "where": [
+   "trade_view.lua:169"
+  ]
+ },
+ {
+  "en": "Put the cigarette away",
+  "ru": "Убрать сигарету",
+  "where": [
+   "wheel.lua:329"
+  ]
+ },
+ {
+  "en": "Cigarette",
+  "ru": "Сигарета",
+  "where": [
+   "wheel.lua:329"
+  ]
+ },
+ {
+  "en": "Holster",
+  "ru": "Убрать оружие",
+  "where": [
+   "wheel.lua:787"
+  ]
+ },
+ {
+  "en": "Unavailable",
+  "ru": "Недоступно",
+  "where": [
+   "wheel.lua:997"
+  ]
+ }
+]

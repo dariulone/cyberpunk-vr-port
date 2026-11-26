@@ -206,8 +206,7 @@ std::string VRDiagPath(const char* name);  // defined in main.cpp
 // pulls in one solve comes from ONE frame. SharedPose(i) returns the latched value.
 // Hook WRITES (slots [20..22],[85..88]) stay on raw g_pSharedHands (disjoint).
 inline float    g_handsStable[128] = {};
-uint32_t g_handsStableSeq   = 0;
-bool     g_handsStableValid = false;
+// g_handsStableSeq, g_handsStableValid: src/Anim/CharacterRigState.cpp (the Rust port shares them).
 
 void RefreshHandsSnapshot() {
     if (!g_pSharedHands) return;
@@ -326,8 +325,7 @@ void VRIK_HeadResidual(float fallbackConsumedRight,float fallbackConsumedForward
 // seqlock [143], so BOTH arms and the view-pos resolver consume ONE render frame.
 // Mixing a latched vq (previous frame) with a directly-read fresh yaw produced the
 // snap-turn arm double; per-arm direct reads produced the left-only head-turn ghost.
-float g_viewPkt[17] = { 0,0,0,1, 0,0,0, 0, 0, 0, 0,0,0, 0,0,0,1 }; // +[13..16]=head ori the view was built with
-bool  g_viewPktValid = false;
+// g_viewPkt (+[13..16] = the head orientation the view was built with), g_viewPktValid: CharacterRigState.cpp.
 
 // Shared snap-window trace writer (log\cyberpunkvr_snapwin.log). Used by the
 // packet-latch [hk] lines AND the puppet pre-rotation [pr] lines -- one file, one
@@ -462,7 +460,7 @@ void VRIK_LatchViewPacket() {
     }
 }
 
-float g_vrikViewScaleUsed = 0.0f;   // diag: 0=rejected/fallback, 2=delta-v2, 1/0.5=legacy abs
+// g_vrikViewScaleUsed (diag: 0=rejected/fallback, 2=delta-v2, 1/0.5=legacy abs): CharacterRigState.cpp.
 bool VRIK_ResolveViewPos(float out[3]) {
     g_vrikViewScaleUsed = 0.0f;
     // Prefer the per-solve latched view PACKET (one seqlocked dxgi frame shared by
@@ -518,8 +516,7 @@ bool VRIK_ResolveViewPos(float out[3]) {
 // follows the headset instead of the game's animated pose. g_VRBodyUnderHMD gates it.
 // The BODY's smoothed squat (deadzone+EMA), published by VRIK_PlaceBodyUnderHMD and reused by the
 // ARM shoulder anchor so body + arms squat TOGETHER with no relative twitch on sprint/jump.
-// Single-TU header (writer & reader both live here).
-float s_vrSharedSquatDrop = 0.0f;
+// (s_vrSharedSquatDrop: CharacterRigState.cpp.)
 
 bool VRIK_ResolveViewModelPos(const float* pairedCamModel,const float* pairedEntityQuat,float out[3]) {
     const float flag=g_viewPktValid ? g_viewPkt[7] : SharedPose(111);

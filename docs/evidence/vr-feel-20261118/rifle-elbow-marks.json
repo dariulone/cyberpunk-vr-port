@@ -1,0 +1,25 @@
+{
+  "cropLR": [[710,970,1630,1840],[0,970,920,1840]],
+  "legend": {"baselineElbowPatch":"Raised-elbow sightline","stockRib":"Buttstock rib"},
+  "depthSightlines": {
+    "baselineElbowPatch": [[1193.0,1086.4],[434.7,1086.4]],
+    "stockRib": [[1116.5,1299.0],[364.5,1299.0]]
+  },
+  "before": {
+    "frame": 14901,
+    "sha256": ["bc88a7633c75112cafb4b81c88af96663bf457f4b7eeb283f512568a02a23564","bc845ac1e6023afc60763f5ae016e225bb5b968310668c8c9805686c12b22269"],
+    "surface": {
+      "baselineElbowPatch": [[1193.0,1086.4],[434.7,1086.4]],
+      "stockRib": [[1116.5,1299.0],[364.5,1299.0]]
+    },
+    "joints": {"shoulder":null,"elbow":null,"wrist":null},
+    "notes": "The pointed lower corner of the light skin patch on the raised right elbow is distinct in both eyes. It is a surface feature. The horizontal off arm masks the right shoulder region and the wrist at the grip. The control is the right end of the first bright rib below the rounded cap on the Ajax buttstock."
+  },
+  "after": {
+    "frame": 15017,
+    "sha256": ["2993fd3f1e94a5326418e96a9820553cd7bc79b1ad17c4790eda4c0ff407c8e7","1d087855fda6bbd97f1faa18866bee034afd91b533a4de3b5b3984a0a65de978"],
+    "surface": {"stockRib": [[1116.5,1299.0],[364.5,1299.0]]},
+    "joints": {"shoulder":null,"elbow":null,"wrist":null},
+    "notes": "The background is visible along both former elbow sightlines. The hand on the rifle and part of the lower right upper arm are visible. The foreground off arm overlaps the shoulder, corrected bend and wrist. No consistent set of three joint centers can be identified in both eyes."
+  }
+}

@@ -30,6 +30,62 @@ struct CommandInput {
 struct MutationEntry {
     uint64_t pool{},indices{},caller{};uint32_t queue{},thread{};
 };
+#if CVR_RUST_VRIK
+// The receipt: rust/crates/cvr-render/src/scene_update_receipt.rs (tools/single_pass_tests/scene_update_test runs its
+// cases against it in its Rust variant). A queue's lease is Rust's.
+struct QueueEntry {
+    QueueBinding binding;
+    std::array<uint8_t,56> prefix{};
+    bool entered{},returned{},inventory{},cancelled{};
+    void* lease{};
+};
+static_assert(sizeof(Identity)==32 && sizeof(QueueBinding)==48 && sizeof(SceneInput)==88 && sizeof(CommandInput)==56 &&
+    sizeof(MutationEntry)==32 && sizeof(QueueEntry)==120,"mirrored by scene_update_receipt.rs");
+struct RustReceipt;
+extern "C" {
+RustReceipt* cvr_sur_new(const Identity*,const JobLeaseApi*);
+void cvr_sur_free(RustReceipt*);
+bool cvr_sur_register(RustReceipt*,const QueueBinding*,Read,uint32_t*);
+bool cvr_sur_enter(RustReceipt*,uint32_t,Kind,uint64_t,uint64_t,Read);
+bool cvr_sur_inventory(RustReceipt*,uint32_t,uint64_t,uint64_t,uint32_t,Read);
+void cvr_sur_mutation(RustReceipt*,uint32_t,uint64_t,uint64_t,uint64_t,uint32_t);
+uint32_t cvr_sur_step(RustReceipt*,uint32_t,uint32_t);
+const void* cvr_sur_rows(const RustReceipt*,uint32_t,size_t*);
+const Identity* cvr_sur_identity(const RustReceipt*);
+}
+class Receipt {
+public:
+    Receipt(Identity identity,JobLeaseApi api):rust_(cvr_sur_new(&identity,&api)){}
+    ~Receipt(){cvr_sur_free(rust_);}
+    Receipt(const Receipt&)=delete;
+    Receipt& operator=(const Receipt&)=delete;
+    const Identity& Binding()const{return *cvr_sur_identity(rust_);}
+    Failure Rejection()const{return Failure(cvr_sur_step(rust_,0,0));}
+    void Reject(Failure failure){cvr_sur_step(rust_,1,uint32_t(failure));}
+    bool Register(QueueBinding binding,Read read,uint32_t& ordinal){return cvr_sur_register(rust_,&binding,read,&ordinal);}
+    bool Enter(uint32_t ordinal,Kind kind,uint64_t payload,uint64_t completion,Read read){return cvr_sur_enter(rust_,ordinal,kind,payload,completion,read);}
+    void Returned(uint32_t ordinal){cvr_sur_step(rust_,2,ordinal);}
+    void CloseProducer(){cvr_sur_step(rust_,3,0);}
+    bool ProducerClosed()const{return cvr_sur_step(rust_,4,0)!=0;}
+    void CancelProducer(){cvr_sur_step(rust_,5,0);}
+    bool ProducerCancelled()const{return cvr_sur_step(rust_,6,0)!=0;}
+    void CancelCallback(uint32_t ordinal){cvr_sur_step(rust_,7,ordinal);}
+    bool GroupsClosed()const{return cvr_sur_step(rust_,8,0)!=0;}
+    uint32_t OpaqueQueues()const{return cvr_sur_step(rust_,9,0);}
+    bool Inventory(uint32_t ordinal,uint64_t manager,uint64_t chain,uint32_t lane,Read read){return cvr_sur_inventory(rust_,ordinal,manager,chain,lane,read);}
+    void Mutation(uint32_t ordinal,uint64_t pool,uint64_t indices,uint64_t caller,uint32_t thread){cvr_sur_mutation(rust_,ordinal,pool,indices,caller,thread);}
+    std::span<const QueueEntry> Queues()const{return Rows<QueueEntry>(0);}
+    std::span<const SceneInput> Scenes()const{return Rows<SceneInput>(1);}
+    std::span<const CommandInput> Commands()const{return Rows<CommandInput>(2);}
+    std::span<const MutationEntry> Mutations()const{return Rows<MutationEntry>(3);}
+private:
+    template<class T> std::span<const T> Rows(uint32_t which)const{
+        size_t count{};const auto* rows=static_cast<const T*>(cvr_sur_rows(rust_,which,&count));return {rows,count};
+    }
+    RustReceipt* rust_;
+};
+
+#else
 struct QueueEntry {
     QueueBinding binding;
     std::array<uint8_t,56> prefix{};
@@ -177,6 +233,7 @@ private:
     std::vector<CommandInput> commands_;std::vector<MutationEntry> mutations_;
 };
 
+#endif
 // Full native input/output frame saved by the ABI-preserving thunks.
 struct ThunkFrame {
     uint64_t rax{},rcx{},rdx{},r8{},r9{},r10{},r11{},flags{};

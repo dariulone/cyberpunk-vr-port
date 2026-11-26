@@ -90,7 +90,7 @@ private func VRMeleeChainAttack(weapon: wref<WeaponObject>, out number: Int32) -
 
 // A chained stroke reached a body: the next light stroke is the next attack.
 @addMethod(PlayerPuppet)
-private func VRMeleeChainLanded(swing: ref<VrCyberwareSwing>) -> Void {
+public func VRMeleeChainLanded(swing: ref<VrCyberwareSwing>) -> Void {
   let infinite: Bool;
   let attacks = this.VRMeleeChainLength(swing.weapon, infinite);
   let subtype = swing.record.AttackSubtype();
@@ -115,10 +115,11 @@ public func VRCyberwareBeginSwing(weapon: wref<WeaponObject>, side: Int32, stron
   let item: wref<ItemObject>;
   let number: Int32 = side == 0 ? 1 : 0;
   if side < 0 || side > 1 || !IsDefined(weapon) || this.VRHolsterIntentActive(1.00) { return false; };
+  if weapon.VRBladeKind() > 0 && !this.VRBladeAllowed(weapon) { return false; };
   item = GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, VRLeftHandedWeapon.HeldSlot(this));
   if !IsDefined(item) || item.GetItemID() != weapon.GetItemID() { return false; };
   // Hand-held weapons and fists walk the game's light combo; arm cyberware keeps
-  // its per-arm records, which drive the arm animation.
+  // its per-arm damage records.
   let chained = this.VRCyberwareKind(weapon) == 0 && !strong;
   if this.VRCyberwareKind(weapon) == 0 {
     if strong { this.VRMeleeChainReset(); } else { attack = this.VRMeleeChainAttack(weapon, number); };
@@ -138,9 +139,8 @@ public func VRCyberwareBeginSwing(weapon: wref<WeaponObject>, side: Int32, stron
   swing.number = number;
   swing.chain = chained;
   swing.peakSpeed = ClampF(speed, 0.00, 30.00);
-  weapon.SetAttack(record.GetID());
   while ArraySize(this.vrCyberwareSwings) < 2 { ArrayPush(this.vrCyberwareSwings, null); };
-  if this.VRCyberwareKind(weapon) != 0 && IsDefined(this.vrCyberwareSwings[side]) && this.vrCyberwareSwings[side].weapon == weapon {
+  if IsDefined(this.vrCyberwareSwings[side]) && this.vrCyberwareSwings[side].weapon == weapon {
     swing.targets = this.vrCyberwareSwings[side].targets;
   };
   this.vrCyberwareSwings[side] = swing;
@@ -148,9 +148,6 @@ public func VRCyberwareBeginSwing(weapon: wref<WeaponObject>, side: Int32, stron
   cost = RPGManager.CalculateStatModifiers(costs, this.GetGame(), weapon, Cast<StatsObjectID>(weapon.GetEntityID()));
   if cost > 0.00 { PlayerStaminaHelpers.ModifyStamina(this, -cost); };
   this.vrCyberwareSwingCount += 1;
-  if WeaponObject.IsOfType(weapon.GetItemID(), gamedataItemType.Cyb_MantisBlades) || WeaponObject.IsOfType(weapon.GetItemID(), gamedataItemType.Cyb_StrongArms) {
-    this.VRCyberwareAnimateSwing(weapon, record, side, strong);
-  };
   return true;
 }
 
@@ -163,7 +160,7 @@ public func VRCyberwareUpdateSwing(weapon: wref<WeaponObject>, side: Int32, spee
 }
 
 @addMethod(PlayerPuppet)
-public func VRCyberwareOrdinaryContact(weapon: wref<WeaponObject>, target: wref<GameObject>, contact: Vector4, hit: Vector4, passive: Bool) -> Int32 {
+public func VRCyberwareOrdinaryContact(weapon: wref<WeaponObject>, target: wref<GameObject>, contact: Vector4, hit: Vector4, passive: Bool, opt impact: ref<VrBladeImpact>) -> Int32 {
   let swing: ref<VrCyberwareSwing>;
   let touched: Bool;
   if ArraySize(this.vrCyberwareSwings) < 2 || !IsDefined(weapon) || this.VRHolsterIntentActive(1.00) { return 0; };
@@ -173,10 +170,12 @@ public func VRCyberwareOrdinaryContact(weapon: wref<WeaponObject>, target: wref<
   touched = ArrayContains(swing.targets, target.GetEntityID());
   // Ordinary weapons hit a target once per deliberate stroke. A new physical
   // reversal can cut again without first leaving an oversized body capsule.
-  if passive || touched { return 0; };
-  if this.VRCyberwareAttack(swing, contact, hit, 1, target.GetEntityID(), 0.175) {
-    ArrayPush(swing.targets, target.GetEntityID());
-    VRHapticEvent(14, VRPortGuardHands(this));   // the blow landed: felt in the hand holding the weapon
+  if passive || (touched && !IsDefined(impact)) { return 0; };
+  if this.VRCyberwareAttack(swing, contact, hit, 1, target.GetEntityID(), 0.175, impact) {
+    if !IsDefined(impact) {
+      ArrayPush(swing.targets, target.GetEntityID());
+      VRHapticEvent(14, VRPortGuardHands(this));
+    }; // local blades latch on the native hit and pulse only on a damage event
     return 1;
   };
   return 0;
@@ -191,129 +190,89 @@ public class VrCyberwareContactMath extends IScriptable {
     if d > 0.0000001 { t = ClampF(Vector4.Dot(p - a, ab) / d, 0.00, 1.00); };
     return a + ab * t;
   }
-  public static func ClosestBody(a: Vector4, b: Vector4, base: Vector4) -> Vector4 {
-    let u = b - a;
-    let wx = a.X - base.X;
-    let wy = a.Y - base.Y;
-    let wz = a.Z - base.Z - 0.25;
-    let aa = u.X*u.X + u.Y*u.Y + u.Z*u.Z;
-    let bb = u.Z * 1.40;
-    let dd = u.X*wx + u.Y*wy + u.Z*wz;
-    let ee = wz * 1.40;
-    let determinant = aa * 1.96 - bb*bb;
-    let s: Float;
-    let t: Float;
-    let point: Vector4;
-    let dx: Float;
-    let dy: Float;
-    let dz: Float;
-    if determinant > 0.0000001 { s = ClampF((bb*ee - 1.96*dd) / determinant, 0.00, 1.00); };
-    t = ClampF((bb*s + ee) / 1.96, 0.00, 1.00);
-    if aa > 0.0000001 { s = ClampF((bb*t - dd) / aa, 0.00, 1.00); };
-    t = ClampF((bb*s + ee) / 1.96, 0.00, 1.00);
-    point = a + u*s;
-    dx = point.X - base.X; dy = point.Y - base.Y; dz = point.Z - base.Z - 0.25 - 1.40*t;
-    point.W = SqrtF(dx*dx + dy*dy + dz*dz);
-    return point;
+  // Each ray follows a material point from its old position to its new
+  // position. Work depends on item length even for a fast translation.
+  // t locates the virtual prop at the earliest sampled physics contact.
+  public static func SweptTrace(sq: ref<SpatialQueriesSystem>, oldA: Vector4, oldB: Vector4, a: Vector4, b: Vector4, passive: Bool, out trace: TraceResult, out t: Float) -> Bool {
+    let count = Clamp(CeilF(MaxF(Vector4.Distance(oldA,oldB),Vector4.Distance(a,b)) / 0.04),1,32);
+    let i: Int32;
+    let hit: TraceResult;
+    t=2.0;
+    if !passive {
+      while i<=count {
+        let f=Cast<Float>(i)/Cast<Float>(count);
+        let start=oldA+(oldB-oldA)*f;
+        let end=a+(b-a)*f;
+        let delta=end-start;
+        let squared=Vector4.Dot(delta,delta);
+        if squared>0.000001 && sq.SyncRaycastByQueryPreset(start,end,n"Melee",hit,false,false) {
+          let point=Vector4(hit.position.X,hit.position.Y,hit.position.Z,1.0);
+          let when=ClampF(Vector4.Dot(point-start,delta)/squared,0.0,1.0);
+          if when<t { t=when;trace=hit; };
+        };
+        i+=1;
+      };
+    };
+    if t<=1.0 { return true; };
+    t=1.0;
+    return sq.SyncRaycastByQueryPreset(a,b,n"Melee",trace,false,false);
   }
 }
 
 @addMethod(PlayerPuppet)
-public func VRCyberwareContacts(weapon: wref<WeaponObject>, side: Int32, points: array<Vector4>, previous: array<Vector4>, radius: Float, opt passive: Bool) -> Int32 {
+public func VRCyberwareContacts(weapon: wref<WeaponObject>, side: Int32, points: array<Vector4>, previous: array<Vector4>, radius: Float, opt passive: Bool, opt beginOnContact: Bool, opt strong: Bool, opt speed: Float) -> Int32 {
   let swing: ref<VrCyberwareSwing>;
-  let query: TargetSearchQuery;
-  let parts: array<TS_TargetPartInfo>;
-  let checked: array<EntityID>;
   let touching: array<EntityID>;
   let retained: array<EntityID>;
-  let id: EntityID;
-  let target: wref<GameObject>;
-  let component: wref<TargetingComponent>;
-  let origin = this.GetWorldPosition();
-  let a: Vector4;
-  let b: Vector4;
-  let p: Vector4;
-  let closest: Vector4;
-  let contact: Vector4;
-  let hit: Vector4;
-  let base: Vector4;
-  let d: Float;
-  let best: Float;
-  let reach: Float = 1.00;
+  let trace: TraceResult;
+  let t: Float;
   let i: Int32;
-  let j: Int32;
-  let height: Int32;
-  let step: Int32;
-  let steps: Int32;
   let count: Int32;
-  let alpha: Float;
-  let item: wref<ItemObject>;
-  if side < 0 || side >= ArraySize(this.vrCyberwareSwings) || ArraySize(points) < 2 || ArraySize(points) > 46 { return 0; };
-  swing = this.vrCyberwareSwings[side];
-  if !IsDefined(swing) || !IsDefined(weapon) || swing.weapon != weapon || this.VRHolsterIntentActive(1.00) { return 0; };
-  item = GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, VRLeftHandedWeapon.HeldSlot(this));
-  if !IsDefined(item) || item.GetItemID() != weapon.GetItemID() { return 0; };
-  radius = ClampF(radius, 0.02, 0.10);
-  while i < ArraySize(points) { reach = MaxF(reach, Vector4.Distance(points[i], origin)); i += 1; };
-  query.testedSet = TargetingSet.Complete;
-  query.searchFilter = TSF_NPC();
-  query.maxDistance = reach + 1.80;
-  query.filterObjectByDistance = true;
-  query.ignoreInstigator = true;
-  GameInstance.GetTargetingSystem(this.GetGame()).GetTargetParts(this, query, parts);
-  i = 0;
-  while i < ArraySize(parts) {
-    component = TS_TargetPartInfo.GetComponent(parts[i]);
-    if IsDefined(component) { target = component.GetEntity() as GameObject; } else { target = null; };
-    if IsDefined(target) && !target.IsDead() && !ArrayContains(checked, target.GetEntityID()) {
-      ArrayPush(checked, target.GetEntityID());
-      base = target.GetWorldPosition();
-      best = 9999.00;
-      j = 0;
-      while j + 1 < ArraySize(points) {
-        // Sweep the visible segment between samples, bounded for a tracking
-        // discontinuity. The caller rejects teleports and equipment changes.
-        steps = 1;
-        if ArraySize(previous) == ArraySize(points) {
-          steps = Clamp(CeilF(MaxF(Vector4.Distance(points[j], previous[j]), Vector4.Distance(points[j + 1], previous[j + 1])) / 0.05), 1, 12);
-        };
-        step = 0;
-        while step <= steps {
-          alpha = Cast<Float>(step) / Cast<Float>(steps);
-          a = points[j]; b = points[j + 1];
-          if ArraySize(previous) == ArraySize(points) { a = previous[j] + (a - previous[j]) * alpha; b = previous[j + 1] + (b - previous[j + 1]) * alpha; };
-          closest = VrCyberwareContactMath.ClosestBody(a, b, base);
-          d = closest.W;
-          if d < best {
-            best = d; contact = closest; contact.W = 1.00;
-            hit = Vector4(base.X, base.Y, ClampF(closest.Z, base.Z + 0.25, base.Z + 1.65), 1.00);
+  let sq=GameInstance.GetSpatialQueriesSystem(this.GetGame());
+  if !IsDefined(weapon) || side<0 || side>1 || ArraySize(points)<2 || ArraySize(points)>46 || ArraySize(previous)!=ArraySize(points)
+    || this.VRHolsterIntentActive(1.0) || !IsDefined(sq) { return 0; };
+  if side<ArraySize(this.vrCyberwareSwings) { swing=this.vrCyberwareSwings[side]; };
+  if IsDefined(swing) && swing.weapon!=weapon { swing=null; };
+  if passive && (!IsDefined(swing) || ArraySize(swing.targets)==0) { return 0; };
+  if GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, VRLeftHandedWeapon.HeldSlot(this))!=weapon { return 0; };
+  while i+1<ArraySize(points) {
+    let oldA=previous[i];let oldB=previous[i+1];
+    let a=points[i];let b=points[i+1];
+    let moving=Vector4.Distance(oldA,a)>0.001 || Vector4.Distance(oldB,b)>0.001;
+    if VrCyberwareContactMath.SweptTrace(sq,oldA,oldB,a,b,passive || !moving,trace,t) {
+      let npc=TraceResult.GetHitEntity(trace) as NPCPuppet;
+      if IsDefined(npc) && npc.IsActive() && !npc.IsDead() && !GameObject.IsFriendlyTowardsPlayer(npc) {
+        let id=npc.GetEntityID();
+        let shapes=npc.FindComponentByName(n"HitRepresentation") as HitRepresentationComponent;
+        let overlap=VRBladeSweptContact(shapes,oldA,oldB,a,b);
+        if overlap.W>0.5 { ArrayPush(touching,id); };
+        if overlap.W>0.5 && moving && !passive && (!IsDefined(swing) || !ArrayContains(swing.targets,id)) {
+          let from=oldA+(oldB-oldA)*overlap.Y;
+          let to=a+(b-a)*overlap.Y;
+          if Vector4.Distance(from,to)<0.001 { from=oldA+(a-oldA)*overlap.X; to=oldB+(b-oldB)*overlap.X; };
+          if beginOnContact {
+            if !this.VRCyberwareBeginSwing(weapon,side,strong,speed) { return count; };
+            swing=this.vrCyberwareSwings[side];beginOnContact=false;
           };
-          step += 1;
-        };
-        j += 1;
-      };
-      // Approximate body capsule for candidate discovery; the native effect
-      // below performs the actual physics hit and all damage processing.
-      if best <= radius + 0.20 {
-        ArrayPush(touching, target.GetEntityID());
-        if !passive && !ArrayContains(swing.targets, target.GetEntityID()) && this.VRCyberwareAttack(swing, contact, hit, side, target.GetEntityID(), radius) {
-          ArrayPush(swing.targets, target.GetEntityID());
-          count += 1;
+          if IsDefined(swing) {
+            if this.VRCyberwareAttack(swing,from,to,side,id,ClampF(radius,0.02,0.10)) {
+              ArrayPush(swing.targets,id);count+=1;
+            };
+          };
         };
       };
     };
-    i += 1;
+    i+=1;
   };
-  // Pulling a fist/blade back while it is still in the target is the same
-  // contact, even when its speed direction starts a new swing episode.
-  // All cyberware must separate before another contact can damage the target.
-  for id in swing.targets { if ArrayContains(touching, id) { ArrayPush(retained, id); }; };
-  swing.targets = retained;
+  if IsDefined(swing) {
+    for id in swing.targets { if ArrayContains(touching,id) { ArrayPush(retained,id); }; };
+    swing.targets=retained;
+  };
   return count;
 }
 
 @addMethod(PlayerPuppet)
-private func VRCyberwareAttack(swing: ref<VrCyberwareSwing>, contact: Vector4, target: Vector4, side: Int32, targetID: EntityID, radius: Float) -> Bool {
+private func VRCyberwareAttack(swing: ref<VrCyberwareSwing>, contact: Vector4, target: Vector4, side: Int32, targetID: EntityID, radius: Float, opt impact: ref<VrBladeImpact>) -> Bool {
   let context: AttackInitContext;
   let attack: ref<Attack_GameEffect>;
   let effect: ref<EffectInstance>;
@@ -344,26 +303,49 @@ private func VRCyberwareAttack(swing: ref<VrCyberwareSwing>, contact: Vector4, t
   };
   // A sweep must begin outside the touched body, including when the visible
   // segment has already crossed its centre between tracking samples.
-  start = contact - direction * 0.35;
+  start = contact;
+  if IsDefined(impact) {
+    // Trace the real segment in its own direction. A second box aimed down the
+    // broad proxy normal can return eight valid hits, all away from the blade.
+    start = impact.a;
+    target = impact.b;
+    if impact.edgeStroke!=0u {
+      // Keep the clipped material chord for damage reporting. Acquire the
+      // game's hit representation along the same visible shaft from outside.
+      if !IsDefined(impact.cutShape) { return false; };
+      if impact.cutShape.reverseQuery { start=impact.b;target=impact.a; };
+    } else {
+      if impact.sweepFrom.W>0.5 && Vector4.Distance(impact.sweepFrom,impact.sweepTo)>=0.02 {
+        start=impact.sweepFrom;target=impact.sweepTo;
+      };
+    };
+    direction=Vector4.Normalize(target-start);
+    radius = VrBladeVisibleCut.BoxHalfExtent();
+    impact.swing = swing;
+    attack.vrBladeImpact = impact;
+  };
+  attack.vrMeleeContactTarget=targetID;
+  attack.vrPhysicalLightChain = swing.chain;
+  EffectData.SetVariant(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.attack, ToVariant(attack));
   EffectData.SetVector(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.box, Vector4(radius * 2.00, radius * 2.00, radius * 2.00, 0.00));
   EffectData.SetFloat(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.duration, 0.05);
   EffectData.SetVector(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.position, start);
   EffectData.SetQuat(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.rotation, Quaternion.BuildFromDirectionVector(direction));
   EffectData.SetVector(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.forward, direction);
-  EffectData.SetFloat(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.range, Vector4.Distance(start, target) + 0.08);
+  EffectData.SetFloat(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.range, Vector4.Distance(start,target));
   EffectData.SetInt(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.attackNumber, swing.number);
   EffectData.SetName(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.impactOrientationSlot, swing.record.ImpactFxSlot());
   EffectData.SetFloat(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.charge, WeaponObject.GetWeaponChargeNormalized(swing.weapon));
-  EffectData.SetBool(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.meleeCleave, swing.strong);
+  EffectData.SetBool(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.meleeCleave, false);
   EffectData.SetVariant(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.fxPackage, ToVariant(swing.weapon.GetFxPackage()));
   EffectData.SetBool(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.playerOwnedWeapon, true);
-  this.vrCyberwareLastAttackGeometry = [contact, target, start, Vector4(direction.X, direction.Y, direction.Z, Vector4.Distance(start, target) + 0.08)];
+  this.vrCyberwareLastAttackGeometry = [contact, target, start, Vector4(direction.X, direction.Y, direction.Z, Vector4.Distance(start,target))];
   ticket = new VrCyberwareAttackTicket(); ticket.attack = attack; ticket.time = now;
   ticket.intendedTarget = targetID; ticket.weapon = swing.weapon.GetItemID();
   ArrayPush(this.vrCyberwareTickets, ticket);
   enhanced = this.VRMeleeRegisterAttack(attack, swing.weapon, targetID, swing.peakSpeed);
   if !attack.StartAttack() { ArrayRemove(this.vrCyberwareTickets, ticket); this.VRMeleeCancelAttack(enhanced); return false; };
-  if swing.chain && !swing.landed { swing.landed = true; this.VRMeleeChainLanded(swing); };
+  if !IsDefined(impact) && swing.chain && !swing.landed { swing.landed = true; this.VRMeleeChainLanded(swing); };
   this.vrCyberwareAttackCount += 1;
   return true;
 }
@@ -386,13 +368,15 @@ public func VRCyberwareConfirmHit(hit: ref<gameHitEvent>, receiver: ref<GameObje
   while i >= 0 {
     ticket = this.vrCyberwareTickets[i];
     if ticket.intendedTarget == receiver.GetEntityID() && ItemID.GetTDBID(ticket.weapon) == ItemID.GetTDBID(weapon.GetItemID())
+      && definition == ticket.attack
       && definition.GetRecord().GetID() == ticket.attack.GetRecord().GetID()
       && now >= ticket.time && now - ticket.time < 0.35 && !ArrayContains(ticket.targets, receiver.GetEntityID()) {
       ArrayPush(ticket.targets, receiver.GetEntityID());
       this.vrCyberwareHitCount += 1;
       this.vrCyberwareLastNativeDamage = damage;
       this.vrCyberwareLastHitDelay = now - ticket.time;
-      GameObject.PlaySoundEvent(receiver, n"w_feedback_hit_npc");
+      if IsDefined((ticket.attack as Attack_GameEffect).vrBladeImpact) { VRHapticEvent(14, VRPortGuardHands(this)); }
+      else { GameObject.PlaySoundEvent(receiver, n"w_feedback_hit_npc"); };
       return;
     };
     i -= 1;

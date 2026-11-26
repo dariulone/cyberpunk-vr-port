@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // PatchBuffer -- one hook, one file. Installed from the registry it registers itself with at the
 // bottom; see Hooks/Hook.hpp for why the order is declared here rather than in a boot function.
 //
@@ -13,6 +14,12 @@
 #include <cstdint>
 #include <cstddef>
 
+#if CVR_RUST_VRIK
+// The callback and the stub are rust/crates/cvr-rig/src/vrik/photo_capture.rs; the registration (gated off) stays.
+extern "C" bool cvr_hook_patch_buffer_install();
+extern "C" bool cvr_hook_patch_buffer_wanted();
+CVR_HOOK_IF("PatchBuffer", ::cvr::hooks::Stage::Boot, 80, cvr_hook_patch_buffer_install, cvr_hook_patch_buffer_wanted);
+#else
 static uint64_t g_patchBufferHits = 0;
 
 extern "C" void __fastcall OnPatchBufferCallback(float* dest, float* src, size_t count) {
@@ -119,3 +126,5 @@ namespace { constexpr int kEnablePatchBufferTracer = 0;
             bool PatchBufferWanted() { return kEnablePatchBufferTracer != 0; } }
 
 CVR_HOOK_IF("PatchBuffer", ::cvr::hooks::Stage::Boot, 80, InstallPatchBufferHook, PatchBufferWanted);
+#endif
+#endif

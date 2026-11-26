@@ -26,10 +26,25 @@ local WorldTouch = require("modules/world_touch")
 local InteractionDepth = require("modules/interaction_depth")
 local HudClearance = require("modules/hud_clearance")
 
+-- THE RUST BUILD RUNS THE HUD CLEARANCE, THE INTERACTION PROMPT'S DEPTH, THE STORY ATTENTION, THE KEYPAD INPUT, THE
+-- HUD PANEL'S ROOTS, THE VRCAM SELECTION, THE VR MENU AND THE WORLD TOUCH (rust/crates/cvr-ffi/src/mechanics/:
+-- hud_clearance.rs, bit 8 of VRRustMechanics; interaction_depth.rs, bit 9; story_attention.rs, bit 10; keypad_input.rs,
+-- bit 11; hud_panel.rs, bit 13; vrcam_select.rs, bit 14; vr_overlay.rs, bit 15; world_touch.rs, bit 16): the VR menu's state is read back for the modules still here
+-- (VRStereoOverlayOpen), and the GC pacing's menu question answered (VRStereoPreGame). The reference build has no such native, and those modules keep running
+-- here.
+local rustMask = nil
+local function rustOwns(bit)
+    if rustMask == nil then
+        rustMask = type(VRRustMechanics) == 'function' and VRRustMechanics() or 0
+    end
+    return math.floor(rustMask / bit) % 2 == 1
+end
+
 local Stereo = { ready = false, VrcamSel = VrcamSel, HudPanel = HudPanel, VrOverlay = VrOverlay, KeypadInput = KeypadInput, StoryAttention = StoryAttention, WorldTouch = WorldTouch }
 
 -- Bind in CET > Bindings if vrcam.json was edited by hand.
 registerHotkey("vrcam_reload_selection", "VRCAM: re-read vrcam.json", function()
+    if rustOwns(16384) then VRVrcamReload(); return end
     VrcamSel.reload()
     print("[Stereo.VRCAM] " .. VrcamSel.status())
 end)
@@ -41,9 +56,9 @@ end)
 Stereo.rtFullResReflections = true
 
 registerForEvent("onInit", function()
-    VrcamSel.init()
+    if not rustOwns(16384) then VrcamSel.init() end
     Stereo.ready = true
-    print("[Stereo] " .. VrcamSel.status())
+    if not rustOwns(16384) then print("[Stereo] " .. VrcamSel.status()) end
     if Stereo.rtFullResReflections then
         GameOptions.SetInt("RayTracing/Reflection", "EnableHalfResolutionTracing", 0)
     end
@@ -125,16 +140,18 @@ end
 registerForEvent("onUpdate", function(dt)
     paceGc()
     if not Stereo.ready then return end
-    VrcamSel.tick(dt)
-    HudPanel.tick()
-    VrOverlay.tick()
-    KeypadInput.tick(dt, VrOverlay.active)
-    WorldTouch.tick(dt, VrOverlay.active)
-    StoryAttention.tick(dt, VrOverlay.active)
-    InteractionDepth.tick(dt, VrOverlay.active)
-    HudClearance.tick(dt, VrOverlay.active)
+    if rustOwns(16384) then VrcamSel.preGame = VRStereoPreGame() else VrcamSel.tick(dt) end
+    if not rustOwns(8192) then HudPanel.tick() end
+    -- The VR menu in Rust (bit 15): its state is read back for the modules still here.
+    if rustOwns(32768) then VrOverlay.active = VRStereoOverlayOpen() else VrOverlay.tick() end
+    if not rustOwns(2048) then KeypadInput.tick(dt, VrOverlay.active) end
+    if not rustOwns(65536) then WorldTouch.tick(dt, VrOverlay.active) end
+    if rustMask ~= 0 and not rustOwns(32768) then VRStereoOverlayActive(VrOverlay.active == true) end
+    if not rustOwns(1024) then StoryAttention.tick(dt, VrOverlay.active) end
+    if not rustOwns(512) then InteractionDepth.tick(dt, VrOverlay.active) end
+    if not rustOwns(256) then HudClearance.tick(dt, VrOverlay.active) end
 end)
 
-registerForEvent("onShutdown", function() WorldTouch.shutdown();StoryAttention.shutdown();KeypadInput.shutdown();VrOverlay.shutdown();HudPanel.shutdown() end)
+registerForEvent("onShutdown", function() if not rustOwns(65536) then WorldTouch.shutdown() end;if not rustOwns(1024) then StoryAttention.shutdown() end;if not rustOwns(2048) then KeypadInput.shutdown() end;if not rustOwns(32768) then VrOverlay.shutdown() end;if not rustOwns(8192) then HudPanel.shutdown() end end)
 
 return Stereo

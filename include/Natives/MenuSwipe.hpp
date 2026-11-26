@@ -23,6 +23,30 @@ struct SwipeSample {
     bool held;      // the grip squeezed, and on nothing during this press
 };
 
+#if CVR_RUST_VRIK
+// The detector is rust/crates/cvr-rig/src/menu_swipe.rs; this class owns one.
+extern "C" {
+void* cvr_swipe_new();
+void cvr_swipe_free(void* swipe);
+bool cvr_swipe_push(void* swipe, double t, const float* p, bool gripDown, bool holding, SwipeSample* start, SwipeSample* end);
+void cvr_swipe_clear(void* swipe);
+}
+static_assert(sizeof(SwipeSample) == 24, "mirrored by SwipeSample in rust/crates/cvr-rig/src/menu_swipe.rs");
+class SwipeDetector {
+public:
+    SwipeDetector() : rust_(cvr_swipe_new()) {}
+    ~SwipeDetector() { cvr_swipe_free(rust_); }
+    SwipeDetector(const SwipeDetector&) = delete;
+    SwipeDetector& operator=(const SwipeDetector&) = delete;
+    bool Push(double t, const float* p, bool gripDown, bool holding, SwipeSample* start, SwipeSample* end) {
+        return cvr_swipe_push(rust_, t, p, gripDown, holding, start, end);
+    }
+    void Clear() { cvr_swipe_clear(rust_); }
+
+private:
+    void* rust_;
+};
+#else
 class SwipeDetector {
 public:
     // One sample of the hand. `gripDown`: the grip squeezed; `holding`: that grip is on something (the steering
@@ -65,5 +89,6 @@ private:
     double lastFire_ = -10.0;
     bool owned_ = false;    // this press of the grip has held something
 };
+#endif
 
 }  // namespace cvr::vrmenu

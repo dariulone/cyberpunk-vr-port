@@ -4,7 +4,9 @@
 #include <cstring>
 #include <iterator>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
 
 namespace cvr::markers {
 namespace {
@@ -21,6 +23,18 @@ constexpr Variant variants[]={
     {3350,{0x5b,0x31,0xe8,0x62,0x62,0xdc,0x37,0x12,0x03,0xbd,0x2d,0x20,0x19,0xaf,0xd6,0x34},bytecode::SpriteStereoZ,sizeof(bytecode::SpriteStereoZ)},
     {3302,{0xad,0x30,0x45,0x79,0x5b,0x73,0xd0,0x3c,0x25,0xc7,0x85,0xe6,0x1f,0x68,0x04,0x4e},bytecode::SpriteStereoOne,sizeof(bytecode::SpriteStereoOne)},
 };
+static_assert(sizeof(Variant) == 40, "mirrored by rust/crates/cvr-render/src/world_marker_shader.rs");
+#if CVR_RUST_VRIK
+}
+}
+// The recognition is Rust's; this table (the generated replacements) is handed to it while the DLL initialises.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's table is rust/crates/cvr-render/src/world_marker_shader.rs' (its DXIL compiled by build.rs)
+extern "C" void cvr_world_marker_shaders_attach(const void* table, size_t count);
+namespace {
+const bool attached = (cvr_world_marker_shaders_attach(cvr::markers::variants, std::size(cvr::markers::variants)), true);
+}
+#endif
+#else
 std::atomic<unsigned> installed{0};
 std::atomic<bool> failed{false};
 int VariantOf(const D3D12_SHADER_BYTECODE& bc) {
@@ -57,3 +71,4 @@ void VertexShaderResult(const D3D12_SHADER_BYTECODE& original,bool success) {
 // vertex can only reach a pipeline that went through it. Any rejection turns tagging off for good.
 bool VertexShadersReady() { return installed.load(std::memory_order_acquire)!=0 && !failed.load(std::memory_order_acquire); }
 }
+#endif

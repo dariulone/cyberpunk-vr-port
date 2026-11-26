@@ -70,6 +70,94 @@ class Ledger;
 // The caller serializes all methods under a short gate and supplies audited facts.
 // Unknown vanilla users remain the native retirement point's responsibility.
 // This class tracks only added CVR readers; it never waits or writes native memory.
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/native/retirement_deferral.rs through retirement_deferral_abi.rs
+// (tools/single_pass_tests/retirement_deferral_test runs its cases against them in its Rust variant). The ledger and
+// its states live in Rust; a State here is the stable face of one reserved, boxed Rust state.
+namespace detail {
+extern "C" {
+void* cvr_rd_ledger_new();
+void cvr_rd_ledger_free(void*);
+bool cvr_rd_ledger_reserve(void*,const HeaderIdentity*,const ReservationFacts*,const ReservationAllocatorObservation*,
+    bool(*)(void*),void*,uint32_t*,void**);
+bool cvr_rd_ledger_find(const void*,uint64_t,uint64_t,uint64_t,uint32_t*);
+bool cvr_rd_ledger_retire(void*,uint32_t,uint64_t,uint64_t,uint64_t);
+uint64_t cvr_rd_ledger_op(void*,uint32_t);
+uint64_t cvr_rd_state(void*,uint32_t,const void*,const void*,const void*,uint64_t);
+void* cvr_rd_state_ptr(void*,uint32_t,const AllocatorProof*);
+}
+}
+static_assert(sizeof(HeaderIdentity)==56 && sizeof(AllocatorIdentity)==16 && sizeof(AllocatorProof)==24 &&
+    sizeof(ReservationAllocatorObservation)==24 && sizeof(ReservationFacts)==3 && sizeof(NativeIntentFacts)==4 &&
+    sizeof(HeaderTransferProof)==96 && sizeof(ExtraReaderIdentity)==48 && sizeof(OwnedGraphCompletionProof)==64 &&
+    sizeof(UnescapedCancellationProof)==56,"mirrored by native/retirement_deferral.rs");
+class State {
+public:
+    State(const State&)=delete;
+    State& operator=(const State&)=delete;
+    State(State&&)=delete;
+    State& operator=(State&&)=delete;
+    const HeaderIdentity& FrozenHeader()const noexcept{return *static_cast<const HeaderIdentity*>(Address(0));}
+    const AllocatorIdentity& FrozenAllocator()const noexcept{return *static_cast<const AllocatorIdentity*>(Address(1));}
+    const NativeHeader& SavedHeader()const noexcept{return *static_cast<const NativeHeader*>(Address(2));}
+    Phase CurrentPhase()const noexcept{return Phase(Get(0));}
+    bool AcquisitionsOpen()const noexcept{return Get(1)!=0;}
+    bool NativeIntentSeen()const noexcept{return Get(2)!=0;}
+    IntentKind NativeIntentKind()const noexcept{return IntentKind(Get(3));}
+    bool ExactHeaderDetached()const noexcept{return Get(4)!=0;}
+    bool DestroyAttemptConsumed()const noexcept{return Get(5)!=0;}
+    bool DestroyReturned()const noexcept{return Get(6)!=0;}
+    bool Quarantined()const noexcept{return Get(7)!=0;}
+    bool Selected()const noexcept{return Get(8)!=0;}
+    uint64_t AdmittedReaders()const noexcept{return Get(9);}
+    uint64_t CompletedReaders()const noexcept{return Get(10);}
+    uint64_t CanceledReaders()const noexcept{return Get(11);}
+    size_t PendingReaders()const noexcept{return size_t(Get(12));}
+    Failure Rejection()const noexcept{return Failure(Get(13));}
+    // Read-only exact lookup, not a new acquisition. Closing native intent (or
+    // selection) does not invalidate a reader still protecting the saved owner.
+    bool HasPendingExtraReader(const ExtraReaderIdentity& identity)const noexcept{return Get(16,&identity)!=0;}
+
+    bool AdmitExtraReader(const ExtraReaderIdentity& reader)noexcept{return Call(20,&reader)!=0;}
+    // Incomplete observations retain the reader. Only actual producer, declaration
+    // and execution proofs release its slot; cancellation is not such a proof.
+    bool CompleteExtraReader(const OwnedGraphCompletionProof& proof)noexcept{return Call(21,&proof)!=0;}
+    bool MarkExtraReaderEscaped(const ExtraReaderIdentity& identity)noexcept{return Call(22,&identity)!=0;}
+    bool CancelUnescapedExtraReader(const UnescapedCancellationProof& proof)noexcept{return Call(23,&proof)!=0;}
+    void UnsupportedExtraCompletion(uint64_t leaseId)noexcept{Call(24,nullptr,nullptr,nullptr,leaseId);}
+    // Closing and sealing the exact native intent is one transition under the
+    // caller's gate. It closes only CVR acquisitions, never claims prior coverage.
+    bool ObserveNativeIntent(IntentKind kind,const HeaderIdentity& source,NativeIntentFacts facts,
+                             const AllocatorProof& allocator)noexcept{
+        return Call(25,&source,&facts,&allocator,uint64_t(kind))!=0;
+    }
+    // A quarantined but exact source can still be detached to preserve its readers.
+    // Successful transfer never clears quarantine or authorizes its destruction.
+    bool RecordHeaderTransfer(const HeaderTransferProof& proof)noexcept{return Call(26,&proof)!=0;}
+    bool ObserveAllocator(const AllocatorProof& proof)noexcept{return Call(27,&proof)!=0;}
+    bool ReadyToDestroy(const AllocatorProof& proof)const noexcept{return Get(17,&proof)!=0;}
+    // The returned 16-byte storage is stable (inside the boxed Rust state). Consume
+    // the attempt BEFORE invoking original986E74(pointer) outside the short CVR gate
+    // but within that typed native scope; never retry after an exception.
+    NativeHeader* BeginDestroy(const AllocatorProof& proof)noexcept{
+        return static_cast<NativeHeader*>(detail::cvr_rd_state_ptr(state_,3,&proof));
+    }
+    bool FinishDestroy(bool originalReturnedNormally)noexcept{return Call(28,nullptr,nullptr,nullptr,originalReturnedNormally)!=0;}
+    void CancelSelection()noexcept{Call(29);}
+    void Shutdown()noexcept{Call(30);}
+    bool CanRetireMetadata()const noexcept{return Get(14)!=0;}
+    bool CanAbandonUnusedReservation()const noexcept{return Get(15)!=0;}
+private:
+    friend class Ledger;
+    State()noexcept=default;
+    uint64_t Get(uint32_t which,const void* a=nullptr)const noexcept{return detail::cvr_rd_state(state_,which,a,nullptr,nullptr,0);}
+    uint64_t Call(uint32_t which,const void* a=nullptr,const void* b=nullptr,const void* c=nullptr,uint64_t value=0)noexcept{
+        return detail::cvr_rd_state(state_,which,a,b,c,value);
+    }
+    const void* Address(uint32_t which)const noexcept{return detail::cvr_rd_state_ptr(state_,which,nullptr);}
+    void* state_{};
+};
+#else
 class State {
 public:
     State(const State&)=delete;
@@ -258,6 +346,7 @@ private:
     bool selected_=true,acquisitionsClosed_{},intentAttempted_{},intentSeen_{},transferAttempted_{},detached_{};
     bool destroyAttempted_{},destroyFinished_{},destroyed_{},quarantined_{},shutdown_{};
 };
+#endif
 
 // Reserve the State and all its fixed reader slots before admitting any extra
 // reader. Completed records are erased; only bounded per-owner ABA watermarks
@@ -267,6 +356,58 @@ private:
 // call. Shutdown preserves storage only while this ledger stays alive; it does
 // not arrange module/process teardown retention. No native allocation is freed
 // by the C++ State/Ledger destructors. This is not an adoption gate.
+#if CVR_RUST_VRIK
+class Ledger {
+public:
+    Ledger():ledger_(detail::cvr_rd_ledger_new()){}
+    ~Ledger(){detail::cvr_rd_ledger_free(ledger_);}
+    Ledger(const Ledger&)=delete;
+    Ledger& operator=(const Ledger&)=delete;
+    Ledger(Ledger&&)=delete;
+    Ledger& operator=(Ledger&&)=delete;
+    // The face is allocated where the C++ allocated its State: after every check,
+    // before anything is committed. Its failure is Allocation, committing nothing.
+    State* Reserve(const HeaderIdentity& identity,ReservationFacts facts,const ReservationAllocatorObservation& allocator)noexcept{
+        std::unique_ptr<State> face;uint32_t slot{};void* state{};
+        const auto allocate=[](void* context)->bool{
+            try{static_cast<std::unique_ptr<State>*>(context)->reset(new State);return true;}catch(...){return false;}
+        };
+        if(!detail::cvr_rd_ledger_reserve(ledger_,&identity,&facts,&allocator,allocate,&face,&slot,&state) || slot>=MaxStates)return nullptr;
+        face->state_=state;states_[slot]=std::move(face);return states_[slot].get();
+    }
+    State* Find(uint64_t ownerHeader,uint64_t generation,uint64_t bornEpoch)noexcept{
+        uint32_t slot{};
+        return detail::cvr_rd_ledger_find(ledger_,ownerHeader,generation,bornEpoch,&slot) && slot<MaxStates?states_[slot].get():nullptr;
+    }
+    const State* Find(uint64_t ownerHeader,uint64_t generation,uint64_t bornEpoch)const noexcept{
+        uint32_t slot{};
+        return detail::cvr_rd_ledger_find(ledger_,ownerHeader,generation,bornEpoch,&slot) && slot<MaxStates?states_[slot].get():nullptr;
+    }
+    bool RetireMetadata(uint64_t ownerHeader,uint64_t generation,uint64_t bornEpoch)noexcept{
+        return Retire(0,ownerHeader,generation,bornEpoch);
+    }
+    // Metadata only: no native intent/transfer occurred, and every admitted
+    // reader was explicitly canceled before escape. Preserve its exact retry
+    // identity and nonce; a completed escaped reader is not an unused attempt.
+    bool AbandonUnusedReservation(uint64_t ownerHeader,uint64_t generation,uint64_t bornEpoch)noexcept{
+        return Retire(1,ownerHeader,generation,bornEpoch);
+    }
+    void CancelSelection()noexcept{detail::cvr_rd_ledger_op(ledger_,0);}
+    void Shutdown()noexcept{detail::cvr_rd_ledger_op(ledger_,1);}
+    size_t Size()const noexcept{return size_t(detail::cvr_rd_ledger_op(ledger_,2));}
+    size_t OwnerCount()const noexcept{return size_t(detail::cvr_rd_ledger_op(ledger_,3));}
+    Failure Rejection()const noexcept{return Failure(detail::cvr_rd_ledger_op(ledger_,4));}
+private:
+    // A retired state's face goes with it; its Rust storage is dropped there.
+    bool Retire(uint32_t which,uint64_t ownerHeader,uint64_t generation,uint64_t bornEpoch)noexcept{
+        uint32_t slot{};const bool found=detail::cvr_rd_ledger_find(ledger_,ownerHeader,generation,bornEpoch,&slot);
+        if(!detail::cvr_rd_ledger_retire(ledger_,which,ownerHeader,generation,bornEpoch))return false;
+        if(found && slot<MaxStates)states_[slot].reset();return true;
+    }
+    void* ledger_;
+    std::array<std::unique_ptr<State>,MaxStates> states_{};
+};
+#else
 class Ledger {
 public:
     Ledger()=default;
@@ -353,4 +494,5 @@ private:
     bool shutdown_{};
     Failure failure_=Failure::None;
 };
+#endif
 }

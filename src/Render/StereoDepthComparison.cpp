@@ -5,8 +5,41 @@
 #include <bit>
 #include <cmath>
 
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's comparison is rust/crates/cvr-render/src/constant_bank.rs'
 namespace cvr::stereo {
 using Microsoft::WRL::ComPtr;
+#if CVR_RUST_VRIK
+// The targets, the readback planes, the recording, the copies and the read: rust/crates/cvr-render/src/depth_comparison.rs
+// (the planes as early_depth_compare.rs's Plane, the result as its Comparison); the bank, the geometry and the paired
+// pass stay here (callbacks).
+struct RustDepthPlane {D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout;UINT stride,component;};
+struct RustDepthTargets {void* depth[3];void* dsvs;};
+struct RustDepthEye {void* pipeline;int32_t topology;uint32_t stencil;float blend[4];D3D12_VIEWPORT viewport;D3D12_RECT scissor;};
+struct RustDepthInput {uint32_t viewMask,pad;RustDepthEye eyes[2];};
+struct RustDepthHost {void* user;bool(*bindEye)(void*,void*,uint32_t,uint32_t);bool(*geometry)(void*,void*,uint32_t);};
+static_assert(sizeof(RustDepthPlane)==40 && sizeof(RustDepthTargets)==32 && sizeof(RustDepthEye)==72 && offsetof(RustDepthEye,viewport)==32 &&
+    sizeof(RustDepthInput)==152 && sizeof(RustDepthHost)==24 && sizeof(DepthComparisonResult)==88,"mirrored by depth_comparison.rs");
+extern "C" bool cvr_sdc_target_shape(const D3D12_RESOURCE_DESC*);
+extern "C" HRESULT cvr_sdc_targets(ID3D12Device*,const D3D12_RESOURCE_DESC*,float,RustDepthTargets*);
+extern "C" HRESULT cvr_sdc_planes(ID3D12Device*,void* const*,UINT,UINT,RustDepthPlane*,uint64_t*,void**,UINT*);
+extern "C" bool cvr_sdc_record(ID3D12GraphicsCommandList*,ID3D12GraphicsCommandList5*,size_t,size_t,float,const RustDepthInput*,size_t,const RustDepthHost*);
+extern "C" void cvr_sdc_copies(ID3D12GraphicsCommandList*,void* const*,ID3D12Resource*,const RustDepthPlane*);
+extern "C" HRESULT cvr_sdc_read(ID3D12Resource*,uint64_t,const RustDepthPlane*,float,DepthComparisonResult*);
+// The private list and its submission: rust/crates/cvr-render/src/private_submits.rs.
+extern "C" HRESULT cvr_sdc_commands(ID3D12Device*,void**,void**);
+extern "C" HRESULT cvr_sdc_submit(ID3D12Device*,ID3D12GraphicsCommandList*,void**,void**,UINT*);
+struct StereoDepthComparison::Storage final: IUnknown {
+    std::atomic<ULONG> refs{1};ComPtr<ID3D12Device> device;ComPtr<ID3D12CommandQueue> queue;
+    ComPtr<ID3D12CommandAllocator> allocator;ComPtr<ID3D12GraphicsCommandList> commands;ComPtr<ID3D12Fence> fence;
+    StereoBindingBank referenceBank;StereoGeometryCommands geometry;StereoGeometryPass paired;
+    std::vector<ComPtr<ID3D12PipelineState>> originals;std::array<ComPtr<ID3D12Resource>,3> depth;
+    ComPtr<ID3D12DescriptorHeap> dsvs;ComPtr<ID3D12Resource> readback;RustDepthPlane planes[8]{};
+    DepthComparisonResult result;UINT64 readbackBytes{};float clear{};
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id,void** out)override{if(!out)return E_POINTER;*out=nullptr;if(id!=__uuidof(IUnknown))return E_NOINTERFACE;*out=this;AddRef();return S_OK;}
+    ULONG STDMETHODCALLTYPE AddRef()override{return ++refs;}
+    ULONG STDMETHODCALLTYPE Release()override{const auto n=--refs;if(!n)delete this;return n;}
+};
+#else
 struct StereoDepthComparison::Storage final: IUnknown {
     struct Plane {D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout{};UINT rows{};UINT64 rowBytes{};UINT stride{},component{};};
     std::atomic<ULONG> refs{1};ComPtr<ID3D12Device> device;ComPtr<ID3D12CommandQueue> queue;
@@ -19,9 +52,17 @@ struct StereoDepthComparison::Storage final: IUnknown {
     ULONG STDMETHODCALLTYPE AddRef()override{return ++refs;}
     ULONG STDMETHODCALLTYPE Release()override{const auto n=--refs;if(!n)delete this;return n;}
 };
+#endif
 StereoDepthComparison::StereoDepthComparison()=default;
 StereoDepthComparison::~StereoDepthComparison()=default;
 namespace {
+#if CVR_RUST_VRIK
+extern "C" bool cvr_sdc_clear_for(bool,int,int,int,float*);   // rust/crates/cvr-render/src/depth_clear_value.rs
+bool ClearFor(const families::PassContract& pass,float& value) {
+    return cvr_sdc_clear_for(pass.depthStateKnown,pass.depthState.DepthEnable,int(pass.depthState.DepthWriteMask),
+        int(pass.depthState.DepthFunc),&value);
+}
+#else
 bool ClearFor(const families::PassContract& pass,float& value) {
     if(!pass.depthStateKnown || !pass.depthState.DepthEnable || pass.depthState.DepthWriteMask!=D3D12_DEPTH_WRITE_MASK_ALL)return false;
     switch(pass.depthState.DepthFunc){
@@ -30,10 +71,71 @@ bool ClearFor(const families::PassContract& pass,float& value) {
     default:return false;
     }
 }
+#endif
 // Private lists are never replayed. Detach recording ownership on every exit;
 // an already-submitted immutable batch keeps all objects through its GPU fence.
 struct RecordingGuard {ID3D12GraphicsCommandList* list;~RecordingGuard(){gpu::ResetCommandResources(list);}};
 }
+#if CVR_RUST_VRIK
+HRESULT StereoDepthComparison::Begin(ID3D12Device* device,std::span<const GeometryPassDraw> inputs,const D3D12_RESOURCE_DESC& target) try {
+    stage_=1;
+    if(storage_ || !device || inputs.empty() || inputs.size()>2048 || !cvr_sdc_target_shape(&target))return E_INVALIDARG;
+    ComPtr<Storage> pending;pending.Attach(new Storage);pending->device=device;
+    pending->result.width=UINT(target.Width);pending->result.height=target.Height;pending->result.draws=UINT(inputs.size());
+    std::vector<BankDraw> banks;std::vector<GeometryCommandPair> geometry;
+    stage_=2;
+    for(const auto& input:inputs) {
+        if(!input.family || !input.family->pairedRoot || input.family->pass.pixelShader || input.family->pass.targets.NumRenderTargets ||
+            input.family->pass.depth!=DXGI_FORMAT_D32_FLOAT_S8X24_UINT || !input.family->sourceRoot)return E_INVALIDARG;
+        float clear{};if(!ClearFor(input.family->pass,clear) || (!banks.empty() && clear!=pending->clear))return E_INVALIDARG;
+        pending->clear=clear;
+        banks.push_back({input.family->pairedRoot->root.Get(),&input.family->pairedRoot->plan,input.constants,{},input.family->sourceRoot.Get()});
+        geometry.push_back(input.geometry);pending->originals.push_back(input.geometry.eyes[0].state.original);
+    }
+    stage_=3;probe::Scope internal;auto hr=pending->referenceBank.CreatePass(device,banks);if(FAILED(hr))return hr;
+    stage_=4;
+    hr=pending->geometry.Create(device,geometry);if(FAILED(hr))return hr;
+    stage_=5;RustDepthTargets created{};hr=cvr_sdc_targets(device,&target,pending->clear,&created);
+    for(UINT i=0;i<3;++i)if(created.depth[i])pending->depth[i].Attach(static_cast<ID3D12Resource*>(created.depth[i]));
+    if(created.dsvs)pending->dsvs.Attach(static_cast<ID3D12DescriptorHeap*>(created.dsvs));
+    if(FAILED(hr))return hr;
+    const auto stride=device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);const auto start=pending->dsvs->GetCPUDescriptorHandleForHeapStart();
+    stage_=6;hr=pending->paired.Create(device,inputs,{{},pending->depth[2]});if(FAILED(hr))return hr;
+    void* const depth[3]{pending->depth[0].Get(),pending->depth[1].Get(),pending->depth[2].Get()};void* readback{};UINT stage{};
+    hr=cvr_sdc_planes(device,depth,UINT(target.Width),target.Height,pending->planes,&pending->readbackBytes,&readback,&stage);stage_=stage;
+    if(readback)pending->readback.Attach(static_cast<ID3D12Resource*>(readback));
+    if(FAILED(hr))return hr;
+    stage_=9;hr=cvr_sdc_commands(device,reinterpret_cast<void**>(pending->allocator.GetAddressOf()),reinterpret_cast<void**>(pending->commands.GetAddressOf()));
+    if(FAILED(hr))return hr;
+    auto* list=pending->commands.Get();RecordingGuard recording{list};ComPtr<ID3D12GraphicsCommandList5> rates;
+    hr=list->QueryInterface(IID_PPV_ARGS(&rates));if(FAILED(hr))return hr;
+    if(!gpu::KeepCommandResources(list,{pending.Get()}))return E_OUTOFMEMORY;
+    stage_=10;if(!pending->referenceBank.CaptureEye(list,0) || !pending->referenceBank.CaptureEye(list,1))return E_FAIL;
+    std::vector<RustDepthInput> draws(inputs.size());
+    for(size_t i=0;i<inputs.size();++i){draws[i].viewMask=inputs[i].viewMask;
+        for(UINT eye=0;eye<2;++eye){const auto& source=inputs[i].geometry.eyes[eye];auto& o=draws[i].eyes[eye];
+            o.pipeline=source.state.original.Get();o.topology=int32_t(source.state.topology);o.stencil=source.state.stencil;
+            std::copy_n(source.state.blendFactor.data(),4,o.blend);o.viewport=source.draw.viewport;o.scissor=source.draw.scissor;}}
+    const RustDepthHost host{pending.Get(),
+        [](void* user,void* l,uint32_t eye,uint32_t index){
+            return static_cast<Storage*>(user)->referenceBank.BindSourceEye(static_cast<ID3D12GraphicsCommandList*>(l),eye,index);},
+        [](void* user,void* l,uint32_t index){return static_cast<Storage*>(user)->geometry.RecordGeometry(static_cast<ID3D12GraphicsCommandList*>(l),index);}};
+    if(!cvr_sdc_record(list,rates.Get(),start.ptr,stride,pending->clear,draws.data(),draws.size(),&host))return E_FAIL;
+    stage_=11;if(!pending->paired.Record(list))return E_FAIL;
+    stage_=12;cvr_sdc_copies(list,depth,pending->readback.Get(),pending->planes);
+    hr=list->Close();if(FAILED(hr))return hr;
+    {UINT stage{};hr=cvr_sdc_submit(device,list,reinterpret_cast<void**>(pending->queue.GetAddressOf()),reinterpret_cast<void**>(pending->fence.GetAddressOf()),&stage);
+        stage_=stage;if(FAILED(hr))return hr;}   // its own queue and fence, the list's resources in flight, the fence signalled 1
+    storage_=std::move(pending);stage_=0;return S_OK;
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
+HRESULT StereoDepthComparison::Read(DepthComparisonResult& result) {
+    if(!storage_)return E_UNEXPECTED;auto& s=*storage_.Get();
+    if(s.result.complete){result=s.result;return S_OK;}
+    const auto completed=s.fence->GetCompletedValue();if(completed==UINT64_MAX)return DXGI_ERROR_DEVICE_REMOVED;if(completed<1)return S_FALSE;
+    const auto hr=cvr_sdc_read(s.readback.Get(),s.readbackBytes,s.planes,s.clear,&s.result);if(FAILED(hr))return hr;
+    result=s.result;return S_OK;
+}
+#else
 HRESULT StereoDepthComparison::Begin(ID3D12Device* device,std::span<const GeometryPassDraw> inputs,const D3D12_RESOURCE_DESC& target) try {
     stage_=1;
     if(storage_ || !device || inputs.empty() || inputs.size()>2048 || target.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
@@ -136,4 +238,6 @@ HRESULT StereoDepthComparison::Read(DepthComparisonResult& result) {
     }
     const D3D12_RANGE none{};s.readback->Unmap(0,&none);s.result.complete=1;result=s.result;return S_OK;
 }
+#endif
 }
+#endif

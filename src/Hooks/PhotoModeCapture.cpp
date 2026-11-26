@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Core/VrCoreShared.hpp"
 #include "Hooks/Hook.hpp"
 #include "Hooks/PhotoModeCapture.hpp"
@@ -12,12 +13,32 @@
 #include <cstring>
 #include <limits>
 
+#if !CVR_RUST_VRIK
 extern "C" UINT GetForcedWindowWidth();
 extern "C" UINT GetForcedWindowHeight();
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PhotoCaptureSizeOverrides{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PhotoCaptureClampOverrides{};
+#endif
+#if !CVR_RUST_VRIK
+}
+#endif
+#if CVR_RUST_VRIK
+// The policies, the size detour's install and the clamp call's relay are rust/crates/cvr-rig/src/vrik/photo_capture.rs
+// (with the thunks' originals); the thunks (src/Hooks/PhotoCaptureClampThunk.asm), the counters above and the
+// registration stay.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("PhotoModeCapture", ::cvr::hooks::Stage::Boot, 86, cvr_hook_photo_mode_capture_install);
+#endif
+#else
+extern "C" {
 void* CvrPhotoClampOriginal{};
 void CvrPhotoClampDetour();
 void* CvrPhotoSizeOriginal{};
@@ -152,3 +173,5 @@ CVR_HOOK("PhotoModeCapture", ::cvr::hooks::Stage::Boot, 86, InstallPhotoModeCapt
 extern "C" bool CvrPhotoClampSkip(uint32_t* width, uint32_t* height) {
     return SkipReadbackClamp(width,height);
 }
+#endif
+#endif

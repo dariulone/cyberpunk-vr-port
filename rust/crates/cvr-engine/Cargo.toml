@@ -1,0 +1,31 @@
+[package]
+name = "cvr-engine"
+description = "The REDengine boundary (stage 2): game build gate, the engine address table, code guards and the hook manager"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+links = "minhook"
+
+[dependencies]
+cvr-host = { path = "../cvr-host" }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+cvr-tool = { path = "../cvr-tool" }
+
+[build-dependencies]
+cc = "1"
+
+[lints]
+workspace = true

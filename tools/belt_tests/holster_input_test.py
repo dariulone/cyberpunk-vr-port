@@ -1,4 +1,5 @@
 """Run the real holster input/update functions with game and geometry boundaries mocked."""
+import json
 from pathlib import Path
 from lupa.luajit21 import LuaRuntime
 
@@ -164,12 +165,23 @@ lua.execute("""
 # Real placement and shell modules: no generated geometry and no game process needed.
 geometry = LuaRuntime(unpack_returned_tuples=True)
 geometry.globals().holster_root = str(root / "mods/cet/CyberpunkVRPort_Holster").replace("\\", "/")
+geometry.globals().decode = lambda s: geometry.table_from(json.loads(s), recursive=True)
 geometry.execute(r"""
     package.path = holster_root .. '/?.lua;' .. package.path
     local P = require('modules/placements')
     local SH = require('modules/shells')
     local D = require('data/shells')
-    local H = require('modules/holsters')
+    local stored, writes = nil, 0
+    io.open=function(path,mode)
+        assert(path=='holster_places.json')
+        if mode~='r' then writes=writes+1;return nil end
+        if stored then return {read=function()return stored end,close=function()end} end
+    end
+    json={decode=decode}
+    local defaults=require('modules/holsters')
+    stored='{"slots":{"1":"thigh_r","2":"none","3":"underarm_l"},"hidden":true}'
+    package.loaded['modules/holsters']=nil
+    local H=require('modules/holsters')
     -- Authored shell-fit quaternions are rounded to six decimal places.
     local function close(a,b) assert(math.abs(a-b)<3e-6, tostring(a)..' != '..tostring(b)) end
     local function vec(a,b) for i=1,#b do close(a[i],b[i]) end end
@@ -182,28 +194,51 @@ geometry.execute(r"""
         error('missing production helper: '..name)
     end
     local compose=up(SH.wanted,'compose')
+    local rotate=up(compose,'qrot')
+    local handTick=up(H.update,'hand')
     local copyWorld=up(up(H.near,'grabSpan'),'copyWorld')
     CName={new=function(v)return v end}
     Vector4={new=function(x,y,z,w)return {x=x,y=y,z=z,w=w}end}
     WorldPosition={ToVector4=function(v)return v end}
     VRWorldToModel=function(v)return v end
+    local hips
     local component={GetSlotTransform=function()
-        return true,{Position={x=0,y=0,z=0},Orientation={i=0,j=0,k=0,r=1}}
+        local p,q=hips.p,hips.q
+        return true,{Position=Vector4.new(p[1],p[2],p[3],1),Orientation={i=q[1],j=q[2],k=q[3],r=q[4]}}
     end}
     local player={FindComponentByName=function()return component end}
-    Game={GetPlayer=function()return player end}
+    local queued
+    local pd={GetItemInEquipSlot=function(_,_,i) if i<3 then return 'gun'..i end end}
+    local es={GetPlayerData=function() return pd end,QueueRequest=function(_,r) queued=r.itemID end}
+    Game={GetPlayer=function()return player end,GetScriptableSystemsContainer=function()return {Get=function()return es end} end}
+    gamedataEquipmentArea={Weapon=1}
+    local function identity(v) return v end
+    ItemID={IsValid=function(v)return v~=nil end,GetCombinedHash=identity,GetTDBID=identity}
+    TDBID={ToStringDEBUG=identity}
+    DrawItemRequest={new=function()return {} end}
+    local itemType={Type=function()return {value='Wea_Handgun'} end}
+    TweakDBInterface={GetItemRecord=function()return {ItemType=function()return itemType end} end}
     for _,left in ipairs({false,true}) do
         VRLeftHanded=function()return left end
         local side=left and 'l' or 'r'
         local hand=left and 0 or 1
         local sign=left and -1 or 1
+        local underarm=left and 'underarm_r' or 'underarm_l'
+        assert(not defaults.hidden() and defaults.slotInfo(0).place=='hip_'..side)
+        assert(defaults.slotInfo(1).place==underarm and defaults.slotInfo(2).place==nil)
+        assert(H.hidden() and H.slotInfo(0).place=='thigh_'..side)
+        assert(H.slotInfo(1).choice=='none' and H.slotInfo(1).place==nil and H.slotInfo(2).place==underarm)
         assert(P.kind('Wea_Handgun')=='pistol' and P.kind('Wea_Revolver')=='pistol')
         for _,name in ipairs({'hip_r','thigh_r'}) do
             local p=P.get(name,left,false)
-            local old=name=='hip_r' and {.17,-.06,.23*sign} or {-.24,-.047,.19*sign}
-            vec(p.pos,{old[1]-.03,old[2]-.02,old[3]})
+            vec(p.pos,name=='hip_r' and {.14,-.15,.207*sign} or {-.27,-.067,.19*sign})
+            local cant=name=='hip_r' and math.rad(25) or 0
+            vec(rotate(p.rot,{0,1,0}),{-math.cos(cant),math.sin(cant),0})
+            if name=='hip_r' then vec(p.pullAxis,{math.cos(cant),-math.sin(cant),0}) end
+            if name=='thigh_r' then assert(p.pull==nil and p.slot=='hips') end
             assert(p.reach==(name=='hip_r' and .15 or .12))
             for _,body in ipairs({'m','w'}) do
+                hips=D.bind[body].hips
                 assert(SH.place(p,body)==p, 'shell override moved handgun away from shared placement')
                 for _,entry in ipairs({{'pistol','','Wea_Handgun'},{'revolver','','Wea_Revolver'},
                         {'overture','Overture','Wea_Revolver'},{'malorian','Silverhand','Wea_Handgun'}}) do
@@ -213,16 +248,29 @@ geometry.execute(r"""
                     local seated=compose(shell.pose,D.leg[side][entry[1]][body].fit)
                     vec(seated.p,p.pos);vec(seated.q,p.rot)
                     local w,q=copyWorld(player,c,0)
-                    vec(w,p.pos);vec(q,p.rot)
+                    local world=compose(hips,seated)
+                    vec(w,world.p);vec(q,world.q)
                     c.entity={GetWorldPosition=function()return {x=w[1],y=w[2],z=w[3]}end}
                     H._S.copies={c}
                     close(H.near(w[1],w[2],w[3],hand),0)
                     assert(H.near(w[1]+p.reach+.001,w[2],w[3],hand)==nil)
                     assert(H.near(w[1],w[2],w[3],1-hand)==nil)
+                    if name=='thigh_r' and entry[1]=='pistol' then
+                        local held=false
+                        GetVRSharedSlot=function(slot)return held and slot==(left and 155 or 49) and 1 or 0 end
+                        VRHandRawWorld=function()return Vector4.new(w[1]+.119,w[2],w[3],1) end
+                        c.key,c.item,c.shown='gun0','gun0',false
+                        H._S.cooldown,queued=0,nil
+                        handTick(player,{},{},.01,true)
+                        held=true
+                        handTick(player,{},{},.01,true)
+                        assert(queued==c.item and H._S.pull==nil,'thigh grip failed to draw immediately')
+                    end
                 end
             end
         end
         vec(P.get('thigh_r',left,true).pos,{-.24,-.047,.19*sign})
+        vec(rotate(P.get('thigh_r',left,true).rot,{0,0,1}),{-1,0,0})
         vec(P.get('hip_l',left,true).pos,{.105,-.147,-.178*sign})
         vec(P.get('hip_r',left,true).pos,{.17,-.06,.23*sign})
         vec(P.get('underarm_l',left,false).pos,{-.10,-.11,-.20*sign})
@@ -234,6 +282,7 @@ geometry.execute(r"""
         assert(shells['leg_'..side] and shells['thigh_'..side], 'same-side shells overwrote each other')
         assert(next(SH.wanted({{place=P.get('thigh_r',left,true),kind='knife'}},'w'))==nil)
     end
-    print('PASS handgun hip/thigh -3cm up +2cm forward: both hands/bodies, all shell fits, copies and reach')
+    assert(writes==0,'loading holster placements rewrote saved preferences')
+    print('PASS handgun hip/thigh frames, 25-degree grip-forward hip cant, mirrored draws, shell fits, reach and preferences')
     print('PASS knife/melee/underarm/long-gun positions unchanged; independent hip and thigh shells')
 """)

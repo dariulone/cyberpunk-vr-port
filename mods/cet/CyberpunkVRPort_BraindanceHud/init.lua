@@ -174,7 +174,24 @@ local function disarm()
   left  = 0
 end
 
+-- THE RUST BUILD PLACES BOTH PIECES (rust/crates/cvr-ffi/src/mechanics/braindance_hud.rs, bit 12 of VRRustMechanics):
+-- the two observers only report the controller's lifetime to it. The reference build has no such native, and
+-- everything below keeps running here.
+local function rustOwned()
+  return type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 4096) % 2 == 1
+end
+
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent("onInit", function()
+  if rustOwned() then
+    if rustHooks() then return end
+    Observe("BraindanceGameController", "OnInitialize", function() VRBraindanceHudArm() end)
+    Observe("BraindanceGameController", "OnUnInitialize", function() VRBraindanceHudDisarm() end)
+    return
+  end
   -- The braindance controller is the state signal: it exists exactly while a braindance runs, so the
   -- work is armed and disarmed by its own lifetime and nothing has to poll for the state.
   Observe("BraindanceGameController", "OnInitialize", arm)

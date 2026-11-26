@@ -4,10 +4,15 @@
 
 namespace cvr::body {
 enum class RotationMode { Off, HeadCone, Tracked, Hybrid, HeadLed };
+#if CVR_RUST_BODY
+// rust/crates/cvr-body/src/hybrid_yaw.rs
+inline RotationMode RotationModeFromFlags(int physical,int tracked,int hybrid,int headLed=0) {
+    return static_cast<RotationMode>(cvr_rotation_mode_from_flags(physical,tracked,hybrid,headLed));
+}
+inline bool NeedsBodyTracking(RotationMode mode) { return cvr_needs_body_tracking(static_cast<int32_t>(mode)); }
+#else
 // Retain the older INI switches. An explicit tracked-only request takes priority
 // over the new factory default, so existing presets can still select that mode.
-// HeadLed (Runtimes/HeadLedBodyTurn.hpp, the factory default since 2026-11-07) comes before the hybrid: an ini written
-// before it has hybrid on and no head-led key, which reads as on.
 inline RotationMode RotationModeFromFlags(int physical,int tracked,int hybrid,int headLed=0) {
     return tracked?RotationMode::Tracked:headLed?RotationMode::HeadLed:hybrid?RotationMode::Hybrid:
         physical?RotationMode::HeadCone:RotationMode::Off;
@@ -15,6 +20,7 @@ inline RotationMode RotationModeFromFlags(int physical,int tracked,int hybrid,in
 inline bool NeedsBodyTracking(RotationMode mode) {
     return mode==RotationMode::Tracked || mode==RotationMode::Hybrid;
 }
+#endif
 struct HybridInput {
     float headYaw{},headDownDegrees{},bodyBendRadians{},bodyOffset{},coneDegrees=10;
     YawEstimate estimate{};
@@ -27,7 +33,8 @@ struct HybridCommand { float targetYaw{},coneDegrees{};bool tracked=false;float 
 // Owns the head-cone phase and its transitions. The native follower applies the
 // resulting target as body motion; the independent camera reference is untouched.
 //
-// THE TWO SOURCES FADE INTO EACH OTHER (2026-11-07). Upright the body follows the head (a cone); looking down
+// THE TWO SOURCES FADE INTO EACH OTHER (2026-11-07, user: "бывает моменты когда поворот считает что голова не опущена
+// или что-то подобное сбивается. Надо бы какое-то затухание"). Upright the body follows the head (a cone); looking down
 // or bent it follows the hands (TrackedBodyYaw), so a look at the belt does not turn it. The source used to switch in
 // one frame, and the hand source was aligned to wherever the body happened to be at that frame. A glance to the side
 // that lowered the head on the way (a look at the hip) had the cone drag the body after the head before the head was
@@ -42,9 +49,9 @@ struct HybridCommand { float targetYaw{},coneDegrees{};bool tracked=false;float 
 //     source has not taken yet (lost controllers, a gesture it refused, its own lag in a fast turn) pulls the body
 //     along. The pull is a rubber band, not a new alignment: it lets go as the head comes back or the hands catch up.
 //     (It was written into the alignment at first, and when the hands caught up with a fast turn they had lagged the
-//     pull counted twice: turned round and back looking down, the body stood 40 degrees right of the head,
-//     2026-11-07.)
-//   - THE HEAD ALONE IS NO TORSO (2026-11-07).
+//     pull counted twice: turned round and back looking down, the body stood 40 degrees right of the head -- user,
+//     2026-11-07: "я повернулся развернулся и тело смотрит правее".)
+//   - THE HEAD ALONE IS NO TORSO (2026-11-07, user: "сбивается гибридный если опустить руки потом опять повернуться").
 //     The hands' estimate is relative, and the alignment that maps it onto the body was refitted whenever the head cone
 //     had settled -- but upright the cone follows the head, so a look round with the torso still (the hands where they
 //     were) was written into the hands' heading: looking down afterwards the body stood where the head had looked, not
@@ -76,6 +83,14 @@ public:
     static constexpr float NeckRefit=1.4835299f;              // 85 degrees: past any neck turn
     static constexpr float RefitAfter=.4f;                    // s: held that far off before the hands' heading is replaced
     static constexpr float LostRefitAfter=1.5f;               // s: the estimate gone longer than this is aligned afresh
+#if CVR_RUST_BODY
+    // rust/crates/cvr-body/src/hybrid_yaw.rs; this class's fields are its layout.
+    void Reset(){cvr_hybrid_body_yaw_reset(this);}
+    void Suspend(bool keepAlignment=false){cvr_hybrid_body_yaw_suspend(this,keepAlignment);}
+    bool Tracked() const{return tracked;}
+    float TrackedWeight() const{return weight;}
+    HybridCommand Step(const HybridInput& in){HybridCommand c;cvr_hybrid_body_yaw_step(this,&in,&c);return c;}
+#else
     void Reset(){*this={};}
     // keepAlignment: a freeze of our own updates (the hands' estimate runs on); otherwise the source is gone (a scene,
     // a menu) and the hands are aligned afresh when it comes back
@@ -164,5 +179,9 @@ public:
         step=std::clamp(step,-limit,limit);
         return command(Wrap(body+step));
     }
+#endif
 };
+#if CVR_RUST_BODY
+static_assert(sizeof(HybridInput) == 64 && sizeof(HybridCommand) == 32 && sizeof(HybridBodyYaw) == 64);
+#endif
 }

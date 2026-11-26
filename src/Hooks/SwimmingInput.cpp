@@ -1,4 +1,6 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Hooks/SwimmingInput.hpp"
+#include "Anim/CharacterRig.hpp"   // g_VRIKClockQpc
 #include "Hooks/LadderInput.hpp"
 #include "Hooks/RoomscaleMove.hpp"
 #include "Runtimes/SwimmingGesture.hpp"
@@ -13,13 +15,33 @@
 #include <cstring>
 #include <mutex>
 
+// The original action reader the asm thunk (SwimmingActionLeafThunk.asm) calls: both builds.
+#if !CVR_RUST_VRIK
 extern "C" {
-void* CvrSwimmingActionOriginal{};
+#endif
+#if !CVR_RUST_VRIK
+extern void* CvrSwimmingActionOriginal;   // src/Hooks/BodyHooksState.cpp
+#endif
+#if !CVR_RUST_VRIK
 float CvrSwimmingActionDetour(void*,uint64_t);
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+
+// THE STROKES ARE RUST'S with CVR_RUST_VRIK (rust/crates/cvr-rig/src/vrik/swimming_input.rs, the gestures in
+// rust/crates/cvr-body/src/swim.rs); cvr::swimming::* then forwards from src/Hooks/WaterLadderRust.cpp, and the action
+// reader's registration stays here so the install order holds.
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("SwimmingActions",::cvr::hooks::Stage::Boot,101,cvr_hook_swimming_actions_install);
+#endif
+#else
 
 namespace cvr::swimming {
 namespace {
+// XrDiagNowUs, or the tests' counter (g_VRIKClockQpc, 1 MHz).
+uint64_t ClockUs() { return g_VRIKClockQpc ? static_cast<uint64_t>(g_VRIKClockQpc()) : XrDiagNowUs(); }
 std::mutex s_mutex;
 uintptr_t s_player{};
 uint64_t s_stamp{},s_strokes{};
@@ -61,7 +83,7 @@ void Clear() {
 
 bool Active() {
     std::lock_guard lock(s_mutex);
-    return Present(XrDiagNowUs());
+    return Present(ClockUs());
 }
 // This is the same context getter the original locomotion input sampler has
 // just called. Bind only a context whose provider belongs to GetPlayer().
@@ -83,11 +105,11 @@ void BindNativeInput(void* locomotion) {
     const auto input=PlayerInputObject(locomotion);
     if(!input)return;
     std::lock_guard lock(s_mutex);
-    s_inputObject=input;s_inputOwner=cvr::roomscale::PlayerIdentity();s_inputOwnerStamp=XrDiagNowUs();
+    s_inputObject=input;s_inputOwner=cvr::roomscale::PlayerIdentity();s_inputOwnerStamp=ClockUs();
 }
 float NativeAction(int action) {
     if(!ContextAllowed())return 0;
-    std::lock_guard lock(s_mutex);const auto now=XrDiagNowUs();
+    std::lock_guard lock(s_mutex);const auto now=ClockUs();
     if(s_paused || !Fresh(now) || !s_inputStamp || now<s_inputStamp || now-s_inputStamp>100000)return 0;
     if(s_manual && action!=Ascend)return 0;
     switch(action) {
@@ -101,7 +123,7 @@ float NativeAction(int action) {
 extern "C" float CvrSwimmingActionAfter(void* object,uint64_t name,float original) {
     if(name!=Hash("MoveY") && name!=Hash("ToggleSprint") && name!=Hash("Jump") && name!=Hash("Dive"))return original;
     {
-        std::lock_guard lock(s_mutex);const auto now=XrDiagNowUs();
+        std::lock_guard lock(s_mutex);const auto now=ClockUs();
         if(reinterpret_cast<uintptr_t>(object)!=s_inputObject || s_inputOwner!=cvr::roomscale::PlayerIdentity() ||
            now<s_inputOwnerStamp || now-s_inputOwnerStamp>250000)return original;
     }
@@ -119,7 +141,7 @@ extern "C" float CvrSwimmingActionAfter(void* object,uint64_t name,float origina
 bool ReadSteering(XrVector3f* direction,int* state) {
     const bool context=ContextAllowed();
     std::lock_guard lock(s_mutex);
-    const auto now=XrDiagNowUs();
+    const auto now=ClockUs();
     if(!context || s_paused || !Fresh(now) || !s_automatic || !s_inputStamp || now<s_inputStamp ||
        now-s_inputStamp>100000 || !direction || !state)return false;
     *direction=s_direction;*state=s_state;return true;
@@ -129,7 +151,7 @@ void PublishState(uintptr_t player,int state,int fast,bool paused,bool waterCont
     std::lock_guard lock(s_mutex);
     if(player!=s_player || (!InWater(state) && !waterContext) || paused)Clear();
     s_paused=paused;s_waterContext=waterContext;
-    s_player=player;s_state=state;s_fast=std::clamp(fast,-1,1);s_stamp=XrDiagNowUs();
+    s_player=player;s_state=state;s_fast=std::clamp(fast,-1,1);s_stamp=ClockUs();
 }
 void ResetInput() { std::lock_guard lock(s_mutex);Clear(); }
 
@@ -137,7 +159,7 @@ Input UpdateInput(const VRControllerState& controllers,bool manualBack) {
     const bool context=ContextAllowed();
     {
         std::lock_guard lock(s_mutex);
-        if(!context || s_paused || !Present(XrDiagNowUs())) { Clear();return {}; }
+        if(!context || s_paused || !Present(ClockUs())) { Clear();return {}; }
     }
     OpenXRHeadPose head{},hands[2]{};uint64_t sequence{},stamp{};
     const bool tracked=controllers.leftHandValid && controllers.rightHandValid &&
@@ -151,7 +173,7 @@ Input UpdateInput(const VRControllerState& controllers,bool manualBack) {
         sample.sequence=sequence;sample.stampUs=stamp;sample.origin=head.originSerial;sample.valid=true;
     }
     std::lock_guard lock(s_mutex);
-    const auto now=XrDiagNowUs();
+    const auto now=ClockUs();
     if(!Present(now)) { Clear();return {}; }
     const bool enabled=!manualBack && tracked && g_liveControls.xrBreaststrokeSwim!=0 && !s_paused;
     const auto motion=s_gesture.Update(sample,now,enabled);
@@ -170,7 +192,7 @@ Input UpdateInput(const VRControllerState& controllers,bool manualBack) {
 bool SprintInput(bool wanted) {
     const bool context=ContextAllowed();
     std::lock_guard lock(s_mutex);
-    const auto now=XrDiagNowUs();
+    const auto now=ClockUs();
     if(!context || s_paused || !Fresh(now) || !s_input.water) { s_sprint.Reset();s_button=false;return false; }
     s_button=s_sprint.Update(wanted,s_fast,now);return s_button;
 }
@@ -200,7 +222,7 @@ float DebugValue(int index) {
     case 3:return float(s_gesture.CurrentPhase());
     case 4:return s_input.forward;
     case 5:return s_button ? 1.0f:0.0f;
-    case 6:return s_stamp ? float(XrDiagNowUs()-s_stamp)*.001f:-1.0f;
+    case 6:return s_stamp ? float(ClockUs()-s_stamp)*.001f:-1.0f;
     case 7:return s_input.water ? 1.0f:0.0f;
     case 8:return s_tracking ? 1.0f:0.0f;
     case 9:return s_input.ascend;
@@ -227,3 +249,5 @@ static bool InstallActions() {
 }
 CVR_HOOK("SwimmingActions",::cvr::hooks::Stage::Boot,101,InstallActions);
 }
+#endif
+#endif

@@ -14,11 +14,22 @@
 #include <cstring>
 
 extern void Log(const char*, ...);
+#if CVR_RUST_VRIK
+// The switches and fbt_settings.ini: rust/crates/cvr-settings/src/fbt_settings.rs.
+#include "Rust/CvrRust.h"
+#endif
 
 using namespace wrpuppets::fbt;   // the IK library (externals/wrpuppets-fbt-ik)
 
 namespace cvr::fbt::game {
 namespace {
+#if CVR_RUST_VRIK
+std::atomic<float> g_eyeZ{0.0f};                     // V's eye height as calibrated, model space (the camera's target)
+std::atomic<bool> g_eyeZOn{false};
+std::atomic<unsigned long long> g_eyeZTime{0};       // when the solve last set it: older than 200 ms counts as off
+float g_armScale[2] = {1.0f, 1.0f};                  // from the calibration, set by the body solve (same thread)
+bool g_bodySolved = false;                            // the body solve ran in this pose pass (with the spine)
+#else
 std::atomic<int> g_legs{-1}, g_spine{0}, g_arms{0};   // g_legs -1: the file not read yet
 std::atomic<float> g_eyeZ{0.0f};                     // V's eye height as calibrated, model space (the camera's target)
 std::atomic<bool> g_eyeZOn{false};
@@ -57,6 +68,7 @@ void WriteSettings() {
             g_spine.load() == 1 ? 1 : 0, g_arms.load() == 1 ? 1 : 0);
     fclose(f);
 }
+#endif
 
 // The stack, its filters and the last state, owned by the pose pass (one thread).
 struct State {
@@ -81,6 +93,8 @@ Vec3 Heading(Quat view) {
 }
 }  // namespace
 
+#if CVR_RUST_VRIK
+#else
 bool LegsEnabled() {
     ReadSettings();
     return g_legs.load(std::memory_order_relaxed) == 1;
@@ -112,6 +126,7 @@ void SetArmsEnabled(bool on) {
     WriteSettings();
     Log("[fbt] V's arms follow the controllers: %s\n", on ? "on" : "off");
 }
+#endif
 
 bool BodyActive() {
     const ULONGLONG at = g_eyeZTime.load(std::memory_order_relaxed);

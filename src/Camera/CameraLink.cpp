@@ -12,11 +12,15 @@
 #include <mutex>
 #include <cstring>
 
+// The counters are src/Camera/CameraLinkState.cpp's (both builds); what this file needs from the rest of the plugin
+// comes through src/Camera/CameraServices.cpp's C forms, which tools/vrik_tests replaces.
 extern "C" {
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_BodyCentreMatch{0};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_BodyCentreMiss{0};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_BodyLuaCentreMatch{0};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_BodyLuaCentreRejected{0};
+extern std::atomic<uint64_t> CyberpunkVR_BodyCentreMatch,CyberpunkVR_BodyCentreMiss,CyberpunkVR_BodyLuaCentreMatch,CyberpunkVR_BodyLuaCentreRejected;
+extern std::atomic<uint64_t> CyberpunkVR_PlacedPoseMatch,CyberpunkVR_PlacedPoseMiss,CyberpunkVR_PlacedPoseAmbiguous;
+uint64_t cvr_cpp_xr_tracking_origin_serial();
+uint64_t cvr_cpp_next_pose_identity();
+bool cvr_cpp_device_cam_active();
+bool cvr_cpp_braindance_active();
 }
 
 // Lifted out of the core hub verbatim when the three camera hooks were split into files of their
@@ -56,6 +60,10 @@ bool cvr::camera::AnchorRecipeRead(AnchorRecipe* recipe) {
     *recipe=s_anchorRecipe;
     return true;
 }
+void cvr::camera::AnchorRecipeClear() {
+    std::lock_guard lock(s_anchorMutex);
+    s_anchorKnown=false;
+}
 void cvr::camera::MainEyeCentrePublish(const int32_t eye[3], const int32_t centre[3], const int32_t bodyBase[3]) {
     s_eyeCentres.Publish({eye[0],eye[1],eye[2]}, {centre[0],centre[1],centre[2]},
                         {bodyBase[0],bodyBase[1],bodyBase[2]});
@@ -88,7 +96,7 @@ void cvr::camera::CamWriteQuatPublish(float x, float y, float z, float w, const 
     g_camWriteQuat[0] = x; g_camWriteQuat[1] = y;
     g_camWriteQuat[2] = z; g_camWriteQuat[3] = w;
     g_camWritePose=pose;
-    g_camWritePoseId=pose.valid ? (sourceId ? sourceId : NextPoseIdentity()) : 0;
+    g_camWritePoseId=pose.valid ? (sourceId ? sourceId : cvr_cpp_next_pose_identity()) : 0;
     g_camWriteConsumedKnown=consumed!=nullptr;
     if(consumed)g_camWriteConsumed=*consumed;
     g_camWriteKnown=true;
@@ -128,18 +136,12 @@ std::mutex s_camWriteRingMutex;
 cvr::camera::RenderedPoseHistory<OpenXRHeadPose> s_placedCameraPoses;
 }  // namespace
 
-extern "C" {
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PlacedPoseMatch{0};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PlacedPoseMiss{0};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PlacedPoseAmbiguous{0};
-}
-
 bool cvr::camera::PlacedCameraPoseEnabled() {
     return CyberpunkVR_OneSamplePerFrame && CyberpunkVR_CamWriteInPatch &&
            CyberpunkVR_CamComposeAtWrite && !CyberpunkVR_CamWriteInFinal &&
            CyberpunkVR_HeadTranslationInPatch && CyberpunkVR_VrcamHeadTranslation &&
            CyberpunkVR_DeltaFromFreshSample && CyberpunkVR_VrcamPosFromMain!=3 &&
-           !g_isInVehicle && !DeviceCamActive() && !g_bdActive.load(std::memory_order_relaxed);
+           !g_isInVehicle && !cvr_cpp_device_cam_active() && !cvr_cpp_braindance_active();
 }
 void cvr::camera::PlacedCameraPosePush(uint32_t view, const float q[4], const int32_t position[3],
                                       const OpenXRHeadPose& pose) {
@@ -148,7 +150,7 @@ void cvr::camera::PlacedCameraPosePush(uint32_t view, const float q[4], const in
 bool cvr::camera::PlacedCameraPoseFind(uint32_t view, const float q[4], const int32_t position[3],
                                       OpenXRHeadPose* out, uint32_t* age, uint32_t* ties) {
     const auto match=s_placedCameraPoses.Find(view,q,position,
-        OpenXRManager::Get().GetTrackingOriginSerial(),out,age,ties);
+        cvr_cpp_xr_tracking_origin_serial(),out,age,ties);
     if (match==RenderedPoseMatch::Exact) {
         CVR_DIAGNOSTIC(CyberpunkVR_PlacedPoseMatch.fetch_add(1,std::memory_order_relaxed));
         return true;
@@ -173,24 +175,7 @@ void cvr::camera::CamWriteRecordPush(const float q[4], const OpenXRHeadPose& p) 
     g_camWriteRingHead.fetch_add(1, std::memory_order_release);
 }
 
-// Frames identified by a BIT-FOR-BIT match (the normal path) versus by nearest-neighbour (the
-// fallback). Measured over a session: exact tracked match one for one, i.e. the engine hands the
-// quaternion to the render camera verbatim.
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalExact  = 0;
-
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalApprox = 0;
-
-// Equal orientations can occur while tracking position is moving. This counter
-// describes legacy quaternion ambiguity, not a count of equivalent full poses.
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalExactTies = 0;
-
-// The same three numbers for the SECOND view, kept apart from MAIN's so the two can be compared: if
-// vrcamMatch tracks match one for one the eyes are being drawn from the same frames, and if it does not,
-// the gap IS the second eye's lag -- which was previously invisible because the eye borrowed MAIN's label.
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamFinalMatch   = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamFinalNoMatch = 0;
-extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamFinalAge     = 0;
-
+// The identification counters (CyberpunkVR_DebugFinal*, CyberpunkVR_DebugVrcamFinal*) are CameraLinkState.cpp's.
 
 // EXACT FIRST; NEAREST ONLY AS A FALLBACK THAT ANNOUNCES ITSELF.
 //

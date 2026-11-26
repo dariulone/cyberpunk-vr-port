@@ -9,16 +9,72 @@
 #include <array>
 #include <atomic>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
+#endif
+#if !CVR_RUST_VRIK
 extern "C" ID3D12Resource* CyberpunkVR_GetFrameConstantBuffer();
 extern "C" ID3D12Resource* CyberpunkVR_GetHudConstantBuffer();
 extern "C" float CyberpunkVR_HudEngineCurvature[2];
-// THE PANEL IS FLAT. The engine bends its HUD as if on a curved visor (a barrel warp, strongest in the corners:
-// ColorBlit's curvature). On the flat game's screen that reads as the visor; on a flat panel in a headset it tilts
-// every corner element -- the health bar sloping down toward the middle, the weapon slots up, 5 to 9 degrees, alike in
-// both eyes: a crooked HUD (2026-11-14). 1 bends the panel with the engine's values again.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_HudPanelCurve = 0;
 extern "C" ID3D12Resource* CyberpunkVR_GetHudExposureBuffer();
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE CANVASES ARE RUST'S (rust/crates/cvr-gpu/src/hud_panel.rs): the snapshots, the three fenced slots per channel,
+// the sprites, mips, blur and the engine's HUD composite, the latest frame the XR quad copies. This file hands each
+// published snapshot over -- every sprite's texture lease as a held shared pointer, which Rust gives back through the
+// runtime below once it is done with it -- runs the optics probe's capture before the main channel's, and passes the
+// panel's style and the engine's HUD buffers.
+#include <vector>
+extern "C" {
+struct CvrHudSpriteView {
+    void* lease;
+    ID3D12Resource* resource;
+    float x, y, width, height;
+    float tint[4];
+    uint64_t name;
+};
+struct CvrHudSnapshotView {
+    uint32_t width, height;
+    uint64_t stamp, generation;
+    bool masked, lootVisible, emptyContent;
+    const CvrHudSpriteView* sprites;
+    size_t count;
+    // The vehicle map's projection, its share of the canvas and its tile on the HUD canvas (Rust's natives fill them).
+    bool windshieldMap;
+    float windshieldSplit;
+    float hudRect[4];
+};
+void cvr_hud_panel_publish(const CvrHudSnapshotView* view, unsigned channel);
+bool cvr_hud_panel_consumer_ready(unsigned channel);
+void cvr_hud_panel_set_consumer_ready(bool ready, unsigned channel);
+void cvr_hud_panel_shutdown(unsigned channel);
+}
+namespace cvr::hud {
+static_assert(sizeof(CvrHudSpriteView) == 56 && sizeof(CvrHudSnapshotView) == 72,
+              "mirrored in rust/crates/cvr-gpu/src/hud_panel.rs");
+namespace {
+unsigned Number(Channel channel) { return static_cast<unsigned>(Index(channel)); }
+}  // namespace
+// The HUD panel's and the optics probe's tables are built in Rust (rust/crates/cvr-gpu/src/hud_panel.rs,
+// optics_probe.rs); their leases are Rust's (rust/crates/cvr-render/src/cpp_services.rs).
+void Publish(std::shared_ptr<Snapshot> snapshot, Channel channel) {
+    if (!snapshot) { cvr_hud_panel_publish(nullptr, Number(channel)); return; }
+    std::vector<CvrHudSpriteView> sprites;
+    sprites.reserve(snapshot->sprites.size());
+    for (const auto& s : snapshot->sprites)
+        sprites.push_back({new std::shared_ptr<TextureLease>(s.texture), s.texture ? s.texture->resource.Get() : nullptr, s.x, s.y,
+                           s.width, s.height, {s.tint[0], s.tint[1], s.tint[2], s.tint[3]}, s.name});
+    const CvrHudSnapshotView view{snapshot->width, snapshot->height, snapshot->stamp, snapshot->generation, snapshot->masked,
+                                  snapshot->lootVisible, snapshot->emptyContent, sprites.data(), sprites.size(), false, 1.0f, {}};
+    cvr_hud_panel_publish(&view, Number(channel));
+}
+bool ConsumerReady(Channel channel) { return cvr_hud_panel_consumer_ready(Number(channel)); }
+void SetConsumerReady(bool ready, Channel channel) { cvr_hud_panel_set_consumer_ready(ready, Number(channel)); }
+void Shutdown(Channel channel) { cvr_hud_panel_shutdown(Number(channel)); }
+}  // namespace cvr::hud
+#endif
+#else
 namespace cvr::hud {
 using Microsoft::WRL::ComPtr;
 namespace {
@@ -115,25 +171,7 @@ bool ConsumerReady(Channel channel) {
     const auto stamp=consumerStamp.load(std::memory_order_acquire);
     return stamp && GetTickCount64()-stamp < 300;
 }
-namespace {
-std::array<std::atomic<bool>,ChannelCount> primed{};
-std::array<std::atomic<uint64_t>,ChannelCount> consumerSeen{};
-}
-// Every answer the consumer gives says it is alive; a yes primes it.
-void SetConsumerReady(bool ready,Channel channel) {
-    const auto now=GetTickCount64();
-    pipelines[Index(channel)].consumerStamp.store(ready ? now : 0,std::memory_order_release);
-    consumerSeen[Index(channel)].store(now,std::memory_order_release);
-    if(ready)primed[Index(channel)].store(true,std::memory_order_release);
-}
-bool ConsumerPrimed(Channel channel) {
-    const auto seen=consumerSeen[Index(channel)].load(std::memory_order_acquire);
-    return primed[Index(channel)].load(std::memory_order_acquire) && seen && GetTickCount64()-seen < 1000;
-}
-void DropConsumer(Channel channel) {
-    primed[Index(channel)].store(false,std::memory_order_release);
-    pipelines[Index(channel)].consumerStamp.store(0,std::memory_order_release);
-}
+void SetConsumerReady(bool ready,Channel channel) { pipelines[Index(channel)].consumerStamp.store(ready ? GetTickCount64() : 0,std::memory_order_release); }
 
 void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
     if(channel==Channel::Main)cvr::optics::probe::Capture(device,queue);
@@ -156,7 +194,7 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         if (FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)))) return;
         deviceOwner=device;
     }
-    if (deviceOwner.Get()!=device) { DropConsumer(channel); return; }
+    if (deviceOwner.Get()!=device) { SetConsumerReady(false,channel); return; }
     const auto completed=fence->GetCompletedValue();
     for (auto& slot:slots) {
         // The XR reader holds Frame until its copy is queued on this same queue. Thus a free
@@ -164,7 +202,7 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         // the command allocator/descriptors and all native source texture leases.
         if (slot.fenceValue > completed || (slot.frame && slot.frame.use_count()!=1)) continue;
         slot.sources.reset();slot.frameConstants.Reset();slot.hudConstants.Reset();slot.exposure.Reset();
-        if (!Initialize(slot,device,source->width,source->height)) { DropConsumer(channel); return; }
+        if (!Initialize(slot,device,source->width,source->height)) { SetConsumerReady(false,channel); return; }
         if (FAILED(slot.allocator->Reset()) || FAILED(slot.commands->Reset(slot.allocator.Get(),nullptr))) return;
         auto cmd=slot.commands.Get();
         auto gpuProfile = cvr::gpu::profile::Begin(cmd);
@@ -210,15 +248,13 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         // native buffer cannot prevent the HUD from appearing after a cold start.
         slot.defaultData[0]=float(GetTickCount64()%100000)*0.001f;
         ColorBlit::HudParams style{};style.layerOnly=1;
-        if(CyberpunkVR_HudPanelCurve && CyberpunkVR_HudEngineCurvature[1]!=0.0f) {
+        if(CyberpunkVR_HudEngineCurvature[1]!=0.0f) {
             style.curvature[0]=CyberpunkVR_HudEngineCurvature[0];style.curvature[1]=CyberpunkVR_HudEngineCurvature[1];
             style.panelEngineCurve=1.0f;
         }
         style.panelBrightness=g_liveControls.xrHudBrightness;
         style.panelShadow=g_liveControls.xrHudShadow;
         style.panelGlow=g_liveControls.xrHudGlow;
-        style.windshieldMap=source->windshieldMap?1.0f:0.0f;
-        style.windshieldSplit=source->windshieldSplit;
         ok &= slot.blit.RecordHudComposite(cmd,slot.raw.Get(),slot.raw.Get(),slot.blur.Get(),
             slot.exposure ? slot.exposure.Get() : slot.defaults.Get(),
             slot.frameConstants ? slot.frameConstants.Get() : slot.defaults.Get(),
@@ -234,37 +270,20 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         slot.sources=source;
         slot.frame->stamp=source->stamp; slot.frame->generation=source->generation;
         slot.frame->serial=submitted;
-        slot.frame->fence=fence.Get();
         slot.frame->masked=source->masked;
         slot.frame->lootVisible=source->lootVisible;
-        slot.frame->hudRect=source->hudRect;
-        slot.frame->windshieldMap=source->windshieldMap;slot.frame->windshieldSplit=source->windshieldSplit;
         if (ok) latest=slot.frame; else SetConsumerReady(false,channel);
         return;
     }
 }
-std::shared_ptr<Frame> Latest(Channel channel,bool completedOnly) {
+std::shared_ptr<Frame> Latest(Channel channel) {
     auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted]=pipelines[Index(channel)];
     std::lock_guard lock(renderMutex);
-    const auto now=GetTickCount64();
-    if(!latest || now-latest->stamp>=300)return nullptr;
-    if(!completedOnly || latest->empty)return latest;
-    const auto completed=fence?fence->GetCompletedValue():0;
-    if(completed==UINT64_MAX)return nullptr;
-    if(latest->serial<=completed)return latest;
-    // Inline runs immediately after Capture: latest is usually still on the GPU. Select a completed fenced slot
-    // instead of perpetually waiting for that newest canvas. Its shared ownership keeps Capture from reusing it.
-    std::shared_ptr<Frame> ready;
-    for(const auto& slot:slots) {
-        const auto& frame=slot.frame;
-        if(frame && frame->serial && frame->serial<=completed && now-frame->stamp<300 &&
-           (!ready || frame->serial>ready->serial))ready=frame;
-    }
-    return ready;
+    return latest && GetTickCount64()-latest->stamp < 300 ? latest : nullptr;
 }
 void Shutdown(Channel channel) {
     auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted]=pipelines[Index(channel)];
-    DropConsumer(channel);
+    SetConsumerReady(false,channel);
     std::lock_guard lock(renderMutex);
     // Shutdown follows the manager's GPU drain. If the device still has pending work, retain
     // these bounded resources rather than release native heaps underneath a command list.
@@ -281,3 +300,4 @@ void Shutdown(Channel channel) {
     std::lock_guard sourceLock(snapshotMutex); snapshot.reset();
 }
 }
+#endif

@@ -13,7 +13,10 @@
 # used to load first (load order is alphabetical and the first archive to hold a path wins). The VR
 # menu's two archives (vrport_menu_native, vrport_menu_panels) followed on 2026-10-27. A
 # rebuild therefore starts from the INSTALLED archive (extract, change, pack the whole tree), never
-# from a WolvenKit project that holds only part of it. -Push removes the retired files.
+# from a WolvenKit project that holds only part of it. To update a base from before the blade marks,
+# scope housings and controls guide were merged, overlay the cooked resources from mods\archive\build
+# under vrport\fx, base\vrport\optics and vrport\ui\vr_controls_icons.* in the extracted tree and repack.
+# -Push removes the retired files.
 #
 #   pull (default)   game -> repo.  Run it before committing.
 #   -Push            repo -> game.  What deploy_stereo.ps1 calls, so a fresh install gets them.
@@ -75,6 +78,13 @@ function CopyFile($src, $dst) {
 }
 
 $changed = 0
+$sidecars = @("cpvr_blade_mark.archive", "cpvr_scope_housings.archive", "cpvr_lobby_controls.archive", "cpvr_hud_hints.archive")
+$sidecarPaths = foreach ($dir in @("$Plugin\archive", "archive\pc\mod")) {
+    foreach ($name in $sidecars) { Join-Path $GameRoot "$dir\$name" }
+}
+if (!$Push -and ($sidecarPaths | Where-Object { Test-Path -LiteralPath $_ })) {
+    throw "The game still has separate port archives. Merge their resources into cyberpunkvrport.archive before pulling."
+}
 
 # The files merged into cyberpunkvrport.archive. Left in a game folder they would load beside it:
 # the catalogue's '!' name would even win over the merged copies of the player entities.
@@ -123,6 +133,20 @@ foreach ($a in $Assets) {
         if (-not $Quiet) {
             $size = if (Test-Path -LiteralPath $dst) { "{0:N0} B" -f (Get-Item -LiteralPath $dst).Length } else { "-" }
             Write-Host ("  {0,-44} {1,-12} {2}" -f $a.Repo, $size, $r)
+        }
+    }
+}
+
+if ($Push) {
+    $packed = Hash (Join-Path $RepoRoot "mods\archive\cyberpunkvrport.archive")
+    if (!$packed -or $packed -ne (Hash (Join-Path $GameRoot "$Plugin\archive\cyberpunkvrport.archive"))) {
+        throw "The unified archive was not installed"
+    }
+    foreach ($old in $sidecarPaths) {
+        if (Test-Path -LiteralPath $old -PathType Leaf) {
+            Remove-Item -LiteralPath $old -Force
+            if (-not $Quiet) { Write-Host "  Removed merged archive $old" }
+            $changed++
         }
     }
 }

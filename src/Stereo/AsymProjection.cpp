@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // AsymProjection -- the engine's own off-centre projection, per eye.
 //
@@ -44,19 +45,40 @@
 #include <windows.h>
 #include <atomic>
 
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_MainIsRightEye;
+#endif
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // 0 = the engine's symmetric projection. 1 = each eye's own runtime frustum
 // (Runtimes/AsymmetricProjection.hpp). 2 = the test values below, for measuring the engine.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_AsymProjection = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_AsymSquarePixels = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) float CyberpunkVR_AsymInnerGuard = 0.0f;
+#endif
 // [0..3] MAIN: NDC shift x, y; aspect (0 keeps the engine's); unused. [4..7] the same for VRCAM.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) float CyberpunkVR_AsymTest[8] = {};
 // Prepare calls seen: MAIN, VRCAM, other views.
 __declspec(dllexport) uint64_t CyberpunkVR_DebugAsymPrepare[3] = {};
@@ -85,8 +107,22 @@ __declspec(dllexport) int32_t CyberpunkVR_AsymCascadeUnion = 1;
 __declspec(dllexport) uint64_t CyberpunkVR_DebugAsymCascadeFits[3] = {};
 // What the last fit of each view was given: vertical fov, aspect, shift x, shift y (MAIN [0..3], VRCAM [4..7]).
 __declspec(dllexport) float CyberpunkVR_DebugAsymCascadeWindow[8] = {};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's detours are rust/crates/cvr-render/src/asym_projection.rs: the eye's window into the view's input
+// block, the planes' shift, the cascade union and the window each side was given; its table (the exports above,
+// OpenXR's eye windows and the view test) is built in rust/crates/cvr-render/src/stereo_tables.rs, and the
+// engine-stereo bookkeeping it calls is Rust's (rust/crates/cvr-render/src/engine_stereo.rs).
+
+// The detours and their originals register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+
+
+#else
+// The C++ build's detours; the Rust build's are rust/crates/cvr-render/src/asym_projection.rs.
 namespace cvr::detail {
 namespace {
 
@@ -418,3 +454,5 @@ bool ViewWindowOf(int side, ViewWindow* out) {
            std::isfinite(out->halfX) && std::isfinite(out->halfY);
 }
 }  // namespace cvr::projection
+#endif  // CVR_RUST_VRIK
+#endif

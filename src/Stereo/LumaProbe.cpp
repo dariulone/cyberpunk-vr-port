@@ -44,6 +44,25 @@
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
 
+#if CVR_RUST_VRIK
+// THE PROBES ARE RUST'S (rust/crates/cvr-render/src/luma_probe.rs): the vision dump's switch and slot stay here, and
+// the mirror's calls forward.
+namespace cvr {
+namespace detail {
+// Write 1 to arm; the file lands in the log folder and the knob resets itself.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionDump = 1;
+#endif
+// g_visdump_rb, g_visdump_slot: defined in Rust (rust/crates/cvr-render/src/stereo_shared.rs).
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
+void*    g_visdump_map = nullptr;
+#endif
+
+}  // namespace detail
+}  // namespace cvr
+#else
 namespace cvr {
 namespace detail {
 
@@ -401,3 +420,4 @@ void ti_probe_collect(uint32_t idx, double L) {
 
 }  // namespace detail
 }  // namespace cvr
+#endif

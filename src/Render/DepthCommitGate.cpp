@@ -7,6 +7,22 @@
 #include <cstring>
 #include <new>
 
+#if CVR_RUST_VRIK
+// The gate is rust/crates/cvr-gpu/src/depth_commit_gate.rs; what stays here is StereoSceneState's snapshot and restore
+// of the list's bindings around its compute work, attached to it.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's table is rust/crates/cvr-gpu/src/depth_commit_gate.rs' own
+namespace {
+static_assert(std::is_trivially_destructible_v<cvr::stereo::scene_state::Bindings> && alignof(cvr::stereo::scene_state::Bindings)<=8);
+struct DepthGateAttach {size_t bindingsBytes;bool(*snapshot)(void*,void*);void(*restore)(const void*,void*);};
+const DepthGateAttach depthGateTable{sizeof(cvr::stereo::scene_state::Bindings),
+    [](void* list,void* storage){return cvr::stereo::scene_state::Snapshot(static_cast<ID3D12GraphicsCommandList*>(list),
+        *new(storage) cvr::stereo::scene_state::Bindings{});},
+    [](const void* storage,void* list){static_cast<const cvr::stereo::scene_state::Bindings*>(storage)->Restore(static_cast<ID3D12GraphicsCommandList*>(list));}};
+extern "C" void cvr_depth_gate_attach(const DepthGateAttach*);
+const bool depthGateAttached=(cvr_depth_gate_attach(&depthGateTable),true);
+}
+#endif
+#else
 namespace cvr::stereo {
 using Microsoft::WRL::ComPtr;
 struct DepthCommitGate::Storage final:IUnknown {
@@ -173,3 +189,4 @@ bool DepthCommitGate::Restart(){
     auto& s=*storage_.Get();s.prepared=s.frozen=s.copied=false;s.reused=true;return Decide(false);
 }
 }
+#endif

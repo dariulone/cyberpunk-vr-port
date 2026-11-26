@@ -1,15 +1,5 @@
 // The sight's display is independent of the flat-screen ADS camera state.
 // Weapons, hands, accuracy, charge and input stay under their original owners.
-public native func VRPhysicalOpticsEnabled() -> Bool;
-
-public class VRPhysicalScopeController extends inkGameController {
-  protected cb func OnInitialize() -> Bool {
-    let root: ref<inkWidget> = this.GetRootWidget();
-    root.SetVisible(true);
-    root.SetOpacity(1.00);
-  }
-}
-
 @wrapMethod(AimDownSightController)
 public final func OnPlayerAttach(playerPuppet: ref<GameObject>) -> Void {
   wrappedMethod(playerPuppet);

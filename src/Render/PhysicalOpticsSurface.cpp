@@ -1,7 +1,13 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // Native world-UI allocation, verified against CP2077 a7de82945c03e041...
 // The shared world atlas has only 1/2/4 slots at 2048/1024/512. A physical
 // scope must not compete with city screens for its camera's pixel resolution.
 #include "Hooks/Hook.hpp"
+#if CVR_RUST_VRIK
+// rust/crates/cvr-render/src/optics_surface.rs: the same three detours, the surfaces and the exports.
+extern "C" bool cvr_hook_physical_optics_surface_install();
+CVR_HOOK("PhysicalOpticsSurface",::cvr::hooks::Stage::Boot,83,cvr_hook_physical_optics_surface_install);
+#else
 #include <Windows.h>
 #include <MinHook.h>
 #include <array>
@@ -12,6 +18,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <RED4ext/Hashing/FNV1a.hpp>
 #include <RED4ext/Scripting/Natives/entIComponent.hpp>
 
 extern void Log(const char*,...);
@@ -68,12 +75,20 @@ constexpr std::array<std::array<float,4>,3> panelUV{{
     {0,0,.5f,.5f}, {.5f,0,1,.5f}, {.5f,.5f,1,1}
 }};
 static_assert(offsetof(RED4ext::ent::IComponent,owner)==0x50);
-bool OpticsPanelName(uint64_t name) {
-    return name==0x77ebca883421763eull || name==0xb2aeacea1ebe33bdull || name==0x02a6567986512faaull;
+constexpr int OpticsPanelSlot(uint64_t name) {
+    switch(name) {
+    case RED4ext::FNV1a64("vr_optic_panel"):
+    case RED4ext::FNV1a64("vr_builtin_guillotine_panel"):
+    case RED4ext::FNV1a64("vr_builtin_hercules_panel"):
+        return 0; // Full-resolution camera feed, including the two integral lenses.
+    case RED4ext::FNV1a64("vr_optic_reticle_front_panel"): return 1;
+    case RED4ext::FNV1a64("vr_optic_reticle_rear_panel"): return 2;
+    default: return -1;
+    }
 }
 
 uintptr_t SetTexture(uintptr_t component,uintptr_t texture) {
-    if(!OpticsPanelName(At<uint64_t>(component,0x40)))return originalSetTexture(component,texture);
+    if(OpticsPanelSlot(At<uint64_t>(component,0x40))<0)return originalSetTexture(component,texture);
     CyberpunkVR_OpticsSurfaceStage[6].fetch_add(1,std::memory_order_relaxed);
     std::shared_ptr<Binding> previous;
     {
@@ -123,19 +138,19 @@ bool OpticsSize(uintptr_t renderer,uint32_t& width,uint32_t& height,uintptr_t& o
         reinterpret_cast<const void*>(provider.handle.object+8),&component.handle);
     if(!component.handle.object)return false;
     stage[3].fetch_add(1,std::memory_order_relaxed);
-    if(!OpticsPanelName(At<uint64_t>(component.handle.object,0x40)))return false;
+    const int panelSlot=OpticsPanelSlot(At<uint64_t>(component.handle.object,0x40));
+    if(panelSlot<0)return false;
     stage[4].fetch_add(1,std::memory_order_relaxed);
     owner=At<uintptr_t>(component.handle.object,0x50);
     if(!owner)return false;
-    const auto name=At<uint64_t>(component.handle.object,0x40);
-    slot=name==0x77ebca883421763eull?0:(name==0xb2aeacea1ebe33bdull?1:2);
+    slot=static_cast<uint32_t>(panelSlot);
     const float w=At<float>(component.handle.object,0x2b0),h=At<float>(component.handle.object,0x2b4);
     CyberpunkVR_OpticsSurfaceCanvas[0].store(std::bit_cast<uint32_t>(w),std::memory_order_relaxed);
     CyberpunkVR_OpticsSurfaceCanvas[1].store(std::bit_cast<uint32_t>(h),std::memory_order_relaxed);
     if(!std::isfinite(w) || !std::isfinite(h) || w<256 || h<256 || w>2048 || h>2048)return false;
     stage[5].fetch_add(1,std::memory_order_relaxed);
     width=static_cast<uint32_t>(std::ceil(w));height=static_cast<uint32_t>(std::ceil(h));
-    if(At<uint64_t>(component.handle.object,0x40)!=0x77ebca883421763eull) {
+    if(slot!=0) {
         // Native reticle artwork uses a 2048-square logical canvas. A 1024
         // surface preserves thin lines without allocating two extra 16MB RTs.
         width=std::min(width,1024u);height=std::min(height,1024u);
@@ -242,3 +257,5 @@ bool Install() {
 }
 CVR_HOOK("PhysicalOpticsSurface",::cvr::hooks::Stage::Boot,83,Install);
 }
+#endif
+#endif

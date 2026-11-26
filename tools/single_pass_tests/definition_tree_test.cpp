@@ -8,7 +8,7 @@
 namespace tree=cvr::stereo::definition_tree;
 namespace {
 constexpr uint64_t Base=0x100000000,Root0=0x10000,Root1=0x10100,Child=0x20000;
-constexpr uint64_t DriverVtable=Base+0x2B3A008,ElementsVtable=Base+0x2B39F70,UnknownVtable=Base+0x2B3A100;
+constexpr uint64_t DriverVtable=Base+0x3094850,ElementsVtable=Base+0x2B39F70,UnknownVtable=Base+0x2B3A100;
 constexpr uint64_t DescriptionVtable=Base+0x2B39DF0,CStringVtable=Base+0x2B3A038;
 constexpr uint64_t ObjectAllocator=0x800000,ControlAllocator=0x810000,ArrayAllocator=0x820000;
 constexpr uint64_t StringAllocator=0x830000;
@@ -56,7 +56,7 @@ void Fresh(){
     Put(Base+tree::ObjectAllocatorRva,ObjectAllocator|uint64_t(5));
     Put(Base+tree::ControlAllocatorRva,ControlAllocator|uint64_t(3));
     Put(ArrayAllocator+0x20,Base+0x985ABC);
-    Methods(DriverVtable,Base+tree::SceneDriverDestructorRva,Base+0x1EC1D0);
+    Methods(DriverVtable,Base+tree::SceneDriverDestructorRva,Base+0x332D5C);
     Methods(ElementsVtable,Base+tree::RenderElementsDestructorRva,Base+0x23A938);
     Methods(UnknownVtable,Base+0xABCDEF,Base+0x123457);
     Methods(DescriptionVtable,Base+tree::DescriptionOwnerDestructorRva,Base+0xC26DB8);

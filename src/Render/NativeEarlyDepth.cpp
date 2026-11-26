@@ -20,6 +20,34 @@
 #include <mutex>
 #include <optional>
 #include <intrin.h>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The early depth is Rust's (rust/crates/cvr-render/src/early_depth_native.rs: the groups, the works and
+// their pool, the draws' inputs and membership, the submissions' checks, the exports; the stereo families from
+// families_native.rs, the binding banks from binding_bank.rs).
+namespace cvr::stereo::early_depth {
+namespace {
+struct CvrNedPair {PairedBinding binding;const uint8_t* eyes[2];size_t bytes[2];};
+static_assert(sizeof(CvrNedPair)==48 && sizeof(geometry::BufferLease)==80 &&
+    sizeof(Group)==120 && offsetof(Group,cameraScope)==24 && sizeof(DepthComparisonResult)==88,"mirrored by early_depth_native.rs");
+}
+}
+extern "C" {
+bool cvr_ned_run_tracking();
+bool cvr_ned_drawing();
+void cvr_ned_reset(ID3D12CommandList*);
+}
+namespace cvr::stereo::early_depth {
+void Reset(ID3D12CommandList* list){cvr_ned_reset(list);}
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the native draw origin's question (NativeDrawOrigin.cpp's test variants)
+extern "C" bool cvr_ned_drawing();
+namespace cvr::stereo::early_depth {
+bool Drawing(){return cvr_ned_drawing();}
+}
+#endif
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EarlyDepthRequest{},CyberpunkVR_EarlyDepthState{};
@@ -1173,3 +1201,4 @@ void Poll(){
     CyberpunkVR_EarlyDepthState.store(SUCCEEDED(hr)?3:4,std::memory_order_release);
 }
 }
+#endif

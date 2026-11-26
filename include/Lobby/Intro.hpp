@@ -37,6 +37,8 @@ struct Picture {
 };
 // The picture the script gave last; null once the intro has ended, or the script has given none for 2 s.
 std::shared_ptr<const Picture> Latest();
+// The intro is running: a picture given within the last 2 s.
+bool Running();
 
 // Where the notice hangs: as far as the logo starts and as wide as it is shown there (the logo's bink across the
 // lobby screen's canvas: modules/intro.lua FLIGHT.from and FLIGHT.heightFrom, the canvas 2580 x 1980). One picture

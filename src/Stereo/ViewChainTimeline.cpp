@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // ViewChainTimeline -- the render chain's own boundaries on the node timeline (Profiler.cpp).
 //
 // The node spans say WHEN each view's graph nodes run, not why nothing runs between them. The render
@@ -34,10 +35,13 @@
 #include <intrin.h>
 #include <cstring>
 
+#if CVR_RUST_VRIK
+// The detours and the job call are Rust's (rust/crates/cvr-render/src/view_chain_timeline.rs, registered from
+// engine_detours.rs); the JobTimeline hook registers from hook_table.rs (its want: CVR_JOB_TIMELINE).
+#else
 namespace cvr {
 namespace detail {
 namespace {
-
 using SceneWaitFn = uintptr_t (*)(void*);
 using FrameSubmitFn = uintptr_t (*)(void*, void*, char);
 using ViewFlushFn = uintptr_t (*)(void*, int64_t*);
@@ -243,3 +247,5 @@ CVR_DETOUR_IF("[timeline] counter wait sub_1405D3CFC", 0x5D3CFC, Detour_CounterW
 
 }  // namespace detail
 }  // namespace cvr
+#endif
+#endif

@@ -104,7 +104,7 @@ void NativeBounds(){
     {auto memory=Fixture();memory.Ids({Id(2,0,0x123)});Rejected(memory,resource_uses::Failure::Slot);}
     {auto memory=Fixture();memory.Ids({Id(65535,0,0x123)});Rejected(memory,resource_uses::Failure::Slot);}
     {auto memory=Fixture();memory.Ids({Id(0,2,0x123)});Rejected(memory,resource_uses::Failure::Index);}
-    {auto memory=Fixture();memory.Put(Pool+resource_uses::DeclarationCount,uint32_t(501));Rejected(memory,resource_uses::Failure::Limit);}
+    {auto memory=Fixture();memory.Put(Pool+resource_uses::DeclarationCount,uint32_t(resource_uses::MaxDeclarations+1));Rejected(memory,resource_uses::Failure::Limit);}
     {auto memory=Fixture();memory.Ids({Id(0,0,0x124)});Rejected(memory,resource_uses::Failure::Declaration);}
     {auto memory=Fixture();memory.Ids({Id(0,0,0x123),Id(0,0,0x124)});Rejected(memory,resource_uses::Failure::Declaration);}
     {auto memory=Fixture();memory.values.at(Pool+resource_uses::Declarations)[1]=1;Rejected(memory,resource_uses::Failure::Declaration);}

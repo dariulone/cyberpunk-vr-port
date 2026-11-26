@@ -35,7 +35,19 @@ local function vrDebug()
 end
 local logAcc = 0.0
 
+-- THE RUST BUILD FEEDS VRSmokeTick ITSELF (rust/crates/cvr-ffi/src/mechanics.rs, bit 0 of VRRustMechanics): the plugin
+-- reads the same slots on the game's main thread every frame and makes the same call. The reference build has no such
+-- native, and this bridge keeps running there.
+local rustOwned = nil
+local function rustOwnsBridge()
+    if rustOwned == nil then
+        rustOwned = type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics()) % 2 == 1
+    end
+    return rustOwned
+end
+
 registerForEvent('onUpdate', function(dt)
+    if rustOwnsBridge() then return end
     dt = dt or 0.016
     if type(GetVRSharedSlot) ~= 'function' then return end
     local pl = Game.GetPlayer()

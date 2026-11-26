@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // THE ODYSSEY 3D SDK, IN THE PLUGIN -- engine stereo without Samsung's SDK, its registry key or a cvar ini.
 //
 // 2.5 renders the two-eye frame (render feature 98) only through its Samsung Odyssey 3D wrapper (platform+0x4680,
@@ -26,20 +27,35 @@
 #include <cstring>
 #include <utility>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
 extern int g_launcherWidth;    // one eye's render size (Core/VrCore.cpp)
 extern int g_launcherHeight;
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // Calls into the plugin's SDK: [0] factory, [1] interface, by slot (8 bytes each). A slot outside the contract
 // below is logged once and answered 0.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DebugEngineStereoSdkCalls[2][16] = {};
 // 1 once the main menu has been shown (Armed).
 __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_EngineStereoArmed{0};
 // Main menu controllers initialised and not yet uninitialised (an instance can be made before the last one goes).
 __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_EngineStereoMainMenus{0};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE SDK IS RUST'S (rust/crates/cvr-render/src/engine_stereo_sdk.rs): the exported counters and the detour's
+// registration stay here, and the main menu's notes forward.
+// The Rust build registers these detours from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 namespace cvr::engine_stereo {
 namespace {
 
@@ -221,3 +237,5 @@ CVR_DETOUR_IF("[engine-stereo] Odyssey 3D SDK in process sub_142282E60", WRAPPER
               g_orig_wrapper_ctor, Enabled)
 
 }  // namespace cvr::engine_stereo
+#endif
+#endif

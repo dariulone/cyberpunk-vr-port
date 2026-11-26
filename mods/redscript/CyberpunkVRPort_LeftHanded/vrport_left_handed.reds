@@ -29,98 +29,8 @@
 //
 // This file intentionally stays in the global namespace: the plugin registers plain global natives.
 
-native func VRLeftHanded() -> Bool;
-native func VRLeftHandedAnimations(controller: ref<IScriptable>, on: Bool, graph: CName, slot: CName) -> Void;
-
-public abstract class VRLeftHandedWeapon {
-  // A weapon that goes to the left hand when it is drawn on its own: a hand-held weapon that may hang on that slot.
-  public static func Movable(item: ItemID) -> Bool {
-    let record: ref<Item_Record>;
-    let slots: array<wref<AttachmentSlot_Record>>;
-    let i: Int32;
-    if !ItemID.IsValid(item) || WeaponObject.IsCyberwareWeapon(item) || WeaponObject.IsFists(item) {
-      return false;
-    };
-    record = TweakDBInterface.GetItemRecord(ItemID.GetTDBID(item));
-    if !IsDefined(record) || NotEquals(record.ItemCategory().Type(), gamedataItemCategory.Weapon) {
-      return false;
-    };
-    if Equals(EquipmentSystem.GetEquipAreaType(item), gamedataEquipmentArea.WeaponHeavy) {
-      return false;
-    };
-    record.PlacementSlots(slots);
-    i = 0;
-    while i < ArraySize(slots) {
-      if slots[i].GetID() == t"AttachmentSlots.WeaponLeft" {
-        return true;
-      };
-      i += 1;
-    };
-    return false;
-  }
-
-  // The left hand holds the only weapon, as the equipment system decided each hand's item.
-  public static func Alone(owner: ref<GameObject>) -> Bool {
-    return VRLeftHandedWeapon.Movable(EquipmentSystem.GetSlotActiveItem(owner, EquipmentManipulationRequestSlot.Left))
-      && !VRLeftHandedWeapon.IsWeapon(EquipmentSystem.GetSlotActiveItem(owner, EquipmentManipulationRequestSlot.Right));
-  }
-
-  public static func IsWeapon(item: ItemID) -> Bool {
-    let record: ref<Item_Record>;
-    if !ItemID.IsValid(item) {
-      return false;
-    };
-    record = TweakDBInterface.GetItemRecord(ItemID.GetTDBID(item));
-    return IsDefined(record) && Equals(record.ItemCategory().Type(), gamedataItemCategory.Weapon);
-  }
-
-  // The weapon in hand is the left one: the slots hold a weapon on WeaponLeft and none on WeaponRight. Where the game
-  // asks "the weapon in hand" of the right slot, this is the left hand's answer.
-  public static func InHand(owner: ref<GameObject>) -> Bool {
-    let ts: ref<TransactionSystem>;
-    let left: ref<WeaponObject>;
-    if !VRLeftHanded() || !IsDefined(owner) {
-      return false;
-    };
-    ts = GameInstance.GetTransactionSystem(owner.GetGame());
-    left = ts.GetItemInSlot(owner, t"AttachmentSlots.WeaponLeft") as WeaponObject;
-    return IsDefined(left) && !IsDefined(ts.GetItemInSlot(owner, t"AttachmentSlots.WeaponRight") as WeaponObject)
-      && VRLeftHandedWeapon.Movable(left.GetItemID());
-  }
-
-  // The slot of the weapon in hand: the left one while it holds the only weapon (InHand), the right one otherwise.
-  public static func HeldSlot(owner: ref<GameObject>) -> TweakDBID {
-    return VRLeftHandedWeapon.InHand(owner) ? t"AttachmentSlots.WeaponLeft" : t"AttachmentSlots.WeaponRight";
-  }
-
-  // The single wield on the left hand -- its animations, the names that drive them and the graph they play in --
-  // while the weapon is alone there, as the equipment system decided each hand's item; off for anything else, a pair
-  // or a right-hand weapon. The graph is the one the right hand's weapon state machine attaches as it starts.
-  public static func SetAnimations(owner: ref<GameObject>) -> Void {
-    let on: Bool = VRLeftHanded() && VRLeftHandedWeapon.Alone(owner);
-    let puppet: ref<ScriptedPuppet> = owner as ScriptedPuppet;
-    AnimationControllerComponent.SetAnimWrapperWeight(owner, n"vr_left_handed", on ? 1.00 : 0.00);
-    if IsDefined(puppet) {
-      VRLeftHandedAnimations(puppet.GetAnimationControllerComponent(), on,
-        TweakDBInterface.GetCName(t"playerStateMachineDefinitions.WeaponRight.animGraphName", n"None"),
-        TweakDBInterface.GetCName(t"playerStateMachineDefinitions.WeaponRight.animGraphSlot", n"None"));
-    };
-  }
-
-  // The equipment UI data as its readers take it: the weapon in hand under rightWeapon.
-  public static func InHandData(value: Variant) -> Variant {
-    let data: ref<SlotDataHolder> = FromVariant<ref<SlotDataHolder>>(value);
-    let held: ref<SlotDataHolder>;
-    if !VRLeftHanded() || !IsDefined(data) || ItemID.IsValid(data.rightWeapon.weaponID)
-      || !ItemID.IsValid(data.leftWeapon.weaponID) {
-      return value;
-    };
-    held = new SlotDataHolder();
-    held.ammoData = data.ammoData;
-    held.rightWeapon = data.leftWeapon;
-    return ToVariant(held);
-  }
-}
+// The natives VRLeftHanded / VRLeftHandedAnimations and the class VRLeftHandedWeapon: CyberpunkVRPort_Engine/
+// vrport_left_handed_shared.reds (the Melee and Cyberware modules call it too).
 
 // THE ONE DECISION: which hand holds what after this request. A weapon alone in the right hand goes to the left.
 @wrapMethod(EquipmentSystemPlayerData)
@@ -338,29 +248,23 @@ protected final const func CanEquipRequestedWeapon(scriptInterface: ref<StateGam
   return this.IsRightHandInUnequippedState(stateContext, true) && this.CanProcessEquip(stateContext, scriptInterface);
 }
 
-// ...AND A MELEE WEAPON GOES INTO ITS EQUIP CYCLE THERE. 2.5's EquipCycleInitDecisions.EnterCondition turns away every
-// melee weapon from the left hand's machine -- the game never has one there -- while a gun passes: a knife or a
-// katana drawn left-handed (the holster, the wheel, a slot key) became the left hand's active item and stayed out of
-// both slots, the holster's copy hidden as if it were in the hand: the weapon was nowhere (measured 2026-11-05: the
-// condition false for Preset_Knife_Default and the Pimp katana, true for the Overture; their gameplay restrictions
-// pass). A melee weapon alone in the left hand is let in on the same terms as one in the right: the restrictions.
+// The left equipment machine checks a weapon as the offhand of a pair. That excludes melee weapons
+// and, under DriverCombatFirearms, the Nomad passenger's quest revolver. Check a lone primary
+// against the game's primary-weapon restrictions before starting its normal left-hand equip cycle.
 @wrapMethod(EquipCycleInitDecisions)
 public final const func EnterCondition(const stateContext: ref<StateContext>, const scriptInterface: ref<StateGameScriptInterface>) -> Bool {
   let item: ItemID;
   let data: ref<EquipmentSystemPlayerData>;
-  if wrappedMethod(stateContext, scriptInterface) {
-    return true;
+  if VRLeftHanded() && this.IsLeftHandLogic(this.stateMachineInstanceData)
+    && VRLeftHandedWeapon.Alone(scriptInterface.executionOwner)
+    && !IsDefined(GameObject.GetRightActiveWeapon(scriptInterface.executionOwner)) {
+    item = this.GetSlotActiveItem(scriptInterface, this.stateMachineInstanceData);
+    data = EquipmentSystem.GetData(scriptInterface.executionOwner);
+    if IsDefined(data) && (WeaponObject.IsRanged(item) || WeaponObject.IsMelee(item)) {
+      return data.CheckWeaponAgainstGameplayRestrictions(item, true, false);
+    };
   };
-  if !VRLeftHanded() || !this.IsLeftHandLogic(this.stateMachineInstanceData) {
-    return false;
-  };
-  item = this.GetSlotActiveItem(scriptInterface, this.stateMachineInstanceData);
-  if !VRLeftHandedWeapon.Movable(item) || !WeaponObject.IsMelee(item)
-    || IsDefined(GameObject.GetRightActiveWeapon(scriptInterface.executionOwner)) {
-    return false;
-  };
-  data = EquipmentSystem.GetData(scriptInterface.executionOwner);
-  return IsDefined(data) && data.CheckWeaponAgainstGameplayRestrictions(item);
+  return wrappedMethod(stateContext, scriptInterface);
 }
 
 // THE UPPER BODY TAKES THE RIGHT SLOT FOR THE WEAPON IN HAND. One weapon out is singleWield only with it on

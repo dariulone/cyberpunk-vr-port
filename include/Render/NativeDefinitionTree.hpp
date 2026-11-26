@@ -83,6 +83,22 @@ static_assert(std::is_trivially_copyable_v<Node> && std::is_standard_layout_v<No
 static_assert(std::is_trivially_copyable_v<Handle> && std::is_standard_layout_v<Handle>);
 static_assert(std::is_trivially_copyable_v<Array> && std::is_standard_layout_v<Array>);
 static_assert(std::is_trivially_copyable_v<String> && std::is_standard_layout_v<String>);
+#if CVR_RUST_VRIK
+// The snapshot: rust/crates/cvr-render/src/native/definition_tree.rs through definition_tree_abi.rs
+// (tools/single_pass_tests/definition_tree_test, allocator_binding_test and native_stage_definition_test run their
+// cases against it in their Rust variants).
+struct RustData;
+struct RustView {
+    const Root* roots;size_t rootCount;const Node* nodes;size_t nodeCount;const Handle* handles;size_t handleCount;
+    const Array* arrays;size_t arrayCount;const String* strings;size_t stringCount;const GlobalAllocator* allocators;
+};
+extern "C" {
+RustData* cvr_dt_capture(const uint64_t*,size_t,uint64_t,ReadMemory,bool,uint32_t*);
+void cvr_dt_view(const RustData*,RustView*);
+void cvr_dt_free(RustData*);
+bool cvr_dt_matches_before(const RustView*,uint64_t,ReadMemory,bool);
+}
+#endif
 
 // Metadata observation only. The caller supplies root identities and guards the
 // exact native destructor/layout bodies before enabling known-layout reads.
@@ -90,6 +106,40 @@ static_assert(std::is_trivially_copyable_v<String> && std::is_standard_layout_v<
 // destructor, allocator lifetime, graph completion, or borrowed work input.
 class Snapshot {
 public:
+#if CVR_RUST_VRIK
+    bool Capture(std::span<const uint64_t> roots,uint64_t imageBase,ReadMemory read,
+                 bool nativeLayoutGuarded)try{
+        *this=Snapshot{};uint32_t failure=0;
+        const auto captured=cvr_dt_capture(roots.data(),roots.size(),imageBase,read,nativeLayoutGuarded,&failure);
+        failure_=Failure(failure);
+        if(failure_==Failure::Allocation){*this=Snapshot{};failure_=Failure::Allocation;return false;}
+        if(failure_!=Failure::Arguments){imageBase_=imageBase;layoutGuarded_=nativeLayoutGuarded;}
+        if(!captured)return false;
+        struct Release{RustData* data;~Release(){cvr_dt_free(data);}}release{captured};
+        RustView view{};cvr_dt_view(captured,&view);
+        data_.roots.assign(view.roots,view.roots+view.rootCount);
+        data_.nodes.assign(view.nodes,view.nodes+view.nodeCount);
+        data_.handles.assign(view.handles,view.handles+view.handleCount);
+        data_.arrays.assign(view.arrays,view.arrays+view.arrayCount);
+        data_.strings.assign(view.strings,view.strings+view.stringCount);
+        std::copy_n(view.allocators,data_.allocators.size(),data_.allocators.begin());
+        ready_=true;failure_=Failure::None;return true;
+    }catch(...){*this=Snapshot{};failure_=Failure::Allocation;return false;}
+    bool MatchesBefore(ReadMemory read)const try{
+        if(!ready_)return false;
+        const RustView view{data_.roots.data(),data_.roots.size(),data_.nodes.data(),data_.nodes.size(),
+            data_.handles.data(),data_.handles.size(),data_.arrays.data(),data_.arrays.size(),
+            data_.strings.data(),data_.strings.size(),data_.allocators.data()};
+        return cvr_dt_matches_before(&view,imageBase_,read,layoutGuarded_);
+    }catch(...){return false;}
+    // The records and layout flag the Rust stage definition revalidates this tree with.
+    RustView RustRecords()const{
+        return {data_.roots.data(),data_.roots.size(),data_.nodes.data(),data_.nodes.size(),data_.handles.data(),
+            data_.handles.size(),data_.arrays.data(),data_.arrays.size(),data_.strings.data(),data_.strings.size(),
+            data_.allocators.data()};
+    }
+    bool LayoutGuarded()const{return layoutGuarded_;}
+#else
     bool Capture(std::span<const uint64_t> roots,uint64_t imageBase,ReadMemory read,
                  bool nativeLayoutGuarded)try{
         *this=Snapshot{};failure_=Failure::Arguments;
@@ -107,6 +157,7 @@ public:
         Snapshot current;
         return current.Capture(roots,imageBase_,read,layoutGuarded_) && StructuralEqual(current.data_,data_);
     }catch(...){return false;}
+#endif
     bool Ready()const{return ready_;}
     Failure Rejection()const{return failure_;}
     uint64_t ImageBase()const{return imageBase_;}
@@ -128,6 +179,7 @@ private:
         std::array<GlobalAllocator,2> allocators{};
         bool operator==(const Data&)const=default;
     };
+#if !CVR_RUST_VRIK
     enum class RangeKind:uint32_t {Object,Control,Array,String,Vtable,AllocatorIdentity,AllocatorMethod,Global};
     struct Range {uint64_t end{};RangeKind kind{};};
     struct Control {
@@ -366,6 +418,7 @@ private:
         }
         return ValidatePaths(state);
     }
+#endif
     Data data_;
     uint64_t imageBase_{};
     bool layoutGuarded_{},ready_{};

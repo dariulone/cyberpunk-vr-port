@@ -1,0 +1,127 @@
+CyberpunkVRPort $Version
+========================
+
+WHAT THIS IS
+    A VR mod for Cyberpunk 2077: stereo rendering through OpenXR, 6DoF head tracking, motion
+    controllers merged into the game's own gamepad input, VRIK arms, and a set of gameplay mods
+    (holsters, physical reload, melee, weapon handling, smoking). HUD placement is handled by
+    the VR port.
+
+BEFORE YOU INSTALL -- READ THIS ONE
+    The first time the plugin starts it MERGES the VR preset into your Cyberpunk settings:
+
+        %LOCALAPPDATA%\CD Projekt Red\Cyberpunk 2077\UserSettings.json
+
+    Graphics, all input bindings/controls, HUD and comfort values come from the preset. Your
+    language, audio, game difficulty, telemetry, cloud-save preference and gallery favorites
+    are preserved. Groups and settings absent from the preset are retained too.
+    Your original file is backed up as UserSettings.pre-vr-<date>-<time>-<id>.json in the same
+    folder before atomic installation. Invalid JSON or a failed backup leaves it unchanged.
+    It happens exactly once:
+    afterwards the file is yours and nothing here looks at it again. Everything you change in the
+    game's own menus sticks.
+
+    first_launch=1 in cyberpunkvrport\config\vrport.ini means "not installed yet"; the plugin
+    clears it to 0 once the merge has succeeded, and never looks again.
+
+    To SKIP it entirely, including on the very first launch: create cyberpunkvrport\config\vrport.ini yourself,
+    containing the single line first_launch=0, before you start the game. Creating it afterwards
+    is too late -- the plugin writes that file and reads it in the same breath, so a fresh
+    install has already been offered the settings by the time you can edit it.
+
+    To ask for the settings later, set first_launch=1 and start the game once.
+
+REQUIREMENTS
+    Cyberpunk 2077 2.5 (this build's engine offsets are matched to it; 2.31 will not work)
+    An OpenXR runtime, started BEFORE the game
+
+    RED4ext is NOT needed: the port brings its own loader (bin\x64\powrprof.dll starts
+    cyberpunkvrport\cyberpunkvrport.dll, reading the engine's addresses from the address library the
+    game ships, bin\x64\cyberpunk2077_addresses.json). If other mods of yours need RED4ext, keep it:
+    the two run side by side -- RED4ext's loader is winmm.dll, the port's powrprof.dll, and the port
+    is not a RED4ext plugin any more.
+
+    Cyber Engine Tweaks and redscript are not needed and are not part of this package: everything
+    the port does is inside the plugin -- no Lua mods to run, no scripts to compile. If other mods
+    of yours need CET or redscript, install those the usual way, each from its own download; the
+    port runs beside them. An earlier release's CyberpunkVRPort_* folders in CET's mods folder are
+    taken out at the first start (your settings in them move into
+    cyberpunkvrport\lua, anything else is kept in
+    cyberpunkvrport\legacy\cet), so CET does not run them a second time; an earlier
+    release's r6\scripts\CyberpunkVRPort_* are renamed .legacy, so redscript does not compile them.
+    The port's own windows open with Home (with Scroll Lock only when CET's own overlay is on Home);
+    CET keeps its own key and console.
+
+    ArchiveXL, TweakXL, Input Loader and Codeware are not needed either: the plugin mounts the
+    port's archive, writes its TweakDB records, merges its input bindings and has its own natives.
+    Keep them if other mods of yours need them; the port works with or without them.
+
+    Not needed any more, though earlier releases listed them: Visual Holsters (the port hangs the
+    weapons on the body itself), Equipment-EX, Nova Optics and More Occluders. More Occluders'
+    scripted v0.3 has been reported not to compile on 2.5, and one script that fails to compile
+    turns every redscript mod off.
+
+    Nothing else may proxy dxgi. If another VR mod installed bin\x64\dxgi.dll, move it
+    out of the folder -- two VR paths in one process fight over the same engine hooks.
+
+INSTALL
+    Extract the contents of this folder into your Cyberpunk 2077 game root -- the folder that
+    contains bin\, r6\ and archive\. The paths inside already match.
+
+    Upgrading from a release that lived in red4ext\plugins\cyberpunkvrport: nothing to do by hand.
+    At its first start the port copies your settings from there (config\ and grips\ files it does not
+    have yet) and renames the old cyberpunkvrport.dll to .old, so RED4ext never loads a second copy.
+    The old folder can then be deleted.
+
+    Upgrading from 0.1.9 or older: the plugin is cyberpunkvrport\cyberpunkvrport.dll now.
+    Delete CyberpunkVR_Stereo.dll (and CyberpunkVR_Stereo.pdb) in that folder. If you forget, the new
+    plugin renames the old file at the first start, stays off for that one launch and asks for a restart.
+    Also delete engine\config\platform\pc\vrcam_cpu_tweaks.ini: this release does not ship it any more.
+    When upgrading, remove r6\scripts\CyberpunkVRPort_LootUi\vrport_loot_ui.reds.
+    Its old loot scaling and tooltip reparenting are replaced by the texture HUD.
+    Also remove r6\scripts\CyberpunkVRPort_SettingsGuard\vrport_settings_guard.reds
+    to restore the native cascade shadow settings in the game menu.
+    Upgrading from 0.1.9 or older: remove r6\scripts\CyberpunkVRPort_Cyberware\vrport_launcher_tweak.reds
+    (the plugin registers the launcher state itself; the old script needs TweakXL) and the folders
+    r6\tweaks\vrport and r6\tweaks\vrcigarette if the plugin has not already taken them out.
+    The same for archive\pc\mod\cyberpunkvrport.archive and cyberpunkvrport.archive.xl: the archive
+    is in the plugin's folder now and the plugin takes the old copies out at its first start.
+    Upgrading from 0.1.7 or older: delete archive\pc\mod\VRCigarette.archive.xl,
+    archive\pc\mod\vrport_basketball.archive and archive\pc\mod\vrport_mag.archive.
+    Their assets are inside cyberpunkvrport.archive now; the old files would duplicate them.
+    The same for archive\pc\mod\vrport_menu_native.archive and vrport_menu_panels.archive
+    from a development build: the VR menu's assets are inside cyberpunkvrport.archive too.
+    QuickBoot is not included. If you previously installed a development build with it,
+    remove cyberpunkvrport\lua\CyberpunkVRPort_QuickBoot (an older one:
+    bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_QuickBoot) to keep
+    normal startup and save selection. Existing launcher preferences are preserved;
+    show_launcher defaults to 1 only when no saved preference overrides it.
+    Upgrading from 0.2.x: the plugin no longer runs Lua or compiles scripts. The *.lua files under
+    cyberpunkvrport\lua and the folders cyberpunkvrport\scripts and
+    cyberpunkvrport\redscript are not used any more and can be deleted; keep the
+    other files under lua\ (your settings: *.cfg, *.json, *.ini, *.txt).
+
+    Then start your OpenXR runtime, then the game. A small launcher window appears first: pick
+    your headset and per-eye render resolution there.
+
+WHAT LANDS WHERE
+    cyberpunkvrport\      the VR plugin and its folders: shaders, grips, config, log
+    cyberpunkvrport\grips\        captured hand poses for holding a cigarette and lighter
+    cyberpunkvrport\lua\CyberpunkVRPort_*\   sounds, the camera list and your settings (data
+                                                           read by the plugin; the folder keeps its old name)
+    cyberpunkvrport\archive\      packed assets (mounted by the plugin)
+    cyberpunkvrport\config\archive.yaml   their manifest (applied by the plugin)
+    cyberpunkvrport\config\input\   input bindings (merged by the plugin)
+    cyberpunkvrport\config\tweaks\  TweakDB records (applied by the plugin)
+
+    The player entity assets in cyberpunkvrport.archive carry one render-to-texture camera per
+    supported resolution. The launcher offers exactly the ones that exist.
+
+IF SOMETHING IS WRONG
+    cyberpunkvrport\log\cyberpunkvrport.log   the plugin's own log, start here
+
+    Uninstall: run UNINSTALL.bat, in the same folder as this file. It removes every path this
+    package added and then offers your own settings back. UNINSTALL.txt is the same thing
+    written out by hand, including the two things neither of them can put back for you.
+
+Built from commit $(git -C $RepoRoot rev-parse --short HEAD 2>$null) on $(Get-Date -Format "yyyy-MM-dd").

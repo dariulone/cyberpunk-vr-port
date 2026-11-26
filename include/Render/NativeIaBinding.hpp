@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <climits>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <d3d12.h>
@@ -11,9 +12,30 @@ namespace cvr::stereo::geometry {
 struct NativeBuffer {uint64_t resource{},gpu{},bytes{},registry{},context{};uint32_t handle{},kind{};};
 struct IaFrame {uint64_t rva{},rsp{},rbx{},rbp{},rdi{},rsi{},r12{},r14{},r15{};};
 using MemoryReader=bool(*)(void*,uint64_t,void*,size_t);
+#if CVR_RUST_VRIK
+// The rules below: rust/crates/cvr-render/src/ia_binding.rs (tools/single_pass_tests/indirect_binding_test,
+// geometry_lease_test and source_srv_binding_test run their cases against them in their Rust variants).
+struct ReadState;struct IndirectFrame;struct IndirectCall;struct IndirectNativeRecord;
+extern "C" {
+bool cvr_iab_decode_ia(const IaFrame*,bool,uint32_t,uint32_t,MemoryReader,void*,std::array<NativeBuffer,16>*);
+bool cvr_iab_same_record(const IndirectNativeRecord*,const IndirectNativeRecord*);
+bool cvr_iab_matches_origin(const IndirectFrame*,uint32_t,const camera_upload::Context*,uint64_t);
+bool cvr_iab_decode(uint64_t,const IndirectFrame*,const camera_upload::Context*,const IndirectCall*,MemoryReader,void*,
+    IndirectNativeRecord*,bool);
+bool cvr_iab_source_range(const NativeBuffer*,uint64_t,uint64_t,uint64_t,uint64_t,bool*);
+void cvr_iab_read_native_state(const NativeBuffer*,uint64_t,MemoryReader,void*,ReadState*);
+}
+#endif
 
 // Decode only the exact native IA call sites. Resource records are borrowed
 // from the caller which just completed native resource-use registration.
+#if CVR_RUST_VRIK
+inline bool DecodeIa(const IaFrame& f,bool index,uint32_t start,uint32_t count,
+                     MemoryReader read,void* context,std::array<NativeBuffer,16>& result) {
+    static_assert(sizeof(IaFrame)==72 && sizeof(NativeBuffer)==48,"mirrored by ia_binding.rs");
+    return cvr_iab_decode_ia(&f,index,start,count,read,context,&result);
+}
+#else
 inline bool DecodeIa(const IaFrame& f,bool index,uint32_t start,uint32_t count,
                      MemoryReader read,void* context,std::array<NativeBuffer,16>& result) {
     result={};if(!read || !count || count>16 || start>16-count)return false;
@@ -58,6 +80,7 @@ inline bool DecodeIa(const IaFrame& f,bool index,uint32_t start,uint32_t count,
     }
     return false;
 }
+#endif
 struct BufferLease {
     Microsoft::WRL::ComPtr<ID3D12Resource> resource;
     uint64_t gpu{},bytes{};
@@ -89,6 +112,13 @@ inline constexpr std::array<Code,13> Contract{{
     {0x338390,223,0x262EAAB2CEC6F5E0ull},{0x15A3530,341,0xFB537E7D4DF082B8ull},
     {0x341E58,1657,0x29164AE9FAF2EB68ull}
 }};
+#if CVR_RUST_VRIK
+inline bool SameRecord(const IndirectNativeRecord& a,const IndirectNativeRecord& b){
+    static_assert(sizeof(IndirectFrame)==24 && sizeof(IndirectCall)==56 && sizeof(IndirectNativeRecord)==280 &&
+        offsetof(IndirectNativeRecord,recordAddress)==248,"mirrored by ia_binding.rs");
+    return cvr_iab_same_record(&a,&b);
+}
+#else
 inline bool SameRecord(const IndirectNativeRecord& a,const IndirectNativeRecord& b){
     const auto& x=a.arguments;const auto& y=b.arguments;
     return x.resource==y.resource && x.gpu==y.gpu && x.bytes==y.bytes && x.registry==y.registry && x.context==y.context &&
@@ -96,6 +126,12 @@ inline bool SameRecord(const IndirectNativeRecord& a,const IndirectNativeRecord&
         a.recordAddress==b.recordAddress && a.signature==b.signature && a.callerRva==b.callerRva &&
         a.signatureKind==b.signatureKind && a.signatureStride==b.signatureStride;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool MatchesOrigin(IndirectFrame frame,uint32_t caller,camera_upload::Context current,uint64_t registry){
+    return cvr_iab_matches_origin(&frame,caller,&current,registry);
+}
+#else
 inline bool MatchesOrigin(IndirectFrame frame,uint32_t caller,camera_upload::Context current,uint64_t registry){
     if(frame.rva!=caller || !current || !registry)return false;
     if(frame.rva==0x342B11)return frame.rbx==current.context && frame.rdi==registry;
@@ -103,6 +139,13 @@ inline bool MatchesOrigin(IndirectFrame frame,uint32_t caller,camera_upload::Con
     if(frame.rva==0x413AE0)return frame.rbx==current.context;
     return false;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool DecodeOnce(uint64_t game,IndirectFrame frame,camera_upload::Context current,const IndirectCall& call,
+    MemoryReader reader,void* user,IndirectNativeRecord& out){
+    return cvr_iab_decode(game,&frame,&current,&call,reader,user,&out,true);
+}
+#else
 inline bool DecodeOnce(uint64_t game,IndirectFrame frame,camera_upload::Context current,const IndirectCall& call,
     MemoryReader reader,void* user,IndirectNativeRecord& out){
     auto read=[&](uint64_t address,void* data,size_t bytes){return reader && address && address<=UINT64_MAX-bytes && reader(user,address,data,bytes);};
@@ -132,12 +175,25 @@ inline bool DecodeOnce(uint64_t game,IndirectFrame frame,camera_upload::Context 
     if(native.resource!=call.arguments || !native.gpu || !native.bytes || native.gpu>UINT64_MAX-native.bytes)return false;
     out=pending;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Decode(uint64_t game,IndirectFrame frame,camera_upload::Context current,const IndirectCall& call,
+    MemoryReader reader,void* user,IndirectNativeRecord& out){
+    return cvr_iab_decode(game,&frame,&current,&call,reader,user,&out,false);
+}
+#else
 inline bool Decode(uint64_t game,IndirectFrame frame,camera_upload::Context current,const IndirectCall& call,
     MemoryReader reader,void* user,IndirectNativeRecord& out){
     IndirectNativeRecord first,second;
     if(!DecodeOnce(game,frame,current,call,reader,user,first) || !DecodeOnce(game,frame,current,call,reader,user,second) || !SameRecord(first,second))return false;
     out=first;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool SourceRange(const NativeBuffer& native,uint64_t backingGpu,uint64_t backingBytes,uint64_t offset,uint64_t bytes,bool& fullBacking){
+    return cvr_iab_source_range(&native,backingGpu,backingBytes,offset,bytes,&fullBacking);
+}
+#else
 inline bool SourceRange(const NativeBuffer& native,uint64_t backingGpu,uint64_t backingBytes,uint64_t offset,uint64_t bytes,bool& fullBacking){
     fullBacking=false;
     if(!backingGpu || !backingBytes || backingGpu>UINT64_MAX-backingBytes || !native.gpu || !native.bytes || native.gpu>UINT64_MAX-native.bytes ||
@@ -146,6 +202,7 @@ inline bool SourceRange(const NativeBuffer& native,uint64_t backingGpu,uint64_t 
         bytes>native.bytes-(backingGpu+offset-native.gpu))return false;
     fullBacking=native.gpu==backingGpu && native.bytes==backingBytes;return true;
 }
+#endif
 }
 struct IndirectBinding {
     BufferLease arguments;
@@ -180,6 +237,11 @@ bool RevalidateIndirect(ID3D12GraphicsCommandList*,const native_recording::Lease
 // Status 8: verified native fixed-read class, observed COMMON/GENERIC_READ creation.
 // Status 9: early fixed-read allocation covered by the verified native constructors.
 // Query only on the recording thread at the actual draw; it never mutates a map.
+#if CVR_RUST_VRIK
+inline ReadState ReadNativeState(const NativeBuffer& source,uint64_t list,MemoryReader reader,void* context) {
+    ReadState result;cvr_iab_read_native_state(&source,list,reader,context,&result);return result;
+}
+#else
 inline ReadState ReadNativeState(const NativeBuffer& source,uint64_t list,MemoryReader reader,void* context) {
     ReadState result{0,3,source.kind};
     auto read=[&](uint64_t p,void* out,size_t n){return p && p<=UINT64_MAX-n && reader && reader(context,p,out,n);};
@@ -210,6 +272,7 @@ inline ReadState ReadNativeState(const NativeBuffer& source,uint64_t list,Memory
     }
     return result;
 }
+#endif
 ReadState ReadStateAtDraw(ID3D12GraphicsCommandList*,const BufferLease&);
 void BufferCreated(ID3D12Resource*,D3D12_RESOURCE_STATES);
 // Only call with a fresh native binding record, or a resource owned by the caller.

@@ -9,7 +9,7 @@ namespace graph=cvr::stereo::graph_snapshot;
 namespace {
 constexpr uint64_t Base=0x140000000,Root=0x10000,Child=0x20000,Other=0x21000,Handles=0x30000,Stages=0x40000;
 constexpr uint64_t Control=0x50000,ObjectAllocator=0x60000,ControlAllocator=0x61000,ArrayAllocator=0x62000;
-constexpr uint64_t RootVtable=Base+0x2B3A008,ChildVtable=Base+stage::VtableRva;
+constexpr uint64_t RootVtable=Base+0x3094850,ChildVtable=Base+stage::VtableRva;
 std::map<uint64_t,uint8_t> memory;
 uint64_t mutateAt{},mutateTarget{};uint32_t mutateRead{},seen{};
 void Require(bool value){if(!value)throw std::runtime_error("native stage definition assertion failed");}
@@ -26,7 +26,7 @@ void Fresh(){
     memory.clear();mutateAt=mutateTarget=mutateRead=seen=0;
     Put(Base+tree::ObjectAllocatorRva,ObjectAllocator);Put(Base+tree::ControlAllocatorRva,ControlAllocator);
     Put(ArrayAllocator+0x20,Base+0x985ABC);
-    Put(RootVtable,Base+tree::SceneDriverDestructorRva);Put(RootVtable+8,Base+0x1EC1D0);
+    Put(RootVtable,Base+tree::SceneDriverDestructorRva);Put(RootVtable+8,Base+0x332D5C);
     Put(ChildVtable,Base+tree::RenderElementsDestructorRva);Put(ChildVtable+8,Base+stage::WorkRva);
     Put(Root,std::array<uint8_t,0x38>{});Put(Root,RootVtable);
     Put(Root+0x28,tree::NativeVector16{Handles,1,1});Put(Handles,tree::NativeHandle{Child,Control});
@@ -43,7 +43,7 @@ void Fresh(){
     Put(Stages+3*48,ArrayAllocator);
 }
 tree::Snapshot Tree(){tree::Snapshot value;const uint64_t roots[]{Root};Require(value.Capture(roots,Base,Read,true));return value;}
-graph::Node Graph(){graph::Node value;value.handle=0x20000007;value.order=2;value.vtable=RootVtable;value.work=Base+0x1EC1D0;
+graph::Node Graph(){graph::Node value;value.handle=0x20000007;value.order=2;value.vtable=RootVtable;value.work=Base+0x332D5C;
     Field(value.bytes,0,uint32_t(2));Field(value.bytes,16,Root);Field(value.bytes,24,uint32_t(1));Require(Read(Root,value.definition.data(),32));return value;}
 void Positive(){
     Fresh();const auto tree=Tree();const auto graph=Graph();const auto before=memory;stage::Snapshot value;

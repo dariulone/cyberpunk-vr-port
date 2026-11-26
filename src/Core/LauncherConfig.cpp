@@ -42,6 +42,12 @@
 #include "Camera/CameraLink.hpp"
 #include "Hooks/Hook.hpp"
 
+#if CVR_RUST_VRIK
+// THE PATHS, THE LAUNCH DEFAULTS AND THE MISSING INI ARE RUST'S (rust/crates/cvr-render/src/runtime_paths.rs); the
+// paths stay these arrays, filled there.
+// Non-static: the RED4ext plugin entry calls this in place of DllMain.
+// The subsystems' default settings the new vrport.ini starts with: runtime_paths.rs too.
+#else
 // Non-static: the RED4ext plugin entry calls this in place of DllMain.
 void InitRuntimePaths() {
     if (g_gameDir[0] != '\0') return;
@@ -67,17 +73,11 @@ void InitRuntimePaths() {
     // Default: immersive holsters ON (current behaviour -- equip by visual holster).
     g_liveControls.xrImmersiveHolsters = 1;
 
-    // Default: the physical reload highlights the magazine and the bolt to rack.
-    g_liveControls.xrReloadGlow = 1;
-
     // The in-vehicle head offset starts at zero: it is a correction on top of the standing
     // calibration, and a default that moved the car view would be a surprise, not a feature.
     g_liveControls.xrVehHeadOffsetX = 0.0f;
     g_liveControls.xrVehHeadOffsetY = 0.0f;
     g_liveControls.xrVehHeadOffsetZ = 0.0f;
-    g_liveControls.xrBikeHeadOffsetX = 0.0f;
-    g_liveControls.xrBikeHeadOffsetY = 0.0f;
-    g_liveControls.xrBikeHeadOffsetZ = 0.0f;
 
     // DRIVING. Wheel grab ON. 0.28 m is a hand-sized reach around the animated wheel pose -- wide
     // enough that you do not have to hunt for a wheel you cannot see, tight enough that a hand
@@ -86,8 +86,6 @@ void InitRuntimePaths() {
     g_liveControls.xrWheelRadius = 0.28f;
     // 90 deg = hands vertical is full lock, the 1:1 reading of a real wheel.
     g_liveControls.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDefault;
-    g_liveControls.xrBikeBarLockDeg = cvr::anim::BikeBarLockDefault;
-    g_liveControls.xrBikeBodyLean = cvr::anim::BikeBodyLeanDefault;
     // 1.5 deg of deadzone: enough to swallow tremor, small enough that the wheel does not feel dead
     // off centre. Every degree here is a degree the car ignores.
     g_liveControls.xrWheelSteerDeadDeg = 0.0f;
@@ -170,8 +168,7 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_3dof_movement=0\n");
     fprintf(file, "xr_roomscale_movement=1\n");
     fprintf(file, "xr_tracked_body_rotation=0\n");
-    fprintf(file, "xr_hybrid_body_rotation=0\n");
-    fprintf(file, "xr_head_led_body_rotation=1\n");
+    fprintf(file, "xr_hybrid_body_rotation=1\n");
     fprintf(file, "xr_body_free_look_deg=10.0\n");
     fprintf(file, "xr_body_free_look_down_deg=30.0\n");
     fprintf(file, "xr_body_move_radius=0.10\n");
@@ -216,8 +213,6 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_depth_submit=1\n");
     fprintf(file, "xr_movement_control=0\n");
     fprintf(file, "xr_disable_mouse_y=1\n");
-    fprintf(file, "xr_vr_interface=1\n");
-    fprintf(file, "xr_hand_physics=1\n");
     fprintf(file, "xr_xinput_hook=1\n");
     fprintf(file, "xr_snap_turn=0\n");
     fprintf(file, "xr_snap_turn_angle_deg=30\n");
@@ -236,7 +231,15 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_mono_depth_capture=1\n");
     fclose(file);
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build reads and writes config\vrport-launcher.ini in rust/crates/cvr-settings/src/launcher.rs, into the
+// globals above (Core/VrCore.cpp), which the rest of the plugin reads.
+// The launcher's globals table is built in rust/crates/cvr-settings/src/launcher.rs.
+
+
+#else
 void LoadLauncherConfig() {
     InitRuntimePaths();
     g_launcherWidth = 2048;
@@ -244,7 +247,6 @@ void LoadLauncherConfig() {
     g_launcherHmdType = 0;
     g_launcherDebug = 0;
     g_launcherShow = 1;
-    g_launcherCustomRes = 0;
     g_launcherDelayMs = 1000;
 
     FILE* file = _fsopen(g_launcherConfigPath, "r", _SH_DENYNO);
@@ -279,12 +281,6 @@ void LoadLauncherConfig() {
             g_launcherHmdType = intValue;
             continue;
         }
-        // 1: width x height was typed or slid in the launcher, not a ladder entry -- kept as it is (engine stereo)
-        if (sscanf_s(line, "custom_res=%d", &intValue) == 1 ||
-            sscanf_s(line, "custom_res = %d", &intValue) == 1) {
-            g_launcherCustomRes = intValue != 0 ? 1 : 0;
-            continue;
-        }
         if (sscanf_s(line, "debug=%d", &intValue) == 1 ||
             sscanf_s(line, "debug = %d", &intValue) == 1) {
             g_launcherDebug = intValue != 0 ? 1 : 0;
@@ -304,10 +300,9 @@ void SaveLauncherConfig(int width, int height) {
     fprintf(file, "width=%d\n", g_launcherWidth);
     fprintf(file, "height=%d\n", g_launcherHeight);
     fprintf(file, "hmd_type=%d\n", g_launcherHmdType);
-    fprintf(file, "custom_res=%d\n", g_launcherCustomRes);
     fprintf(file, "debug=%d\n", g_launcherDebug);
     fprintf(file, "show_launcher=%d\n", g_launcherShow);
     fprintf(file, "launcher_delay_ms=%d\n", g_launcherDelayMs);
     fclose(file);
 }
-
+#endif

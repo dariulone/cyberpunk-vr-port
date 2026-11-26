@@ -12,7 +12,7 @@ constexpr uint64_t Driver0=0x100100,Driver1=0x100200,Elements=0x100300,Descripti
 constexpr uint64_t Control0=0x100500,Control1=0x200500,NullControl=0x100600;
 constexpr uint64_t Handles0=0x101000,Handles1=0x104000,TopData=0x102000,ElementsData=0x103000;
 constexpr uint64_t DescriptionData=0x201000,StringData=0x202001,Foreign=0x300000;
-constexpr uint64_t DriverVtable=Base+0x2B3A008,ElementsVtable=Base+0x2B39F70,DescriptionVtable=Base+0x2B39DF0;
+constexpr uint64_t DriverVtable=Base+0x3094850,ElementsVtable=Base+0x2B39F70,DescriptionVtable=Base+0x2B39DF0;
 constexpr uint64_t CStringVtable=Base+0x2B3A038,PlainVtable=Base+0x2B39E80;
 constexpr binding::LayoutFacts Facts{true,true,false};
 std::map<uint64_t,uint8_t> memory;
@@ -66,7 +66,7 @@ void CString(uint64_t object=Name,uint64_t data=StringData){
     Put(object+0x20,storage);
 }
 void Dag(uint64_t plain=Plain){
-    Fresh();Methods(DriverVtable,Base+tree::SceneDriverDestructorRva,Base+0x1EC1D0);
+    Fresh();Methods(DriverVtable,Base+tree::SceneDriverDestructorRva,Base+0x332D5C);
     Methods(ElementsVtable,Base+tree::RenderElementsDestructorRva,Base+0x23A938);
     Methods(DescriptionVtable,Base+tree::DescriptionOwnerDestructorRva,Base+0xC26DB8);
     Methods(CStringVtable,Base+tree::CStringDestructorRva,Base+0x58DA9C);Methods(PlainVtable,Base+0x983FD8,Base+0x7883B0);

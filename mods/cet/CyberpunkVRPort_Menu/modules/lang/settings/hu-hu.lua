@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "Alapértelmezetten ki a tiszta cyberpunkvrport.log érdekében. Csak akkor kapcsolja be,\nha ClipCursor / mélység / hook diagnosztikát rögzít.",
   ["FRAMEGEN"] = "KÉPKOCKAGEN.",
   ["Enable frame generation"] = "Képkockagenerálás bekapcsolása",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "Bekapcsolt képkockagenerálásnál a kézsimítás a saját ütemének xr_hand_lerp_framegen_scale-szeresével fut (1.25; 0 kikapcsolja).",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "Bekapcsolt képkockagenerálásnál a kézsimítás a saját ütemének xr_hand_lerp_framegen_scale-szeresével fut (1.10; 0 kikapcsolja).",
   ["Frame generator"] = "Képkockagenerátor",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

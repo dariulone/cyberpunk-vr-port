@@ -26,10 +26,19 @@ public:
 // suppression, native resource access or a valid fallback on check failure.
 bool Build(const prepared_pair::Source&,Bank&,Failure&);
 namespace detail {
+#if CVR_RUST_VRIK
+// The rule: rust/crates/cvr-render/src/multilayer_selectors.rs (tools/single_pass_tests/prepared_membership_bank_test
+// runs its cases against it in its Rust variant).
+extern "C" bool cvr_ml_mark(std::array<UINT,1024>*,UINT,UINT,UINT*,UINT*);
+inline bool Mark(std::array<UINT,1024>& bits,UINT offset,UINT copiedExtent,UINT& count,UINT& maximum){
+    return cvr_ml_mark(&bits,offset,copiedExtent,&count,&maximum);
+}
+#else
 inline bool Mark(std::array<UINT,1024>& bits,UINT offset,UINT copiedExtent,UINT& count,UINT& maximum){
     if(!copiedExtent || offset>=copiedExtent || offset>=multilayer_selectors::DeclaredExtent)return false;
     auto& word=bits[offset/32];const auto mask=UINT(1)<<(offset%32);
     if(!(word&mask)){word|=mask;++count;maximum=maximum==UINT_MAX?offset:std::max(maximum,offset);}return true;
 }
+#endif
 }
 }

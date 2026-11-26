@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's plan; the Rust build's is rust/crates/cvr-render/src/instance_observer_plan.rs (the header calls it).
 #include "Render/NativeInstanceObserver.hpp"
 
 namespace cvr::stereo::instance_observer::detail {
@@ -46,3 +48,4 @@ bool InstanceLayout(std::span<const shader_snapshot::Input> inputs,uint32_t stri
     }return found;
 }
 }
+#endif

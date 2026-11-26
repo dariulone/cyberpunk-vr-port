@@ -29,12 +29,39 @@ target_include_directories(roomscale_tests PRIVATE "${ROOMSCALE_OPENXR_INCLUDE}"
 if(MSVC)
     target_compile_options(roomscale_tests PRIVATE /W4 /permissive-)
 endif()
-foreach(case cadence camera collision feedback transitions invalid yaw gameplay scene_suspend tracking eye_centre body_sources runtime_reset anchor_frames manual_anchor_frames rendered_pose hand_publication hand_filter filter_origin_reset movement_frame body_camera_base eye_float_alias native_camera_pair render_roundoff hand_view_sample frame_aim render_quantized_labels free_look_zone look_down_cone body_bend_tracking floor_reach_tracking movement_free_zone movement_soft_onset movement_walk_settle movement_strict_under_head movement_rest_neck turns_on_the_spot strict_wall body_dead_zones movement_rounding_refusal bend_walk_bob bend_held_jitter bend_strict_travel vehicle_stereo_heading vehicle_heading_identity)
+set(CVR_ROOMSCALE_CASES cadence camera collision feedback transitions invalid yaw gameplay scene_suspend tracking eye_centre body_sources runtime_reset anchor_frames manual_anchor_frames rendered_pose hand_publication hand_filter filter_origin_reset movement_frame body_camera_base eye_float_alias native_camera_pair render_roundoff hand_view_sample frame_aim render_quantized_labels free_look_zone look_down_cone body_bend_tracking floor_reach_tracking movement_free_zone movement_soft_onset movement_walk_settle movement_strict_under_head movement_rest_neck turns_on_the_spot movement_rounding_refusal bend_walk_bob bend_held_jitter bend_strict_travel vehicle_stereo_heading vehicle_heading_identity
+    vehicle_world_heading takeover_world_heading scene_camera_heading body_follow_suspend vehicle_turn_input ladder_turn_input vehicle_reload_input)
+foreach(case ${CVR_ROOMSCALE_CASES})
     add_test(NAME roomscale_${case} COMMAND roomscale_tests ${case})
 endforeach()
-foreach(case vehicle_world_heading takeover_world_heading scene_camera_heading body_follow_suspend vehicle_turn_input ladder_turn_input vehicle_reload_input)
-    add_test(NAME roomscale_${case} COMMAND roomscale_tests ${case})
-endforeach()
+
+# The same programs against the Rust roomscale, camera and body (rust/crates/cvr-body, cvr-camera through cvr_rust.lib,
+# CVR_RUST_ROOM and CVR_RUST_BODY), and the parity test: the trace case of both builds must print the same line
+# (docs/rust-migration-plan.md, stage 3).
+option(CVR_ROOMSCALE_TESTS_RUST "Also build the Rust roomscale implementation and compare it with C++" ON)
+if(CVR_ROOMSCALE_TESTS_RUST)
+    include(../../cmake/RustStaticlib.cmake)
+    foreach(program physical_crouch native_body_heading tracking_reacquire)
+        add_executable(${program}_tests_rust ${program}.cpp ../rust_test_support/plugin_stubs.cpp)
+        target_compile_features(${program}_tests_rust PRIVATE cxx_std_20)
+        target_include_directories(${program}_tests_rust PRIVATE ../../include)
+        target_compile_definitions(${program}_tests_rust PRIVATE CVR_RUST_ROOM=1 CVR_RUST_BODY=1)
+        cvr_link_rust(${program}_tests_rust)
+        add_test(NAME rust_${program} COMMAND ${program}_tests_rust)
+    endforeach()
+    add_executable(roomscale_tests_rust main.cpp ../rust_test_support/plugin_stubs.cpp)
+    target_compile_features(roomscale_tests_rust PRIVATE cxx_std_20)
+    target_include_directories(roomscale_tests_rust PRIVATE ../../include ../../externals/RED4ext.SDK/include
+        "${ROOMSCALE_OPENXR_INCLUDE}")
+    target_compile_definitions(roomscale_tests_rust PRIVATE CVR_RUST_ROOM=1 CVR_RUST_BODY=1)
+    cvr_link_rust(roomscale_tests_rust)
+    foreach(case ${CVR_ROOMSCALE_CASES} body_bend_noise)
+        add_test(NAME roomscale_rust_${case} COMMAND roomscale_tests_rust ${case})
+    endforeach()
+    add_test(NAME roomscale_parity
+             COMMAND ${CMAKE_COMMAND} -DCPP=$<TARGET_FILE:roomscale_tests> -DRUST=$<TARGET_FILE:roomscale_tests_rust>
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/ParityTrace.cmake)
+endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 set(CP2077_EXE "C:/Program Files (x86)/Steam/steamapps/common/Cyberpunk 2077/bin/x64/Cyberpunk2077.exe"
     CACHE FILEPATH "Read-only native hook ABI validation target")

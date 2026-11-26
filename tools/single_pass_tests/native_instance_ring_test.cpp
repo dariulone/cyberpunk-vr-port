@@ -25,9 +25,9 @@ static ring::ReadRequest Read(const ring::WriterTicket& writer,uint64_t absolute
     return {writer,Scope(99),absolute,first,instances};
 }
 int main()try{
-    Require(ring::NativeCode[2].rva==0x1F3E40 && ring::NativeCode[2].bytes==0xDB &&
-        ring::NativeCode[2].fnv==0x308C3423D7684BCDull,"actual native completed writer guard");
-    Require(ring::NormalWriterReturn==0x1F2039 && ring::SkinWriterReturn==0x1F026B,"actual native normal/skin return sites");
+    Require(ring::NativeCode[2].rva==0x337144 && ring::NativeCode[2].bytes==0xDB &&
+        ring::NativeCode[2].fnv==0x5AE0D2CD64C9FC88ull,"actual native completed writer guard");
+    Require(ring::NormalWriterReturn==0x335991 && ring::SkinWriterReturn==0x333CDF,"actual native normal/skin return sites");
     {
         ring::Ledger ledger;const auto native=Native();const auto writer=Write(ledger,native,0,2);
         ring::CpuCandidate candidate;const auto read=Read(writer,1,1,1);

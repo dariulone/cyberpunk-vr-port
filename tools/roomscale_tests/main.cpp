@@ -1506,7 +1506,7 @@ void BodyBendNoise() {
     std::cout<<"noisy flat/crouched walk: false bend "<<falseBend<<" degrees\n";
     Check(falseBend<5,"noisy walking/crouching created a false Hybrid posture cue");
 }
-// A headset is never still and a walk is never even (2026-11-06: "the legs twitch a hundred times"). A steady walk
+// A headset is never still and a walk is never even (2026-11-06, user: "the legs twitch a hundred times"). A steady walk
 // is one follow, not a stop and a lurch whenever the body catches the head; a follow ends under the head and the body
 // then stands through the headset's noise; a small step inside the free zone is recentred once the head has stood.
 void MovementWalkSettle() {
@@ -1562,7 +1562,7 @@ void MovementWalkSettle() {
     std::cout<<"held lean: body moved "<<leaning*1000<<" mm"<<std::endl;
     Check(leaning<1e-6f,"a held lean walked the body in under it");
 }
-// A steady walk is followed at a steady speed (2026-11-06: "the legs twitch a hundred times"). On open floor the
+// A steady walk is followed at a steady speed (2026-11-06, user: "the legs twitch a hundred times"). On open floor the
 // controller refuses a few hundredths of a millimetre of a step along the walk every other tick -- the solver's
 // rounding -- and Block() took the follow's whole speed along it: the next request sagged to half and climbed back.
 // STRICT: the body under the head every tick; the velocity readers see only a walk (PhysicalWalkGate).
@@ -1662,95 +1662,10 @@ void MovementRoundingRefusal() {
 }
 // A walking head's bob is no hinge: while the body walks after the head, the bend tracker leaves a 2 cm bob alone
 // (it took the bob's descent out of the movement sample and gave it back on the rise). A real bend still bends.
-// STRICT AT A WALL, AS VREXPANSION'S RETAINED ROOMSCALE: the head walks 0.3 m into a wall 0.1 m ahead. Every tick the
-// capsule is asked the head's whole step; what the wall refuses is taken off the view the same tick: the view (the
-// head less what was consumed) stays on the capsule -- never in the wall, never eased back afterwards -- and no refused
-// step is asked again. Stepping back moves the capsule back at once.
-void StrictWall() {
-    const float dt=1.f/90;
-    Movement m;uint64_t seq=0;float head=0,capsule=0,worstAsk=0,worstOff=0;
-    auto tick=[&](float to) {
-        head=to;
-        const auto pose=Pose(++seq,head,0,1000000+seq*11111);
-        const auto step=m.Begin(pose,pose.stampUs,dt,1,0,true,0,true);
-        if(step.reason!=Reason::Applied) { m.Complete(step);return; }
-        worstAsk=std::max(worstAsk,std::fabs(step.world.x));
-        const float got=std::min(capsule+step.world.x,.1f);   // the wall
-        const Vec2 accepted{got-capsule,step.world.y};
-        capsule=got;
-        m.Complete(step,accepted,Movement::LeadLimit{});
-        worstOff=std::max(worstOff,std::fabs(head-m.Consumed(1).x));   // the residual: the view's lead over the capsule
-    };
-    tick(0);tick(0);
-    for(int i=1;i<=90;++i)tick(.3f*i/90);
-    Check(std::fabs(capsule-.1f)<1e-6f,"strict wall: the capsule did not stop at the wall");
-    Check(worstOff<1e-5f,"strict wall: the view left the capsule (into the wall): ");
-    Check(worstAsk<.3f/90*1.01f+1e-6f,"strict wall: a refused step was asked again: ");
-    const float held=m.Consumed(1).x;
-    for(int i=0;i<90;++i)tick(.3f);
-    Check(std::fabs(m.Consumed(1).x-held)<1e-6f,"strict wall: the view moved while the head held still");
-    for(int i=1;i<=9;++i)tick(.3f-.05f*i/9);
-    Check(std::fabs(capsule-.05f)<1e-5f,"strict wall: stepping back did not move the capsule back at once: ");
-    std::cout<<"strict_wall: capsule "<<capsule<<" m, view on the capsule within "<<worstOff*1000<<" mm\n";
-}
-
-// THE VISIBLE BODY'S DEAD ZONES (Runtimes/BodyDeadZones.hpp): it stays while the head is within 9 cm upright and
-// then stands under the neck at once; looking down it stays through a 30 cm lean ahead, and keeps 12 cm off a camera
-// looking straight down.
-void BodyDeadZonesTest() {
-    const Vec2 fwd{0,1};
-    {
-        BodyDeadZones b;
-        Vec2 o=b.Step({0,0},{0,.09f},fwd,0,1);
-        Check(std::fabs(o.y)<1e-6f,"body zones: did not start under the neck");
-        o=b.Step({0,.05f},{0,.09f},fwd,0,1);
-        Check(std::fabs(o.y+.05f)<1e-6f && !b.Last().breached,"body zones: a 5 cm step moved the body (upright)");
-        o=b.Step({0,.03f},{0,.09f},fwd,0,1);
-        Check(std::fabs(o.y+.08f)<1e-6f,"body zones: an 8 cm step moved the body (upright)");
-        o=b.Step({0,.02f},{0,.09f},fwd,0,1);
-        Check(b.Last().breached && std::fabs(o.y)<1e-6f && std::fabs(o.x)<1e-6f,"body zones: past 9 cm it was not placed under the neck");
-    }
-    {
-        BodyDeadZones b;
-        const Vec2 cam{0,.135f};
-        b.Step({0,0},cam,fwd,-45,1);
-        Vec2 o{};
-        for(int i=0;i<4;++i)o=b.Step({0,.07f},cam,fwd,-45,1);
-        Check(!b.Last().breached && std::fabs(o.y+.28f)<1e-5f,"body zones: a 28 cm lean looking down moved the body");
-        o=b.Step({0,.03f},cam,fwd,-45,1);
-        Check(b.Last().breached && std::fabs(o.y)<1e-5f,"body zones: past 30 cm looking down it was not placed under the neck");
-    }
-    {
-        BodyDeadZones b;
-        Vec2 o=b.Step({0,0},{0,.10f},fwd,-80,1);
-        Check(b.Last().inner && std::fabs(o.y+.02f)<1e-5f,"body zones: looking straight down it did not keep 12 cm off the camera");
-        o=b.Step({0,0},{0,.10f},fwd,-80,1);
-        Check(!b.Last().breached && std::fabs(o.y+.02f)<1e-5f,"body zones: 12 cm off it moved again");
-    }
-    {
-        // eased: the same decision, shown without a jump -- under 1 cm a frame, 95 % within 0.35 s
-        BodyDeadZones b;const float dt=1/90.f;
-        b.Step({0,0},{0,.09f},fwd,0,1,dt,BodyDeadZones::kShowOmega);
-        for(int i=0;i<10;++i)b.Step({0,.0095f},{0,.09f},fwd,0,1,dt,BodyDeadZones::kShowOmega);   // 9.5 cm: breached
-        Check(std::fabs(b.Offset().y)<1e-6f,"body zones eased: the decision changed");
-        float most=0,prev=b.Shown().y;const float start=prev;
-        int settled=-1;
-        for(int i=0;i<60;++i) {
-            b.Step({0,0},{0,.09f},fwd,0,1,dt,BodyDeadZones::kShowOmega);
-            most=std::max(most,std::fabs(b.Shown().y-prev));prev=b.Shown().y;
-            if(settled<0 && std::fabs(b.Shown().y)<.05f*std::fabs(start))settled=i;
-        }
-        std::cout<<"body zones eased: from "<<start*100<<" cm, largest frame step "<<most*1000<<" mm, 95 % after "<<(settled+1)*dt*1000<<" ms\n";
-        Check(most<.01f,"body zones eased: a frame jumped 1 cm or more");
-        Check(settled>=0 && settled<=32,"body zones eased: not 95 % there within 0.35 s");
-    }
-    std::cout<<"body_dead_zones: upright 9 cm, looking down 30 cm, inner 12 cm\n";
-}
-
 // THE SAME PURE BEND, STRICT (2026-11-07): with the body strictly under the head there is no free zone, so every
 // millimetre of a lean's travel the hinge does not take is walked by the capsule. A lean (head pitched with the torso,
 // at three speeds, with and without 0.4 mm of noise) and back: how far the capsule wanders.
-// TURNS ON THE SPOT DO NOT WALK (2026-11-07). The head turned
+// TURNS ON THE SPOT DO NOT WALK (2026-11-07, user: "сходит с орбиты своей после нескольких поворотов"). The head turned
 // about a fixed neck, out a quarter turn and back in half a second, six times, a centimetre below its calibrated height:
 // the bend tracker's neck stays put, so it hands roomscale no hinge and the strict capsule stays under the neck. With
 // its own lever (8 cm up, 15 cm ahead, against roomscale's 10 / 9) every turn left a few millimetres of hinge and the
@@ -1821,7 +1736,7 @@ void BendStrictTravel() {
     // centimetres are walked before the drop is large enough to classify them). A guard against it getting worse.
     Check(worst<.045f,"a pure bend walked the strict capsule");
 }
-// A STILL HEAD AFTER FAST TURNS (2026-11-07). The headset's eye is not on
+// A STILL HEAD AFTER FAST TURNS (2026-11-07, user: "в конце тело дергалось вперед назад"). The headset's eye is not on
 // the tracker's neck lever, so turns leave the neck estimate a few millimetres off and a little low; standing still
 // afterwards, the height's tracking noise then handed that offset to the hinge on every frame its drop came out a
 // fraction higher and back on every frame it came out lower -- the bend's XY flipped by ~5 mm at the frame rate, and
@@ -1891,9 +1806,11 @@ void BendWalkBob() {
     }
     Check(b.angle>.5f,"walking suppressed a real bend");
 }
+#include "parity_trace.hpp"
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     const std::string name = argv[1];
+    if(name=="trace") { parity::Trace();return 0; }
     if(name=="body_follow_suspend") { BodyFollowSuspend();return 0; }
     if(name=="vehicle_reload_input") { VehicleReloadInput();return 0; }
     if(name=="vehicle_world_heading") { VehicleWorldHeading();return 0; }
@@ -1920,8 +1837,6 @@ int main(int argc, char** argv) {
     if(name=="movement_strict_under_head") { MovementStrictUnderHead();return 0; }
     if(name=="movement_rest_neck") { MovementRestNeck();return 0; }
     if(name=="turns_on_the_spot") { TurnsOnTheSpot();return 0; }
-    if(name=="strict_wall") { StrictWall();return 0; }
-    if(name=="body_dead_zones") { BodyDeadZonesTest();return 0; }
     if(name=="movement_rounding_refusal") { MovementRoundingRefusal();return 0; }
     if(name=="bend_walk_bob") { BendWalkBob();return 0; }
     if(name=="bend_held_jitter") { BendHeldJitter();return 0; }

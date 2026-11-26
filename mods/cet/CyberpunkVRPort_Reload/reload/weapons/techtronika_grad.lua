@@ -6,8 +6,8 @@
 --   * `chamber_opener` (7) is the bolt, its knob `handle` (16) on the LEFT. The EMPTY reload is a whole sequence --
 --     the bolt turns up 40 deg, strokes FORWARD 146 mm to throw the spent case (`bullet`, 6, flies a metre), turns
 --     down, then comes back 108 mm and stays there for the magazine change, and only at the end goes home. What the
---     hand does in VR is the part that matters for the gun: back 108 mm and let go (`chamberOnRack = 'dry'`). The
---     forward ejection stroke is the animation's and is not driven.
+--     hand uses the forward ejection stroke after a shot, and the backward 108 mm loading stroke after a dry
+--     magazine change (`chamberOnRack = 'dry'`). The stroke stays latched until the bolt returns home.
 --   * `chamber_opener_back` (15) rides it 1:1.
 --   * `magazine_opener` (11), the catch, is 12 deg about X while the magazine is out: a `hatch`.
 --   * Two-handed: the bolt on the LEFT TRIGGER, the magazine rocked out by hand (`handPull`).
@@ -70,6 +70,8 @@ return {
         -- shot until it has been worked and that clip is over, the case it throws on `bullet` hidden for as long,
         -- and the trigger is kept from the game while a fired case is in the chamber (reload.lua `manual`).
         manual     = true,
+        glowBone   = 16, -- handle only; the complete chamber_opener is not the grab cue
+        postShot   = { travel = 0.146, sign = -1.0, pullDirection = -1 },
         cycleHide  = { 6 },
         cycleHold  = 2.8,
         -- THE LEFT HAND ON THE BOLT while it pulls it back, grad_empty_a t=2.21..2.48 (2.3 mm / 0.7 deg -- the hand

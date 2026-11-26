@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Natives/NativeFunctions.hpp"
 #include "Hooks/Reflex.hpp"
 #include "Core/LiveControls.hpp"
@@ -7,7 +8,14 @@
 #include <cstring>
 
 // Diagnostic A/B only. Returning true retains the original Lua scan path.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_BodyCapsulePrefilter=1;
+#endif
+
+// The Rust build's natives are rust/crates/cvr-rig/src/vrik/performance.rs; the switch above stays.
+#if !CVR_RUST_VRIK
 
 void VRShouldScanBodyCapsules(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,bool* out,int64_t) {
     RED4ext::Handle<RED4ext::ent::Entity> entity;
@@ -55,3 +63,5 @@ void VRVrcamEnableRequest(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, in
     ++frame->code;
     if (out) *out = cvr::vrcam_enable_request();
 }
+#endif
+#endif

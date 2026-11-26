@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 
+#if !CVR_RUST_VRIK
+// The C++ build's geometry; the Rust build's is rust/crates/cvr-render/src/hidden_area.rs (the header calls it).
 namespace cvr::hidden_area {
 Settings Normalize(Settings s) {
     s.enabled=s.enabled?1:0;
@@ -127,3 +129,4 @@ double Coverage(const std::vector<Rect>& rects,uint32_t w,uint32_t h) {
     return area/(double(w)*h);
 }
 }
+#endif

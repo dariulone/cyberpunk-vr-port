@@ -4,6 +4,32 @@
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
 #include <windows.h>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The material buffer snapshots: rust/crates/cvr-render/src/material_snapshot_receipt.rs (the arena, the receipt with
+// its pins, the physical identity at the call and at submission, the private view after the fence). This half
+// lends the graph parent's revalidation.
+namespace cvr::stereo::material_buffer_snapshot {
+static_assert(sizeof(Epoch)==32 && sizeof(Copy)==80 && offsetof(Copy,sourceOffset)==56 && sizeof(source_srv::SourceSrvBacking)==1112,
+    "mirrored by material_snapshot_receipt.rs");
+extern "C" {
+void cvr_mbsn_scope_enter(uint64_t,uint64_t,uint64_t,indirect_copy::detail::ScopeStamp*);
+void cvr_mbsn_scope_exit(const indirect_copy::detail::ScopeStamp*);
+bool cvr_mbsn_matches(const Copy*,const descriptors::SourceResourceBinding*,bool,const native_recording::Lease*,ID3D12CommandQueue*);
+}
+struct Arena::Storage:IUnknown {};   // the Rust storage's IUnknown face
+Arena::Arena()=default;Arena::~Arena()=default;
+ActualCallScope::ActualCallScope(ID3D12GraphicsCommandList* list,uint64_t generation,uint64_t occurrence){
+    cvr_mbsn_scope_enter(reinterpret_cast<uintptr_t>(list),generation,occurrence,&stamp_);}
+ActualCallScope::~ActualCallScope(){cvr_mbsn_scope_exit(&stamp_);}
+bool MatchesPrivate(const Copy& copy,const descriptors::SourceResourceBinding& binding){
+    return cvr_mbsn_matches(&copy,&binding,false,nullptr,nullptr);}
+bool MatchesStagedPrivate(const Copy& copy,const descriptors::SourceResourceBinding& binding,
+    const native_recording::Lease& recording,ID3D12CommandQueue* queue){
+    return cvr_mbsn_matches(&copy,&binding,true,&recording,queue);}
+}  // namespace cvr::stereo::material_buffer_snapshot
+#endif
+#else
 
 namespace cvr::stereo::material_buffer_snapshot {
 using Microsoft::WRL::ComPtr;
@@ -169,3 +195,4 @@ bool MatchesStagedPrivate(const Copy& copy,const descriptors::SourceResourceBind
 }
 Failure LastFailure(){return failure;}
 }
+#endif

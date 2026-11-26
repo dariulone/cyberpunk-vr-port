@@ -5,9 +5,24 @@
 #include <memory>
 #include <mutex>
 
+#if CVR_RUST_VRIK
+// THE TIMER IS RUST'S (rust/crates/cvr-gpu/src/frame_timer.rs); framegen's metrics switch and its frame sink are
+// handed over as callbacks.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's submission table calls the timer itself (ecl_table.rs)
+extern "C" {
+void cvr_gpu_frame_timer_before(ID3D12CommandQueue* queue, bool (*metrics)(), void (*onFrame)(double));
+}
 namespace cvr::framegen {
 namespace {
-using Microsoft::WRL::ComPtr;
+bool Metrics() { return MetricsEnabled(); }
+void Frame(double ms) { OnGpuFrame(ms); }
+}  // namespace
+void BeforeGameCommands(ID3D12CommandQueue* queue) { cvr_gpu_frame_timer_before(queue, &Metrics, &Frame); }
+}  // namespace cvr::framegen
+#endif
+#else
+namespace cvr::framegen {
+namespace {using Microsoft::WRL::ComPtr;
 thread_local bool inside=false;
 std::mutex mutex;
 struct Timer {
@@ -95,3 +110,4 @@ void FinishGpuFrame() {
     inside=false;
 }
 }
+#endif

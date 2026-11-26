@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "Ve výchozím stavu vyp. pro čistý cyberpunkvrport.log. Zapínejte jen\npři zachytávání diagnostiky ClipCursor / hloubky / háčků.",
   ["FRAMEGEN"] = "GEN. SNÍMKŮ",
   ["Enable frame generation"] = "Zapnout generování snímků",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "Se zapnutým generováním snímků běží vyhlazování rukou svou frekvencí krát xr_hand_lerp_framegen_scale (1.25; 0 ho vypne).",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "Se zapnutým generováním snímků běží vyhlazování rukou svou frekvencí krát xr_hand_lerp_framegen_scale (1.10; 0 ho vypne).",
   ["Frame generator"] = "Generátor snímků",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

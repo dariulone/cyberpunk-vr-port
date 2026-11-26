@@ -1,22 +1,82 @@
 #include "Overlay/VrOverlay.hpp"
-#include "Core/LiveControls.hpp"
 #include "Runtimes/FingerGrip.hpp"
 #include <windows.h>
 #include <atomic>
 #include <mutex>
 #include <cstdio>
 #include <sstream>
+#include <cstddef>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE PANEL'S STATE AND ITS POSE POLICY ARE RUST'S (rust/crates/cvr-xr/src/vr_overlay.rs); cvr::vrui forwards, with the
+// grip-from-fingers switch handed to the tracking update.
+extern "C" {
+void cvr_vrui_get_settings(cvr::vrui::Settings* out);
+void cvr_vrui_set_settings(const cvr::vrui::Settings* s);
+bool cvr_vrui_visible();
+bool cvr_vrui_captures_input();
+void cvr_vrui_toggle();
+bool cvr_vrui_consume_menu_summon();
+void cvr_vrui_close(bool resume);
+void cvr_vrui_recenter();
+void cvr_vrui_select_menu_item(unsigned i);
+int cvr_vrui_poll_command();
+void cvr_vrui_bridge_update(bool ready, bool inGame, const char* labels);
+size_t cvr_vrui_menu_items(char* out, size_t capacity);
+size_t cvr_vrui_consume_pointer_events(cvr::vrui::PointerEvent* out, size_t capacity);
+void cvr_vrui_get_view(cvr::vrui::View* out);
+void cvr_vrui_update_tracking(const cvr::vrui::Tracking* t, bool gripFromFingers);
+bool cvr_vrui_parse_setting(const char* line, cvr::vrui::Settings* s);
+void cvr_vrui_write_settings(void* file, const cvr::vrui::Settings* s);
+}
 namespace cvr::vrui {
-namespace {
-std::mutex mutex;
+static_assert(sizeof(Settings) == 48 && sizeof(Hand) == 44 && sizeof(Tracking) == 136 && sizeof(PointerEvent) == 16 &&
+              sizeof(View) == 108 && offsetof(View, hit) == 76, "mirrored by rust/crates/cvr-xr/src/vr_overlay.rs");
+Settings GetSettings() { Settings s; cvr_vrui_get_settings(&s); return s; }
+void SetSettings(Settings s) { cvr_vrui_set_settings(&s); }
+bool Visible() { return cvr_vrui_visible(); }
+bool CapturesInput() { return cvr_vrui_captures_input(); }
+void Toggle() { cvr_vrui_toggle(); }
+bool ConsumeMenuSummon() { return cvr_vrui_consume_menu_summon(); }
+void Close(bool resume) { cvr_vrui_close(resume); }
+void Recenter() { cvr_vrui_recenter(); }
+void SelectMenuItem(unsigned i) { cvr_vrui_select_menu_item(i); }
+int PollCommand() { return cvr_vrui_poll_command(); }
+void BridgeUpdate(bool ready, bool inGame, const char* labels) { cvr_vrui_bridge_update(ready, inGame, labels); }
+std::vector<std::string> MenuItems() {
+    std::string text(4096, '\0');
+    for (;;) {
+        const size_t n = cvr_vrui_menu_items(text.data(), text.size());
+        if (n <= text.size()) { text.resize(n); break; }
+        text.assign(n, '\0');
+    }
+    std::vector<std::string> items;
+    std::istringstream in(text);
+    std::string line;
+    while (std::getline(in, line)) items.push_back(line);
+    return items;
+}
+std::vector<PointerEvent> ConsumePointerEvents() {
+    PointerEvent events[80];
+    const size_t n = cvr_vrui_consume_pointer_events(events, 80);
+    return std::vector<PointerEvent>(events, events + n);
+}
+View GetView() { View v; cvr_vrui_get_view(&v); return v; }
+void UpdateTracking(const Tracking& t) { cvr_vrui_update_tracking(&t, cvr::fingergrip::GripFromFingers()); }
+bool ParseSetting(const char* line, Settings& s) { return cvr_vrui_parse_setting(line, &s); }
+void WriteSettings(void* file, const Settings& s) { cvr_vrui_write_settings(file, &s); }
+}  // namespace cvr::vrui
+#endif
+#else
+namespace cvr::vrui {
+namespace {std::mutex mutex;
 Settings settings;
 Placement placement;
 HoldChord chord;
 cvr::hud::DisplayClock clock;
 std::atomic<bool> visible{false},capture{false};
 int command=0;bool wanted=false,buttonDown=false,triggerArmed=false,releasePending=false,gripHeld[2]{},menuSummon=false;
-bool menuReleasePending=false;
 uint64_t bridgeStamp=0,requestStamp=0;
 std::vector<std::string> items;
 std::vector<PointerEvent> events;
@@ -50,12 +110,9 @@ std::vector<PointerEvent> ConsumePointerEvents(){std::lock_guard lock(mutex);std
 View GetView(){std::lock_guard lock(mutex);return view;}
 void UpdateTracking(const Tracking& t){
     std::lock_guard lock(mutex);clock.Step(t.time);
-    const bool menuEnabled=g_liveControls.xrVrInterface!=0;
-    const bool bothHeld=t.valid && t.hands[0].valid && t.hands[1].valid && t.hands[0].stickClick && t.hands[1].stickClick;
-    const bool both=menuEnabled && bothHeld;
-    // Only SAO owns this chord. F10/settings keeps its independent capture.
-    if(!menuEnabled){menuSummon=false;menuReleasePending=false;}
-    if(chord.Update(both,clock.elapsed)){menuSummon=true;menuReleasePending=true;}
+    const bool both=t.valid && t.hands[0].valid && t.hands[1].valid && t.hands[0].stickClick && t.hands[1].stickClick;
+    // the sticks are held back from the game until they are let go, as after a panel toggle
+    if(chord.Update(both,clock.elapsed)){menuSummon=true;releasePending=true;}
     const auto now=GetTickCount64();
     // The idle Lua bridge only polls commands, so its last acknowledgement may
     // be arbitrarily old while closed. Give each new request its opening window;
@@ -66,11 +123,11 @@ void UpdateTracking(const Tracking& t){
     // first, but only for 1.5 s; sticks and triggers as before. With the grip read from the fingers a hand closed on the
     // controller reads as gripping for as long as it holds it: the grips are not waited for at all.
     static uint64_t pendingSince=0;
-    if(!releasePending && !menuReleasePending)pendingSince=0;else if(!pendingSince)pendingSince=now;
+    if(!releasePending)pendingSince=0;else if(!pendingSince)pendingSince=now;
     const bool gripsFree=cvr::fingergrip::GripFromFingers() || (t.hands[0].grip<.5f && t.hands[1].grip<.5f) ||
                          (pendingSince && now-pendingSince>1500);
-    if(!bothHeld && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && gripsFree){releasePending=false;menuReleasePending=false;}
-    capture=visible || wanted || both || releasePending || menuReleasePending;
+    if(releasePending && !both && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && gripsFree)releasePending=false;
+    capture=visible || wanted || both || releasePending;
     view.hold=float(chord.held);
     if(!visible){view.valid=false;return;}
     const bool wasDragging=placement.dragging>=0;
@@ -119,3 +176,4 @@ void WriteSettings(void* file,const Settings& s){std::fprintf(static_cast<FILE*>
     "xr_overlay_distance=%.3f\nxr_overlay_min_distance=%.3f\nxr_overlay_max_distance=%.3f\nxr_overlay_width=%.3f\nxr_overlay_scale=%.3f\nxr_overlay_font_scale=%.3f\nxr_overlay_cone=%.2f\nxr_overlay_offset_x=%.3f\nxr_overlay_offset_y=%.3f\nxr_overlay_depth_speed=%.3f\nxr_overlay_hand=%d\nxr_overlay_follow=%d\n",
     s.distance,s.minDistance,s.maxDistance,s.width,s.scale,s.fontScale,s.cone,s.offsetX,s.offsetY,s.depthSpeed,s.hand,s.follow);}
 }
+#endif

@@ -36,7 +36,11 @@ local PRESS_CACHE, pressPose, poseFor, GRENADE_POSE, PINCH_POSE, PIN_POSE, PIN_P
 local THUMB_TIP, INDEX_TIP, pinchPoint, HOLD1_P, HOLD1_Q, HOLD_P, HOLD_Q, pinS, TRIGGER_SLOT, triggerAmount
 local trgS, setTriggerBlock, leverS, holdPBuf, holdQBuf, leverPose, ARM_MODE, armMode, SND, muteStow, sndAt
 local playSnd, leverTick, handBone, poseS, poseApply, poseClear, poseTick, pinPoseTick, claimHand
-local magnetSet, magnetClear, rawHand, gripDown, updateGrenadeGrab, unequipWeapon
+local magnetSet, magnetClear, rawHand, gripDown, updateGrenadeGrab
+local stickTick, finishPin, ringScale
+local flick = require("grenade/ring_flick")
+local contact = require("grenade/pin_contact")
+local stick = { sequence = nil, elapsed = nil, flight = {} }
 
 -- FORWARD-DECLARED, AT THE TOP, and it has to be at the top rather than merely "before holdNow".
 --
@@ -72,7 +76,7 @@ end
 -- THE GRIP BUTTON, per hand, off the plugin's shared block. The same two slots the smoking module
 -- reads, and the same convention the rest of the port uses for a hand: 0 is left, 1 is right.
 GRIP_SLOT = { [0] = 155, [1] = 49 }
-HAND_SLOT = { [0] = "AttachmentSlots.WeaponLeft", [1] = "AttachmentSlots.WeaponRight" }
+HAND_SLOT = { [0] = "AttachmentSlots.VRPortGrenadeLeft", [1] = "AttachmentSlots.VRPortGrenadeRight" }
 
 -- THE HAND SHAPE THE GAME ITSELF HOLDS A GRENADE IN, lifted out of its own throw rather than posed by
 -- hand: reload_record_01, right hand, the four and a half seconds between the pin coming out and the
@@ -103,6 +107,21 @@ trace = function(fmt, ...)
     end)
 end
 
+local function desiredPlane(pl, now)
+    local forced = E.CFG.grenade_grab_plane
+    if forced == 1 then return 0 end
+    if forced == 2 then return 2 end
+    return E.playerPlane(pl, now) or 0
+end
+
+local function attachProp(pl, item, slot, plane)
+    local ok, attached = pcall(function()
+        if plane == 2 then return pl:VRPortHoldItem(item, slot) end
+        return pl:VRPortHoldItemScene(item, slot)
+    end)
+    return ok and attached
+end
+
 grenadeAttach = function(pl, side, host, now)
     -- ONE LINE PER GRAB, and it says how far the attach got. Two dumps in a row ended inside this
     -- function with nothing in the log, which narrowed it to "somewhere in here" and no further; the
@@ -110,18 +129,13 @@ grenadeAttach = function(pl, side, host, now)
     trace("attach start side=%d host=%s", side, tostring(host))
     local item, entity = E.propItem({ follow = "grenade" })
     if item == nil then trace("attach: no grenade item") return false end
+    if E.weaponInHands(pl, side) ~= false then return false end
     local slot = HAND_SLOT[side]
     trace("attach: item=%s entity=%s slot=%s", tostring(item), tostring(entity), slot)
     E.propAllowSlot(item, slot)
     trace("attach: slot allowed")
-    local plane = E.playerPlane(pl, now) or 0
-    local forced = E.CFG.grenade_grab_plane or 0
-    if forced == 1 then plane = 0 elseif forced == 2 then plane = 2 end
-    local ok = false
-    pcall(function()
-        if plane == 2 then ok = pl:VRPortHoldItem(item, slot)
-        else ok = pl:VRPortHoldItemScene(item, slot) end
-    end)
+    local plane = desiredPlane(pl, now)
+    local ok = attachProp(pl, item, slot, plane)
     trace("attach: plane=%d ok=%s", plane, tostring(ok))
     if not ok then return false end
     -- WHICH KIND, for everything that differs between them: how it is armed, which sound, which mesh.
@@ -131,9 +145,14 @@ grenadeAttach = function(pl, side, host, now)
     end
     E.S.grab.side, E.S.grab.slot, E.S.grab.host = side, slot, host
     E.S.grab.plane, E.S.grab.at = plane, now
+    E.S.grab.item = item
     E.S.grab.parts, E.S.grab.pin, E.S.grab.obj = nil, nil, nil   -- not resolvable for a frame or two
     pinS.out, pinS.armed, pinS.at, pinS.pull = false, false, nil, nil
     leverS.amount, leverS.key, leverS.shut = 0.0, nil, false  -- a fresh grenade is taken lever-open
+    pinS.itemP, pinS.itemQ, leverS.armAt = nil, nil, nil
+    if E.CFG.grenade_pin and armMode() == "pin" and type(VRGrenadeStick) == "function" then
+        stick.sequence = VRGrenadeStick(side)
+    end
     trace("attach: state written")
     -- THE MARK GOES OUT WITH THE THING IT MARKED -- but NOT from here. Writing to components inside
     -- the grab is what turned a working grab into a crash: the run before this call was added took a
@@ -147,22 +166,21 @@ grenadeAttach = function(pl, side, host, now)
     return true
 end
 
+local function resetPropRing()
+    ringScale(1)
+    for _, c in ipairs(E.S.grab.pin or {}) do pcall(function() c:Toggle(true) end) end
+end
+
 grenadeRelease = function(pl)
     if E.S.grab.slot == nil then return end
+    if stick.sequence ~= nil then VRGrenadeStick(-1) end
+    stick.sequence, stick.elapsed, stick.contact, stick.hold, stick.thumb = nil, nil, nil, nil, nil
+    resetPropRing()
     poseClear()
     magnetClear()
     setTriggerBlock(false)
     leverS.amount, leverS.key, leverS.shut = 0.0, nil, false
     E.S.grab.lever = nil
-    -- THE PIN GOES BACK IN. It was switched off on this entity, and the entity outlives the hold: put
-    -- one back on the belt and take it again and it came back without a pin -- a grenade that can only
-    -- ever be armed once. Home is also its transform, which the hold has been overwriting.
-    if E.S.grab.pin ~= nil then
-        for i = 1, #E.S.grab.pin do
-            local c = E.S.grab.pin[i]
-            pcall(function() c:Toggle(true) end)
-        end
-    end
     -- Before the item goes: the sound is played on it.
     playSnd("stow")
     local slot = E.S.grab.slot
@@ -172,7 +190,33 @@ grenadeRelease = function(pl)
     E.log("grenade released from %s", slot)
     E.S.grab.side, E.S.grab.slot, E.S.grab.host, E.S.grab.plane = nil, nil, nil, nil
     E.S.grab.parts, E.S.grab.pinned, E.S.grab.obj = nil, nil, nil
+    E.S.grab.pin, E.S.grab.item, E.S.grab.retryPlaneAt = nil, nil, nil
     trace("release: done")
+end
+
+local function updatePropPlane(pl, now)
+    local g = E.S.grab
+    local plane = desiredPlane(pl, now)
+    if plane == g.plane or (g.retryPlaneAt and now < g.retryPlaneAt) then return end
+    if E.weaponInHands(pl, g.side) ~= false then grenadeRelease(pl) return end
+
+    -- Only the drawn item changes. Input ownership, the animation clock and
+    -- the equipped grenade still belong to the same uninterrupted grip.
+    resetPropRing()
+    local ok, dropped = pcall(function() return pl:VRPortDropItem(g.slot) end)
+    g.parts, g.pin, g.obj = nil, nil, nil
+    if ok and dropped then
+        if attachProp(pl, g.item, g.slot, plane) then
+            trace("replane %s -> %s", tostring(g.plane), tostring(plane))
+            g.plane, g.retryPlaneAt = plane, nil
+            return
+        end
+        if not attachProp(pl, g.item, g.slot, g.plane) then
+            grenadeRelease(pl)
+            return
+        end
+    end
+    g.retryPlaneAt = now + 0.20
 end
 
 -- THE FREE HAND AND THE PIN. Three ranges, and none of them is a gesture to be recognised -- they are
@@ -195,6 +239,58 @@ pinTrace = function(now, fmt, ...)
     trace(fmt, ...)
 end
 
+ringScale = function(scale)
+    for _, c in ipairs(E.S.grab.pin or {}) do
+        pcall(function() c.visualScale = Vector3.new(scale, scale, scale) end)
+    end
+end
+
+local function hideRing()
+    for _, c in ipairs(E.S.grab.pin or {}) do
+        pcall(function() c:Toggle(false) end)
+    end
+end
+
+finishPin = function(keepVisible)
+    pinS.out, pinS.armed, pinS.pull, pinS.at = true, false, nil, nil
+    magnetClear()
+    if not keepVisible then hideRing() end
+    playSnd("pin")
+end
+
+-- The hand clip, ornament and haptic share one playback clock.
+stickTick = function(dt)
+    if stick.sequence == nil then return end
+    local side = E.S.grab.side
+    local seq = VRGrenadeStick(side)
+    if E.CFG.grenade_pin and not pinS.out and seq ~= stick.sequence and stick.elapsed == nil
+        and gripDown(side) then
+        local hp,hq,pose=holdNow()
+        stick.hold={{hp[1],hp[2],hp[3]},{hq[1],hq[2],hq[3],hq[4]},pose}
+        stick.holdLever=leverS.amount or 0
+        stick.profile=contact.profile(side,E.S.grab.kind)
+        stick.contact=contact.new()
+        stick.elapsed = 0
+        stick.flight = {}
+        pinS.armed, pinS.pull, pinS.at = false, nil, nil
+        magnetClear()
+    end
+    stick.sequence = seq
+    if stick.elapsed == nil then return end
+    if not gripDown(side) or not E.CFG.grenade_pin then
+        stick.elapsed,stick.contact,stick.hold,stick.holdLever = nil,nil,nil,nil
+        if pinS.out then hideRing() end
+        ringScale(1)
+        return
+    end
+    local t = stick.elapsed + dt
+    stick.elapsed = t
+    if t >= contact.duration then
+        if pinS.out then hideRing() else ringScale(1) end
+        stick.elapsed,stick.contact,stick.hold,stick.holdLever = nil,nil,nil,nil
+    end
+end
+
 updatePin = function(now, dt)
     -- A BUTTON GRENADE NEEDS NO SECOND HAND. The game's own animation brings one -- measured, its thumb
     -- reaches 12 mm of the shell -- but that is an animation of a character, not a thing to ask a
@@ -205,7 +301,8 @@ updatePin = function(now, dt)
         magnetClear()
         return
     end
-    if not E.CFG.grenade_pin or E.S.grab.slot == nil or pinS.out then
+    if not E.CFG.grenade_pin or E.S.grab.slot == nil or pinS.out or stick.elapsed ~= nil
+        or E.playerPlane(Game.GetPlayer(), now) == 2 and E.weaponInHands(Game.GetPlayer(), 1 - E.S.grab.side) ~= false then
         pinTrace(now, "pin off: cfg=%s slot=%s out=%s",
             tostring(E.CFG.grenade_pin), tostring(E.S.grab.slot), tostring(pinS.out))
         pinPoseTick(nil, 0.0, dt)
@@ -417,15 +514,7 @@ updatePin = function(now, dt)
         local past = axial - (E.CFG.grenade_pin_slide_m or 0.012)
         if past >= (E.CFG.grenade_pin_pull_m or 0.06)
             and pinS.speed >= (E.CFG.grenade_pin_speed or 2.0) then
-            pinS.out, pinS.armed, pinS.pull = true, false, nil
-            magnetClear()
-            if E.S.grab.pin ~= nil then
-                for i = 1, #E.S.grab.pin do
-                    local c = E.S.grab.pin[i]
-                    pcall(function() c:Toggle(false) end)
-                end
-            end
-            playSnd("pin")
+            finishPin()
             -- FELT AS WELL AS HEARD: a snap in the hand that pulled it, a weaker one through the grenade
             -- in the other (2 and 3 in src/Runtimes/Haptics.cpp; mask 1 left, 2 right).
             if type(VRHapticEvent) == "function" then
@@ -466,9 +555,7 @@ HIST = 24
 -- off when it lands, so a second throw needs a slot of its own. With one slot the second throw found
 -- it occupied, armed nothing, and BOTH grenades were lost -- the new one went back on the belt and the
 -- old one never exploded.
-THROW_SLOTS = { "AttachmentSlots.WeaponLeft",
-                      "AttachmentSlots.GrenadeLeft",
-                      "AttachmentSlots.GrenadeRight" }
+THROW_SLOTS = { "AttachmentSlots.GrenadeLeft", "AttachmentSlots.GrenadeRight", "AttachmentSlots.VRPortGrenadeFlight" }
 
 throwSample = function(side, dt)
     if side == nil then
@@ -697,17 +784,6 @@ throwArm = function(pl)
     throwS.armed, throwS.armedAt, throwS.armSlot = rec, os.clock(), slot
     throwS.recBySlot = throwS.recBySlot or {}
     throwS.recBySlot[slot] = rec
-    -- AND IT IS OURS, SAY SO. `playerPlane` decides the rendering plane by asking "is there an item in
-    -- a hand slot", and the armed grenade is one -- so arming it flipped the player into the weapon
-    -- plane, which re-attached the prop, which reset the pin. The grenade disarmed itself in the same
-    -- frame it armed, every time. Same shape as the crash the prop caused in that function once
-    -- before: anything of ours in a hand slot has to be excluded there, by bookkeeping, not by asking
-    -- the object what it is.
-    -- EVERY SLOT OF OURS, as a set: `playerPlane` asks "is there an item in a hand slot" and would
-    -- otherwise count a waiting grenade as a drawn weapon, flip the plane, and re-attach the prop --
-    -- which resets the pin. That loop is what disarmed the throw for a whole evening.
-    E.S.grab.armSlots = E.S.grab.armSlots or {}
-    E.S.grab.armSlots[slot] = true
     trace("arm: %s in %s", rec, slot)
 end
 
@@ -716,7 +792,6 @@ throwDisarm = function(pl)
     if throwS.armed == nil then return end
     local slot = throwS.armSlot
     throwS.armed, throwS.armSlot = nil, nil
-    if slot ~= nil and E.S.grab.armSlots ~= nil then E.S.grab.armSlots[slot] = nil end
     if pl == nil or slot == nil then return end
     pcall(function() pl:VRPortDropItem(slot) end)
     trace("arm: cleared %s", slot)
@@ -840,7 +915,6 @@ throwTick = function(pl)
                 E.log("grenade: detonated at %.1f %.1f %.1f -> %s", d.x, d.y, d.z, tostring(ok))
                 trace("flight: detonate %s at %.1f %.1f %.1f -> %s",
                     tostring(d.slot), d.x, d.y, d.z, tostring(ok))
-                if d.slot ~= nil and E.S.grab.armSlots ~= nil then E.S.grab.armSlots[d.slot] = nil end
                 -- A flight with no slot is M.testThrow's: nothing was armed, so nothing is spent.
                 if d.slot ~= nil and (E.CFG.grenade_throw_consume_at or "throw") == "detonate" then
                     consume(pl, throwS.recBySlot and throwS.recBySlot[d.slot])
@@ -919,12 +993,10 @@ throwTick = function(pl)
             consume(pl, p.rec)
         end
         throwS.pending = nil
-        if p.slot ~= nil and E.S.grab.armSlots ~= nil then E.S.grab.armSlots[p.slot] = nil end
     elseif os.clock() - p.at > 1.0 then
         E.log("grenade: the real one never resolved in %s -- throw abandoned", p.slot)
         pcall(function() pl:VRPortDropItem(p.slot) end)
         throwS.pending = nil
-        if p.slot ~= nil and E.S.grab.armSlots ~= nil then E.S.grab.armSlots[p.slot] = nil end
     end
 end
 
@@ -995,12 +1067,11 @@ grenadeParts = function()
     -- record, one item -- so a pin switched off on the last grenade is still off on the next one, and
     -- every grenade after the first came out already armed. Putting it back at RESOLVE time covers
     -- that whatever happened to the previous hold and however it ended.
-    if E.S.grab.pin ~= nil and not pinS.out then
+    if E.S.grab.pin ~= nil then
         for i = 1, #E.S.grab.pin do
             local c = E.S.grab.pin[i]
-            pcall(function() c:Toggle(true) end)
+            pcall(function() c:Toggle(not pinS.out or stick.elapsed ~= nil) end)
         end
-        trace("pin: restored on a fresh grenade")
     end
     trace("parts resolved: %d, pin parts: %s", #list,
         E.S.grab.pin and tostring(#E.S.grab.pin) or "0")
@@ -1020,8 +1091,7 @@ end
 --     position  -0.0830  0.0516  0.0267 m   -- 101 mm from the wrist
 --     rotation  -0.731265 -0.032951 0.109304 0.672472   -- 95.48 degrees
 --
--- Recorded on the RIGHT hand. The left is given the same numbers: the take has a grenade in the left
--- for a quarter of a second and that is not enough to measure a hold from.
+-- Recorded against the right wrist. grenadeHoldPose converts this frame for the left wrist.
 -- wrist and hand-anchor bone indices, per hand, from the recorder's own list
 WRIST_BONE  = { [0] = 23, [1] = 24 }
 ANCHOR_BONE = { [0] = 26, [1] = 28 }
@@ -1066,9 +1136,31 @@ grenadeHoldPose = function()
 
     -- the hold, in model space
     local HP, HQ = holdNow()
-    local hx, hy, hz = qrot4(wq.i, wq.j, wq.k, wq.r, HP[1], HP[2], HP[3])
+    -- Behaviour-mirrored wrists have opposite local translations. The item
+    -- also needs a half-turn about its own X to retain its visible orientation.
+    local x, y, z = HP[1], HP[2], HP[3]
+    local i, j, k, w = HQ[1], HQ[2], HQ[3], HQ[4]
+    if side == 0 then
+        x, y, z = -x, -y, -z
+        i, j, k, w = w, k, -j, -i
+    end
+    local profile=contact.profile(side,E.S.grab.kind)
+    if profile and profile.idleShift then
+        local shift=profile.idleShift
+        x,y,z=x+shift[1],y+shift[2],z+shift[3]
+    end
+    if stick.elapsed ~= nil and stick.profile then
+        local a,b,u=contact.sample(stick.profile,stick.elapsed)
+        local ri,rj,rk,rr,dx,dy,dz=contact.grip(a,b,u)
+        local hp,hq=stick.profile.hold[1],stick.profile.hold[2]
+        dx,dy,dz=qrot4(hq[1],hq[2],hq[3],hq[4],dx,dy,dz)
+        ri,rj,rk,rr=qmul4(hq[1],hq[2],hq[3],hq[4],ri,rj,rk,rr)
+        x,y,z,i,j,k,w=contact.blendGrip(stick.elapsed,{{x,y,z},{i,j,k,w}},
+            {{hp[1]+dx,hp[2]+dy,hp[3]+dz},{ri,rj,rk,rr}})
+    end
+    local hx, hy, hz = qrot4(wq.i, wq.j, wq.k, wq.r, x, y, z)
     hx, hy, hz = wp.x + hx, wp.y + hy, wp.z + hz
-    local mi, mj, mk, mr = qmul4(wq.i, wq.j, wq.k, wq.r, HQ[1], HQ[2], HQ[3], HQ[4])
+    local mi, mj, mk, mr = qmul4(wq.i, wq.j, wq.k, wq.r, i, j, k, w)
     -- WHERE THE GRENADE ENDED UP, in model space, kept for the pin: it is the only frame both the
     -- recording and the live hand agree on, and it is computed here anyway.
     pinS.itemP = { hx, hy, hz }
@@ -1092,23 +1184,105 @@ grenadeHoldPose = function()
     li, lj, lk, lr = qmul4(li, lj, lk, lr, ni, nj, nk, nr)
     lx, ly, lz = lx + (o.x or 0.0), ly + (o.y or 0.0), lz + (o.z or 0.0)
 
+    if stick.elapsed and stick.profile and stick.contact then
+        local a=VRBoneModelPos(THUMB_TIP[side])
+        local tq=VRBoneModelRot(THUMB_TIP[side])
+        -- Apply the same local rotations scheduled for this rendered frame.
+        -- Native FK snapshots still contain the previous animation frame here.
+        if stick.thumb and stick.thumb[1] and stick.thumb[2] and stick.thumb[3] then
+            local offsets=stick.profile.offsets
+            local x,y,z=wp.x,wp.y,wp.z
+            local qi,qj,qk,qr=wq.i,wq.j,wq.k,wq.r
+            for joint=1,3 do
+                local p,q=offsets[joint],stick.thumb[joint]
+                local dx,dy,dz=qrot4(qi,qj,qk,qr,p[1],p[2],p[3])
+                x,y,z=x+dx,y+dy,z+dz
+                qi,qj,qk,qr=qmul4(qi,qj,qk,qr,q[1],q[2],q[3],q[4])
+            end
+            a={x=x,y=y,z=z,w=1}
+            tq={i=qi,j=qj,k=qk,r=qr}
+        end
+        if a and tq and a.w~=0 then
+            local tip=stick.profile.tip
+            local dx,dy,dz=qrot4(tq.i,tq.j,tq.k,tq.r,tip[1],tip[2],tip[3])
+            local b={x=a.x+dx,y=a.y+dy,z=a.z+dz}
+            local function itemPoint(p)
+                local ax,ay,az=qrot4(-aq.i,-aq.j,-aq.k,aq.r,p.x-ap.x,p.y-ap.y,p.z-ap.z)
+                return {qrot4(-li,-lj,-lk,lr,ax-lx,ay-ly,az-lz)}
+            end
+            if contact.step(stick.contact,stick.profile,itemPoint(a),itemPoint(b),E.S.grab.lastDt or .016) then
+                finishPin(true)
+                stick.flight.at=stick.elapsed
+                stick.contact.releasedAt=stick.elapsed
+                if type(VRHapticEvent)=="function" then pcall(VRHapticEvent,2,side+1) end
+                E.log("grenade: thumb constraint released at %.2f force %.1f",stick.elapsed,stick.contact.force)
+            elseif stick.contact.force>1 and not stick.contact.feedback then
+                stick.contact.feedback=true
+                if type(VRHapticEvent)=="function" then pcall(VRHapticEvent,3,side+1) end
+            end
+        end
+    end
+
     -- THE PIN IS NOT WRITTEN HERE ONCE IT IS BEING PULLED. Every other part of the grenade sits on the
     -- one transform; the pin has to leave the hand that holds the body, so while a hand is on it, it
     -- gets a transform of its own -- the same one, walked along the pull direction by however far the
     -- hand has actually travelled. That is the difference between a pin that VANISHES and a pin that
     -- comes out.
     local pin = E.S.grab.pin
+    local released = stick.contact and stick.contact.phase=="released"
+    local constrained = stick.contact and stick.contact.along
     local isPin = {}
     if pin ~= nil then for i = 1, #pin do isPin[pin[i]] = true end end
     for i = 1, #parts do
         local c = parts[i]
-        if not (isPin[c] and pinS.pull ~= nil) then
+        if not (isPin[c] and (pinS.pull ~= nil or stick.elapsed ~= nil)) then
             pcall(function()
                 c:SetLocalTransform(Vector4.new(lx, ly, lz, 1.0), Quaternion.new(li, lj, lk, lr))
             end)
         end
     end
-    if pin ~= nil and pinS.pull ~= nil then
+    local pinI,pinJ,pinK,pinR,pinX,pinY,pinZ=li,lj,lk,lr,lx,ly,lz
+    if pin and stick.elapsed~=nil and stick.profile then
+        local i,j,k,r=contact.pinRotation(stick.profile,stick.elapsed)
+        local h=stick.profile.hinge
+        local hx,hy,hz=qrot4(i,j,k,r,h[1],h[2],h[3])
+        local dx,dy,dz=qrot4(li,lj,lk,lr,h[1]-hx,h[2]-hy,h[3]-hz)
+        pinX,pinY,pinZ=lx+dx,ly+dy,lz+dz
+        pinI,pinJ,pinK,pinR=qmul4(li,lj,lk,lr,i,j,k,r)
+    end
+    if pin and released then
+        local f = stick.flight
+        local pivot = stick.profile.originalCentre
+        if f.x == nil then
+            f.i,f.j,f.k,f.r = qmul4(aq.i,aq.j,aq.k,aq.r,pinI,pinJ,pinK,pinR)
+            local ox,oy,oz = qrot4(aq.i,aq.j,aq.k,aq.r,pinX,pinY,pinZ)
+            local offset=stick.contact.offset
+            local px,py,pz = qrot4(f.i,f.j,f.k,f.r,pivot[1],pivot[2],pivot[3])
+            local bi,bj,bk,br=qmul4(aq.i,aq.j,aq.k,aq.r,li,lj,lk,lr)
+            local dx,dy,dz=qrot4(bi,bj,bk,br,offset[1],offset[2],offset[3])
+            f.x,f.y,f.z = ap.x+ox+px+dx, ap.y+oy+py+dy, ap.z+oz+pz+dz
+            local v=stick.contact.velocity
+            f.dx,f.dy,f.dz=qrot4(bi,bj,bk,br,v[1],v[2],v[3])
+        end
+        local time=math.max(0,stick.elapsed-f.at)
+        local dx,dy,dz=f.dx*time,f.dy*time,f.dz*time-1.4*time*time
+        local spin,tilt,scale=(side==0 and -1 or 1)*time*12,time*5,math.max(.05,1-math.max(0,time-.25)*4)
+        local ri, rj, rk, rr = qmul4(0, 0, math.sin(spin/2), math.cos(spin/2),
+                                    0, math.sin(tilt/2), 0, math.cos(tilt/2))
+        ri, rj, rk, rr = qmul4(ri, rj, rk, rr, f.i, f.j, f.k, f.r)
+        ri, rj, rk, rr = qmul4(-aq.i, -aq.j, -aq.k, aq.r, ri, rj, rk, rr)
+        local ax, ay, az = qrot4(-aq.i, -aq.j, -aq.k, aq.r, f.x+dx-ap.x, f.y+dy-ap.y, f.z+dz-ap.z)
+        local px,py,pz = qrot4(ri,rj,rk,rr,pivot[1]*scale,pivot[2]*scale,pivot[3]*scale)
+        local pos, rot = Vector4.new(ax-px, ay-py, az-pz, 1), Quaternion.new(ri, rj, rk, rr)
+        ringScale(scale)
+        for _, c in ipairs(pin) do pcall(function() c:SetLocalTransform(pos, rot) end) end
+    elseif pin and stick.elapsed~=nil then
+        local offset=constrained and stick.contact.offset or {0,0,0}
+        local dx,dy,dz=qrot4(li,lj,lk,lr,offset[1],offset[2],offset[3])
+        for _,c in ipairs(pin) do
+            c:SetLocalTransform(Vector4.new(pinX+dx,pinY+dy,pinZ+dz,1),Quaternion.new(pinI,pinJ,pinK,pinR))
+        end
+    elseif pin ~= nil and pinS.pull ~= nil then
         -- WHERE THE HAND WENT, and nowhere else. The first version walked the pin along a direction
         -- taken from the recorded throw, and it was wrong three ways at once: the pin left upwards
         -- instead of along the pull, it moved further than the hand did, and the hand -- pinned by the
@@ -1334,26 +1508,18 @@ triggerAmount = function(side)
     return v
 end
 
--- WHAT THE GAME SEES ON THAT TRIGGER, which is not the same question. Shared slot 161: 0 pass it
--- through, 1 swallow it, 2 press it fully. With a grenade in the hand a squeeze is the lever, not a
--- shot, and the gun must not go off underneath it.
---
--- Written EVERY FRAME while it is blocking, and only ONCE when it stops. The slot has another writer
--- -- the reload's revolver hammer, which sets 0 whenever no gun is held -- and a single write that
--- somebody else overwrites is a trigger that quietly comes back to life. The one thing that must never
--- happen is a latched 1 outliving the grenade, which is a gun that never fires again, so every path
--- that ends a hold clears it.
-trgS = { blocking = false }
+-- The held hand owns its trigger. The other hand keeps its fire or aim input.
+trgS = { writer = nil }
 
 setTriggerBlock = function(on)
-    if type(SetVRTriggerMode) ~= "function" then return end
+    local writer
     if on then
-        trgS.blocking = true
-        pcall(function() SetVRTriggerMode(1) end)
-    elseif trgS.blocking then
-        trgS.blocking = false
-        pcall(function() SetVRTriggerMode(0) end)
+        local primary = E.leftHanded() and 0 or 1
+        if E.S.grab.side == primary then writer = SetVRTriggerMode else writer = SetVRLeftTriggerBlock end
     end
+    if trgS.writer and trgS.writer ~= writer then pcall(trgS.writer, 0) end
+    trgS.writer = writer
+    if writer then pcall(writer, 1) end
 end
 
 -- HOW FAR THE LEVER IS PRESSED, 0..1, ramped rather than switched so the finger closes on it instead
@@ -1443,6 +1609,7 @@ armMode = function()
 end
 
 holdNow = function()
+    if stick.hold and stick.elapsed<.95 then return stick.hold[1],stick.hold[2],stick.hold[3] end
     -- PER TYPE, when there is a take for it. `p1/q1` is the hand as it takes the grenade -- the lever
     -- open -- and `p2/q2` the settled grip; which end is which was settled on the picture and is the
     -- same for every type, so only the numbers change here.
@@ -1700,9 +1867,32 @@ poseApply = function(hand, blend, pose)
     if pose == nil or type(VRReloadFingerSet) ~= "function" then return end
     pcall(function()
         VRReloadFingerClear(hand)
+        if hand==E.S.grab.side then stick.thumb={} end
+        local a, b, u
+        if hand == E.S.grab.side and stick.elapsed then a, b, u = flick.fingerKeys(stick.elapsed) end
+        local ca,cb,cu
+        if a and stick.profile then ca,cb,cu=contact.sample(stick.profile,stick.elapsed) end
+        -- The hold the fingers bend from: frozen with the timeline's start until .95 s, live after (holdNow).
+        local lever=(stick.elapsed and stick.elapsed<.95 and stick.holdLever) or leverS.amount or 0
         for i = 1, #pose do
             local p = pose[i]
-            VRReloadFingerSet(hand, handBone(hand, p[1]), p[2], p[3], p[4], p[5])
+            local x, y, z, w = p[2], p[3], p[4], p[5]
+            if hand==E.S.grab.side then
+                local profile=contact.profile(hand,E.S.grab.kind)
+                if profile then
+                    local qi,qj,qk,qr=contact.idleFinger(profile,handBone(0,p[1]),leverS.amount or 0)
+                    if qi then x,y,z,w=qi,qj,qk,qr end
+                end
+            end
+            if ca then
+                local i,j,k,r=contact.finger(stick.profile,stick.elapsed,handBone(0,p[1]),x,y,z,w,ca,cb,cu,
+                                             stick.contact,lever)
+                if i then x,y,z,w=i,j,k,r
+                else x,y,z,w=flick.finger(handBone(0,p[1]),x,y,z,w,a,b,u) end
+            elseif a then x,y,z,w=flick.finger(handBone(0,p[1]),x,y,z,w,a,b,u) end
+            VRReloadFingerSet(hand, handBone(hand, p[1]), x, y, z, w)
+            local thumb=contact.thumbBones[handBone(0,p[1])]
+            if thumb and hand==E.S.grab.side then stick.thumb[thumb]={x,y,z,w} end
         end
         if type(VRReloadFingerBlend) == "function" then VRReloadFingerBlend(hand, blend) end
         VRReloadFingerApply(hand, 1)
@@ -1827,23 +2017,6 @@ gripDown = function(side)
     return v > 0.5
 end
 
--- PUT THE WEAPON AWAY, the way the holster does it: the equipment system's own UnequipWeapon, so the
--- game's state machine holsters it and empties the hand slot itself. `VRHolsterMelee` is that same
--- request plus a stamp that stops the motion melee reading the reach as a swing (a swing in progress is
--- what made a melee unequip get dropped); the plain request is the fallback without the holster module.
-unequipWeapon = function(pl)
-    local done = false
-    if type(pl.VRHolsterMelee) == "function" then
-        done = pcall(function() pl:VRHolsterMelee() end)
-    end
-    if done then return end
-    pcall(function()
-        local req = EquipmentSystemWeaponManipulationRequest.new()
-        req.owner = pl
-        req.requestType = EquipmentManipulationAction.UnequipWeapon
-        Game.GetScriptableSystemsContainer():Get("EquipmentSystem"):QueueRequest(req)
-    end)
-end
 
 -- Put the grenade in a hand, or take it out again.
 --
@@ -1865,11 +2038,13 @@ updateGrenadeGrab = function(now, dt)
     -- THE LEVER FIRST: the hold pose and the hold transform both read it, and a frame-late lever is a
     -- finger that presses after the trigger is already back up.
     leverTick(dt)
+    stickTick(dt or 0.016)
     -- The hand's speed, every frame it holds something, and the pending launch whether it does or not.
     throwSample(E.S.grab.slot ~= nil and E.S.grab.side or nil, dt)
     throwTick(pl)
     -- ...and the gun stays quiet while the thing is in the hand.
     setTriggerBlock(E.S.grab.slot ~= nil and E.CFG.grenade_trigger_block ~= false)
+    stick.thumb=nil
     poseTick(E.S.grab.slot ~= nil and E.S.grab.side or nil, dt)
     updatePin(now, dt)
 
@@ -1912,45 +2087,12 @@ updateGrenadeGrab = function(now, dt)
             -- write when nothing is lit anyway.
             -- Same reason as above: say what should be lit, never write it from here.
             E.S.litHand[0], E.S.litHand[1] = nil, nil
-            local plane = E.playerPlane(pl, now) or 0
-            local forced = E.CFG.grenade_grab_plane or 0
-            if forced == 1 then plane = 0 elseif forced == 2 then plane = 2 end
-            if plane ~= E.S.grab.plane then
-                local host = E.S.grab.host
-                trace("replane %s -> %s", tostring(E.S.grab.plane), tostring(plane))
-                -- A PIN THAT IS OUT STAYS OUT ACROSS A RE-ATTACH. The prop is torn down and rebuilt
-                -- here for the rendering plane alone, and `grenadeAttach` quite rightly starts a fresh
-                -- grenade with its pin in -- but this is the SAME grenade, and the player pulled that
-                -- pin. Losing it here is what disarmed the throw; that particular replane is gone now,
-                -- but a legitimate one -- the player draws a gun with a live grenade in the other hand
-                -- -- would do it again.
-                local wasOut = pinS.out
-                grenadeRelease(pl)
-                grenadeAttach(pl, side, host, now)
-                pinS.out = wasOut
-            end
+            updatePropPlane(pl, now)
         end
         E.S.grab.was[0], E.S.grab.was[1] = gripDown(0), gripDown(1)
         return
     end
 
-    -- A GRAB WAITING FOR THE WEAPON TO GO (see below). It completes the moment no weapon is left in a
-    -- hand slot, as an ordinary grab from that holder; letting go, or a weapon that is still there after
-    -- two seconds, drops it.
-    local pend = E.S.grab.pending
-    if pend ~= nil then
-        if not gripDown(pend.side) or (now - pend.at) > 2.0 then
-            trace("pending grab dropped: grip=%s waited=%.2f", tostring(gripDown(pend.side)), now - pend.at)
-            -- A grip still closed after the wait has had its turn: the hand opens before it tries again.
-            if gripDown(pend.side) then E.S.grab.spent = E.S.grab.spent or {}; E.S.grab.spent[pend.side] = true end
-            E.S.grab.pending = nil
-        elseif E.weaponInHands(pl) == false then
-            E.S.grab.pending = nil
-            grenadeAttach(pl, pend.side, pend.host, now)
-        end
-        E.S.grab.was[0], E.S.grab.was[1] = gripDown(0), gripDown(1)
-        return
-    end
 
     -- FREE: a grip that CLOSES while that hand is at the grenade holder takes it. With the grip read from the
     -- fingers a closed grip is enough: the hand can be closed already when it reaches the belt.
@@ -1970,20 +2112,7 @@ updateGrenadeGrab = function(now, dt)
             local seated = false
             pcall(function() seated = Game.GetMountedVehicle(pl) ~= nil end)
             if not seated and host ~= nil and string.sub(host, 1, 13) == "ucbeltgrenade" then
-                -- NEVER INTO A HAND A WEAPON IS IN. The holders do not light while a weapon is held
-                -- (init.lua, updateHighlight), so this is the second line, for a grip that lands in the
-                -- moment between a draw and the next highlight tick. Attaching anyway is the bug this
-                -- guards: the grenade took the weapon's slot with high priority, the equipment system
-                -- still believed the gun was in the hand, and after the throw the hand stayed in the
-                -- pistol grip with the holster unable to draw. So the weapon is put away properly first
-                -- and the grenade is taken once the slot is empty.
-                if E.weaponInHands ~= nil and E.weaponInHands(pl) == true then
-                    trace("grab with a weapon in hand: unequip first (side=%d)", side)
-                    unequipWeapon(pl)
-                    E.S.grab.pending = { side = side, host = host, at = now }
-                else
-                    grenadeAttach(pl, side, host, now)
-                end
+                grenadeAttach(pl, side, host, now)
             end
         end
     end
@@ -2007,6 +2136,13 @@ function M.unpin()
 end
 
 function M.pinned() return E.S.grab.pinned == true end
+
+function M.contactState()
+    local s=stick.contact
+    return {phase=s and s.phase or "idle",force=s and s.force or 0,
+            pull=s and s.pull or 0,side=E.S.grab.side,time=stick.elapsed,
+            armed=pinS.out,along=s and s.along}
+end
 
 -- A THROW WITHOUT A HAND, to see where a thrown grenade comes down (2026-10-18), from the
 -- CET console:

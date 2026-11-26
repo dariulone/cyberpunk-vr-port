@@ -11,6 +11,16 @@ from pathlib import Path
 import sys
 import time
 
+
+def _port(game):
+    """The port's folder: CVR_PORT_DIR, at the game's root with its own loader, else RED4ext's plugin folder."""
+    import os
+    from pathlib import Path as _P
+    if os.environ.get('CVR_PORT_DIR'):
+        return _P(os.environ['CVR_PORT_DIR'])
+    root = _P(game) / 'cyberpunkvrport'
+    return root if (root / 'cyberpunkvrport.dll').exists() else _P(game) / 'red4ext/plugins/cyberpunkvrport'
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path[:0] = [str(ROOT / 'tools/quickboot_tests'), str(ROOT / 'tools/roomscale_tests'),
@@ -65,7 +75,7 @@ def main():
     state = live.load_state(args.state)
     pid = state['pid']
     game = boot.DEFAULT_GAME
-    log_path = game / 'red4ext/plugins/cyberpunkvrport/log/cyberpunkvrport.log'
+    log_path = _port(game)/'log/cyberpunkvrport.log'
     check = live.checker(pid, state['started'], state['baselineReporters'])
     symbols = resolve(pid, game / live.DLL, list(cost.NAMES) + list(NAMES))
     reader = Reader(pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)

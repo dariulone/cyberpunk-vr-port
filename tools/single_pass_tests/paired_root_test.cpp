@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
 using namespace cvr::stereo;
 using Microsoft::WRL::ComPtr;
 static void Require(bool v){if(!v)throw std::runtime_error("Paired root assertion");}
@@ -10,7 +11,9 @@ static ComPtr<ID3DBlob> Serialize(const D3D12_ROOT_SIGNATURE_DESC1& desc) {
     D3D12_VERSIONED_ROOT_SIGNATURE_DESC version{};version.Version=D3D_ROOT_SIGNATURE_VERSION_1_1;version.Desc_1_1=desc;
     ComPtr<ID3DBlob> blob,error;Require(SUCCEEDED(D3D12SerializeVersionedRootSignature(&version,&blob,&error)));return blob;
 }
-int main() try {
+// "trace": the canonical plan's bytes and locations hashed, so the C++ and the Rust build compare (cmake/ParityTrace.cmake).
+int main(int argc,char** argv) try {
+    const bool trace=argc>1 && std::string(argv[1])=="trace";
     D3D12_DESCRIPTOR_RANGE1 ranges[]{{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,24,8,0,D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC,3},
         {D3D12_DESCRIPTOR_RANGE_TYPE_SRV,1,37,0,D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE,D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND}};
     D3D12_ROOT_PARAMETER1 params[3]{};
@@ -39,6 +42,10 @@ int main() try {
     Require(generated.pParameters[1].DescriptorTable.pDescriptorRanges[0].Flags==D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
     Require(generated.pParameters[4].DescriptorTable.pDescriptorRanges[0].BaseShaderRegister==74);
     const auto valid=plan.serialized;
+    uint64_t hash=1469598103934665603ull;
+    const auto mix=[&](const void* p,size_t n){for(size_t i=0;i<n;++i){hash^=static_cast<const uint8_t*>(p)[i];hash*=1099511628211ull;}};
+    mix(plan.serialized.data(),plan.serialized.size());mix(plan.bindings.data(),plan.bindings.size()*sizeof(PairedBindingLocation));
+    mix(plan.parameters.data(),8);mix(plan.descriptors.data(),8);mix(&plan.originalParameters,4);mix(&plan.rootDwords,4);
     std::reverse(pairs.begin(),pairs.end());Require(SUCCEEDED(BuildPairedRoot(blob->GetBufferPointer(),blob->GetBufferSize(),pairs,plan)) && plan.serialized==valid);
     auto reject=[&](std::vector<PairedBinding> bad) {
         Require(FAILED(BuildPairedRoot(blob->GetBufferPointer(),blob->GetBufferSize(),bad,plan)) && plan.serialized==valid);
@@ -54,6 +61,7 @@ int main() try {
     params[2].Constants={2,100,1};blob=Serialize(desc);reject(pairs); // private b2 overlaps.
     params[2].Constants={9,0,3};desc.Flags|=D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
     blob=Serialize(desc);reject(pairs);
+    if(trace){std::printf("paired_root trace %016llx\n",static_cast<unsigned long long>(hash));return 0;}
     std::puts("PASS paired root locations, compact banks, original flags/static samplers, canonical ordering and rejection paths");
     return 0;
 }catch(const std::exception& e){std::fprintf(stderr,"%s\n",e.what());return 1;}

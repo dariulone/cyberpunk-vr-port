@@ -243,8 +243,8 @@ struct Fixture {
         std::memcpy(entry.data(),&source.resource,8);std::memcpy(entry.data()+8,&owner,8);
         const uint64_t occupied=uint64_t(1)<<(slot%64);
         std::memcpy(entry.data()+16+uint64_t(slot/64)*8,&occupied,8);
-        Put(memory,game+0x3438a28,registry);Put(memory,game+0x314ab00,uint32_t(512));
-        Put(memory,registry+0x13bc5c0,uint8_t(1));Put(memory,registry+0x13bc548,group);
+        Put(memory,game+0x3bcdca8,registry);Put(memory,game+0x36f44c8,uint32_t(512));
+        Put(memory,registry+0x14105c0,uint8_t(1));Put(memory,registry+0x1410548,group);
         Put(memory,recordAddress,record);Put(memory,entryAddress,entry);
     }
     template<class T> void Record(size_t offset,const T& value){
@@ -286,10 +286,10 @@ void ValidPoolsAndInitialStates(){
     end.Record(8,end.source.gpu);end.Accepted();
 }
 void PoolIdentityAndLayout(){
-    Reject([](auto& f){Put(f.memory,f.game+0x3438a28,f.registry+1);});
-    Reject([](auto& f){Put(f.memory,f.registry+0x13bc5c0,uint8_t(0));});
+    Reject([](auto& f){Put(f.memory,f.game+0x3bcdca8,f.registry+1);});
+    Reject([](auto& f){Put(f.memory,f.registry+0x14105c0,uint8_t(0));});
     for(const uint32_t unit:{0u,256u,511u,513u,1024u})
-        Reject([=](auto& f){Put(f.memory,f.game+0x314ab00,unit);});
+        Reject([=](auto& f){Put(f.memory,f.game+0x36f44c8,unit);});
     for(const uint32_t kind:{0u,2u,3u})Reject([=](auto& f){f.source.kind=kind;});
     for(const uint8_t kind:{uint8_t(0),uint8_t(0x06),uint8_t(0x15),uint8_t(0x26),uint8_t(0x96)})
         Reject([=](auto& f){f.Record(6,kind);});
@@ -310,12 +310,12 @@ void PoolIdentityAndLayout(){
     Reject([](auto& f){f.Entry(8,uint64_t(0));});
     Reject([](auto& f){f.Entry(24,uint64_t(0));});
     Reject([](auto& f){f.Entry(24,uint64_t(1));});
-    Reject([](auto& f){f.group.data=0;Put(f.memory,f.registry+0x13bc548,f.group);});
-    Reject([](auto& f){f.group.count=0;Put(f.memory,f.registry+0x13bc548,f.group);});
-    Reject([](auto& f){f.group.capacity=0;Put(f.memory,f.registry+0x13bc548,f.group);});
-    Reject([](auto& f){f.group.count=f.group.capacity+1;Put(f.memory,f.registry+0x13bc548,f.group);});
-    Reject([](auto& f){f.group.capacity=8193;Put(f.memory,f.registry+0x13bc548,f.group);});
-    Reject([](auto& f){f.group.count=3;Put(f.memory,f.registry+0x13bc548,f.group);});
+    Reject([](auto& f){f.group.data=0;Put(f.memory,f.registry+0x1410548,f.group);});
+    Reject([](auto& f){f.group.count=0;Put(f.memory,f.registry+0x1410548,f.group);});
+    Reject([](auto& f){f.group.capacity=0;Put(f.memory,f.registry+0x1410548,f.group);});
+    Reject([](auto& f){f.group.count=f.group.capacity+1;Put(f.memory,f.registry+0x1410548,f.group);});
+    Reject([](auto& f){f.group.capacity=8193;Put(f.memory,f.registry+0x1410548,f.group);});
+    Reject([](auto& f){f.group.count=3;Put(f.memory,f.registry+0x1410548,f.group);});
 }
 void UnreadableAndChangedPools(){
     Fixture complete;complete.Accepted();const auto reads=complete.memory.calls;Require(reads==8);
@@ -333,7 +333,7 @@ void UnreadableAndChangedPools(){
     changed.owner+=1;changed.Entry(8,changed.owner);const auto after=changed.Accepted();Require(before!=after);
     Fixture moved;const auto old=moved.Accepted();
     moved.group.data+=0x1000;moved.entryAddress+=0x1000;
-    Put(moved.memory,moved.registry+0x13bc548,moved.group);Put(moved.memory,moved.entryAddress,moved.entry);
+    Put(moved.memory,moved.registry+0x1410548,moved.group);Put(moved.memory,moved.entryAddress,moved.entry);
     Require(old!=moved.Accepted());
     const buffer_read::Pool identity{10,20,30};
     Require(identity!=buffer_read::Pool{10,20,31} && identity!=buffer_read::Pool{10,21,30} &&
@@ -341,22 +341,22 @@ void UnreadableAndChangedPools(){
 }
 void Bounds(){
     Reject([](auto& f){f.game=0;});
-    Reject([](auto& f){f.game=UINT64_MAX-0x3438a30+1;});
+    Reject([](auto& f){f.game=UINT64_MAX-0x3bcdcb0+1;});
     Reject([](auto& f){f.source.registry=0;});
-    Reject([](auto& f){f.source.registry=UINT64_MAX-0x13bc5c1+1;
-        Put(f.memory,f.game+0x3438a28,f.source.registry);});
+    Reject([](auto& f){f.source.registry=UINT64_MAX-0x14105c1+1;
+        Put(f.memory,f.game+0x3bcdca8,f.source.registry);});
     Reject([](auto& f){f.source.resource=0;});
     for(const uint32_t handle:{0u,0x100001u,UINT32_MAX})Reject([=](auto& f){f.source.handle=handle;});
     for(const uint64_t bytes:{0ull,292ull,511ull,513ull,512ull*1024+512,UINT64_MAX})
         Reject([=](auto& f){f.resourceBytes=bytes;});
     Reject([](auto& f){f.resourceGpu=0;});
     Reject([](auto& f){f.resourceGpu=UINT64_MAX-f.resourceBytes+1;});
-    Reject([](auto& f){f.group.data=UINT64_MAX-3*144-143;Put(f.memory,f.registry+0x13bc548,f.group);});
+    Reject([](auto& f){f.group.data=UINT64_MAX-3*144-143;Put(f.memory,f.registry+0x1410548,f.group);});
     // The largest handle uses a record offset larger than the fixed registry fields.
     Fixture high(0,0,512,0x100000);
-    high.source.registry=UINT64_MAX-0x13bc5c1;
-    Put(high.memory,high.game+0x3438a28,high.source.registry);
-    Put(high.memory,high.source.registry+0x13bc5c0,uint8_t(1));high.Rejected();
+    high.source.registry=UINT64_MAX-0x14105c1;
+    Put(high.memory,high.game+0x3bcdca8,high.source.registry);
+    Put(high.memory,high.source.registry+0x14105c0,uint8_t(1));high.Rejected();
 }
 void GeneralLogicalRanges(){
     for(const uint32_t logical:{1u,16u,32u,112u,256u,292u,304u,368u,512u}){

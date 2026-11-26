@@ -8,6 +8,22 @@
 local Marker = require("modules/marker")
 local World = require("modules/world")
 
+-- THE RUST BUILD RUNS BOTH (rust/crates/cvr-ffi/src/mechanics/reach.rs, bit 17 of VRRustMechanics): the other mods' marks
+-- go to it through VRReachMark. The reference build has no such native, and the modules keep running here.
+local rustOwned = nil
+local function rust()
+  if rustOwned == nil then
+    rustOwned = type(VRRustMechanics) == "function" and math.floor(VRRustMechanics() / 131072) % 2 == 1
+  end
+  return rustOwned
+end
+local KINDS = { near = 0, aim = 1, lock = 2, pull = 3 }
+local function rustMark(native, hand, t)
+  local p, f = t and t.pos, t and t.from
+  native(hand, p and Vector4.new(p[1], p[2], p[3], 1) or Vector4.new(0, 0, 0, 0), t and t.radius or -1e9, t and t.lift or -1e9,
+    t and KINDS[t.kind] or 0, not (t and t.ready == false), f and Vector4.new(f[1], f[2], f[3], 1) or Vector4.new(0, 0, 0, 0))
+end
+
 local function hotLoad(name)
   local f = io.open(name .. ".lua", "r")
   if not f then error("hot reload: cannot open " .. name .. ".lua") end
@@ -19,6 +35,7 @@ local function hotLoad(name)
 end
 
 registerForEvent("onUpdate", function(dt)
+  if rust() then return end
   local ok, err = pcall(World.update, dt, Marker)
   if not ok then print("[VRReach] world: " .. tostring(err)) end
   ok, err = pcall(Marker.update, dt)
@@ -26,17 +43,23 @@ registerForEvent("onUpdate", function(dt)
 end)
 
 registerForEvent("onShutdown", function()
+  if rust() then return end
   pcall(Marker.clear)
 end)
 
 -- Through functions, not the modules themselves: another mod's hold on these survives a hot reload.
 return {
-  mark = function(hand, t) Marker.mark(hand, t) end,
+  mark = function(hand, t)
+    if rust() then if t ~= nil and t.pos ~= nil then rustMark(VRReachMark, hand, t) end; return end
+    Marker.mark(hand, t)
+  end,
   state = function() return Marker.state() end,
   world = function() return World.state() end,
   worldDebug = function() return World.debug() end,
-  pin = function(hand, t) Marker.pin(hand, t) end,
-  hold = function(point, seconds) World.hold(point, seconds) end,
+  pin = function(hand, t) if rust() then rustMark(VRReachPin, hand, t) else Marker.pin(hand, t) end end,
+  hold = function(point, seconds)
+    if rust() then VRReachHold(Vector4.new(point[1], point[2], point[3], 1), seconds or 1) else World.hold(point, seconds) end
+  end,
   hot = function()
     pcall(Marker.clear)
     Marker = hotLoad("modules/marker")

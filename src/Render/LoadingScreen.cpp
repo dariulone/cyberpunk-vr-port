@@ -1,11 +1,15 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // The loading screen, hung in the dark (Render/LoadingScreen.hpp).
 #include "Render/LoadingScreen.hpp"
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's screen is rust/crates/cvr-gpu/src/loading_screen.rs
 namespace cvr::loading {
 void Screen::Begin(const XrPosef& head, const Placement& at, float opacity) {
     const unsigned long long now = GetTickCount64();
@@ -149,3 +153,5 @@ void Screen::Shutdown() {
     shown_ = 1.0f;
 }
 }  // namespace cvr::loading
+#endif
+#endif

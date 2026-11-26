@@ -38,6 +38,22 @@ struct Mapping {
     bool operator==(const Mapping&)const=default;
 };
 namespace detail {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/structured_snapshot.rs (tools/single_pass_tests/structured_snapshot_view_math
+// runs its cases against them in its Rust variant).
+static_assert(sizeof(Scope)==40 && sizeof(Mapping)==40,"mirrored by structured_snapshot.rs");
+extern "C" {
+bool cvr_ssv_check(uint32_t,const D3D12_SHADER_RESOURCE_VIEW_DESC*,const D3D12_SHADER_RESOURCE_VIEW_DESC*,const Scope*);
+bool cvr_ssv_reserve(uint64_t,uint32_t,uint32_t,uint64_t,Mapping*);
+}
+inline bool SameBufferView(const D3D12_SHADER_RESOURCE_VIEW_DESC& a,const D3D12_SHADER_RESOURCE_VIEW_DESC& b)noexcept{
+    return cvr_ssv_check(0,&a,&b,nullptr);
+}
+inline bool ValidScope(const Scope& scope)noexcept{return cvr_ssv_check(1,nullptr,nullptr,&scope);}
+inline bool Reserve(uint64_t cursor,uint32_t firstRecord,uint32_t bytes,uint64_t budget,Mapping& output)noexcept {
+    return cvr_ssv_reserve(cursor,firstRecord,bytes,budget,&output);
+}
+#else
 inline bool SameBufferView(const D3D12_SHADER_RESOURCE_VIEW_DESC& a,const D3D12_SHADER_RESOURCE_VIEW_DESC& b)noexcept{
     return a.ViewDimension==D3D12_SRV_DIMENSION_BUFFER && b.ViewDimension==a.ViewDimension && a.Format==b.Format &&
         a.Shader4ComponentMapping==b.Shader4ComponentMapping && a.Buffer.FirstElement==b.Buffer.FirstElement &&
@@ -50,6 +66,7 @@ inline bool Reserve(uint64_t cursor,uint32_t firstRecord,uint32_t bytes,uint64_t
     if(firstRecord>=Elements || !structured_buffer_snapshot::detail::ReserveView(cursor,budget,uint64_t(firstRecord)*Stride,bytes,target,end,viewEnd))return false;
     output={target,(target-uint64_t(firstRecord)*Stride)/Stride,bytes,end,viewEnd};return true;
 }
+#endif
 struct PlanData;
 }
 class Plan {

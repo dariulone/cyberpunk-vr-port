@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/NativeInstanceWitness.hpp"
 #include <Windows.h>
 #include <TlHelp32.h>
@@ -6,6 +7,10 @@
 #include <cstring>
 #include <mutex>
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/instance_witness_runtime.rs (the thunk's XSAVE choice and readiness,
+// the preparation, the thread suspension and the installation).
+#else
 extern "C" {
 uint64_t CvrNativeInstanceReservationXstateMask{};
 uint32_t CvrNativeInstanceReservationXstateMode{},CvrNativeInstanceReservationXstateReady{};
@@ -161,3 +166,5 @@ bool Install(uintptr_t base,bool threadsQuiescent)noexcept try {
 }catch(...){Ready(false);return false;}
 bool Installed()noexcept try {std::lock_guard lock(state.mutex);return ResumePending() && state.installed && state.healthy && Code(true);}catch(...){Ready(false);return false;}
 }
+#endif
+#endif

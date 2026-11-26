@@ -45,13 +45,17 @@ import telegram  # noqa: E402
 import etw_cpu  # noqa: E402
 
 GAME = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-DLL = GAME / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll'
+# the port's folder: at the game's root with its own loader (the Rust build), else RED4ext's plugin folder
+PORT = (Path(os.environ['CVR_PORT_DIR']) if os.environ.get('CVR_PORT_DIR')
+        else GAME / 'cyberpunkvrport' if (GAME / 'cyberpunkvrport/cyberpunkvrport.dll').exists() else GAME / 'red4ext/plugins/cyberpunkvrport')
+DLL = PORT / 'cyberpunkvrport.dll'
 EXE = GAME / 'bin/x64/Cyberpunk2077.exe'
-PLUGIN_LOG = GAME / 'red4ext/plugins/cyberpunkvrport/log'
-INI = GAME / 'red4ext/plugins/cyberpunkvrport/config/vrport.ini'
+PLUGIN_LOG = PORT / 'log'
+INI = PORT / 'config/vrport.ini'
 BUILT = ROOT / 'build/patchday/sdk25-build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll'
 SIM = Path(os.environ['LOCALAPPDATA']) / 'OpenXR-Simulator'
-SIM_DLL = Path(r'C:\Users\lone33\Desktop\OpenXR-Simulator\bin\openxr_simulator.dll')
+# the simulator built with head_trajectory.h (simulator/): CVR_SIM_DLL on a machine that keeps it elsewhere
+SIM_DLL = Path(os.environ.get('CVR_SIM_DLL') or r'C:\Users\lone33\Desktop\OpenXR-Simulator\bin\openxr_simulator.dll')
 LIVE = ROOT / 'tools/single_pass_tests/geometry_cost_live.py'
 STEREO_CHECK = HERE / 'stereo_check.exe'
 OUT_ROOT = ROOT / 'build/vr-bench'
@@ -67,7 +71,8 @@ SYMBOLS = ['CyberpunkVR_FrameRingCount', 'CyberpunkVR_FrameRingCpu', 'CyberpunkV
            'CyberpunkVR_FramegenReportSeq', 'CyberpunkVR_RuntimeDiagnostics', 'CyberpunkVR_PresentTiming',
            'CyberpunkVR_GpuTimelineRequest', 'CyberpunkVR_GpuTimelineState', 'CyberpunkVR_GpuTimelineCount',
            'CyberpunkVR_GpuTimelineCalib', 'CyberpunkVR_GpuTimelineRecords', 'CyberpunkVR_ShaderCensus',
-           'CyberpunkVR_ShaderCensusLog', 'CyberpunkVR_ShaderCensusRecording']
+           'CyberpunkVR_ShaderCensusLog', 'CyberpunkVR_ShaderCensusRecording', 'CyberpunkVR_NodeTimeline',
+           'CyberpunkVR_NodeTimelineRing', 'CyberpunkVR_NodeTimelineCursor']
 
 
 def log(text):
@@ -76,13 +81,14 @@ def log(text):
 
 # ---- the live game ------------------------------------------------------------------------------------------------
 class Game:
-    def __init__(self, pid):
+    def __init__(self, pid, *, dll=None, symbols=None):
         from live_symbols import resolve
         self.pid = pid
-        self.symbols = resolve(pid, DLL, SYMBOLS)
+        self.symbols = resolve(pid, dll or DLL, SYMBOLS if symbols is None else symbols)
         self.k = c.WinDLL('kernel32', use_last_error=True)
         self.k.OpenProcess.restype = w.HANDLE
         self.k.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+        self.k.CloseHandle.argtypes = [w.HANDLE]
         self.k.ReadProcessMemory.argtypes = [w.HANDLE, c.c_void_p, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
         self.k.WriteProcessMemory.argtypes = self.k.ReadProcessMemory.argtypes
         self.h = self.k.OpenProcess(0x0008 | 0x0010 | 0x0020 | 0x1000, False, pid)
@@ -766,6 +772,61 @@ def analyze_pairs(rows):
     return out
 
 
+# ---- node / render-chain timeline (cvr-render stereo_profiler.rs ring) ----------------------------------------
+# Every top-level node of each view, the Presents and -- with the game started under CVR_CHAIN_TIMELINE=1 -- the render
+# chain's steps (game frame, world tick, scene wait, view flushes and jobs, counter waits), on the QPC clock the GPU
+# queue timeline uses: tools/hitch_tests/node_timeline.py --analyze and gpu_chain_overlay.py read the file.
+NODE_SPAN, NODE_COUNT = struct.Struct('<qqIIII'), 1 << 19
+
+
+def node_timeline_start(game, seconds=0.0):
+    """The ring holds 2^19 spans (~2.5 s with the job timeline on): `seconds` > 0 stops recording after that long, so
+    the spans kept are the window's first seconds -- the stretch the GPU queue timeline (4000 submissions) covers."""
+    game.set32('CyberpunkVR_NodeTimeline', 1)
+    cursor = game.u64('CyberpunkVR_NodeTimelineCursor')
+    if seconds > 0:
+        stop = threading.Timer(seconds, lambda: game.set32('CyberpunkVR_NodeTimeline', 0))
+        stop.daemon = True
+        stop.start()
+    return cursor
+
+
+def node_timeline_collect(game, c0, path):
+    game.set32('CyberpunkVR_NodeTimeline', 0)
+    time.sleep(0.2)
+    c1 = game.u64('CyberpunkVR_NodeTimelineCursor')
+    raw = game.read(game.addr('CyberpunkVR_NodeTimelineRing'), NODE_SPAN.size * NODE_COUNT)
+    spans = []
+    for i in range(max(c0, c1 - NODE_COUNT), c1):
+        s, e, rva, kind, tid, extra = NODE_SPAN.unpack_from(raw, (i % NODE_COUNT) * NODE_SPAN.size)
+        if e >= s > 0:
+            spans.append((s, e, rva, kind, tid, extra))
+    spans.sort()
+    freq = game.u64('CyberpunkVR_PresentTiming', 6)
+    # job spans (kinds 20/21, CVR_JOB_TIMELINE=1) carry their profiler name as an offset into the executable
+    names = {}
+    wanted = {x[5] for x in spans if x[3] in (20, 21) and x[5] != 0xFFFFFFFF}
+    if wanted:
+        sys.path.insert(0, str(ROOT / 'tools/single_pass_tests'))
+        try:
+            import thread_stack_sampler as ts
+            h = game.k.OpenProcess(0x0400 | 0x0010, False, game.pid)
+            try:
+                exe = next(m[0] for m in ts.modules(h) if m[2].lower().endswith('cyberpunk2077.exe'))
+            finally:
+                game.k.CloseHandle(h)
+            for off in wanted:
+                try:
+                    names[off] = game.read(exe + off, 96).split(bytes(1))[0].decode('utf-8', 'replace')
+                except OSError:
+                    pass
+        finally:
+            sys.path.pop(0)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(freq=freq, written=c1 - c0, kept=len(spans), spans=spans, names=names)), encoding='utf-8')
+    return dict(written=c1 - c0, kept=len(spans), lost=max(0, c1 - c0 - NODE_COUNT), path=str(path))
+
+
 # ---- GPU queue timeline (src/Render/GpuQueueTimeline.cpp) ------------------------------------------------------
 def timeline_request(game, submissions=4000):
     if game.u32('CyberpunkVR_GpuTimelineState') in (1, 2):
@@ -804,7 +865,9 @@ def etw_summary(pending, pid):
     except Exception as error:   # diagnostics only
         return dict(error=str(error), trajectory=pending['trajectory'])
     finally:
-        Path(etl).unlink(missing_ok=True)
+        # CVR_KEEP_ETL=1 keeps the trace (etw_stacks.py reads its stacks)
+        if not os.environ.get('CVR_KEEP_ETL'):
+            Path(etl).unlink(missing_ok=True)
         shutil.rmtree(str(etl) + '.NGENPDB', ignore_errors=True)   # wpr's managed-code symbol folder, ~50 MB
     per = (lambda n: n / frames) if frames else (lambda n: 0.0)
     return dict(trajectory=pending['trajectory'], frames=frames, seconds=v['seconds'], samples=v['samples'],
@@ -1036,10 +1099,10 @@ def game_running():
     return bool(process_ids('Cyberpunk2077.exe'))
 
 
-def ini_values(keys):
+def ini_values(keys, path=None):
     out = {}
     try:
-        for line in INI.read_text(encoding='utf-8', errors='replace').splitlines():
+        for line in (path or INI).read_text(encoding='utf-8', errors='replace').splitlines():
             k, _, v = line.partition('=')
             if k.strip() in keys:
                 out[k.strip()] = v.strip()
@@ -1154,6 +1217,7 @@ def run(args):
             ft0 = etw_cpu.filetime_now()
             if name in args.timeline_on:
                 timeline_request(game)
+            nodes0 = node_timeline_start(game, args.node_timeline_seconds) if name in args.node_timeline else None
             sampler.start()
             tthread = threading.Thread(target=thread_cpu, args=(pid, max(1.0, seconds - 1.0), threads), daemon=True)
             tthread.start()
@@ -1168,6 +1232,11 @@ def run(args):
             report1 = game.frame_report()
             gpu_util = sampler.stop()
             tthread.join(10)
+            if nodes0 is not None:
+                try:
+                    node_row = node_timeline_collect(game, nodes0, out / 'timeline' / f'{name}.spans.json')
+                except Exception as error:   # diagnostics only
+                    node_row = dict(error=str(error))
             cpu = game.ring('CyberpunkVR_FrameRingCpu', c0, c1)
             gpu = game.ring('CyberpunkVR_FrameRingGpu', g0, g1)
             row = frame_stats(cpu, gpu, period)
@@ -1182,6 +1251,8 @@ def run(args):
                 row['reprojection'] = (xr1[1] - xr0[1]) / (xr1[0] - xr0[0])
             if name in args.timeline_on:
                 row['gpuTimeline'] = timeline_collect(game, raw_path=out / 'timeline' / f'{name}.json')
+            if nodes0 is not None:
+                row['nodeTimeline'] = node_row
             if not attempt and stalled(row, seconds):
                 if capture:
                     collect_capture(game, capture, out / 'stereo' / name)
@@ -1677,6 +1748,11 @@ def main():
     r.add_argument('--pairs', action='store_true', help='L/R pair probe of RenderElements on the still head (marker at start)')
     r.add_argument('--timeline-on', default='still,snap90', type=lambda s: [x for x in s.split(',') if x],
                    help='trajectories with a GPU queue timeline (busy GPU ms per frame vs the frame window)')
+    r.add_argument('--node-timeline', default='', type=lambda s: [x for x in s.split(',') if x],
+                   help='trajectories with the node / render-chain timeline (timeline/<traj>.spans.json; the chain '
+                        'steps need the game started under CVR_CHAIN_TIMELINE=1)')
+    r.add_argument('--node-timeline-seconds', type=float, default=0.0,
+                   help='stop the node timeline this long into the window (0: the whole window; the ring keeps its end)')
     r.add_argument('--profile-frames', type=int, default=4)
     r.add_argument('--profiles', type=int, default=3)
     r.add_argument('--note', default='')

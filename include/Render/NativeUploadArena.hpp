@@ -24,7 +24,29 @@ struct ArenaFields {
     bool operator==(const ArenaFields&)const=default;
 };
 namespace detail {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/native/upload_arena.rs through upload_arena_abi.rs
+// (tools/single_pass_tests/upload_arena_test runs its cases against them in its Rust variant).
+struct RustScopes;
+extern "C" {
+bool cvr_ua_read_arena(MemoryReader,void*,uint64_t,ArenaFields*);
+bool cvr_ua_fields(uint32_t,const ArenaFields*,const ArenaFields*);
+RustScopes* cvr_ua_scopes_new();
+void cvr_ua_scopes_free(RustScopes*);
+void cvr_ua_scopes_enter(RustScopes*,uint64_t,uint64_t,uint64_t,uint64_t,Invocation*);
+bool cvr_ua_scopes_step(RustScopes*,uint32_t,const Invocation*,uint64_t,bool,uint64_t*);
+}
+#endif
 template<class T>T Field(const std::array<uint8_t,0x68>& bytes,size_t offset)noexcept {T value{};std::memcpy(&value,bytes.data()+offset,sizeof(value));return value;}
+#if CVR_RUST_VRIK
+inline bool ReadArena(MemoryReader read,void* user,uint64_t arena,ArenaFields& output)noexcept {
+    static_assert(sizeof(Invocation)==40 && sizeof(ArenaFields)==72,"mirrored by upload_arena.rs");
+    return cvr_ua_read_arena(read,user,arena,&output);
+}
+inline bool ResetFields(const ArenaFields& value)noexcept {return cvr_ua_fields(0,nullptr,&value);}
+inline bool ReadyFields(const ArenaFields& value)noexcept {return cvr_ua_fields(1,nullptr,&value);}
+inline bool CurrentFields(const ArenaFields& before,const ArenaFields& value)noexcept {return cvr_ua_fields(2,&before,&value);}
+#else
 inline bool ReadArena(MemoryReader read,void* user,uint64_t arena,ArenaFields& output)noexcept {
     output={};if(!read || !arena || (arena&7) || arena>UINT64_MAX-0x68)return false;
     std::array<uint8_t,0x68> bytes{};if(!read(user,arena,bytes.data(),bytes.size()))return false;
@@ -44,8 +66,31 @@ inline bool CurrentFields(const ArenaFields& before,const ArenaFields& value)noe
         value.capacity==before.capacity && value.resource==before.resource && value.mapped==before.mapped && value.tail<=value.head &&
         value.head-value.tail<=value.capacity && value.head>=before.head && value.tail>=before.tail;
 }
+#endif
 // The runtime uses this exact TLS stack to pair guarded native before/after
 // callbacks. A reset outside the matching ready invocation cannot certify it.
+#if CVR_RUST_VRIK
+class Scopes {
+    RustScopes* rust_;
+public:
+    Scopes():rust_(cvr_ua_scopes_new()){}
+    ~Scopes(){cvr_ua_scopes_free(rust_);}
+    Scopes(const Scopes&)=delete;
+    Scopes& operator=(const Scopes&)=delete;
+    Invocation Enter(uint64_t nonce,uint64_t arena,uint64_t thread,Kind kind)noexcept {
+        Invocation call{};cvr_ua_scopes_enter(rust_,nonce,arena,thread,uint64_t(kind),&call);return call;
+    }
+    bool Top(const Invocation& call,uint64_t thread)const noexcept {return cvr_ua_scopes_step(rust_,0,&call,thread,false,nullptr);}
+    bool FinishReset(const Invocation& call,uint64_t thread,bool valid)noexcept {return cvr_ua_scopes_step(rust_,1,&call,thread,valid,nullptr);}
+    bool FinishReady(const Invocation& call,uint64_t thread,uint64_t& reset)noexcept {
+        return cvr_ua_scopes_step(rust_,2,&call,thread,false,&reset);
+    }
+    bool FinishDestroy(const Invocation& call,uint64_t thread)noexcept {return cvr_ua_scopes_step(rust_,3,&call,thread,false,nullptr);}
+    void Cancel(const Invocation& call,uint64_t thread)noexcept {cvr_ua_scopes_step(rust_,4,&call,thread,false,nullptr);}
+    void Poison()noexcept {cvr_ua_scopes_step(rust_,5,nullptr,0,false,nullptr);}
+    void Clear()noexcept {cvr_ua_scopes_step(rust_,6,nullptr,0,false,nullptr);}
+};
+#else
 class Scopes {
     struct Entry {Invocation call;uint64_t reset{};bool resetComplete{},poisoned{};};
     std::array<Entry,MaxScopes> entries_{};size_t count_{};
@@ -84,6 +129,7 @@ public:
     void Poison()noexcept {for(size_t i=0;i<count_;++i)entries_[i].poisoned=true;}
     void Clear()noexcept {entries_.fill({});count_=0;}
 };
+#endif
 struct Owner;
 }
 class Snapshot {

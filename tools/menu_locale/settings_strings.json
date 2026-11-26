@@ -1,0 +1,5963 @@
+[
+ {
+  "en": "Use OpenXR runtime projection FOV",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:4"
+  ],
+  "calls": []
+ },
+ {
+  "en": "OpenXR projection layer FOV",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:5"
+  ],
+  "calls": []
+ },
+ {
+  "en": "%.1f deg",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:145",
+   "OverlayPanels.cpp:352",
+   "OverlayPanels.cpp:353",
+   "OverlayPanels.cpp:817",
+   "OverlayPanels.cpp:818",
+   "OverlayPanels.cpp:821",
+   "OverlayPanels.cpp:956",
+   "OverlayPanels.cpp:1030",
+   "OverlayPanels.cpp:1033",
+   "OverlayPanels.cpp:1058",
+   "OverlayPanels.cpp:1059",
+   "OverlayPanels.cpp:1064"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "This changes the OpenXR projection layer FOV, not the CP2077 camera FOV.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:7"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Start VR hand tracking",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:173"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Hands only (hide the body)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:191"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Draw only your hands: the rest of the body and all clothing are hidden,\nthe arms are cut at the wrists. The tactical belt and the weapons\nhanging in their holsters stay visible.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:196"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Log VR Diag",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:177"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Dumps gizmo vs. bone poses to vrik_diag.txt (next to dxgi.dll)\nfor tuning the arm IK. Same as the CET 'Log VR Diag' button.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:181"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Roomscale movement",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:201"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Move the player capsule with physical horizontal head movement.\nUses native collision/steps and preserves stick or WASD movement.\nSuspended in menus, vehicles and scripted movement.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:206"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Stick / snap only",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:213"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Head + free-look cone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:213"
+  ],
+  "calls": []
+ },
+ {
+  "en": "HMD + controllers",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:214"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Hybrid (default)",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:18"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Body rotation",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:216",
+   "OverlayPanels.cpp:1027"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Hybrid: use the head cone while upright.\nLooking down by 10 degrees or bending by 5 degrees uses HMD + controllers.\nReturn below 8 / 3 degrees; the current body heading is preserved at handover.\nHMD + controllers always disables the body cones. Missing tracking holds heading.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:20"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Never (VRIK always on)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:239",
+   "OverlayPanels.cpp:246"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Staged scenes and up (Tier 2+)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:240",
+   "OverlayPanels.cpp:247"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Tier 3 and up",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:248"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Cinematics (Tier 4+)  [default]",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:249"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Tier 3 and up  [default]",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:241"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Cinematics (Tier 4+)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:242"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Full cinematics only (Tier 5)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:243",
+   "OverlayPanels.cpp:250"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Suspend VRIK in cutscenes (on foot)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:262"
+  ],
+  "calls": [
+   "sceneSuspendControl"
+  ]
+ },
+ {
+  "en": "Applies only on foot. VRIK yields to the scene animation at or above this tier.\nThe vehicle threshold is configured separately below.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:264"
+  ],
+  "calls": [
+   "sceneSuspendControl"
+  ]
+ },
+ {
+  "en": "Suspend VRIK in cutscenes (vehicle)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:266"
+  ],
+  "calls": [
+   "sceneSuspendControl"
+  ]
+ },
+ {
+  "en": "Applies in vehicles, including passenger window combat.\nVRIK yields to the scene animation at or above this tier. Never keeps VRIK enabled.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:268"
+  ],
+  "calls": [
+   "sceneSuspendControl"
+  ]
+ },
+ {
+  "en": "Scene camera smoothing",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:272"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "While a scene drives the camera, its turning within this angle does not\nturn the view; past it the view eases after the scene camera. Cuts still switch at once.\n0 = the scene camera exactly as the game moves it. Default: 30 degrees.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:275"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Free-look cone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:281",
+   "OverlayPanels.cpp:1030",
+   "VrStyle.cpp:45"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "%.0f deg",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:272",
+   "OverlayPanels.cpp:281",
+   "OverlayPanels.cpp:292",
+   "OverlayPanels.cpp:299",
+   "OverlayPanels.cpp:1277",
+   "VrStyle.cpp:45"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "How far your head may turn before the body starts coming around.\nThe body settles toward the centre, then restores the full free-look zone.\nDefault: 10 degrees. Hybrid uses this value while looking ahead.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:285"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Free-look cone when looking down",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:292"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Extra room to reach chest-mounted items.\nBlends in from 10 to 30 degrees of downward head tilt.\nNever narrows the normal cone; set the same value to disable widening.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:295"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Free-look cone in water",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:299"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "One fixed cone on the surface and underwater.\nLooking down and physical bending do not widen it. Default: 5 degrees.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:302"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Body free-look cones are disabled in HMD + controllers mode.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:305"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Hybrid: head cone upright; HMD + controllers when looking down or bending.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:306"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Body movement free zone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:308"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "%.1f cm",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:308"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Small physical head movements leave the body in place.\nOutside this zone the body follows smoothly; camera tracking remains immediate.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:311"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "active cone %.1f deg | realign %+.1f deg | head-vs-body %+.1f deg",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:314"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "Hand IK Calibration (per hand: R = right, L = left)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:320"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Reach scale R",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:346"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Reach scale L",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:347"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Height R",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:348"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "%.3f m",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:348",
+   "OverlayPanels.cpp:349",
+   "OverlayPanels.cpp:798",
+   "OverlayPanels.cpp:799",
+   "OverlayPanels.cpp:800",
+   "OverlayPanels.cpp:971",
+   "OverlayPanels.cpp:972",
+   "OverlayPanels.cpp:973"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Height L",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:349"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Elbow swing R",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:350"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Elbow swing L",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:351"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Elbow pole R",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:352"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Elbow pole L",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:353"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Wrist rotation offset (palm/finger alignment, deg)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:356"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Wrist R pitch",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:357"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Wrist R yaw",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:358"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Wrist R roll",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:359"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Wrist L pitch",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:360"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Wrist L yaw",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:361"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Wrist L roll",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:362"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "AUTO-CALIBRATING: stretch arms STRAIGHT OUT to the sides,",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:372"
+  ],
+  "calls": [
+   "TextColored"
+  ]
+ },
+ {
+  "en": "stand straight facing forward. Hold for %.1fs (%.0f%%).",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:374"
+  ],
+  "calls": [
+   "TextColored"
+  ]
+ },
+ {
+  "en": "Start Auto-Calibration (T-pose, 4s)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:378"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Press once, then stretch BOTH gizmo hands OUT to the sides at shoulder height\nand stand straight facing forward. The mod measures the visible controller\npositions, computes shoulder pivots + arm scale, and saves the result\nto vrik_calibration.ini.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:382"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Saved.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:389"
+  ],
+  "calls": [
+   "TextColored"
+  ]
+ },
+ {
+  "en": "Camera: neck + 15 cm forward, eyes + 10 cm up",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:397"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Reset camera to neck",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:398"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Uses the neutral neck, 15 cm forward and 10 cm above reference eyes.\nResets camera trims; no stance, head direction or Bake measurement is needed.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:402"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Clear trim",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:406"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "camera mount: R %.3f  Fwd %.3f  Up %.3f",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:410"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "Apply Calibration",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:414"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Save",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:416",
+   "OverlayPanels.cpp:864"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Load",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:418"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Reset Defaults",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:420"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Stereo module not installed.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:486"
+  ],
+  "calls": [
+   "TextColored"
+  ]
+ },
+ {
+  "en": "The engine hooks did not load, so everything below is inert and the headset is on the plain mono path. Either CyberpunkVR_StereoModuleEnable is 0, or bin\\x64\\vrport_nostereo.txt exists. See the \"Stereo:\" line in cyberpunkvrport.log.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:487"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "LEFT",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:506",
+   "OverlayPanels.cpp:507"
+  ],
+  "calls": []
+ },
+ {
+  "en": "RIGHT",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:506",
+   "OverlayPanels.cpp:507"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Stereo active  (%s = VRCAM, %s = MAIN)",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:511"
+  ],
+  "calls": [
+   "TextColored"
+  ]
+ },
+ {
+  "en": "No second eye right now -> both eyes get MAIN (mono)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:514"
+  ],
+  "calls": [
+   "TextColored"
+  ]
+ },
+ {
+  "en": "Expected in menus and while loading. If it stays here in gameplay: the VRCAM component is off, or vrcam.json names a camera the player entity does not carry.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:515"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Stereo submit off -> both eyes get MAIN (mono)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:519"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "vrcam eye age %u ms  (stale over %u)   eye submits %llu",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:522"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "vrcam eye: never produced a frame",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:526"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Send VRCAM to the %s EYE",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:531"
+  ],
+  "calls": [
+   "snprintf"
+  ]
+ },
+ {
+  "en": "Off = the old behaviour, MAIN duplicated into both eyes.\nOn = the %s eye gets the VRCAM view's own final colour --\nthe same image the desktop mirror shows -- re-encoded to the\nswapchain's sRGB format and scaled to the eye size.",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:535"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "snapshot copies %llu   skips %llu   vrcam RTV hits %llu",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:543"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Eye staleness limit (ms)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:549"
+  ],
+  "calls": [
+   "SliderInt"
+  ]
+ },
+ {
+  "en": "How long the last VRCAM frame stays usable. Past this the %s\neye falls back to MAIN -- one eye frozen while the other moves\nis far worse to look at than mono.",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:552"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "VRCAM DLSS: %s  (follows MAIN's upscaler, no switch)",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:559"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "ON",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:560"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "off",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:560"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "On whenever MAIN is upscaling with DLSS: vrcam gets its own\nStreamline viewport and renders below its target.\nOff for DLAA / TAA / no upscaler. Change it in the game's\ngraphics settings, not here.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:562"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Match VRCAM projection to MAIN  (fov / zoom / near / far)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:568"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "VRCAM component  (RTTI Toggle: force ON/OFF)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:576"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "component %s   camera %s",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:578"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "view nodes: main %llu   other %llu   vrcam %llu",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:580"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "VRCAM Mirror  (separate window, for capture)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:588"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "vrcam fov %.2f  (asset %.2f)   main yy %.5f  fov %.2f   ADS x%.3f",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:594"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Diagnostics",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:599",
+   "OverlayPanels.cpp:985"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "Compact ADS camera telemetry (in-headset)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:600"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "A small panel that stays up after F10 is closed, reporting what the ENGINE did to the camera when the sights came up:\ndelta and peak in centimetres, right/forward/up in the heading's own basis, against a baseline captured while hip firing.\nStereo submission is unaffected.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:602"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Telemetry X",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:610"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Telemetry Y",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:611"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Normalised position in the eye image",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:612"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Stereo logging -> cyberpunkvrport.log",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:618"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Committed snapshot of the VRCAM final",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:622"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Off = read the engine's transient directly. That target is a\nframe-graph allocation which a later pass aliases, which is what\nmade the image alternate bright/dark. Leave on.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:625"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Snapshot at the tonemap node instead of RenderFinal2D",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:629"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Node CPU profiler  (per-node self+incl ms)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:633"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "frame %.2f ms   dispatch: main %.2f (%u)  vrcam %.2f (%u)",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:635"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Dump node audit -> log  (resets window)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:639"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "top %d by self ms/frame   (main | vrcam)",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:648"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Driving -- hands on the wheel",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:660"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Grab the wheel with the grips",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:661"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "While DRIVING, bring a hand to where the driving animation holds the\nwheel (or the handlebars) and squeeze that grip: the arm is handed back\nto the game's own animation -- hand on the wheel, fingers wrapped around\nit -- instead of following the controller. Release the grip and it goes\nback to your hand.\n\nEach hand is independent: hold the wheel with one and keep the other on\na gun. While a hand is at the wheel that grip does nothing else (no\nholster equip, no magazine grab).",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:664"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Grab radius (m)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:675"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "How close your hand has to be to the animated hand before the\ngrip counts as grabbing the wheel. Bigger = easier to catch a\nwheel you cannot see; too big and every grip in a car grabs.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:680"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Car full lock at (deg)",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:122"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Wheel sensitivity: hand rotation from the grab position to full lock.\nOne hand uses a hub calibrated where you grab; two use their connecting line.\nAdding or releasing a hand keeps the current turn.\n180 = a half turn to either full lock (default). Lower = more sensitive.\nThe car's cabin wheel has twice its native travel; road-wheel lock is unchanged.\nTravel beyond full lock keeps the same neutral position.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:123"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Steering deadzone (deg)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:698"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Tilt around centre that steers nothing at all.\nRaise it if the car drifts while you hold the wheel straight;\nevery degree here is a degree of dead wheel off centre.\nThe full range still ends at 'Full lock at', so widening the\ndeadzone does not make the steering jump.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:703"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Steering prediction",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:710"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Gently anticipate a continuing turn from recent hand movement.\nLimited to 8 ms and 0.5 degrees; neutral stays unchanged.\nPrediction stops on a pause, reversal or grip change.\nOff by default. It cannot anticipate the start of a turn.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:712"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Prediction horizon (ms)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:718"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Horn -- hand on the wheel hub",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:720"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "While DRIVING, put a hand on the MIDDLE of the wheel -- where you would\nslap a real horn -- and the car honks for as long as it stays there.\nNo grip needed; a hand that is GRABBING the wheel never honks.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:723"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Horn hub radius (m)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:728"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "How near the wheel centre the hand counts as on the hub.\nBigger = easier to find the horn without seeing it; too big\nand it reaches the rim, so every grab honks.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:733"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Trigger fires the gun while driving",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:739"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Draw a weapon in the driver seat and the RIGHT TRIGGER stops being the\nthrottle and becomes the gun: drive with the left hand on the wheel and\nshoot with the right.\n\nThe throttle LATCHES at whatever it was when the weapon came out, so the\ncar keeps rolling, and the LEFT STICK forward/back trims that speed while\nyou shoot. Holster the weapon and the trigger is the throttle again.\n\nWhile the weapon is out the left stick's forward/back is taken by the\ntrim: no lean / rock and no autodrive gesture until you holster.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:742"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Throttle trim rate (/s)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:752"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "How much of the throttle's full travel the left stick adds or\nremoves per second while a weapon is out.\n0.5 = two seconds held to go from idle to floored.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:757"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "driving %d   at wheel  L %d R %d   hold  L %.2f R %.2f",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:769"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "steer  %+.1f deg  ->  stick %+.2f     horn  L %d R %d",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:775"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "SEATED CAMERA OFFSET",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:784"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Head offsets in GENERAL are a standing calibration. Seated, the game's own\nvehicle camera is already where it should be -- which is why the port drops\nits two automatic bakes in a vehicle -- so a standing offset carries the view\noff the seat instead of correcting it.\n\nThese three are added to the Head sliders while you are in a vehicle and\nignored the moment you step out, so the car and the street can be tuned\nseparately. Zero = the car keeps exactly the offset it has today.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:787"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Car Head X right",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:798"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Car Head Y forward",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:799"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Car Head Z up",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:800"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "   (window combat: use GENERAL > Head offsets)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:803"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "   (in a vehicle: these are live)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:804"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "   (on foot: these are ignored)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:805"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "FPS overlay",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:812"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Overlay layout",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:813"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Detailed",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:813"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Compact",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:813"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Minimal",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:813"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Overlay position",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Top left",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Top right",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Bottom left",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Bottom right",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Top center",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Bottom center",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Left center",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Right center",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Center",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:814"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Overlay size",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:815"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "%.2fx",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:815",
+   "OverlayPanels.cpp:1047",
+   "OverlayPanels.cpp:1052",
+   "OverlayPanels.cpp:1053",
+   "OverlayPanels.cpp:1054",
+   "OverlayPanels.cpp:1078",
+   "OverlayPanels.cpp:1125",
+   "OverlayPanels.cpp:1163",
+   "OverlayPanels.cpp:1355",
+   "OverlayPanels.cpp:1370",
+   "VrStyle.cpp:41",
+   "VrStyle.cpp:42"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Overlay distance",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:816"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "%.2f m",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:816",
+   "OverlayPanels.cpp:1037",
+   "OverlayPanels.cpp:1061",
+   "OverlayPanels.cpp:1268",
+   "VrStyle.cpp:38",
+   "VrStyle.cpp:39",
+   "VrStyle.cpp:40"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Overlay horizontal offset",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:817"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Overlay vertical offset",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:818"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Overlay free look",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:819"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Overlay free-look cone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:821"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Hold the panel heading inside this yaw range; catch up beyond it.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:822"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "History window",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:825"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "10 seconds",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:825"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": " 30 seconds",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:825"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": " 60 seconds",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:825"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": " 120 seconds",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:825"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Reset statistics",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:827"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Real %.1f FPS   Framegen %.1f FPS   Output %.1f FPS",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:829"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "Average %.1f FPS   Min %.1f   Max %.1f",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:830"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "1%% low %.1f FPS",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:831"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "1%% low: collecting 100 real frame intervals",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:831"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "0.1%% low %.1f FPS",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:832"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "0.1%% low: collecting 1000 real frame intervals",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:832"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "CPU history (ms)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:834"
+  ],
+  "calls": [
+   "PlotLines"
+  ]
+ },
+ {
+  "en": "GPU history (ms)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:835"
+  ],
+  "calls": [
+   "PlotLines"
+  ]
+ },
+ {
+  "en": "CPU frame %.2f ms   Peak %.2f ms",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:836"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "GPU frame %.2f ms   Peak %.2f ms",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:837"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "GPU frame timing: waiting for completed queries",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:838"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Generation %.2f ms   Tracked VRAM %.1f MiB",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:839"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "CPU: %s",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:841"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "GPU: %s",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:842"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "CPU load %.1f%%   Busiest logical core %.1f%%",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:843"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "GPU load %.1f%%   Temperature %.0f C",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:844"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "GPU memory %.2f / %.2f GiB",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:845"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "Game GPU memory %.2f GiB   Budget %.2f GiB",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:846"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "RAM %.2f / %.2f GiB   Game working set %.2f GiB",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:847"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "Depth + motion: %s   Skipped %llu",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:848"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "both eyes observed",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:848"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "waiting",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:848"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "CPU: captured frame cadence. GPU: graphics-queue frame interval. Peaks: last 2 seconds.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:849"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Output FPS excludes repeated frames; it is not a headset scanout measurement.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:850"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Lows use the mean of the slowest 1%% / 0.1%% of real-frame intervals. Hardware polling: 1 Hz.",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:851"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "FPS overlay and statistics are off.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:852"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Recenter HMD (F7)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:860"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "GENERAL",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:869",
+   "OverlayPanels.cpp:1088"
+  ],
+  "calls": [
+   "BeginTabItem"
+  ]
+ },
+ {
+  "en": "CAS Sharpening",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:873"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Contrast-adaptive sharpening for both eyes. 0 = off, 1 = full strength. Disabled automatically with game DLAA.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:877"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "FIXED FOVEATED RENDERING",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:879"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "Peripheral quality",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:881"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Off",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:881",
+   "OverlayPanels.cpp:918",
+   "OverlayPanels.cpp:1303"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Quality",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:881"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Balanced",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:881"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Performance",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:881"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "The center follows game DLSS/DLAA. Peripheral DLAA uses 100%% / 75%% / 50%% of the game's render resolution.",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:882"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Center width",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:884",
+   "OverlayPanels.cpp:921"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Full-quality region width as a percentage of each eye image.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:886"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Center height",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:887",
+   "OverlayPanels.cpp:922"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Full-quality region height as a percentage of each eye image.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:889"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Center offset X",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:893",
+   "OverlayPanels.cpp:925"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Percentage of eye-image width. Negative = left, positive = right.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:895"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Center offset Y",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:898",
+   "OverlayPanels.cpp:926"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Percentage of eye-image height. Negative = up, positive = down toward the hands.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:900"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Show region boundary",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:903"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "DLSS GPU: native %.2f ms / foveated %.2f ms",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:908"
+  ],
+  "calls": [
+   "Text"
+  ]
+ },
+ {
+  "en": "Shared sun shadows",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:911"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Render sun cascades once for both eyes. Shadow quality and distance remain controlled by the game.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:912"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Scope lens stabilization",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:913"
+  ],
+  "calls": [
+   "SliderIntClamped"
+  ]
+ },
+ {
+  "en": "Magnifying scope lenses while the view moves: share of the stabilised image (percent). Higher: no blinking of lights and grates, softer. 0 = off. Standing still the lens is untouched.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:914"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "VARIABLE RATE SHADING",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:915"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "Peripheral shading",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:918"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": " 2 x 2",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:918"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": " 4 x 4",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:918"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Opaque scene materials in both eyes. The center stays 1 x 1. Unsupported 4 x 4 falls back to 2 x 2.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:919"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Unavailable: GPU resource error",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:930"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "VRS Tier 2 unavailable",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:931"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Preparing",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:932"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "%s | %u px tiles",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:933"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "4 x 4",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:933"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "2 x 2",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:933"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "HIDDEN AREA MASK",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:937"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "Mask lens edges",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:940"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Skips shading the parts of each eye image the lens never shows. The visible area is unchanged.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:941"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Visible radius",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:943"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Size of the shaded area as a percentage of the eye's field of view: 100%% touches its edges, 141%% masks nothing inside it.\nLower it until a dark border appears at the edge of the lens, then raise it until the border is gone.",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:944"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Waiting for the scene depth",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:949"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Masked %.1f %% / %.1f %% of pixels (MAIN / VRCAM)",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:950"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "GAME MENUS",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:954"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "VR menu quad",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:955"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "VR menu FOV",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:956"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Tracking / Camera",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:959"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "Locomotion direction is set in the Controls tab.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:960"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Disable Mouse Y (Pitch)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:961"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Suppress mouse/right-stick pitch so only the HMD controls\nvertical look. Applied by the CET VRIK mod and the\nXInput merge. On by default.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:963"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Head X right",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:971"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Head Y forward",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:972"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Head Z up",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:973"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Debug Gizmos",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:977"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "Raw hand overlay / debug gizmos:",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:978"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Enable hand overlay",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:979"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Draw 3D hand proxy",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:980"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Draw debug wire/axes",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:981"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Locator scale",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:982"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Verbose log (spammy diag)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:986"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:988"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "FRAMEGEN",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:995"
+  ],
+  "calls": [
+   "BeginTabItem"
+  ]
+ },
+ {
+  "en": "Enable frame generation",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:997"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off).",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1181"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Frame generator",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1000"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "FidelityFX",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1000"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "NVIDIA OFA + FidelityFX",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1000"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "NVIDIA DLSS Frame Generation",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1000"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "DLSS Frame Generation is not available here (%s); FidelityFX is used.",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:1004"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "NVIDIA optical flow is not available on this GPU; FidelityFX optical flow is used.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1006"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "NVIDIA quality",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1008"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Fast (performance)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1008"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Medium (balanced)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1008"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Slow (best)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1008"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Optical flow",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1011"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Off (game vectors only)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1011"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "The game's motion vectors already describe almost all motion; optical flow adds GPU time\nand memory for what they miss (some particles and effects).",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1012"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "NVIDIA's frame generation model on the game's motion vectors and depth. Highest quality, RTX 40/50.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1015"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "Adaptive real-frame pacing",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1016"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Up to half headset refresh. Leaves more GPU time for generated frames when adjacent real frames are being missed.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1017"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Uses game motion vectors and depth in both eyes. Adds one intermediate frame between real frames.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1018"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "HUD",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1025"
+  ],
+  "calls": [
+   "BeginTabItem"
+  ]
+ },
+ {
+  "en": "Enable HUD panel",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1026"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Head / free-look cone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1027"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Follow",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1028"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1031"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "HUD FOV",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1033"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Stereo depth",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1034"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1035"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Depth",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1037"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Brightness",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1052"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Shadow / outline",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1053"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Glow",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1054"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "INTERACTIONS / DIALOGS",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1056"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "World-space interactions / dialogs",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1057"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Interaction free-look cone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1058"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Loot free-look cone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1059"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Used while the loot panel and item description are visible. Default: 10 degrees.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1060"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Interaction distance",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1061"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Interaction FOV",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1064"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Interaction prompts and dialog choices share this panel. It follows only beyond the cone; no delayed catch-up at rest.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1065"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "Element",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1071"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Not currently visible in gameplay; settings are still saved.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1073"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Show element",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1075"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Horizontal offset",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1076"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Vertical offset",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1077"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Size",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1078"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Opacity",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1079"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Reset element",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1080"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "Reset all elements",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1082"
+  ],
+  "calls": [
+   "Button"
+  ]
+ },
+ {
+  "en": "CONTROLS",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1086"
+  ],
+  "calls": [
+   "BeginTabItem"
+  ]
+ },
+ {
+  "en": "DRIVING",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1088",
+   "VrWidgets.cpp:237"
+  ],
+  "calls": [
+   "group"
+  ]
+ },
+ {
+  "en": "BINDINGS",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1088"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Movement, weapon aiming and physical interaction shortcuts.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1093"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "Left-handed controls",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1095"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "The two controllers trade roles: the left trigger fires and the right one aims,\nthe right stick walks and the left one turns, dashes and crouches.\nX jumps, Y drops the magazine, A reloads and interacts, B switches weapons,\nand the right stick click is the D-pad. Button prompts show these buttons.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1097"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Hand aim  (off = Decoupled VR Head Aim)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1138"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "ON (Hand Aim): the controller points the weapon and VRIK drives the arms.\nOFF (Decoupled VR Head Aim): the WEAPON follows your head instead, the game\nkeeps owning its position and its ADS animations, and VRIK stands down for\nthe weapon arm. Either way the shot leaves the real muzzle, for guns and\nprojectiles alike, and free-look while aiming is preserved.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1142"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Weapon Aim laser dot (where the bullet hits)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1148"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Red dot projected from the actual weapon muzzle direction through the\ngame camera -- marks exactly where the bullet will fly.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1150"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Controller vibration",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1156"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Haptics: every round by weapon class (handgun, rifle, shotgun, sniper),\nmelee block and parry, bullet block and deflect, reaching a belt element,\npulling a grenade pin. Two-handed grip: both hands; one hand: one.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1158"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Vibration strength",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1163"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Open the VR menu with a grip swipe",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1167"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Hold the right grip and sweep the hand straight down to open or close the VR menu.\nOff: only L3 + R3 (both sticks pressed) opens it.\nA hand holding something (the steering wheel, a ladder, an item) never opens it.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1169"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Enable VR -> XInput merge",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1181"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "OR the VR controller state into XInput gamepad 0 every poll.\nOff = the game only sees a physical pad / nothing.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1183"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Weapon holsters (reach + right grip)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1188"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Immersive holsters",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1189"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "ON  - every equipped weapon hangs on the body where it belongs:\n      pistols on the right hip, blades and clubs on the left hip,\n      rifles and shotguns over the shoulders, knives on the chest.\n      Reach for one and squeeze the grip to draw it (a blade at the\n      hip is pulled out along its handle); grip at its place to put it away.\nOFF - no weapons on the body, fixed slot per zone:\n      over-shoulder = EquipmentSlot1, right hip = Slot2, left hip = Slot3.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1192"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Physical reload",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1202"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Reload highlight",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1203"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "On: the gun shows the free hand what it needs - an empty magazine pulses,\nthe place of a removed one stays lit, the bolt or the slide to rack glows.\nOff: no highlight; the reload itself works the same.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1205"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Locomotion direction",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1212"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Analog movement",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1214"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "On: speed follows left-stick travel. Off: the current fixed-speed movement (default).\nVehicle controls keep their existing response.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1215"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Left stick deadzone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1220"
+  ],
+  "calls": [
+   "SliderInt"
+  ]
+ },
+ {
+  "en": "Right stick deadzone",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1221"
+  ],
+  "calls": [
+   "SliderInt"
+  ]
+ },
+ {
+  "en": "Full input threshold",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1222"
+  ],
+  "calls": [
+   "SliderInt"
+  ]
+ },
+ {
+  "en": "Raw travel that produces full analog input and activates sprint, dash and crouch.\nThe usable travel between the deadzone and this threshold maps to 0-100%%.",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:1223"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Game (camera)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1231"
+  ],
+  "calls": []
+ },
+ {
+  "en": "HMD (head)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1231"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Left hand",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1231"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Right hand",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1231"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Move source",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1234"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Game     - left stick walks the way the camera faces (vanilla).\nHMD      - left stick walks the way the headset faces.\nLeft/Right hand - walks the way the chosen controller points.\nVehicles always keep game heading.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1240"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Breaststroke swimming",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1247"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Physical crouch",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1248"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Physical crouch depth",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1250"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "%.0f cm",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:1250"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Height loss after the measured lean. Standing back up releases physical crouch.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1253"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "In water: reach forward with both hands, sweep out and pull back.\nMovement begins during the pull. Gentle strokes swim normally; fast pulls boost.\nSwim where the headset points, including up/down; no stick needed.\nTo rise, raise separated hands to chest level and push both down.\nRepeat strokes to keep moving. Pull the left stick back to stop.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1255"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Ladder grip climbing",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1262"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Grip a side rail or rung. Pull the hand down to climb up,\nor move it up to climb down. Release to stop. Native pelvis and legs stay on the ladder.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1263"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Auto finish near ladder top",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1265"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "After an upward pull near the top, finish climbing even when grips are released.\nMove the stick or push a held hand upward to cancel.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1266"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Ladder finish distance",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1268"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Turning (right stick)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1270"
+  ],
+  "calls": [
+   "TextUnformatted"
+  ]
+ },
+ {
+  "en": "Snap turn",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1271"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Convert the right-stick X axis into discrete snap pulses\ninstead of smooth rotation. Helps with motion sickness.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1273"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Snap angle",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1277"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "STEREO",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1284"
+  ],
+  "calls": [
+   "BeginTabItem"
+  ]
+ },
+ {
+  "en": "PERFORMANCE",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1285"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "NVIDIA Reflex",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1298"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Game setting",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1298"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Off (higher FPS)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1298"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "On (lower latency)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1298"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "On + Boost",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1298",
+   "OverlayPanels.cpp:1303"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Off can improve GPU utilization and FPS, but may increase input latency.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1301"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "On",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1303"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Waiting for renderer",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1303"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Applied: %s",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:1304"
+  ],
+  "calls": [
+   "TextDisabled"
+  ]
+ },
+ {
+  "en": "Limit FPS to the headset refresh rate",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1305"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Frames above the headset's refresh rate are never shown: they only load the GPU\nand make the picture stutter now and then. Off lets the game run free.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1307"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "STEREO VIEW",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1311"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "Mono mode",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1312"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "One picture for both eyes, drawn once from the centre of the head:\nno depth, the most frames. Engine stereo and the second view are off.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1314"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Restart the game to apply",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1347"
+  ],
+  "calls": [
+   "TextColored"
+  ]
+ },
+ {
+  "en": "Motion prediction (ms)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1349"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "%.1f ms",
+  "format": true,
+  "where": [
+   "OverlayPanels.cpp:1349"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Forward-predicts the head pose by this many ms using head\nvelocity, hiding render-to-photon latency. 0 = off.\nTune up until motion feels responsive without overshoot.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1351"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Stereo separation x",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1355"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Personal fine-tune on the auto IPD. 1.0 = calibrated natural\nseparation, auto-scaled to the headset's runtime IPD. Nudge\n0.8-1.2 for taste; crank to 3-5x to exaggerate depth and make\nthe eye alternation obvious on the flat monitor for testing.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1357"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "World scale",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1363"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Scales eye separation AND head translation together.\nLower it (e.g. 0.8) to make the world look\nBIGGER / yourself smaller; raise to shrink the world. Use this if V\nand NPCs feel too large.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1365"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "IPD scale",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1370"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Eye-separation multiplier on the runtime IPD. 1.0 = the neutral\nbaseline (+-0.033 m on a typical headset).\nAffects stereo depth (diorama vs giant), NOT the monocular size.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1372"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Reuse last clean frame",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1377"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "On stale ticks, re-submit the last clean captured eye and let\nthe compositor reproject it, instead of warping stale content\nagain. May lower submit rate\ntoward the capture rate. Off = always warp the stale eye.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1382"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Asymmetric projection",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1389"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "ON: each eye renders exactly its own off-centre lens window\n(more of the panel used, square pixels).\nOFF: the symmetric frustum sized to the widest half-angle.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1391"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "AVATAR",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1401"
+  ],
+  "calls": [
+   "BeginTabItem"
+  ]
+ },
+ {
+  "en": "VR shortcuts and default game actions. Button names follow the Touch / Xbox convention; game actions use your controller bindings.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:191"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "LEFT STICK",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:193"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Move. Hold fully forward for 0.2 seconds to sprint.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:193"
+  ],
+  "calls": []
+ },
+ {
+  "en": "RIGHT STICK  Left / right",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:194"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Turn. Uses your snap-turn setting.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:194"
+  ],
+  "calls": []
+ },
+ {
+  "en": "RIGHT STICK  Full up",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:195"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Dash / dodge once per push.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:195"
+  ],
+  "calls": []
+ },
+ {
+  "en": "RIGHT STICK  Full down",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:196"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Crouch.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:196"
+  ],
+  "calls": []
+ },
+ {
+  "en": "RIGHT STICK  Press",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:197",
+   "VrWidgets.cpp:221"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Rack the weapon / release the slide.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:197"
+  ],
+  "calls": []
+ },
+ {
+  "en": "A  Right controller",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:198",
+   "VrWidgets.cpp:232"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Jump.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:198"
+  ],
+  "calls": []
+ },
+ {
+  "en": "B  Right controller",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:199"
+  ],
+  "calls": []
+ },
+ {
+  "en": "With a weapon: release the magazine. Holstered: Back / close.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:199"
+  ],
+  "calls": []
+ },
+ {
+  "en": "X  Left controller",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:200",
+   "VrWidgets.cpp:219"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Interact / reload.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:200"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Y  Left controller",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:201"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Switch weapon.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:201"
+  ],
+  "calls": []
+ },
+ {
+  "en": "RIGHT TRIGGER",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:202",
+   "VrWidgets.cpp:220"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Fire.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:202"
+  ],
+  "calls": []
+ },
+ {
+  "en": "LEFT TRIGGER",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:203"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Aim / block in melee.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:203"
+  ],
+  "calls": []
+ },
+ {
+  "en": "RIGHT GRIP  At a holster",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:204"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Equip or holster the weapon at the reached slot.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:204"
+  ],
+  "calls": []
+ },
+ {
+  "en": "LEFT GRIP",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:205"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Grab the magazine during a reload.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:205"
+  ],
+  "calls": []
+ },
+ {
+  "en": "LEFT GRIP  Near left ear",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:206"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Toggle the scanner. Squeeze again to close it.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:206"
+  ],
+  "calls": []
+ },
+ {
+  "en": "L3 + LEFT GRIP  Hold 0.5 seconds",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:207"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Activate cyberware once. Release both to use again.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:207"
+  ],
+  "calls": []
+ },
+ {
+  "en": "LEFT MENU BUTTON",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:208"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Open the game's pause menu.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:208"
+  ],
+  "calls": []
+ },
+ {
+  "en": "ON FOOT",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:210"
+  ],
+  "calls": [
+   "group"
+  ]
+ },
+ {
+  "en": "BOTH HANDS  Reach, sweep out, pull back",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:212"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Swim in the direction you look. Movement starts during the pull; gentle strokes swim normally and fast strokes boost.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:212"
+  ],
+  "calls": []
+ },
+ {
+  "en": "BOTH HANDS  Raise, then push down",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:213"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Swim upward.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:213"
+  ],
+  "calls": []
+ },
+ {
+  "en": "LEFT STICK  Back",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:214"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Cancel gesture propulsion. Stick movement takes priority.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:214"
+  ],
+  "calls": []
+ },
+ {
+  "en": "SWIMMING",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:216"
+  ],
+  "calls": [
+   "group"
+  ]
+ },
+ {
+  "en": "LEFT STICK  Full up / down",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:218"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Page through quickhacks. Partial movement still walks.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:218"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Apply the selected quickhack.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:219"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Tag the target while scanning.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:220"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Change scanner tab.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:221"
+  ],
+  "calls": []
+ },
+ {
+  "en": "LEFT TRIGGER + RIGHT STICK",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:222"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Adjust scanner zoom.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:222"
+  ],
+  "calls": []
+ },
+ {
+  "en": "SCANNER",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:224"
+  ],
+  "calls": [
+   "group"
+  ]
+ },
+ {
+  "en": "Hold LEFT STICK press + RIGHT STICK",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:226"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Push the right stick fully up, down, left or right to send that D-pad direction.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:226"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Release without a direction",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:227"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Send the normal left-stick press (L3).",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:227"
+  ],
+  "calls": []
+ },
+ {
+  "en": "D-PAD SHORTCUT",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:229"
+  ],
+  "calls": [
+   "group"
+  ]
+ },
+ {
+  "en": "Hold X  Left controller",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:231"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Exit the vehicle.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:231"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Confirm a dialogue choice. The normal handbrake action remains available.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:232"
+  ],
+  "calls": []
+ },
+ {
+  "en": "LEFT / RIGHT TRIGGER",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:233"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Brake / throttle.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:233"
+  ],
+  "calls": []
+ },
+ {
+  "en": "GRIP  At the wheel",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:234"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Grab the wheel or handlebars with that hand. Release to let go.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:234"
+  ],
+  "calls": []
+ },
+ {
+  "en": "GAME CAMERA",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:235"
+  ],
+  "calls": []
+ },
+ {
+  "en": "VR follows the camera chosen by the game, including third-person scenes. Driving and seated-camera options are in DRIVING.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:235"
+  ],
+  "calls": []
+ },
+ {
+  "en": "L3 + R3  Hold 0.5 second",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:239"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Open or close the VR menu in front of you (as the right-hand swipe down does).",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:239"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Point + TRIGGER",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:240"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Select a control.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:240"
+  ],
+  "calls": []
+ },
+ {
+  "en": "STICK  Up / down",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:241"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Scroll the pointed panel.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:241"
+  ],
+  "calls": []
+ },
+ {
+  "en": "GRIP",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:242"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Drag the panel.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:242"
+  ],
+  "calls": []
+ },
+ {
+  "en": "GRIP + STICK  Up / down",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:243"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Move the panel farther away / closer.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:243"
+  ],
+  "calls": []
+ },
+ {
+  "en": "F10 / INSERT",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:244"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Open or close this overlay from the keyboard. ESC closes it.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:244"
+  ],
+  "calls": []
+ },
+ {
+  "en": "OVERLAY",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:246"
+  ],
+  "calls": [
+   "group"
+  ]
+ },
+ {
+  "en": "Change game actions in Settings > Key Bindings > Controller. VR gesture settings are in CONTROLS and AVATAR.",
+  "format": false,
+  "where": [
+   "VrWidgets.cpp:247"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "OVERLAY PANEL",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:37"
+  ],
+  "calls": [
+   "Section"
+  ]
+ },
+ {
+  "en": "Distance",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:38"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Minimum distance",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:39"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Maximum distance",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:40"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Panel size",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:41"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Text size",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:42"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Pointer hand",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:43"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Left",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:43"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Right",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:43"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Automatic",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:43"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Free look",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:44"
+  ],
+  "calls": [
+   "Checkbox"
+  ]
+ },
+ {
+  "en": "Distance speed",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:46"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "%.2f m/s",
+  "format": true,
+  "where": [
+   "VrStyle.cpp:46"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "CENTER PANEL",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:47"
+  ],
+  "calls": [
+   "button"
+  ]
+ },
+ {
+  "en": "RESET",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:48"
+  ],
+  "calls": [
+   "button"
+  ]
+ },
+ {
+  "en": "Catch up after 3 seconds at rest when the offset is over 10 degrees inside the cone.",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:49"
+  ],
+  "calls": [
+   "TextWrapped"
+  ]
+ },
+ {
+  "en": "FPS OVERLAY",
+  "format": false,
+  "where": [
+   "VrStyle.cpp:50"
+  ],
+  "calls": [
+   "Section"
+  ]
+ },
+ {
+  "en": "Health",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:12"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Activity log",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:12"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Button hints",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:13"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Weapon / ammo",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:13"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Warning",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:14"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Device cursor",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:14"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Quick slots",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:15"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Boss health",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:15"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Progress bar",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:16"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Oxygen",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:16"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Minimap",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:17"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Wanted level",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:17"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Alternate minimap",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:18"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Vehicle summon",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:19"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Quest tracker",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:20"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Vehicle scan",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:20"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Cooldown",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:21"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Input prompt",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:21"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Zone alert",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:22"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Stamina",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:22"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Crouch indicator",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:23"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Militech warning",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:23"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Phone / messages",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:24"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Vehicle combat",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:24"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Vehicle dashboard",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:25"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Consumables",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:25"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Songbird audio call",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:26"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Holocall",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:27"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Courier progress",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:27"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Radio",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:28"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Subtitles",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:29"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Dialogs / interactions",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:30"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Journal / area notifications",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:31"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Basilisk HUD",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:32"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Identity dossier",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:33"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Identity imprint",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:34"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Story briefings / imprint",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:35"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Scanner data",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:36"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Surveillance camera HUD",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:37"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Scanner reticle / progress",
+  "format": false,
+  "where": [
+   "HudLayout.hpp:38"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Disabled",
+  "format": false,
+  "where": [
+   "Framegen.hpp:37",
+   "Presenter.cpp:76"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "External OFXR is loaded: disarm its tray and restart before native generation",
+  "format": false,
+  "where": [
+   "Presenter.cpp:79"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Waiting for matching depth and motion vectors in both eyes",
+  "format": false,
+  "where": [
+   "Presenter.cpp:82"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Generating with engine motion vectors and depth",
+  "format": false,
+  "where": [
+   "Presenter.cpp:110"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Priming frame history",
+  "format": false,
+  "where": [
+   "Presenter.cpp:113"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Paused in menus or untracked views",
+  "format": false,
+  "where": [
+   "Presenter.cpp:76"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Framegen requires the current SDR RGBA8 capture format",
+  "format": false,
+  "where": [
+   "Generator.cpp:182"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "DLSS Frame Generation could not create its features",
+  "format": false,
+  "where": [
+   "Generator.cpp:352"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "DLSS Frame Generation evaluation failed",
+  "format": false,
+  "where": [
+   "Generator.cpp:493"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "NVIDIA optical flow failed",
+  "format": false,
+  "where": [
+   "Generator.cpp:529"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Backend failed; toggle generation off/on or change the backend",
+  "format": false,
+  "where": [
+   "Generator.cpp:611"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "Framegen backend initialization failed",
+  "format": false,
+  "where": [
+   "Generator.cpp:614"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "NVIDIA DLSS SDK was not built into this plugin",
+  "format": false,
+  "where": [
+   "DlssFrameGen.cpp:74"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "NGX capability query failed",
+  "format": false,
+  "where": [
+   "DlssFrameGen.cpp:140"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "DLSS Frame Generation needs a newer NVIDIA driver",
+  "format": false,
+  "where": [
+   "DlssFrameGen.cpp:151"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)",
+  "format": false,
+  "where": [
+   "DlssFrameGen.cpp:151"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "NGX initialization failed (0x%08X)",
+  "format": true,
+  "where": [
+   "DlssFrameGen.cpp:136"
+  ],
+  "calls": [
+   "status"
+  ]
+ },
+ {
+  "en": "FULL-BODY TRACKING",
+  "format": false,
+  "where": [
+   "Menu.cpp:11"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Calibrate full-body tracking",
+  "format": false,
+  "where": [
+   "Menu.cpp:16"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Three steps: look ahead at the horizon line, press both triggers;\nstand straight, arms along the body, look down, press both triggers;\nthen the T-pose on the cross until the countdown ends.\nNeeds the Vive Trackers on the waist and both feet.",
+  "format": false,
+  "where": [
+   "Menu.cpp:17"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Full-body calibration works in game only: load a save first.",
+  "format": false,
+  "where": [
+   "Menu.cpp:20"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Step 1: look ahead at the horizon line, then press both triggers (press to cancel)",
+  "format": false,
+  "where": [
+   "Menu.cpp:22"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Release both triggers, take the pose, then pull both together.",
+  "format": false,
+  "where": [
+   "Menu.cpp:23",
+   "Menu.cpp:26"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Step 2: arms down, look down, then press both triggers (press to cancel)",
+  "format": false,
+  "where": [
+   "Menu.cpp:25"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Step 3: face the cross: head on its top, arms straight out along its arms, until the countdown ends (press to keep V's arms)",
+  "format": false,
+  "where": [
+   "Menu.cpp:28"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Stand facing the cross; the dots turn green on their marks, then the countdown runs.",
+  "format": false,
+  "where": [
+   "Menu.cpp:29"
+  ],
+  "calls": []
+ },
+ {
+  "en": "V's legs follow the trackers",
+  "format": false,
+  "where": [
+   "Menu.cpp:32"
+  ],
+  "calls": []
+ },
+ {
+  "en": "V's hips and legs follow your waist and foot trackers (needs a calibration).\nThe spine, head and arms stay as before.",
+  "format": false,
+  "where": [
+   "Menu.cpp:33"
+  ],
+  "calls": []
+ },
+ {
+  "en": "V's spine and head follow the headset",
+  "format": false,
+  "where": [
+   "Menu.cpp:36"
+  ],
+  "calls": []
+ },
+ {
+  "en": "V's spine bends from your hips to your headset, V's eyes on your view (with the legs on).\nThe arms stay as before.",
+  "format": false,
+  "where": [
+   "Menu.cpp:37"
+  ],
+  "calls": []
+ },
+ {
+  "en": "V's arms follow the controllers",
+  "format": false,
+  "where": [
+   "Menu.cpp:40"
+  ],
+  "calls": []
+ },
+ {
+  "en": "V's arms reach your controllers with V's arm length set by the calibration (with the spine on).\nOff: the arms as before.",
+  "format": false,
+  "where": [
+   "Menu.cpp:41"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Not taken: look straight at the horizon line until it turns green, then press again",
+  "format": false,
+  "where": [
+   "Calibration.cpp:472"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Not taken: stretch both arms straight out along the cross, then hold still again",
+  "format": false,
+  "where": [
+   "Calibration.cpp:473"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Not taken: stand straight with the headset, trackers and controllers tracked, then press again",
+  "format": false,
+  "where": [
+   "Calibration.cpp:474"
+  ],
+  "calls": []
+ },
+ {
+  "en": "FINGER TRACKING",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1116"
+  ],
+  "calls": [
+   "CollapsingHeader"
+  ]
+ },
+ {
+  "en": "Enable finger tracking",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1117"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nOff: finger poses from the buttons.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1312"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Grip input from finger position instead of the sensor",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1120"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1121"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Enable finger spread",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1122"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1123"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Finger spread",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1125"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1126"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Keep HUD in front of the world",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1039"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "The HUD comes closer when a wall or a person is nearer than Depth.\nOff: always at Depth.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1040"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Grow when brought closer",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1042"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "0: same size on screen. 1: same size in the world.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1043"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Hands push the HUD out of view",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1044"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "While a hand is in front of the HUD, the HUD grows until its elements leave the view,\nso your hands are not covered by it.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1045"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Out-of-view amount",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1047"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "How far the HUD moves out while a hand is in front of it.\n1: not at all. 2: to the edge of the view, a small head turn away. 3: fully out of view.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1048"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Prompt at the object's depth",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1062"
+  ],
+  "calls": [
+   "CheckboxInt"
+  ]
+ },
+ {
+  "en": "The prompt sits 10 cm in front of the object it names.\nInteraction distance is then used only when nothing is targeted.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1063"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Left-handed bindings",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1104"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Same as right-handed",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1105"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Left stick walks, buttons mirrored",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1105"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Left stick turns, buttons mirrored",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1105"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Same as right-handed: the buttons and sticks as right-handed; only the triggers\nand grips go with the weapon hand.\nLeft stick walks: the buttons mirrored (X jumps, A reloads...), the sticks as they were.\nLeft stick turns: the buttons and the sticks mirrored.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1108"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Sprint",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1226"
+  ],
+  "calls": [
+   "Combo"
+  ]
+ },
+ {
+  "en": "Hold the left stick forward",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1226"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Click the left stick",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1226"
+  ],
+  "calls": [
+   "Combo option"
+  ]
+ },
+ {
+  "en": "Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go.",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:1228"
+  ],
+  "calls": [
+   "SetTooltip"
+  ]
+ },
+ {
+  "en": "Hand collision",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:214"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Hands and arms stop at the body and at each other.\nEmpty hands also stop at walls and furniture (static world geometry).\nOnly the drawn arm stops; your real hand does not.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:593"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Hand collision in vehicles",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:224"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Seated, hands stop at the body and each other, not at the car.\nA hand on the wheel is never stopped.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:595"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Hands push loose objects",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:233"
+  ],
+  "calls": []
+ },
+ {
+  "en": "An empty hand clear of the body shoves bottles, crates and the like, and a hand pressed\nagainst a light prop knocks that one prop loose. Never in a vehicle.\nExperimental: turn it off if the player is ever thrown about.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:597"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Fingers stop at surfaces",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:598"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Closing an empty hand, each finger stops where it meets something, so a hand\nrests on a table or closes round a pipe. Never in a vehicle.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:599"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Pick up small objects",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:243"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Squeeze the grip at a loose object to carry it, let go to drop or throw it. One hand lifts\nabout 6 kg, two about 30, and the other hand can take it over.\nExperimental: turn it off if the player is ever thrown about.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:601"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Show collision shapes and rays",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:253"
+  ],
+  "calls": []
+ },
+ {
+  "en": "For finding faults, and it costs frame rate. Stays off after a restart.\nBlue the hands, cyan the fingers, magenta people. From PhysX within 2 m: grey the world, yellow what moves.\nRays: green free, red up to what they hit. In a carried thing: orange the place taken, white the palm.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:603"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Carried objects stick to the hand",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:263"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Draws a carried thing on the hand in the same frame, while its body follows in the physics.\nAgainst a wall the picture goes back to the body. Off: the picture is on the body, and trails a swing.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:605"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Carried objects lead the hand (ms)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:272"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Physics reaches the screen after the hand does. Raise it until a thing swung fast stops trailing the hand,\nlower it if it runs ahead when the hand stops.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:607"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Distance kept from surfaces (cm)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:281"
+  ],
+  "calls": []
+ },
+ {
+  "en": "The game's collision is simpler and often smaller than what is drawn. More distance keeps\nhands and fingers out of the mesh, and makes them stop a little before they touch.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:609"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Hold a car's wheel anywhere on the rim",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:751"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Your hand stays where you took hold and slides round the rim with your own hand, so\nyou can steer one-handed from the top and change grip in a hard turn.\nOff: a grab puts the hand where the driving animation holds it. Bikes always do.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:611"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Bike full lock at (deg)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:686"
+  ],
+  "calls": [
+   "SliderFloat"
+  ]
+ },
+ {
+  "en": "Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:613"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Bike body lean",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:791"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:615"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Bike Head X right",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:904"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Bike Head Y forward",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:910"
+  ],
+  "calls": []
+ },
+ {
+  "en": "Bike Head Z up",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:911"
+  ],
+  "calls": []
+ },
+ {
+  "en": "A motorcycle's own seated offset, used instead of the Car Head sliders\nwhile you ride one and ignored everywhere else. Zero = no offset.",
+  "format": false,
+  "where": [
+   "mods/cet/CyberpunkVRPort_Menu/modules/lang/settings/de-de.lua:619"
+  ],
+  "calls": []
+ },
+ {
+  "en": "   (on a motorcycle: these are ignored)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:899"
+  ],
+  "calls": []
+ },
+ {
+  "en": "   (on a motorcycle: these are live)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:912"
+  ],
+  "calls": []
+ },
+ {
+  "en": "   (not on a motorcycle: these are ignored)",
+  "format": false,
+  "where": [
+   "OverlayPanels.cpp:912"
+  ],
+  "calls": []
+ }
+]

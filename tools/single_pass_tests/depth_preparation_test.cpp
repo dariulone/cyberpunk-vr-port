@@ -34,7 +34,7 @@ static void PreparePackets(void*,void* buckets,void* output,uint32_t flags0,uint
 }
 template<class T>static void Put(void* buffer,size_t offset,T value){std::memcpy(static_cast<uint8_t*>(buffer)+offset,&value,sizeof(value));}
 struct Fixture {
-    std::array<uint8_t,0x1E18> mainView{},eyeView{};
+    std::array<uint8_t,0x2C48> mainView{},eyeView{};
     std::vector<uint8_t> mainStorage=std::vector<uint8_t>(0x3600),eyeStorage=std::vector<uint8_t>(0x3600);
     std::array<uint8_t,32> mainWork{},eyeWork{},mainArgs{},eyeArgs{};
     std::vector<Packet> mainPackets{{3,30},{1,10},{2,20}},eyePackets{{5,50},{4,40},{6,60}};
@@ -43,7 +43,7 @@ struct Fixture {
     Array mainArray{mainOutput.data(),16,0},eyeArray{eyeOutput.data(),16,0};
     Cache cache;
     Fixture(){
-        Put(mainView.data(),0x1E10,reinterpret_cast<uintptr_t>(mainStorage.data()));Put(eyeView.data(),0x1E10,reinterpret_cast<uintptr_t>(eyeStorage.data()));
+        Put(mainView.data(),0x2C40,reinterpret_cast<uintptr_t>(mainStorage.data()));Put(eyeView.data(),0x2C40,reinterpret_cast<uintptr_t>(eyeStorage.data()));
         Put(mainWork.data(),24,reinterpret_cast<uintptr_t>(mainView.data()));Put(eyeWork.data(),24,reinterpret_cast<uintptr_t>(eyeView.data()));
         Put(mainArgs.data(),0,reinterpret_cast<uintptr_t>(mainWork.data()));Put(eyeArgs.data(),0,reinterpret_cast<uintptr_t>(eyeWork.data()));
         Put(mainArgs.data(),16,uint32_t(3));Put(eyeArgs.data(),16,uint32_t(3));mainArgs[26]=eyeArgs[26]=1;

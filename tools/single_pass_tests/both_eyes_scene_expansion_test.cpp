@@ -25,7 +25,7 @@ graph_snapshot::Snapshot Fixture(bool shared=true,uint32_t count=6){
         Put(node.bytes,0,i);Put(node.bytes,8,uint32_t(4));
         Put(node.bytes,16,i<6?uint64_t(0x10000+(shared && i==3?1:i)*4096):uint64_t(0x100000+i*64));
         Put(node.bytes,24,uint32_t(i<3));Put(node.bytes,28,uint32_t(0xdead0000));
-        node.vtable=Base+0x2B3A008;node.work=Base+0x1EC1D0;Put(node.definition,0,node.vtable);
+        node.vtable=Base+0x3094850;node.work=Base+0x332D5C;Put(node.definition,0,node.vtable);
         Put(node.definition,24,paired_frontier::Name(i==1 || i==3?"GBuffer_Discard":"Other"));source.nodes.push_back(node);
     }
     return Compile(source,FixtureEdges());
@@ -218,7 +218,7 @@ void Saved(const char* nodes,const char* edges){
     graph_snapshot::Snapshot source;source.nodes=Read<graph_snapshot::Node>(nodes);source.edges=Read<graph_snapshot::Edge>(edges);
     const auto found=std::find_if(source.nodes.begin(),source.nodes.end(),[](const auto& node){
         return graph_snapshot::Field<uint64_t>(node.definition,24)==paired_frontier::Name("GBuffer_Discard");});
-    Require(found!=source.nodes.end(),"Saved discard source missing");const auto base=found->work-0x1EC1D0;
+    Require(found!=source.nodes.end(),"Saved discard source missing");const auto base=found->work-0x332D5C;
     paired_frontier::Plan pass;
     Require(pass.BuildCandidate(source,base,paired_frontier::Boundary::Discard)==paired_frontier::Result::CandidateNeedsCpuAndResourceCompile,"Saved pass frontier rejected");
     paired_cpu_frontier::Plan cpu;

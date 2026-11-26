@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // VisionLayer -- the scanner outline, in the second eye.
 //
 // SOLVED, and the finding is why this file can be short: the outline is not part of the view's colour
@@ -41,6 +42,47 @@
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
 
+#if CVR_RUST_VRIK
+// THE IDENTIFICATION AND ITS TABLES ARE RUST'S (rust/crates/cvr-render/src/vision_layer.rs): the exported knobs and the
+// recording thread's dispatch and ordinal thread-locals (the capture and the census write them) stay here, and the
+// calls forward with them.
+// The outline layer's writer, CRenderNode_RenderVisionElements, selected by node.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VisionNode = 0x4262CC;
+#endif
+// The tally that FOUND that node. Report-only.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionMap = 0;
+#endif
+// Ordinal of the full-size match inside that node. 0 -- measured, not assumed.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionPick = 0;
+#endif
+// Blend the snapshotted layer into the second eye (openxr_capture does the pass).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int CyberpunkVR_VisionToSecondEye = 1;
+// 3 = straight alpha (PipelineState_1216, the default); 0 premultiplied, 1 opaque replace, 2 additive.
+extern "C" __declspec(dllexport) int CyberpunkVR_VisionDebug = 3;
+extern "C" __declspec(dllexport) int   CyberpunkVR_VisionFit  = 1;
+extern "C" __declspec(dllexport) float CyberpunkVR_VisionOffX = 0.0f;
+extern "C" __declspec(dllexport) float CyberpunkVR_VisionOffY = 0.0f;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisionOverlays = 0;
+#endif
+// Per-node ordinal of full-size matches, on the recording thread.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_RtMapProbe = 1;   // OFF: [rtmap] node -> render-target map
+#endif
+#else
 namespace cvr {
 namespace detail {
 
@@ -336,3 +378,5 @@ void vision_note_surface(ID3D12Resource* res, bool vrcam,
 
 }  // namespace detail
 }  // namespace cvr
+#endif
+#endif

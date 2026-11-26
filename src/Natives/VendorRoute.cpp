@@ -1,21 +1,25 @@
-// Route native vendor and mirror-appearance events before the engine creates a menu instance.
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
+// Route scene-driven vendor events before the engine creates a menu instance.
 // CET's RequestVendorMenu override sees script calls only. Native quest requests
 // reach this UI event queue directly, before any MenuScenario callback runs.
 #include "Natives/VendorRoute.hpp"
 #include "Natives/NativeFunctions.hpp"
 #include "Core/GameBuild.hpp"
-#include "Core/LiveControls.hpp"
 #include "Hooks/Hook.hpp"
 #include "MinHook.h"
 #include <RED4ext/Scripting/Utils.hpp>
-#include <RED4ext/Scripting/Natives/inkLayer.hpp>
 #include <windows.h>
 #include <atomic>
 #include <cstring>
 #include <mutex>
 
+#if CVR_RUST_VRIK
+// The queue hook, the held request, its watchdog and the two natives are rust/crates/cvr-rig/src/vrik/vendor_route.rs;
+// the registration stays.
+extern "C" bool cvr_hook_vendor_route_install();
+CVR_HOOK("VendorRoute",::cvr::hooks::Stage::Boot,84,cvr_hook_vendor_route_install);
+#else
 extern void Log(const char*,...);
-RED4ext::ink::Layer* FindInkLayer(RED4ext::CName type);
 namespace cvr::vendor_route {
 namespace {
 using namespace RED4ext;
@@ -32,86 +36,26 @@ struct Request {
     void* queue{};
 };
 Request pending;
-// The mirror request the world editor took: kept until it ends, so the game's own editor can still be given it.
-Request mirrorRequest;
-Handle<IScriptable> mirrorPanel;
-void* mirrorInstance{};
-// Raw pointers only: the layer owns its menu instance and the instance owns its scenario.
-// 2.5 SwitchToScenario handler 27B3558 reads the instance at inkMenuLayer +0x168.
-void* MenuInstance() {
-    auto* layer=reinterpret_cast<uint8_t*>(FindInkLayer(CName("inkMenuLayer")));
-    return layer?*reinterpret_cast<void**>(layer+0x168):nullptr;
-}
 void* InternalQueue(const Handle<IScriptable>& system) {
     return system?*reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(system.GetPtr())+0x48):nullptr;
-}
-bool Forward(Request&& request) {
-    auto owner=request.owner.Lock();
-    if(!owner || InternalQueue(owner)!=request.queue || !request.event || !originalQueue)return false;
-    originalQueue(request.queue,request.event);
-    return true;
-}
-// The menu instance the mirror request was taken from, when it is still the layer's one and idle:
-// never act on a different menu that took over during editing.
-uint8_t* IdleInstance(void* instance) {
-    if(!game_build::Supported() || game_build::Overridden() || !instance || instance!=MenuInstance())return nullptr;
-    const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-    auto* bytes=reinterpret_cast<uint8_t*>(instance);
-    const auto* vtable=*reinterpret_cast<uintptr_t**>(bytes);
-    if(vtable[0x108/8]!=base+0xC6EF4C)return nullptr;
-    // C6EF4C identifies scenarios by class name; the current one is at +0xF0.
-    auto* scenario=*reinterpret_cast<IScriptable**>(bytes+0xF0);
-    if(!scenario || scenario->GetType()->GetName()!=CName("MenuScenario_Idle"))return nullptr;
-    return bytes;
-}
-void* MirrorInstanceOf(const Handle<IScriptable>& panel) {
-    std::lock_guard lock(mutex);
-    return panel && panel==mirrorPanel?mirrorInstance:nullptr;
-}
-void MirrorClear() {
-    std::lock_guard lock(mutex);
-    mirrorRequest={};mirrorPanel.Reset();mirrorInstance=nullptr;
-}
-bool MirrorFinish(const Handle<IScriptable>& panel) {
-    auto* bytes=IdleInstance(MirrorInstanceOf(panel));
-    MirrorClear();
-    if(!bytes)return false;
-    // The quest node waits for a scenario listener, not UI_System.IsInMenu.
-    // Re-enter Idle through the normal switch: C6EF4C -> C6F478 -> 2C61378.
-    // The public queued event drops Idle in the menu-layer handler.
-    using Switch=bool(*)(void*,CName,const Handle<IScriptable>*);
-    const Handle<IScriptable> data;
-    const auto* vtable=*reinterpret_cast<uintptr_t**>(bytes);
-    return reinterpret_cast<Switch>(vtable[0x108/8])(bytes,CName("MenuScenario_Idle"),&data);
-}
-// Hand the mirror request to the game's own editor after all, as the timeout fallback does: that editor then ends
-// the scene's wait itself. False, with nothing changed, when the request can no longer be handed over.
-bool MirrorNative(const Handle<IScriptable>& panel) {
-    if(!IdleInstance(MirrorInstanceOf(panel)))return false;
-    Request request;
-    {
-        std::lock_guard lock(mutex);
-        request=std::move(mirrorRequest);mirrorRequest={};
-    }
-    if(!Forward(std::move(request)))return false;
-    MirrorClear();
-    return true;
 }
 
 Handle<IScriptable> Panel(const Handle<IScriptable>& event) {
     if(!event || event->GetType()->GetName()!=CName("inkMenuInstance_SwitchToScenario"))return {};
     // 2.5 constructor 27B2D1C: CName at +40, retained userdata handle at +48.
     const auto* bytes=reinterpret_cast<const uint8_t*>(event.GetPtr());
-    const auto scenario=*reinterpret_cast<const CName*>(bytes+0x40);
+    if(*reinterpret_cast<const CName*>(bytes+0x40)!=CName("MenuScenario_Vendor"))return {};
     const auto& panel=*reinterpret_cast<const Handle<IScriptable>*>(bytes+0x48);
-    if(!panel)return {};
-    if(scenario==CName("MenuScenario_Vendor") && panel->GetType()->GetName()==CName("questVendorPanelData"))return panel;
-    if(scenario==CName("MenuScenario_CharacterCustomizationMirror") && panel->GetType()->GetName()==CName("MorphMenuUserData"))return panel;
-    return {};
+    if(!panel || panel->GetType()->GetName()!=CName("questVendorPanelData"))return {};
+    return panel;
+}
+void Forward(Request&& request) {
+    auto owner=request.owner.Lock();
+    if(owner && InternalQueue(owner)==request.queue && request.event && originalQueue)originalQueue(request.queue,request.event);
 }
 uintptr_t Queue(void* queue,const Handle<IScriptable>& event) {
     const auto now=GetTickCount64(),last=heartbeat.load(std::memory_order_acquire);
-    if(g_liveControls.xrVrInterface != 0 && last && now-last<1000) {
+    if(last && now-last<1000) {
         auto panel=Panel(event);
         if(panel) {
             std::lock_guard lock(mutex);
@@ -152,7 +96,6 @@ CVR_HOOK("VendorRoute",::cvr::hooks::Stage::Boot,84,Install);
 
 void WatchdogRegistered(bool ready) {watchdogRegistered=ready;}
 Handle<RED4ext::IScriptable> Poll(bool enabled,const RED4ext::Handle<RED4ext::IScriptable>& system) {
-    enabled = enabled && g_liveControls.xrVrInterface != 0;
     Request fallback;
     Handle<RED4ext::IScriptable> result;
     {
@@ -171,9 +114,6 @@ bool Resolve(const RED4ext::Handle<RED4ext::IScriptable>& panel,bool accepted) {
         std::lock_guard lock(mutex);
         if(!panel || panel!=pending.panel)return false;
         request=std::move(pending);pending={};hasPending=false;
-        if(accepted && panel->GetType()->GetName()==CName("MorphMenuUserData")) {
-            mirrorPanel=panel;mirrorInstance=MenuInstance();mirrorRequest=std::move(request);request={};
-        }
     }
     if(!accepted)Forward(std::move(request));
     Log("[vendor-route] %s\n",accepted?"accepted by world menu":"returned to native menu");
@@ -197,7 +137,6 @@ bool Update(RED4ext::CGameApplication*) {
 bool Reset(RED4ext::CGameApplication*) {
     heartbeat=0;
     std::lock_guard lock(mutex);pending={};uiSystem.Reset();hasPending=false;
-    mirrorRequest={};mirrorPanel.Reset();mirrorInstance=nullptr;
     return true;
 }
 }
@@ -207,18 +146,10 @@ void VRMenuVendorPoll(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,RED4ext:
     RED4ext::GetParameter(stack,&enabled);RED4ext::GetParameter(stack,&system);++stack->code;
     auto panel=cvr::vendor_route::Poll(enabled,system);if(out)*out=std::move(panel);
 }
-void VRMirrorAppearanceFinish(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
-    RED4ext::Handle<RED4ext::IScriptable> panel;
-    RED4ext::GetParameter(stack,&panel);++stack->code;
-    const bool ok=cvr::vendor_route::MirrorFinish(panel);if(out)*out=ok;
-}
-void VRMirrorAppearanceNative(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
-    RED4ext::Handle<RED4ext::IScriptable> panel;
-    RED4ext::GetParameter(stack,&panel);++stack->code;
-    const bool ok=cvr::vendor_route::MirrorNative(panel);if(out)*out=ok;
-}
 void VRMenuVendorResolve(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
     RED4ext::Handle<RED4ext::IScriptable> panel;bool accepted=false;
     RED4ext::GetParameter(stack,&panel);RED4ext::GetParameter(stack,&accepted);++stack->code;
     const bool ok=cvr::vendor_route::Resolve(panel,accepted);if(out)*out=ok;
 }
+#endif
+#endif

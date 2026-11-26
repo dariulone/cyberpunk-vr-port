@@ -16,6 +16,64 @@ struct ScopeStamp {
     uint32_t thread{};
     bool operator==(const ScopeStamp&)const=default;
 };
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/indirect_copy.rs (tools/single_pass_tests/indirect_copy_contract_test runs its
+// cases against them in its Rust variant). The ledger's members stay here (thread_local in its users), mirrored there.
+struct Observation;struct Allocation;struct AllocationBinding;class ScopeLedger;
+extern "C" {
+void cvr_icp_scope(ScopeLedger*,uint32_t,uint64_t,uint64_t,uint64_t,uint32_t,ScopeStamp*);
+bool cvr_icp_scope_exit(ScopeLedger*,const ScopeStamp*);
+bool cvr_icp_scope_matches(const ScopeLedger*,const ScopeStamp*,uint64_t,uint64_t,uint64_t,uint32_t);
+bool cvr_icp_read_mask(const geometry::ReadState*,uint32_t,bool);
+bool cvr_icp_parent(const preparation::GraphParentRecord*);
+uint32_t cvr_icp_admit(const Observation*,const preparation::GraphParentRecord*);
+bool cvr_icp_allocation_form(const AllocationBinding*,const Allocation*,uint64_t,uint64_t);
+}
+class ScopeLedger {
+public:
+    ScopeStamp Enter(uint64_t list,uint64_t generation,uint64_t position,uint32_t thread)noexcept {
+        ScopeStamp stamp;cvr_icp_scope(this,0,list,generation,position,thread,&stamp);return stamp;
+    }
+    bool Exit(const ScopeStamp& stamp)noexcept{return cvr_icp_scope_exit(this,&stamp);}
+    ScopeStamp Current()const noexcept{ScopeStamp stamp;cvr_icp_scope(const_cast<ScopeLedger*>(this),1,0,0,0,0,&stamp);return stamp;}
+    bool Matches(const ScopeStamp& stamp,uint64_t list,uint64_t generation,uint64_t position,uint32_t thread)const noexcept {
+        return cvr_icp_scope_matches(this,&stamp,list,generation,position,thread);
+    }
+private:
+    std::array<ScopeStamp,16> frames_{};
+    uint64_t next_{};size_t depth_{};bool broken_{};
+};
+static_assert(sizeof(ScopeStamp)==40 && sizeof(ScopeLedger)==664,"mirrored by indirect_copy.rs");
+inline bool TrackedClass(uint32_t kind)noexcept{return cvr_icp_read_mask(nullptr,kind,false);}
+inline bool ReadMask(geometry::ReadState state,uint32_t kind,bool copyReady=false)noexcept{return cvr_icp_read_mask(&state,kind,copyReady);}
+inline bool Parent(const preparation::GraphParentRecord& parent)noexcept{return cvr_icp_parent(&parent);}
+struct Observation {
+    geometry::NativeBuffer native;
+    uint64_t list{},generation{},position{},resource{},backingGpu{},backingBytes{},offset{},bytes{},recordAddress{};
+    uint32_t caller{},maxCount{},signatureKind{},stride{},heap{},flags{},pending{},contextKind{},lowType{};
+    geometry::ReadState state;
+    bool fullBacking{},parentCurrent{},recordingCurrent{},nativeOrigin{},sameDevice{};
+};
+static_assert(sizeof(geometry::NativeBuffer)==48 && sizeof(geometry::ReadState)==12 && sizeof(Observation)==176,
+    "mirrored by indirect_copy.rs");
+inline Failure Admit(const Observation& value,const preparation::GraphParentRecord& parent)noexcept{
+    return Failure(cvr_icp_admit(&value,&parent));
+}
+struct Allocation {
+    uint64_t address{},vtable{},pimpl{},bytes{},resource{},heap{},block{},handle{};
+    uint32_t kind{};
+    bool operator==(const Allocation&)const=default;
+};
+struct AllocationBinding {
+    uint64_t allocation{},payload{},control{},flags{},alignment{},bytes{};
+    bool alias{};
+    bool operator==(const AllocationBinding&)const=default;
+};
+static_assert(sizeof(Allocation)==72 && sizeof(AllocationBinding)==56,"mirrored by indirect_copy.rs");
+inline bool AllocationForm(const AllocationBinding& binding,const Allocation& allocation,uint64_t source,uint64_t bytes)noexcept{
+    return cvr_icp_allocation_form(&binding,&allocation,source,bytes);
+}
+#else
 class ScopeLedger {
 public:
     ScopeStamp Enter(uint64_t list,uint64_t generation,uint64_t position,uint32_t thread)noexcept {
@@ -86,6 +144,7 @@ inline bool AllocationForm(const AllocationBinding& binding,const Allocation& al
     return binding.payload && binding.control && binding.flags==0xC0 && binding.alignment==0x10000 && binding.bytes==allocation.bytes &&
         (allocation.kind==1 || allocation.kind==2) && !allocation.resource && allocation.heap;
 }
+#endif
 }
 
 // Caller places this only around preparation/capture inside the exact original

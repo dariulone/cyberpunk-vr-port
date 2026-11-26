@@ -14,9 +14,11 @@ import json
 from pathlib import Path
 import struct
 import time
+import symbol_session as ss
+from symbol_identity import live_pe_identity, pe_identity
 
 k = c.WinDLL('kernel32', use_last_error=True)
-d = c.WinDLL('dbghelp', use_last_error=True)
+d = ss.load_dbghelp()
 psapi = c.WinDLL('psapi', use_last_error=True)
 
 
@@ -66,19 +68,101 @@ class SYMBOL_INFOW(c.Structure):
 
 
 d.SymFromAddrW.argtypes = [w.HANDLE, c.c_uint64, c.POINTER(c.c_uint64), c.POINTER(SYMBOL_INFOW)]
+d.SymFromAddrW.restype = w.BOOL
+
+
+def initialize_symbols(process, symbol_path=None):
+    mods = modules(process)
+    live = {}
+    for base, _, module in mods:
+        try:
+            live[base] = live_pe_identity(process, base)
+        except (OSError, ValueError, struct.error) as error:
+            live[base] = {'error': str(error)}
+    state = ss.initialize(d, process, modules.paths.values(), symbol_path)
+    state['modules'] = {}
+    state['symbols'] = {}
+    state['mappedImages'] = live
+    initialize_symbols.state = state
+    state['provenanceWarnings'] = []
+    # Deferred PDB I/O must not happen while a sampled game thread is suspended.
+    # Resolve a module address now, before the profiling clock and stack walks.
+    for base, end, module_name in mods:
+        probe = SYMBOL_INFOW()
+        probe.SizeOfStruct, probe.MaxNameLen = 88, 511
+        offset = c.c_uint64()
+        d.SymFromAddrW(process, base + min(0x1000, max(0, end - base - 1)), c.byref(offset), c.byref(probe))
+        module = ss.module_info(d, process, base)
+        mapped = live.get(base, {})
+        module['mappedImage'] = mapped
+        if module.get('loadedPdb') and mapped.get('guid'):
+            module['mappedIdentityVerified'] = mapped['guid'] == module.get('pdbGuid') and mapped['age'] == module.get('pdbAge')
+        state['modules'][base] = module
+        if module_name.lower() == 'cyberpunkvrport.dll' and (
+                module.get('symbolType') not in ('pdb', 'dia') or not module.get('mappedIdentityVerified')):
+            state['provenanceWarnings'].append(f'{module_name}: matching private PDB was not verified; use raw RVAs / qualified nearest hints')
+    return mods
 
 
 def resolve_symbols(process, pcs):
-    """PDB/export names for non-executable frames, resolved while the symbol session is live."""
+    """Bounded PDB names, or explicitly qualified nearest-symbol hints with raw RVAs."""
     names = {}
+    state = getattr(initialize_symbols, 'state', {'modules': {}, 'symbols': {}})
     for pc in pcs:
         info = SYMBOL_INFOW()
         info.SizeOfStruct = 88  # sizeof(SYMBOL_INFOW) in C, with its one-character Name
         info.MaxNameLen = 511
         displacement = c.c_uint64()
         if d.SymFromAddrW(process, pc, c.byref(displacement), c.byref(info)):
-            names[pc] = info.Name
+            # DbgHelp leaves SYMBOL_INFO.ModBase zero for some export symbols.
+            module_base = info.ModBase or d.SymGetModuleBase64(process, pc)
+            module = state['modules'].get(module_base)
+            if not module or module.get('symbolType') == 'deferred':
+                module = ss.module_info(d, process, pc)
+                mapped = state.get('mappedImages', {}).get(module_base, {})
+                if not mapped:
+                    try:
+                        mapped = live_pe_identity(process, module_base)
+                    except (OSError, ValueError, struct.error) as error:
+                        mapped = {'error': str(error)}
+                    state.setdefault('mappedImages', {})[module_base] = mapped
+                module['mappedImage'] = mapped
+                if module.get('loadedPdb') and mapped.get('guid'):
+                    module['mappedIdentityVerified'] = mapped['guid'] == module.get('pdbGuid') and mapped['age'] == module.get('pdbAge')
+                state['modules'][module_base] = module
+            symbol_type = module.get('symbolType', 'unknown')
+            label, bounded = ss.symbol_label(info.Name, info.Address, info.Size, pc, module_base, symbol_type, info.Flags)
+            record = {'name': info.Name, 'address': info.Address, 'size': info.Size, 'displacement': displacement.value,
+                      'rva': pc - module_base, 'moduleBase': module_base, 'flags': info.Flags,
+                      'symbolType': symbol_type, 'bounded': bounded}
+            state['symbols'][pc] = record
+            if module.get('pdbUnmatched') or module.get('identityVerified') is False or module.get('mappedIdentityVerified') is False or (
+                    symbol_type in ('pdb', 'dia') and module.get('mappedIdentityVerified') is not True):
+                record['rejected'] = 'PDB identity is not verified'
+                continue
+            names[pc] = label
     return names
+
+
+def resolve_named_symbol(process, module_name, name):
+    """Exact named address, only when the disk image matches the mapped DLL."""
+    state = initialize_symbols.state
+    base, path = next((base, path) for base, path in modules.paths.items() if Path(path).name.lower() == module_name.lower())
+    mapped, disk = state['mappedImages'][base], pe_identity(path)
+    if not mapped.get('guid') or (mapped['guid'], mapped['age']) != (disk.get('guid'), disk.get('age')):
+        raise RuntimeError(f'{module_name}: mapped DLL and disk image identity differ; refusing symbol address')
+    provenance = state['modules'][base]
+    if provenance.get('pdbUnmatched') or provenance.get('mappedIdentityVerified') is False or provenance.get('identityVerified') is False:
+        raise RuntimeError(f'{module_name}: loaded PDB identity mismatch')
+    d.SymFromNameW.argtypes = [w.HANDLE, w.LPCWSTR, c.POINTER(SYMBOL_INFOW)]
+    d.SymFromNameW.restype = w.BOOL
+    info = SYMBOL_INFOW()
+    info.SizeOfStruct, info.MaxNameLen = 88, 511
+    if not d.SymFromNameW(process, f'{Path(module_name).stem}!{name}', c.byref(info)):
+        raise RuntimeError(f'Symbol missing in verified {module_name}: {name}')
+    if not base <= info.Address < base + mapped['imageSize']:
+        raise RuntimeError('Named symbol belongs to another image')
+    return info.Address
 
 
 def modules(process):
@@ -88,6 +172,7 @@ def modules(process):
     if not psapi.EnumProcessModulesEx(process, handles, c.sizeof(handles), c.byref(needed), 3):
         raise c.WinError(c.get_last_error())
     out = []
+    paths = {}
     psapi.GetModuleFileNameExW.argtypes = [w.HANDLE, w.HMODULE, w.LPWSTR, w.DWORD]
     psapi.GetModuleInformation.argtypes = [w.HANDLE, w.HMODULE, c.c_void_p, w.DWORD]
     for i in range(needed.value // c.sizeof(w.HMODULE)):
@@ -96,6 +181,8 @@ def modules(process):
         info = (c.c_uint64 * 3)()
         psapi.GetModuleInformation(process, handles[i], info, c.sizeof(info))
         out.append((info[0], info[0] + (info[1] & 0xFFFFFFFF), Path(name.value).name))
+        paths[info[0]] = name.value
+    modules.paths = paths
     return sorted(out)
 
 
@@ -136,16 +223,14 @@ def find_threads(pid, prefix):
     return out
 
 
-def sample_stacks(pid, tid, seconds, rate, depth, tids=None):
+def sample_stacks(pid, tid, seconds, rate, depth, tids=None, symbol_path=None):
     """Round-robin over tids (or the one tid). Returns per-sample stacks and their thread ids."""
     tids = list(tids or [tid])
     process = k.OpenProcess(0x0400 | 0x0010, False, pid)
     handles = [k.OpenThread(0x0002 | 0x0008 | 0x0040, False, t) for t in tids]  # suspend/resume, context, query
     if not process or not all(handles):
         raise c.WinError(c.get_last_error())
-    d.SymSetOptions(0x2 | 0x4 | 0x10)  # undecorate, deferred loads, no CPP
-    if not d.SymInitializeW(process, None, True):
-        raise c.WinError(c.get_last_error())
+    initialize_symbols(process, symbol_path)
     buffer = c.create_string_buffer(CONTEXT_SIZE + 16)
     address = (c.addressof(buffer) + 15) & ~15
     stacks, owners, failures, suspended = [], [], 0, 0.0
@@ -218,18 +303,19 @@ def symbolize(stacks, mods, exe_starts, exe_name='Cyberpunk2077.exe', symbols=No
     bases = [m[0] for m in mods]
 
     def name(pc, caller):
-        i = bisect.bisect_right(bases, pc) - 1
-        if i < 0 or pc >= mods[i][1]:
+        at = pc - (1 if caller else 0)
+        i = bisect.bisect_right(bases, at) - 1
+        if i < 0 or at >= mods[i][1]:
             return '?'
         base, _, module = mods[i]
-        rva = pc - base - (1 if caller else 0)
+        rva = at - base
         if symbols and (pc - (1 if caller else 0)) in symbols:
             return f'{module}!{symbols[pc - (1 if caller else 0)]}'
         if module.lower() == exe_name.lower() and exe_starts:
             j = bisect.bisect_right(exe_starts, rva) - 1
             if j >= 0:
                 return f'exe+{exe_starts[j]:X}'
-        return f'{module}+{rva & ~0xFFF:X}'
+        return f'{module}+{rva:X}'
 
     return [[name(pc, index > 0) for index, pc in enumerate(stack)] for stack in stacks]
 
@@ -240,7 +326,7 @@ def aggregate(named):
         if not stack:
             continue
         exclusive[stack[0]] += 1
-        modules_ex[stack[0].split('+', 1)[0]] += 1
+        modules_ex[stack[0].split('!', 1)[0].split('+', 1)[0]] += 1
         for frame in set(stack):
             inclusive[frame] += 1
     total = len(named)
@@ -257,6 +343,7 @@ if __name__ == '__main__':
     parser.add_argument('--seconds', type=float, default=8)
     parser.add_argument('--rate', type=float, default=100)
     parser.add_argument('--depth', type=int, default=64)
+    parser.add_argument('--symbol-path', help='Additional directories containing exactly matching PDBs (semicolon-separated)')
     parser.add_argument('--exe', default=r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
@@ -265,12 +352,13 @@ if __name__ == '__main__':
     tids = find_threads(args.pid, args.prefix) if args.prefix else [args.tid or find_thread(args.pid, args.thread)]
     tid = tids[0]
     started = time.perf_counter()
-    stacks, mods, failures, suspended, symbols = sample_stacks(args.pid, tid, args.seconds, args.rate, args.depth, tids)
+    stacks, mods, failures, suspended, symbols = sample_stacks(args.pid, tid, args.seconds, args.rate, args.depth, tids, args.symbol_path)
     elapsed = time.perf_counter() - started
     named = symbolize(stacks, mods, pdata_starts(args.exe), Path(args.exe).name, symbols)
     value = dict(pid=args.pid, tid=tid, thread=args.thread, seconds=elapsed, failures=failures,
                  suspendedFraction=suspended / elapsed, threads=tids, owners=sample_stacks.owners, **aggregate(named),
-                 stacks=[' <- '.join(s[:24]) for s in named], callSites=[' <- '.join(s) for s in call_sites(stacks, mods, Path(args.exe).name)])
+                 stacks=[' <- '.join(s[:24]) for s in named], callSites=[' <- '.join(s) for s in call_sites(stacks, mods, Path(args.exe).name)],
+                 rawStacks=stacks, modules=mods, modulePaths=modules.paths, symbolSession=initialize_symbols.state)
     args.out.write_text(json.dumps(value, indent=1) + '\n', encoding='utf-8')
     print(json.dumps({key: value[key] for key in ('samples', 'failures', 'suspendedFraction')}, indent=1))
     for key, pct in value['inclusive'][:30]:

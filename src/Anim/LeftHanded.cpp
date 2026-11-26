@@ -27,7 +27,6 @@
 // rotation mirrors as S_parent^T * local * S, its parent-local offset as S_parent^T * offset.
 
 #include "Anim/LeftHanded.hpp"
-#include "Utils/DebugGate.hpp"
 #include "Anim/CharacterRig.hpp"
 #include "Anim/Cyberware.hpp"
 #include "Anim/VrikHook.hpp"
@@ -44,11 +43,11 @@ extern "C" __declspec(dllexport) extern int CyberpunkVR_CarryLeft;  // Anim/TwoH
 
 // Twins found when the rig was armed (fingers, then 1 for the hands), and the worst reflection residual among them
 // -- the largest entry by which a solved S missed its snapped permutation.
-extern "C" __declspec(dllexport) int   CyberpunkVR_DebugLeftHandedTwins = 0;
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugLeftHandedResidual = 0.0f;
+extern "C" __declspec(dllexport) extern int   CyberpunkVR_DebugLeftHandedTwins;      // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern float CyberpunkVR_DebugLeftHandedResidual;
 // How far each hand's fingers are curled off the reference pose, mean degrees: [0..1] left/right as the animation
 // left them, [2..3] as drawn after every finger layer.
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugFingerFlex[4] = {};
+extern "C" __declspec(dllexport) extern float CyberpunkVR_DebugFingerFlex[4];
 // Held up by the reload mod while the game reports a gun in each hand (src/Hooks/XInput.cpp).
 extern "C" volatile uint64_t CyberpunkVR_DualWieldUntil;
 
@@ -260,12 +259,6 @@ void LeftHandedArmRig(const char* const* names, int count) {
     CyberpunkVR_DebugLeftHandedTwins = g_fingerCount + 1;
     CyberpunkVR_DebugLeftHandedResidual = worst;
     const auto& h = g_hands.s.m;
-    // Once per distinct result: the twins are rebuilt on every rebind, the same each time.
-    static int lastFingers = -1;
-    static float lastWorst = -1.0f;
-    if (g_fingerCount == lastFingers && std::fabs(worst - lastWorst) < 1e-4f && !cvr::RuntimeDiagnosticsEnabled()) return;
-    lastFingers = g_fingerCount;
-    lastWorst = worst;
     Log("[left-handed] twins: hands, %d fingers; residual %.3f, mirror %.1f mm; S hand [%g %g %g|%g %g %g|%g %g %g]\n",
         g_fingerCount, worst, worstMirror * 1000.0f, h[0][0], h[0][1], h[0][2], h[1][0], h[1][1], h[1][2], h[2][0],
         h[2][1], h[2][2]);

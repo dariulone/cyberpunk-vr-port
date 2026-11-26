@@ -105,6 +105,7 @@ public func VRMeleeApplyEnhancedHit(hit: ref<gameHitEvent>) -> Void {
   while i >= 0 {
     ticket = this.vrMeleeEnhancedTickets[i];
     if !ticket.claimed && ticket.target == hit.target.GetEntityID() && ticket.weapon == weapon.GetItemID()
+      && definition == ticket.attack
       && ticket.attack.GetRecord().GetID() == definition.GetRecord().GetID()
       && now >= ticket.created && now - ticket.created <= 10.00 && sim >= ticket.createdSim && sim - ticket.createdSim <= 0.35 {
       ticket.claimed = true; hit.vrMeleeEnhancedTicket = ticket;
@@ -114,7 +115,8 @@ public func VRMeleeApplyEnhancedHit(hit: ref<gameHitEvent>) -> Void {
         ticket.combo = Min(this.vrMeleeComboCount + 1, 10);
       };
       fastThreshold = this.VRCyberwareKind(weapon) == 1 ? 4.00 : 6.00;
-      ticket.multiplier = this.vrMeleeEnhancedDisabled ? 1.00 : VrMeleeEnhancedMath.Multiplier(ticket.combo, ticket.speed, fastThreshold, ticket.twoHanded);
+      ticket.multiplier = this.vrMeleeEnhancedDisabled || (IsDefined((definition as Attack_GameEffect).vrBladeImpact) && (definition as Attack_GameEffect).vrBladeImpact.parentSerial != 0u)
+        ? 1.00 : VrMeleeEnhancedMath.Multiplier(ticket.combo, ticket.speed, fastThreshold, ticket.twoHanded);
       // Multiply every native damage channel once, before the game's variant,
       // armor, crit/perk calculation and hit/status/poise reactions.
       hit.attackComputed.MultAttackValue(ticket.multiplier);
@@ -131,11 +133,12 @@ public func VRMeleeApplyEnhancedHit(hit: ref<gameHitEvent>) -> Void {
 @addMethod(PlayerPuppet)
 public func VRMeleeConfirmEnhancedHit(hit: ref<gameHitEvent>, damage: Float) -> Void {
   let ticket = hit.vrMeleeEnhancedTicket;
-  if damage <= 0.00 || !IsDefined(ticket) || ticket.confirmed { return; };
+  if !(damage > 0.00) || hit.projectionPipeline || !IsDefined(ticket) || ticket.confirmed { return; };
+  if IsDefined((ticket.attack as Attack_GameEffect).vrBladeImpact) && !this.VRBladePublishHit(hit, damage) { return; };
   ticket.confirmed = true;
   this.vrMeleeConfirmedHits += 1;
   this.vrMeleeLastDealt = damage;
-  if !this.vrMeleeEnhancedDisabled {
+  if !this.vrMeleeEnhancedDisabled && (!IsDefined((ticket.attack as Attack_GameEffect).vrBladeImpact) || (ticket.attack as Attack_GameEffect).vrBladeImpact.parentSerial == 0u) {
     this.vrMeleeComboTarget = ticket.target;
     this.vrMeleeComboCount = ticket.combo;
     this.vrMeleeComboLastTime = VRMeleeRealTime();

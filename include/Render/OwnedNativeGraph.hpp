@@ -10,6 +10,52 @@ namespace cvr::stereo {
 // This is NOT a native allocator pool or a definition owner. Only the audited
 // synchronous sorter may mutate it. Async declaration/execution requires a
 // separate lease on original unique definition owners and native job consumers.
+#if CVR_RUST_VRIK
+// The graph: rust/crates/cvr-render/src/owned_native_graph.rs (tools/single_pass_tests/owned_native_graph_test runs its
+// cases against it in its Rust variant). Its buffers are Rust's; the header names them.
+namespace owned_native_graph_detail {
+struct RustGraph;struct RustHeld;
+struct RustSnapshot {const graph_snapshot::Node* nodes;size_t nodeCount;const graph_snapshot::Edge* edges;size_t edgeCount;};
+extern "C" {
+RustGraph* cvr_ong_new();
+void cvr_ong_free(RustGraph*);
+bool cvr_ong_create(RustGraph*,const graph_snapshot::Node*,size_t,const graph_snapshot::Edge*,size_t,uint32_t,
+    const std::array<uint32_t,2>*,size_t,const std::array<uint32_t,2>*,size_t);
+const uint8_t* cvr_ong_query(RustGraph*,uint32_t);
+RustHeld* cvr_ong_snapshot(const RustGraph*,RustSnapshot*);
+void cvr_ong_snapshot_free(RustHeld*);
+}
+}
+class OwnedNativeGraph {
+public:
+    using Edges=paired_frontier::Edges;
+    OwnedNativeGraph():rust_(owned_native_graph_detail::cvr_ong_new()){}
+    ~OwnedNativeGraph(){owned_native_graph_detail::cvr_ong_free(rust_);}
+    OwnedNativeGraph(const OwnedNativeGraph&)=delete;
+    OwnedNativeGraph& operator=(const OwnedNativeGraph&)=delete;
+    bool Create(const graph_snapshot::Snapshot& source,const std::array<Edges,2>& edges)try{
+        const auto cpu=paired_frontier::detail::Flat(edges[0]),order=paired_frontier::detail::Flat(edges[1]);
+        return owned_native_graph_detail::cvr_ong_create(rust_,source.nodes.data(),source.nodes.size(),source.edges.data(),
+            source.edges.size(),source.failure,cpu.data(),cpu.size(),order.data(),order.size());
+    }catch(...){return false;}
+    void* SortableData(){return const_cast<uint8_t*>(Query(0));}
+    const std::array<uint8_t,0x70>& Header()const{return *reinterpret_cast<const std::array<uint8_t,0x70>*>(Query(1));}
+    bool CompileReference(){return Query(2)!=nullptr;}
+    bool ValidateCompiled()const{return Query(3)!=nullptr;}
+    graph_snapshot::Snapshot Snapshot()const{
+        graph_snapshot::Snapshot out;owned_native_graph_detail::RustSnapshot lent{};
+        const auto held=owned_native_graph_detail::cvr_ong_snapshot(rust_,&lent);
+        if(!held){out.failure=1;return out;}
+        struct Release{owned_native_graph_detail::RustHeld* held;~Release(){owned_native_graph_detail::cvr_ong_snapshot_free(held);}}
+            release{held};
+        out.nodes.assign(lent.nodes,lent.nodes+lent.nodeCount);out.edges.assign(lent.edges,lent.edges+lent.edgeCount);return out;
+    }
+    bool SameSourceOrders()const{return Query(4)!=nullptr;}
+private:
+    const uint8_t* Query(uint32_t which)const{return owned_native_graph_detail::cvr_ong_query(rust_,which);}
+    owned_native_graph_detail::RustGraph* rust_;
+};
+#else
 class OwnedNativeGraph {
 public:
     using Edges=paired_frontier::Edges;
@@ -116,4 +162,5 @@ private:
     std::vector<uint32_t> order_,edgeOrder_;
     std::vector<std::array<uint32_t,6>> edgeData_;
 };
+#endif
 }

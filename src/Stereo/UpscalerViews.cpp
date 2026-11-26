@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // UpscalerViews -- one temporal-upscaler history per eye for the upscalers that keep a single
 // engine-wide context.
 //
@@ -34,15 +35,27 @@
 #include <mutex>
 #include <new>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
 extern "C" ID3D12Device* CyberpunkVR_GetGameDevice();
+#endif
 
 // 1 = the second eye uses its own context (default); 0 = both eyes share the engine's, as before.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_UpscalerPerEye = 1;
 // Per library (0 FSR 3.0, 1 FFX API, 2 XeSS): second contexts created, first-eye dispatches,
 // second-eye dispatches given their own context, failures (create or install).
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_UpscalerPerEyeStats[3][4]{};
+#endif
 
+#if CVR_RUST_VRIK
+// THE PER-EYE CONTEXTS ARE RUST'S (rust/crates/cvr-render/src/upscaler_views.rs): the switch and counters above, the
+// providers detour's registration and two services stay here.
+// The node dispatcher's view side on this thread, and framegen's capture of the upscaler inputs.
+// The Rust build registers these detours from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 namespace cvr::stereo::upscaler_views {
 namespace {
 enum Library { kFsr3, kFfxApi, kXess };
@@ -429,3 +442,5 @@ static __int64 __fastcall Detour_FfxApiProviders(int64_t* manager) {
 }
 CVR_DETOUR("[upscaler] FidelityFX API providers sub_142287A20", FFX_API_PROVIDERS_RVA, Detour_FfxApiProviders, g_orig_ffx_api_providers)
 }  // namespace cvr::detail
+#endif
+#endif

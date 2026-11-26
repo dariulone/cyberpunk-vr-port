@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // The first-person neck cap's skin (tools/neck_cap/make_neck_cap.py builds it and adds it to the player entities).
 //
 // The cap closes the body's neck opening, which the game leaves open in the first person (its own cap belongs to the
@@ -26,8 +27,10 @@
 #include <cstring>
 #include <string>
 
+// The Rust build's native is rust/crates/cvr-rig/src/vrik/neck_cap.rs.
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
-extern float* g_pSharedHands;
+extern "C" float* g_pSharedHands;   // Anim/VrikState.hpp: C linkage
 
 namespace {
 constexpr const char* kCap = "vrp_neck_cap";
@@ -154,3 +157,5 @@ void VRNeckCapSync(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, int32_t* 
     }
     if (out) *out = result;
 }
+#endif
+#endif

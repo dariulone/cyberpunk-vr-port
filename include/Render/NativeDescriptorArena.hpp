@@ -9,6 +9,37 @@ enum class Failure:UINT {None,Arguments,Code,Recording,State,Heap,Table,Capacity
 struct Range {UINT first{},count{},before{},after{};D3D12_CPU_DESCRIPTOR_HANDLE cpu{};D3D12_GPU_DESCRIPTOR_HANDLE gpu{};};
 namespace detail {
 struct Ring {uint64_t address{},heap{},capacity{},head{},tail{},outstanding{};};
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/descriptor_arena.rs (tools/single_pass_tests/native_descriptor_arena_test runs
+// its cases against them in its Rust variant).
+extern "C" {
+bool cvr_da_valid_ring(const Ring*,uint64_t,UINT);
+bool cvr_da_ring_result(const Ring*,const Ring*,UINT,UINT,uint64_t*);
+bool cvr_da_plan(const camera_upload::flush_state::RustSnapshotView*,UINT,UINT,UINT,UINT64,UINT64,Range*);
+bool cvr_da_advanced(const camera_upload::flush_state::RustSnapshotView*,const camera_upload::flush_state::RustSnapshotView*,const Range*);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool ValidRing(const Ring& ring,uint64_t heap,UINT heapCount){
+    static_assert(sizeof(Ring)==48 && sizeof(Range)==32,"mirrored by descriptor_arena.rs");
+    return cvr_da_valid_ring(&ring,heap,heapCount);
+}
+inline bool RingResult(const Ring& before,const Ring& after,UINT first,UINT count,uint64_t& absolute){
+    return cvr_da_ring_result(&before,&after,first,count,&absolute);
+}
+inline bool Plan(const camera_upload::flush_state::Snapshot& state,UINT count,UINT heapCount,UINT stride,
+    UINT64 cpu,UINT64 gpu,Range& result){
+    std::vector<camera_upload::flush_state::RustTableView> tables;
+    const auto view=camera_upload::flush_state::detail::View(state,tables);
+    return cvr_da_plan(&view,count,heapCount,stride,cpu,gpu,&result);
+}
+inline bool Advanced(const camera_upload::flush_state::Snapshot& before,const camera_upload::flush_state::Snapshot& after,const Range& range){
+    std::vector<camera_upload::flush_state::RustTableView> beforeTables,afterTables;
+    const auto a=camera_upload::flush_state::detail::View(before,beforeTables);
+    const auto b=camera_upload::flush_state::detail::View(after,afterTables);
+    return cvr_da_advanced(&a,&b,&range);
+}
+#else
 inline bool ValidRing(const Ring& ring,uint64_t heap,UINT heapCount){
     return ring.address && !(ring.address&7) && ring.heap==heap && heap && ring.capacity && ring.capacity<=heapCount &&
         ring.head>=ring.tail && ring.head-ring.tail<=ring.capacity && ring.outstanding && ring.outstanding<=1048576;
@@ -40,6 +71,7 @@ inline bool Advanced(const camera_upload::flush_state::Snapshot& before,const ca
         range.before==before.cursor && UINT64(range.before)+range.count==range.after &&
         range.after<=before.capacity && after==expected;
 }
+#endif
 }
 struct Tables {
     Microsoft::WRL::ComPtr<IUnknown> owner;

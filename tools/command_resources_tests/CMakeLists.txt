@@ -7,3 +7,17 @@ target_compile_features(command_resources_tests PRIVATE cxx_std_20)
 target_compile_definitions(command_resources_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(command_resources_tests PRIVATE d3d12 dxgi)
 add_test(NAME command_resources_lifetime COMMAND command_resources_tests)
+
+# The same program against the Rust tracker (rust/crates/cvr-gpu through cvr_rust.lib): include/Render/CommandResources.hpp
+# calls it when CVR_RUST_VRIK is set, as in the DLL.
+option(CVR_COMMAND_RESOURCES_TESTS_RUST "Also run the lifetime test against the Rust tracker" ON)
+if(CVR_COMMAND_RESOURCES_TESTS_RUST)
+    include(../../cmake/RustStaticlib.cmake)
+    add_executable(command_resources_tests_rust main.cpp)
+    target_include_directories(command_resources_tests_rust PRIVATE ../../include)
+    target_compile_features(command_resources_tests_rust PRIVATE cxx_std_20)
+    target_compile_definitions(command_resources_tests_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    target_link_libraries(command_resources_tests_rust PRIVATE d3d12 dxgi)
+    cvr_link_rust(command_resources_tests_rust)
+    add_test(NAME command_resources_lifetime_rust COMMAND command_resources_tests_rust)
+endif()

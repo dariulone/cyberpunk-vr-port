@@ -1,0 +1,35 @@
+# main's C++ since e53e511f (merged into the Rust branch in 85c77899f) that no build of this branch compiles yet: each
+# file's work is to be ported to Rust (docs/rust-migration/main-sync.md); main's own build is the reference meanwhile.
+# One repository path a line. A file whose Rust port has landed stays here all the same (this branch's C++ build never had
+# main's wiring of it): src/Anim/RigPoseWrites.cpp (cvr-rig pose_rig.rs), src/Anim/OpticHinge.cpp (cvr-rig optic_hinge.rs).
+src/Anim/BladeContactNative.cpp
+src/Anim/BladeContactPose.cpp
+src/Anim/BladeContactState.cpp
+src/Anim/BladeMeshBlob.cpp
+src/Anim/BladeMeshCut.cpp
+src/Anim/BladeMeshInstance.cpp
+src/Anim/FingerContact.cpp
+src/Anim/NpcArmGrip.cpp
+src/Anim/OpticHinge.cpp
+src/Anim/RigPoseWrites.cpp
+src/Anim/VehicleSteerCurve.cpp
+src/Framegen/AnrFrameGen.cpp
+src/Framegen/Fsr3.cpp
+src/Framegen/Fsr3Dilate.cpp
+src/Framegen/Fsr3Extrapolate.cpp
+src/Hooks/FarInlineHook.cpp
+src/Natives/DebugView.cpp
+src/Natives/DynamicTextureOrigins.cpp
+src/Natives/FrameOrderProbe.cpp
+src/Natives/HairDangle.cpp
+src/Natives/HeldBody.cpp
+src/Natives/MenuTooltip.cpp
+src/Natives/NightCoopBridge.cpp
+src/Natives/PhysHands.cpp
+src/Natives/PhysXStep.cpp
+src/Natives/VehicleHands.cpp
+src/Render/NeuralRender.cpp
+src/Render/ResourceLifetimeCensus.cpp
+src/Runtimes/HapticRouting.cpp
+src/Runtimes/OpenXRVehicleAudioHaptics.cpp
+src/Stereo/DebugDrawStereo.cpp

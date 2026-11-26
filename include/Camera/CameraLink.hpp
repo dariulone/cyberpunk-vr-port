@@ -123,6 +123,8 @@ bool MainEyeCentreReadWorld(const float eyeOrCentre[3], float centre[3], float b
 // consumers. Only physical head position is replaced by a consumer's own sample.
 void AnchorRecipePublish(const AnchorRecipe& recipe);
 bool AnchorRecipeRead(AnchorRecipe* recipe);
+// Forget the published recipe: AnchorRecipeRead fails until the next publication.
+void AnchorRecipeClear();
 float BodyAnchorYaw(float fallback);
 
 // ---- the view frame handed to the solve --------------------------------------------------------

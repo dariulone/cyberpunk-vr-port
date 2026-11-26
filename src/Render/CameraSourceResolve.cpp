@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // Camera-scope source resolve -- see PhysicalOpticsShaders.hpp (camera::) and
 // camera_source_resolve_cs.hlsl.
 //
@@ -11,6 +12,10 @@
 // -- before anything that samples it can run. The engine's lists are never
 // touched.
 #include "Render/PhysicalOpticsShaders.hpp"
+#if CVR_RUST_VRIK
+// The resolve is rust/crates/cvr-gpu/src/optics_camera.rs; its exports (the moved exports' modules) are attached by
+// rust/crates/cvr-render/src/export_attach.rs as the plugin loads. Nothing of this file remains in the Rust build.
+#else
 #include "Render/RenderProbeScope.hpp"
 #include "Render/ViewCameraLayout.hpp"
 #include <windows.h>
@@ -381,3 +386,5 @@ void Execute(ID3D12CommandQueue* queue,UINT n,ID3D12CommandList* const* lists,so
     if(n>start)source::Execute(queue,n-start,lists+start,execute);
 }
 }
+#endif
+#endif

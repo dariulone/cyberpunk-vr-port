@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: patchday <patchday@local>
+Date: Thu, 22 Oct 2026 16:48:33 +0300
+Subject: [PATCH 2/4] 2.5 (3.0.88): hand-written natives (inkWidget, CMesh,
+ vehicleBaseObject, inkCharacterEvent, inkControllerProcessor), Natives.cpp
+ list
+
+---
+ include/RED4ext/Scripting/Natives/CMesh.hpp    |  4 ++--
+ .../Scripting/Natives/inkCharacterEvent.hpp    |  3 ++-
+ .../Natives/inkControllerProcessor.hpp         |  5 +++--
+ .../RED4ext/Scripting/Natives/inkWidget.hpp    |  3 ++-
+ .../Scripting/Natives/vehicleBaseObject.hpp    | 18 ++++++++++--------
+ src/Scripting/Natives.cpp                      |  3 ---
+ 6 files changed, 19 insertions(+), 17 deletions(-)
+
+diff --git a/include/RED4ext/Scripting/Natives/CMesh.hpp b/include/RED4ext/Scripting/Natives/CMesh.hpp
+index 56fc5df9..253cb252 100644
+--- a/include/RED4ext/Scripting/Natives/CMesh.hpp
++++ b/include/RED4ext/Scripting/Natives/CMesh.hpp
+@@ -62,7 +62,7 @@ struct __declspec(align(0x10)) CMesh : res::StreamedResource
+     bool isPlayerShadowMesh;                                    // 20B
+     uint8_t unk20C[0x219 - 0x20C];                              // 20C
+     ERenderObjectType objectType;                               // 219
+-    uint8_t unk21A[0x230 - 0x21A];                              // 21A
++    uint8_t unk21A[0x220 - 0x21A];                              // 21A - 2.5 (3.0.88) shrank the class by 0x10
+ };
+-RED4EXT_ASSERT_SIZE(CMesh, 0x230);
++RED4EXT_ASSERT_SIZE(CMesh, 0x220);
+ } // namespace RED4ext
+diff --git a/include/RED4ext/Scripting/Natives/inkCharacterEvent.hpp b/include/RED4ext/Scripting/Natives/inkCharacterEvent.hpp
+index d251c935..e6a713e4 100644
+--- a/include/RED4ext/Scripting/Natives/inkCharacterEvent.hpp
++++ b/include/RED4ext/Scripting/Natives/inkCharacterEvent.hpp
+@@ -32,7 +32,8 @@ struct CharacterEvent : InputEvent
+     EInputAction action;        // 90
+     char character;             // 94
+     inkCharacterEventType type; // 95
++    uint8_t unk96[0xA0 - 0x96]; // 96 - 2.5 (3.0.88) grew the class by 8; action/character/type NOT re-verified
+ };
+-RED4EXT_ASSERT_SIZE(CharacterEvent, 0x98);
++RED4EXT_ASSERT_SIZE(CharacterEvent, 0xA0);
+ } // namespace ink
+ } // namespace RED4ext
+diff --git a/include/RED4ext/Scripting/Natives/inkControllerProcessor.hpp b/include/RED4ext/Scripting/Natives/inkControllerProcessor.hpp
+index b0e3688d..1013e484 100644
+--- a/include/RED4ext/Scripting/Natives/inkControllerProcessor.hpp
++++ b/include/RED4ext/Scripting/Natives/inkControllerProcessor.hpp
+@@ -15,8 +15,9 @@ struct ControllerProcessor : ISerializable
+     uint64_t unk30;                                  // 30
+     DynArray<void*> unk38;                           // 38
+     uint64_t unk48;                                  // 48
+-    DynArray<Handle<IWidgetController>> controllers; // 50
++    DynArray<Handle<IWidgetController>> controllers; // 50 - NOT re-verified on 2.5
++    uint8_t unk60[0x90 - 0x60];                      // 60 - 2.5 (3.0.88) grew the class by 0x30
+ };
+-RED4EXT_ASSERT_SIZE(ControllerProcessor, 0x60);
++RED4EXT_ASSERT_SIZE(ControllerProcessor, 0x90);
+ RED4EXT_ASSERT_OFFSET(ControllerProcessor, controllers, 0x50);
+ } // namespace RED4ext::ink
+diff --git a/include/RED4ext/Scripting/Natives/inkWidget.hpp b/include/RED4ext/Scripting/Natives/inkWidget.hpp
+index 40ff0f1a..033b7e55 100644
+--- a/include/RED4ext/Scripting/Natives/inkWidget.hpp
++++ b/include/RED4ext/Scripting/Natives/inkWidget.hpp
+@@ -57,6 +57,7 @@ struct Widget : IScriptable
+     bool isInteractive;                                           // 1FB
+     bool affectsLayoutWhenHidden;                                 // 1FC
+     uint8_t flags;                                                // 1FD
++    uint8_t unk1FE[0x210 - 0x1FE];                                // 1FE - 2.5 (3.0.88) grew the class by 0x10
+ };
+-RED4EXT_ASSERT_SIZE(Widget, 0x200);
++RED4EXT_ASSERT_SIZE(Widget, 0x210);
+ } // namespace RED4ext::ink
+diff --git a/include/RED4ext/Scripting/Natives/vehicleBaseObject.hpp b/include/RED4ext/Scripting/Natives/vehicleBaseObject.hpp
+index 7d85a4a1..c0dc6c84 100644
+--- a/include/RED4ext/Scripting/Natives/vehicleBaseObject.hpp
++++ b/include/RED4ext/Scripting/Natives/vehicleBaseObject.hpp
+@@ -28,20 +28,22 @@ struct BaseObject : game::Object
+     bool isReversing;              // 2A3
+     uint8_t unk2A4[0x2BC - 0x2A4]; // 2A4
+     float burnout;                 // 2BC
+-    uint8_t unk2C0[0x3A0 - 0x2C0]; // 2C0
+-    Ref<AI::Archetype> archetype;  // 3A0
+-    uint8_t unk3B8[0x6D2 - 0x3B8]; // 3B8
+-    bool isVehicleOnStateLocked;   // 6D2
+-    uint8_t unk6D3[0xBA0 - 0x6D3]; // 6D3
++    // 2.5 (3.0.88): the RTTI fields below moved (archetype +0x10, isVehicleOnStateLocked +0x20); the hand-reversed
++    // ones above (isOnGround .. burnout) are still at their 2.31 offsets and NOT re-verified on 2.5.
++    uint8_t unk2C0[0x3B0 - 0x2C0]; // 2C0
++    Ref<AI::Archetype> archetype;  // 3B0
++    uint8_t unk3C8[0x6F2 - 0x3C8]; // 3C8
++    bool isVehicleOnStateLocked;   // 6F2
++    uint8_t unk6F3[0xBC0 - 0x6F3]; // 6F3
+ };
+-RED4EXT_ASSERT_SIZE(BaseObject, 0xBA0);
++RED4EXT_ASSERT_SIZE(BaseObject, 0xBC0);
+ RED4EXT_ASSERT_OFFSET(BaseObject, isOnGround, 0x25C);
+ RED4EXT_ASSERT_OFFSET(BaseObject, acceleration, 0x264);
+ RED4EXT_ASSERT_OFFSET(BaseObject, deceleration, 0x268);
+ RED4EXT_ASSERT_OFFSET(BaseObject, isReversing, 0x2A3);
+ RED4EXT_ASSERT_OFFSET(BaseObject, burnout, 0x2BC);
+-RED4EXT_ASSERT_OFFSET(BaseObject, archetype, 0x3A0);
+-RED4EXT_ASSERT_OFFSET(BaseObject, isVehicleOnStateLocked, 0x6D2);
++RED4EXT_ASSERT_OFFSET(BaseObject, archetype, 0x3B0);
++RED4EXT_ASSERT_OFFSET(BaseObject, isVehicleOnStateLocked, 0x6F2);
+ } // namespace vehicle
+ using vehicleBaseObject = vehicle::BaseObject;
+ using VehicleObject = vehicle::BaseObject;
+diff --git a/src/Scripting/Natives.cpp b/src/Scripting/Natives.cpp
+index ef860519..905163d7 100644
+--- a/src/Scripting/Natives.cpp
++++ b/src/Scripting/Natives.cpp
+@@ -2064,7 +2064,6 @@
+ #include <RED4ext/Scripting/Natives/Generated/ink/LoadingLayerDefinition.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/ink/LocalizedBink.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/ink/Margin.hpp>
+-#include <RED4ext/Scripting/Natives/Generated/ink/MarketingConsentPopupTypeResult.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/ink/MaskDataSource.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/ink/MaskWidgetReference.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/ink/MenuEntry.hpp>
+@@ -3046,7 +3045,6 @@
+ #include <RED4ext/Scripting/Natives/Generated/world/RainIntensity.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/RelativeNodePath.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/RelativeNodePathElement.hpp>
+-#include <RED4ext/Scripting/Natives/Generated/world/RenderProxyTransformBuffer.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/RoadMaterial.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/RoadMaterialInfo.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/RotatingMeshNodeAxis.hpp>
+@@ -3093,7 +3091,6 @@
+ #include <RED4ext/Scripting/Natives/Generated/world/TrafficSpotDefinition.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/TrafficSpotDirection.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/TrafficStaticCollisionSphere.hpp>
+-#include <RED4ext/Scripting/Natives/Generated/world/TransformBuffer.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/TriggerAreaNode.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/TriggerAreaNodeInstance.hpp>
+ #include <RED4ext/Scripting/Natives/Generated/world/WaterPatchNodeType.hpp>

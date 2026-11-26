@@ -1,5 +1,8 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // Pictures hung in the tracking space, drawn into an eye's image (Render/SpaceQuad.hpp).
 #include "Render/SpaceQuad.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's drawer; the Rust build's is rust/crates/cvr-gpu/src/space_quad.rs (the header calls it).
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cmath>
@@ -308,3 +311,5 @@ void SpaceQuads::Shutdown() {
     failed_ = false;
 }
 }  // namespace cvr::render
+#endif
+#endif

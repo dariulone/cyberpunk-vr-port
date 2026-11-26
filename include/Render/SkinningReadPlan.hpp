@@ -11,8 +11,25 @@
 namespace cvr::stereo::skinning {
 inline constexpr std::string_view DepthShader="906dcb2a6f034360c3b1d00067dbf12b9f6ee79a9789e73fae258688dee00d0f";
 inline constexpr std::string_view AlphaShader="02f81c75e38964877d832f7378a39251132ab93580dfe89017e65d01fc22bc4c";
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/skinning_read_plan.rs (tools/single_pass_tests/skinning_read_plan_test runs its
+// cases against them in its Rust variant).
+struct BoneRange;struct RustBoneRanges;
+extern "C" {
+uint32_t cvr_sk_depth_contract(const char*,size_t,const D3D12_INPUT_LAYOUT_DESC*);
+bool cvr_sk_constants(uint32_t,const uint8_t*,const uint8_t*);
+RustBoneRanges* cvr_sk_bone_ranges(uint32_t,const uint8_t*,size_t,const D3D12_SHADER_RESOURCE_VIEW_DESC*,uint64_t);
+const BoneRange* cvr_sk_ranges(const RustBoneRanges*,size_t*);
+void cvr_sk_ranges_free(RustBoneRanges*);
+}
+#endif
 // Contracts 1 (depth) and 2 (alpha depth) identify exact native VS/input pairs.
 // Contract 2 also consumes UV/normal/tangent inputs; its PS is checked separately.
+#if CVR_RUST_VRIK
+inline uint32_t DepthContract(std::string_view shader,const D3D12_INPUT_LAYOUT_DESC& layout) {
+    return cvr_sk_depth_contract(shader.data(),shader.size(),&layout);
+}
+#else
 inline uint32_t DepthContract(std::string_view shader,const D3D12_INPUT_LAYOUT_DESC& layout) {
     const uint32_t contract=shader==DepthShader?1u:shader==AlphaShader?2u:0u;
     if(!contract || !layout.pInputElementDescs || !layout.NumElements || layout.NumElements>32)return 0;
@@ -46,8 +63,18 @@ inline uint32_t DepthContract(std::string_view shader,const D3D12_INPUT_LAYOUT_D
     }
     return contract;
 }
+#endif
 // Constant words read by both contracts. A zero cull count bypasses b8, but the
 // modifier at byte 24 still selects pre/post-cull placement.
+#if CVR_RUST_VRIK
+inline bool ZeroCull(const std::array<uint8_t,448>& modifiers){return cvr_sk_constants(0,modifiers.data(),nullptr);}
+inline bool SameMaterial(const std::array<uint8_t,112>& first,const std::array<uint8_t,112>& second){
+    return cvr_sk_constants(1,first.data(),second.data());
+}
+inline bool SameModifiers(const std::array<uint8_t,448>& first,const std::array<uint8_t,448>& second){
+    return cvr_sk_constants(2,first.data(),second.data());
+}
+#else
 inline bool ZeroCull(const std::array<uint8_t,448>& modifiers){
     uint32_t count{};std::memcpy(&count,modifiers.data()+16,4);return (count&0x7fffffff)==0;
 }
@@ -60,10 +87,22 @@ inline bool SameModifiers(const std::array<uint8_t,448>& first,const std::array<
     for(const auto offset:{16u,24u,32u})if(std::memcmp(first.data()+offset,second.data()+offset,4))return false;
     return true;
 }
+#endif
 struct BoneRange {uint64_t offset{},bytes{};bool operator==(const BoneRange&)const=default;};
 // Covers all addresses base + index*stride + {0,16,32} used by both contracts.
 // The caller supplies complete 64-byte records from the actual instance binding.
 // Equality of these ranges is still a separate CPU/GPU content proof.
+#if CVR_RUST_VRIK
+inline bool BoneRanges(uint32_t contract,std::span<const uint8_t> instances,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,
+                       uint64_t resourceBytes,std::vector<BoneRange>& output) {
+    static_assert(sizeof(BoneRange)==16,"mirrored by skinning_read_plan.rs");
+    output.clear();
+    const auto ranges=cvr_sk_bone_ranges(contract,instances.data(),instances.size(),&view,resourceBytes);
+    if(!ranges)return false;
+    struct Release{RustBoneRanges* ranges;~Release(){cvr_sk_ranges_free(ranges);}}release{ranges};
+    size_t count{};const auto data=cvr_sk_ranges(ranges,&count);output.assign(data,data+count);return true;
+}
+#else
 inline bool BoneRanges(uint32_t contract,std::span<const uint8_t> instances,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,
                        uint64_t resourceBytes,std::vector<BoneRange>& output) {
     output.clear();
@@ -88,4 +127,5 @@ inline bool BoneRanges(uint32_t contract,std::span<const uint8_t> instances,cons
     }
     return true;
 }
+#endif
 }

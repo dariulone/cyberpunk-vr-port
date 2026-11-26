@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Hooks/Hook.hpp"
 #include "Core/Paths.hpp"
 #include "Hooks/AftermathDiagnostics.hpp"
@@ -12,6 +13,12 @@
 #include <unordered_map>
 #include <array>
 
+#if CVR_RUST_VRIK
+// The two hooks, their gate and the resource trace are rust/crates/cvr-gpu/src/gpu_diag.rs; the registration stays.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK_IF("AftermathDiagnostics", cvr::hooks::Stage::PreDevice, 5, cvr_hook_aftermath_install, cvr_hook_aftermath_wanted);
+#endif
+#else
 extern void Log(const char* fmt, ...);
 
 namespace {
@@ -184,3 +191,5 @@ void cvr::diagnostics::ObserveResourceCreation(ID3D12Resource* resource, const D
 
 // No marker file: no hook, no SDK/driver setting change, no per-frame cost.
 CVR_HOOK_IF("AftermathDiagnostics", cvr::hooks::Stage::PreDevice, 5, Install, Requested);
+#endif
+#endif

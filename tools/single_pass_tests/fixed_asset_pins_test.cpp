@@ -10,7 +10,7 @@ static void Require(bool value){if(!value)throw std::runtime_error("fixed asset 
 struct Fixture {
     static constexpr uint64_t Base=0x140000000,Registry=0x30000000,Lock=Registry+0x2F180,Record=Registry+0x2F1D8;
     static constexpr uint64_t Resource=0x90000,Allocation=0xA0000,Allocator=0xB0000,Pimpl=0xC0000;
-    static constexpr uint64_t Table=Registry+0xC97F20;
+    static constexpr uint64_t Table=Registry+0xCEBF30;
     std::map<uint64_t,uint8_t> memory;
     std::vector<unsigned> events;
     unsigned retains{},releases{},unlocks{},ownedAllocator{},ownedAllocation{},outsideReleases{};
@@ -26,7 +26,7 @@ struct Fixture {
         return result;
     }
     Fixture(){
-        Put(Base+0x3438A28,Registry);Put(Registry+1,uint8_t(0));Put(Registry+0x2F1C0,Lock);Put(Lock,uint8_t(0));
+        Put(Base+0x3BCDCA8,Registry);Put(Registry+1,uint8_t(0));Put(Registry+0x2F1C0,Lock);Put(Lock,uint8_t(0));
         Put(Record-8,int32_t(3));Put(Record,std::array<uint8_t,0x58>{});Put(Record,Resource);
         Put(Record+8,uint8_t(1));Put(Record+0x10,Allocation);Put(Record+0x48,d::ShaderReads);Put(Record+0x56,uint16_t(0x41));
         Put(Table,Lock);Put(Table+8,uint32_t(32));
@@ -35,9 +35,9 @@ struct Fixture {
         Put(Allocation+8,uint32_t(1));Put(Allocation+0x10,Pimpl);Put(Allocation+0x18,uint64_t(0x10000));
         Put(Allocation+0x28,Resource);Put(Allocation+0x60,uint32_t(0));
         Put(Allocator,std::array<uint8_t,0x18>{});Put(Allocator,Base+source_cbv_details::detail::AllocatorVtable);
-        Put(Allocator+8,uint32_t(1));Put(Allocator+0x10,Pimpl);Put(Registry+0x13BC540,Allocator);
-        constexpr std::array<uint64_t,5> allocationMethods{0x2A462D0,0x18E9720,0x8780A4,0x878238,0x8780C8};
-        constexpr std::array<uint64_t,5> allocatorMethods{0x2A462D0,0x18E9720,0x8780A4,0x1892658,0x18925EC};
+        Put(Allocator+8,uint32_t(1));Put(Allocator+0x10,Pimpl);Put(Registry+0x1410540,Allocator);
+        constexpr std::array<uint64_t,5> allocationMethods{0x2FAC534,0x2FAAF80,0x348220,0x3483A4,0x348244};
+        constexpr std::array<uint64_t,5> allocatorMethods{0x2FAC534,0x2FAAF80,0x348220,0x18F3FB4,0x18F3F48};
         for(size_t i=0;i<5;++i){Put(Base+source_cbv_details::detail::AllocationVtable+i*8,Base+allocationMethods[i]);
             Put(Base+source_cbv_details::detail::AllocatorVtable+i*8,Base+allocatorMethods[i]);}
     }

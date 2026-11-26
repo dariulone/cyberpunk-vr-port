@@ -31,6 +31,26 @@ inline constexpr Profile End{0x36D1C78,0x33D510,0x8E7E38,32,7};
 inline constexpr std::array<Profile,ChildCount> Pattern{Setup,Bind,Render,Special,Unbind,End,Setup,Bind,Render,Unbind,End};
 inline bool Address(uint64_t at,uint64_t bytes){return at && !(at&7) && at<=UINT64_MAX-bytes;}
 template<class T,size_t N>T Field(const std::array<uint8_t,N>& bytes,size_t offset){return graph_snapshot::Field<T>(bytes,offset);}
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/scene_sections.rs (tools/single_pass_tests/native_scene_sections_test runs its
+// cases against them in its Rust variant). Capture keeps its order of reads and only orchestrates them; the profiles
+// above stay for the fixtures.
+struct RustObservation {Header header;definition_tree::NativeHandle handles[ChildCount];Child children[ChildCount];};
+struct RustCapture {RustObservation observation;uint32_t root,failure;};
+static_assert(sizeof(definition_tree::NativeHandle)==16 && sizeof(RustObservation)==1112 && sizeof(RustCapture)==1120,
+    "mirrored by scene_sections.rs");
+extern "C" {
+bool cvr_ss_capture(const graph_snapshot::Node*,const definition_tree::RustView*,bool,uint64_t,bool,ReadMemory,RustCapture*);
+bool cvr_ss_recheck(const graph_snapshot::Node*,const definition_tree::RustView*,bool,uint64_t,bool,uint32_t,ReadMemory,
+    const RustObservation*,uint32_t*);
+bool cvr_ss_render(const stage_definition::Header*,const stage_definition::Stage*,size_t,bool,uint64_t,bool,const std::array<uint8_t,32>*);
+}
+// detail::Stages alone: the header against its own prefix.
+inline bool Stages(const stage_definition::Snapshot& snapshot,uint64_t base,bool late){
+    std::array<uint8_t,32> prefix{};std::copy_n(snapshot.RawHeader().begin(),prefix.size(),prefix.begin());
+    return cvr_ss_render(&snapshot.RawHeader(),snapshot.Stages().data(),snapshot.Stages().size(),snapshot.Ready(),base,late,&prefix);
+}
+#else
 inline bool Stages(const stage_definition::Snapshot& snapshot,uint64_t base,bool late){
     if(!snapshot.Ready() || snapshot.Stages().size()!=(late?4u:2u))return false;
     const auto& header=snapshot.RawHeader();
@@ -47,12 +67,36 @@ inline bool Stages(const stage_definition::Snapshot& snapshot,uint64_t base,bool
     }
     return true;
 }
+#endif
 }
 // Source-bound section PLAN, not a native clone or execution receipt. Exact
 // ordered handles preserve multiplicity, including shared setup objects. The
 // caller must hold original definition owners throughout Capture/MatchesBefore.
 class Snapshot {
 public:
+#if CVR_RUST_VRIK
+    bool Capture(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree,ReadMemory read)try{
+        *this={};
+        const auto view=tree.RustRecords();const auto base=tree.ImageBase();detail::RustCapture seen{};
+        if(!detail::cvr_ss_capture(&graph,&view,tree.Ready(),base,tree.LayoutGuarded(),read,&seen)){failure_=Failure(seen.failure);return false;}
+        const auto& node=tree.Nodes()[seen.root];
+        std::array<stage_definition::Snapshot,2> render;
+        for(uint32_t i=0;i<2;++i){const auto slot=i?8u:2u;const auto& handle=tree.Handles()[node.firstHandle+slot];
+            failure_=Failure::Stages;
+            if(!render[i].Capture(graph,tree,handle.child,read) ||
+                !detail::cvr_ss_render(&render[i].RawHeader(),render[i].Stages().data(),render[i].Stages().size(),render[i].Ready(),base,i!=0,
+                    &seen.observation.children[slot].rawPrefix))return false;
+        }
+        uint32_t failure{};
+        const auto same=detail::cvr_ss_recheck(&graph,&view,tree.Ready(),base,tree.LayoutGuarded(),seen.root,read,&seen.observation,&failure);
+        failure_=Failure(failure);
+        if(!same || !render[0].MatchesBefore(read) || !render[1].MatchesBefore(read))return false;
+        graph_=graph;observed_.header=seen.observation.header;
+        observed_.handles.assign(std::begin(seen.observation.handles),std::end(seen.observation.handles));
+        observed_.children.assign(std::begin(seen.observation.children),std::end(seen.observation.children));render_=std::move(render);
+        tree_=std::make_shared<const definition_tree::Snapshot>(tree);ready_=true;failure_=Failure::None;return true;
+    }catch(...){*this={};failure_=Failure::Allocation;return false;}
+#else
     bool Capture(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree,ReadMemory read)try{
         *this={};failure_=Failure::Arguments;
         if(!read || !tree.Ready() || !tree.ImageBase() || tree.ImageBase()>UINT64_MAX-0x3BCDCA8)return false;
@@ -95,6 +139,7 @@ public:
         graph_=graph;observed_=std::move(second);render_=std::move(render);
         tree_=std::make_shared<const definition_tree::Snapshot>(tree);ready_=true;failure_=Failure::None;return true;
     }catch(...){*this={};failure_=Failure::Allocation;return false;}
+#endif
     bool MatchesBefore(ReadMemory read)const{
         if(!ready_ || !tree_)return false;Snapshot current;
         return current.Capture(graph_,*tree_,read) && current.observed_==observed_ &&
@@ -117,6 +162,7 @@ private:
         Header header{};std::vector<definition_tree::NativeHandle> handles;std::vector<Child> children;
         bool operator==(const Observation&)const=default;
     };
+#if !CVR_RUST_VRIK
     bool ReadOnce(const graph_snapshot::Node& graph,const definition_tree::Snapshot& tree,uint32_t root,ReadMemory read,Observation& out){
         out={};const auto base=tree.ImageBase();const auto& node=tree.Nodes()[root];const auto& array=tree.Arrays()[node.array];
         failure_=Failure::Read;
@@ -150,6 +196,7 @@ private:
         }
         return true;
     }
+#endif
     graph_snapshot::Node graph_;Observation observed_;
     std::array<stage_definition::Snapshot,2> render_;
     std::shared_ptr<const definition_tree::Snapshot> tree_;

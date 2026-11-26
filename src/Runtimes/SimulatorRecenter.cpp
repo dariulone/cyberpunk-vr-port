@@ -1,5 +1,10 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Runtimes/SimulatorRecenter.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+
+#if CVR_RUST_VRIK
+// The bridge is rust/crates/cvr-xr/src/simulator_recenter.rs, with the external pose reset's gate.
+#else
 #include <windows.h>
 #include <atomic>
 #include <cwchar>
@@ -83,3 +88,5 @@ void RemoveSimulatorRecenterHook() {
     s_window.store(nullptr, std::memory_order_release);
     // Keep the chain target valid for any callback that was already dispatched.
 }
+#endif
+#endif

@@ -1,0 +1,24 @@
+UpdateCTestConfiguration  from :C:/Users/dariulone/Desktop/CyberpunkVRPort/build/attachment-recoil-check/tests/DartConfiguration.tcl
+Test project C:/Users/dariulone/Desktop/CyberpunkVRPort/build/attachment-recoil-check/tests
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 2
+    Start 2: vrik_attachment_recoil
+
+2: Test command: C:\Users\dariulone\Desktop\CyberpunkVRPort\build\attachment-recoil-check\tests\Release\attachment_recoil_test.exe
+2: Working Directory: C:/Users/dariulone/Desktop/CyberpunkVRPort/build/attachment-recoil-check/tests
+2: Test timeout computed to be: 10000000
+2: rifle_single bare_m=0.027730897 brake_m=0.022184718 travel_ratio=0.800000012 bare_rad=0.034726672 brake_rad=0.027781339 rise_ratio=0.800000072
+2: rifle_supported bare_m=0.016638540 brake_m=0.013310832 travel_ratio=0.800000012 bare_rad=0.015974268 brake_rad=0.012779415 rise_ratio=0.800000012
+1/1 Test #2: vrik_attachment_recoil ...........   Passed    0.10 sec
+
+The following tests passed:
+	vrik_attachment_recoil
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.14 sec

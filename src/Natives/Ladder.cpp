@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's natives; the Rust build's are in rust/crates/cvr-rig/src/vrik/ladder_input.rs.
 #include "Natives/NativeFunctions.hpp"
 #include "Hooks/LadderInput.hpp"
 #include <RED4ext/RED4ext.hpp>
@@ -49,3 +51,4 @@ void SetVRLadderTestGrip(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32
     RED4ext::GetParameter(frame,&left);RED4ext::GetParameter(frame,&right);RED4ext::GetParameter(frame,&milliseconds);frame->code++;
     const bool ok=cvr::ladder::SetSimulatorGrip(left,right,milliseconds);if(out)*out=ok ? 1:0;
 }
+#endif

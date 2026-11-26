@@ -10,6 +10,12 @@
 #include <d3d12.h>
 #include <openxr/openxr.h>
 
+#if CVR_RUST_VRIK
+#include <atomic>
+extern "C" __declspec(dllexport) extern std::atomic<int64_t> CyberpunkVR_OsrStats[3];
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_OsrTune[4];
+#endif
+
 namespace cvr::osr {
 
 struct Camera {
@@ -35,12 +41,30 @@ struct Request {
     float jitterSign = 1.0f;                     // how the jitter is applied to a depth texel (+1, -1, 0)
 };
 
+struct Stats { uint64_t recorded = 0, failed = 0; const char* last = ""; };
+
+#if CVR_RUST_VRIK
+// The reconstruction: rust/crates/cvr-gpu/src/osr.rs.
+static_assert(sizeof(Camera) == 84 && sizeof(Request) == 232 && sizeof(Stats) == 24, "mirrored in rust/crates/cvr-gpu/src/osr.rs");
+// The exported counters and tuning stay in src/Render/Osr.cpp and go with each request.
+extern "C" bool cvr_gpu_osr_record(const Request* request, const void* stats, const int32_t* tune);
+extern "C" void cvr_gpu_osr_reset();
+extern "C" void cvr_gpu_osr_statistics(Stats* out);
+// Records the made eye into request.out. False when nothing was recorded (sizes, formats, a failed init).
+inline bool Record(const Request& request) { return cvr_gpu_osr_record(&request, CyberpunkVR_OsrStats, CyberpunkVR_OsrTune); }
+// Forget both eyes' history (a new session, a reset).
+inline void Reset() { cvr_gpu_osr_reset(); }
+inline Stats Statistics() {
+    Stats stats;
+    cvr_gpu_osr_statistics(&stats);
+    return stats;
+}
+#else
 // Records the made eye into request.out. False when nothing was recorded (sizes, formats, a failed init).
 bool Record(const Request& request);
 // Forget both eyes' history (a new session, a reset).
 void Reset();
-
-struct Stats { uint64_t recorded = 0, failed = 0; const char* last = ""; };
 Stats Statistics();
+#endif
 
 }  // namespace cvr::osr

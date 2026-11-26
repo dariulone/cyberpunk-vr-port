@@ -40,46 +40,33 @@
 #include "Core/CoreInternal.hpp"
 #include "Camera/CameraLink.hpp"
 #include "Hooks/Hook.hpp"
+#include "Rust/CvrRust.h"
+#include <string>
 
+// ONE LOG, OWNED BY RUST. The text is formatted here and written by cvr_host::log (rust/crates/cvr-host/src/log.rs),
+// which keeps this file's old rule: flush per line -- every crash in the project was diagnosed from the last lines --
+// except under a burst of more than 300 lines a second, when the writes stay buffered and the next window says so.
 void Log(const char* fmt, ...) {
-    if (!g_logFile) {
-        const std::wstring logPath = cvr::paths::File(cvr::paths::Folder::Log, L"cyberpunkvrport.log");
-        g_logFile = _wfsopen(logPath.c_str(), L"w", _SH_DENYNO);
-    }
-    if (!g_logFile) return;
-
+    char stack[2048];
     va_list args;
     va_start(args, fmt);
-    vfprintf(g_logFile, fmt, args);
+    va_list copy;
+    va_copy(copy, args);
+    const int length = vsnprintf(stack, sizeof(stack), fmt, args);
     va_end(args);
-
-    // FLUSH PER LINE IS THE POINT -- until it is the problem.
-    //
-    // Every crash in this project has been diagnosed from the last few lines of this file, so
-    // the flush stays: without it a crash loses whatever the CRT still had buffered. But a
-    // per-line flush is a syscall AND it serialises on the FILE lock, and this function is
-    // called from engine job threads. One bad diagnostic ("% 600" on a counter that reaches
-    // 196M) put 370 flushes per second inside the transform-update jobs -- measured, 418976
-    // lines in one session -- and that alone is enough to make head tracking stutter.
-    //
-    // So: flush normally, and under a burst keep writing but let the CRT buffer absorb it. The
-    // content survives either way; only the per-line durability is traded, and only while
-    // something is already logging far too much to be durable about.
-    static std::atomic<uint32_t> s_windowCount{0};
-    static std::atomic<uint64_t> s_windowStart{0};
-    const uint64_t now = GetTickCount64();
-    uint64_t start = s_windowStart.load(std::memory_order_relaxed);
-    if (now - start >= 1000) {
-        const uint32_t burst = s_windowCount.exchange(0, std::memory_order_relaxed);
-        s_windowStart.store(now, std::memory_order_relaxed);
-        if (burst > 300) {
-            fprintf(g_logFile, "Log: %u lines in the previous second -- flush coalesced. "
-                               "Something is logging from a hot path.\n", burst);
-        }
+    if (length < 0) {
+        va_end(copy);
+        return;
     }
-    if (s_windowCount.fetch_add(1, std::memory_order_relaxed) < 300) {
-        fflush(g_logFile);
+    if (static_cast<size_t>(length) < sizeof(stack)) {
+        va_end(copy);
+        cvr_log_write(stack, static_cast<size_t>(length));
+        return;
     }
+    std::string heap(static_cast<size_t>(length) + 1, '\0');
+    vsnprintf(heap.data(), heap.size(), fmt, copy);
+    va_end(copy);
+    cvr_log_write(heap.data(), static_cast<size_t>(length));
 }
 
 // The trampoline arena and its instruction emitters now live in Hooks/Trampoline.cpp -- ONE
@@ -88,6 +75,9 @@ void Log(const char* fmt, ...) {
 
 
 
+#if CVR_RUST_VRIK
+// THE GUARDED HELPERS AND THE DUMPS ARE RUST'S (rust/crates/cvr-render/src/worker.rs); Log itself stays above.
+#else
 bool ReadFloatArraySafe(const float* src, float* out, size_t count) {
     if (!src || !out) return false;
     for (size_t i = 0; i < count; ++i) {
@@ -318,3 +308,4 @@ void LogStackWindowAt(const char* label, uintptr_t rsp, int slots) {
 
 // One line, for code that cannot name Log: the Lua host (src/Lua), where CET's logging namespace is called Log.
 extern "C" void CvrLogText(const char* text) { Log("%s", text); }
+#endif

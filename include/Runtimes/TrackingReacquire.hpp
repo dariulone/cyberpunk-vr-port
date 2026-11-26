@@ -1,5 +1,8 @@
 #pragma once
 #include <cmath>
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 // A HAND COMING BACK INTO TRACKING GLIDES TO WHERE IT IS. While a controller has no pose (out of the cameras' view,
 // occluded, asleep) the body holds the hand where it last was; when the pose comes back it is often somewhere
@@ -15,6 +18,30 @@ struct HandPose {
     float q[4]{0, 0, 0, 1};   // x, y, z, w
 };
 
+#if CVR_RUST_ROOM
+// rust/crates/cvr-body/src/reacquire.rs; the class keeps its fields (Rust has its layout).
+inline float SmoothDamp(float current, float target, float& velocity, float smoothTime, float dt) {
+    return cvr_smooth_damp(current, target, &velocity, smoothTime, dt);
+}
+class Reacquire {
+public:
+    static constexpr float kSmoothTime = 0.12f;
+    static constexpr float kNoticeable = 0.002f, kNoticeableAngle = 0.01f;
+    static constexpr float kMinGap = 0.1f;
+    void Reset() { cvr_reacquire_reset(this); }
+    HandPose Step(const HandPose& tracked, bool valid, float dt) {
+        HandPose out;
+        cvr_reacquire_step(this, &tracked, valid, dt, &out);
+        return out;
+    }
+    float Blend() const { return blend_; }
+private:
+    HandPose last_, offset_;
+    bool have_ = false, lost_ = false;
+    float blend_ = 0.0f, velocity_ = 0.0f, gap_ = 0.0f;
+};
+static_assert(sizeof(HandPose) == 28 && sizeof(Reacquire) == 72);
+#else
 // Unity's Mathf.SmoothDamp (Game Programming Gems 4, 1.10): a critically damped approach to `target`.
 inline float SmoothDamp(float current, float target, float& velocity, float smoothTime, float dt) {
     smoothTime = smoothTime > 1e-4f ? smoothTime : 1e-4f;
@@ -105,4 +132,5 @@ private:
     bool have_ = false, lost_ = false;
     float blend_ = 0.0f, velocity_ = 0.0f, gap_ = 0.0f;
 };
+#endif
 }  // namespace cvr::tracking

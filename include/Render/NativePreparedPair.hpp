@@ -32,6 +32,37 @@ struct NativeExit {
 };
 namespace native_exit_detail {
 inline constexpr uint64_t MaxReadbackBytes=512ull*1024*1024;
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/native_exit.rs (tools/single_pass_tests/native_exit_compare_test runs its cases
+// against them in its Rust variant). A plane crosses with its readback bytes borrowed for the call.
+struct Comparison;
+struct PlaneData {const NativeExitPlane* row{};const uint8_t* data{};size_t bytes{};};
+extern "C" {
+UINT cvr_nx_plane_index(UINT,UINT);
+bool cvr_nx_readback_shape(const D3D12_RESOURCE_DESC*);
+bool cvr_nx_plane_bounds(const NativeExitPlane*,UINT,UINT,uint64_t,uint64_t*);
+bool cvr_nx_validate_plane(const NativeExitPlane*,UINT,UINT,uint64_t,const D3D12_SUBRESOURCE_FOOTPRINT*,UINT,uint64_t);
+bool cvr_nx_complete_planes(const NativeExitPlane*,size_t);
+bool cvr_nx_compare_plane(UINT,UINT,const std::array<PlaneData,3>*,Comparison*);
+void cvr_nx_accumulate(uint64_t*,UINT,const NativeExitPlane*,UINT,const Comparison*);
+bool cvr_nx_rate_value(uint8_t);
+bool cvr_nx_always_finer(const uint8_t*,size_t,const uint8_t*,size_t);
+bool cvr_nx_rate_map_shape(UINT,UINT,UINT,UINT,UINT,size_t);
+bool cvr_nx_attribute_color(UINT,UINT,const std::array<PlaneData,2>*,UINT,UINT,UINT,const uint8_t*,size_t,const uint8_t*,size_t,
+    std::array<uint64_t,2>*);
+void cvr_nx_acceptance(bool,const uint64_t*,const uint64_t*,const uint64_t*,const uint64_t*,std::array<uint64_t,8>*);
+}
+inline UINT PlaneIndex(UINT slot,UINT plane){return cvr_nx_plane_index(slot,plane);}
+inline bool ReadbackShape(const D3D12_RESOURCE_DESC& desc){return cvr_nx_readback_shape(&desc);}
+inline bool PlaneBounds(const NativeExitPlane& row,UINT width,UINT height,uint64_t bufferBytes,uint64_t* end=nullptr){
+    return cvr_nx_plane_bounds(&row,width,height,bufferBytes,end);
+}
+inline bool ValidatePlane(const NativeExitPlane& row,UINT width,UINT height,uint64_t bufferBytes,
+    const D3D12_SUBRESOURCE_FOOTPRINT& expected,UINT expectedRows,uint64_t expectedRowBytes){
+    return cvr_nx_validate_plane(&row,width,height,bufferBytes,&expected,expectedRows,expectedRowBytes);
+}
+inline bool CompletePlanes(std::span<const NativeExitPlane> planes){return cvr_nx_complete_planes(planes.data(),planes.size());}
+#else
 inline UINT PlaneIndex(UINT slot,UINT plane){return slot<3 && !plane?slot:slot==4 && plane<2?3+plane:UINT_MAX;}
 inline bool ReadbackShape(const D3D12_RESOURCE_DESC& desc){
     return desc.Dimension==D3D12_RESOURCE_DIMENSION_BUFFER && desc.Width && desc.Width<=MaxReadbackBytes &&
@@ -67,10 +98,47 @@ inline bool CompletePlanes(std::span<const NativeExitPlane> planes){
         if(index==UINT_MAX || (mask&(1u<<index)))return false;mask|=1u<<index;}
     return mask==31;
 }
+#endif
 struct Difference {
     uint64_t count{},value{},nativeValue{};UINT x=UINT_MAX,y=UINT_MAX;
 };
 struct Comparison {Difference reference,optimized;};
+#if CVR_RUST_VRIK
+inline bool ComparePlane(UINT width,UINT height,const NativeExitPlane& reference,std::span<const uint8_t> referenceData,
+    const NativeExitPlane& optimized,std::span<const uint8_t> optimizedData,const NativeExitPlane& native,
+    std::span<const uint8_t> nativeData,Comparison& result){
+    const std::array<PlaneData,3> planes{{{&reference,referenceData.data(),referenceData.size()},
+        {&optimized,optimizedData.data(),optimizedData.size()},{&native,nativeData.data(),nativeData.size()}}};
+    return cvr_nx_compare_plane(width,height,&planes,&result);
+}
+inline void Accumulate(std::span<uint64_t,24> stats,UINT eye,const NativeExitPlane& plane,UINT width,const Comparison& comparison){
+    cvr_nx_accumulate(stats.data(),eye,&plane,width,&comparison);
+}
+inline bool RateValue(uint8_t value){return cvr_nx_rate_value(value);}
+inline bool AlwaysFiner(std::span<const uint8_t> common,std::span<const uint8_t> original){
+    return cvr_nx_always_finer(common.data(),common.size(),original.data(),original.size());
+}
+inline bool RateMapShape(UINT width,UINT height,UINT tile,UINT mapWidth,UINT mapHeight,size_t bytes){
+    return cvr_nx_rate_map_shape(width,height,tile,mapWidth,mapHeight,bytes);
+}
+inline bool AttributeColor(UINT width,UINT height,const NativeExitPlane& reference,std::span<const uint8_t> referenceData,
+    const NativeExitPlane& native,std::span<const uint8_t> nativeData,UINT tile,UINT mapWidth,UINT mapHeight,
+    std::span<const uint8_t> common,std::span<const uint8_t> original,uint64_t& inside,uint64_t& outside){
+    const std::array<PlaneData,2> planes{{{&reference,referenceData.data(),referenceData.size()},{&native,nativeData.data(),nativeData.size()}}};
+    std::array<uint64_t,2> counts{};
+    const bool result=cvr_nx_attribute_color(width,height,&planes,tile,mapWidth,mapHeight,common.data(),common.size(),
+        original.data(),original.size(),&counts);
+    inside=counts[0];outside=counts[1];return result;
+}
+inline std::array<uint64_t,8> Acceptance(bool allowVrsRefinement,std::span<const uint64_t,24> native,
+    std::span<const uint64_t,16> nativeRate,std::span<const uint64_t,12> attribution,std::span<const uint64_t,2> pairDifferent){
+    std::array<uint64_t,8> result{};
+    cvr_nx_acceptance(allowVrsRefinement,native.data(),nativeRate.data(),attribution.data(),pairDifferent.data(),&result);
+    return result;
+}
+static_assert(sizeof(NativeExitPlane)==56 && offsetof(NativeExitPlane,layout)==24 && sizeof(Difference)==32 &&
+    sizeof(Comparison)==64 && sizeof(PlaneData)==24,"mirrored by native_exit.rs");
+#else
 inline bool ComparePlane(UINT width,UINT height,const NativeExitPlane& reference,std::span<const uint8_t> referenceData,
     const NativeExitPlane& optimized,std::span<const uint8_t> optimizedData,const NativeExitPlane& native,
     std::span<const uint8_t> nativeData,Comparison& result){
@@ -147,6 +215,7 @@ inline std::array<uint64_t,8> Acceptance(bool allowVrsRefinement,std::span<const
     result[7]=compared && !native[22] && !nativeRate[15] && !result[5] && !result[6] && (strict || approved);
     return result;
 }
+#endif
 }
 struct Source {
     struct FullT5 {

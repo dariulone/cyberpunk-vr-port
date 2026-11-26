@@ -14,6 +14,579 @@
 #include <set>
 #include <cfloat>
 using Microsoft::WRL::ComPtr;
+#if CVR_RUST_VRIK
+extern "C" {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+__declspec(dllexport) uint32_t CyberpunkVR_DescriptorBindingBytes=sizeof(cvr::stereo::descriptors::Binding),CyberpunkVR_DescriptorValueBytes=sizeof(cvr::stereo::descriptors::Value);
+#endif
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+__declspec(dllexport) cvr::stereo::descriptors::RootInfo CyberpunkVR_DescriptorRoots[128]{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's exports are rust/crates/cvr-render/src/render_moved_exports.rs'
+// The observation profile's header exports (inline: emitted only where C++ names them) -- read by Rust.
+extern const void* const CyberpunkVR_ObservationProfileRefs[]{&CyberpunkVR_ObservationProfileEnable,CyberpunkVR_ObservationProfileStats};
+#endif
+}
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's audit runtime is descriptor_audit.rs' (mod plugin)
+// What the fixed ranges still call: the retired lifetimes drained, the fixed range snapshot and its check.
+extern "C" void cvr_sda_drain(void(*)(uint64_t));
+extern "C" void cvr_sda_fixed_snapshot(const void*,const void*,cvr::stereo::descriptors::Value*,uint64_t*);
+extern "C" bool cvr_sda_fixed_canonical(const void*,const cvr::stereo::descriptors::Value*,size_t,const void*);
+struct CvrDescriptorAuditRuntime {
+    void* store;const void* tracking;bool(*observeBindings)();const std::atomic<uint32_t>* nativeProbeState;size_t drawCapacity;
+    std::atomic<uint32_t>* captureFailure;std::atomic<uint32_t>* captureSeq;std::atomic<uint32_t>* denseSlots;std::atomic<uint32_t>* denseActive;
+    std::atomic<uint32_t>* liveMetadata;std::atomic<uint32_t>* liveMetadataActive;std::atomic<uint32_t>* pendingLists;
+    uint32_t* rootCount;cvr::stereo::descriptors::RootInfo* roots;size_t rootsCapacity;uint64_t* storeStats;uint64_t* heapSlots;
+    uint64_t* draws;std::atomic<uint32_t>* drawCount;uint64_t* bindings;std::atomic<uint32_t>* bindingCount;uint64_t* ids;
+    std::atomic<uint32_t>* idCount;uint64_t* values;std::atomic<uint32_t>* valueCount;
+    const std::atomic<uint32_t>* profileEnable;std::atomic<uint64_t>* profileStats;
+};
+static_assert(sizeof(CvrDescriptorAuditRuntime)==27*8,"mirrored by descriptor_audit.rs");
+extern "C" void cvr_sda_audit_attach(const CvrDescriptorAuditRuntime*);
+extern "C" void cvr_sda_audit_lock(bool);
+extern "C" uint64_t cvr_sda_audit_write(uint32_t,ID3D12Device*,uintptr_t,uint64_t,uint64_t,uint64_t,void*,void*);
+extern "C" uint64_t cvr_sda_audit_held_cookie(ID3D12Resource*);
+extern "C" void cvr_sda_audit_copy(ID3D12Device*,UINT,const uint64_t*,const UINT*,UINT,const uint64_t*,const UINT*,int32_t);
+extern "C" bool cvr_sda_audit_capture(uint32_t,uint64_t,uint64_t,uint32_t);
+extern "C" void cvr_sda_audit_snapshot(const void*);
+extern "C" void cvr_sda_audit_submit(uint32_t,const uint64_t*);
+extern "C" bool cvr_sda_audit_find_binding(uint64_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t*,uint32_t*);
+extern "C" bool cvr_sda_audit_cbv(uint32_t,uint64_t,uint64_t,uint32_t,uint32_t,void*);
+extern "C" bool cvr_sda_audit_stamp(uint32_t,uint64_t,uint64_t,uint32_t,uint32_t,void*,IUnknown**);
+extern "C" bool cvr_sda_audit_srv(uint64_t,uint64_t,uint32_t,uint32_t,void*,ID3D12Resource**,D3D12_SHADER_RESOURCE_VIEW_DESC*);
+extern "C" bool cvr_sda_audit_sampler(uint64_t,uint64_t,uint32_t,uint32_t,void*,D3D12_SAMPLER_DESC*);
+namespace cvr::stereo::descriptors {
+namespace {
+// The metadata lock is the Rust audit core's (rust/crates/cvr-render/src/descriptor_audit.rs), recursive as this was.
+struct MetadataMutex {
+    void lock(){cvr_sda_audit_lock(true);}
+    void unlock(){cvr_sda_audit_lock(false);}
+};
+MetadataMutex mutex;
+Store store;
+BorrowedRangeTracking borrowedTracking;
+// The audit core in Rust: the store's Rust half and this tracking object, the probe's switch and the exports it writes.
+const CvrDescriptorAuditRuntime kAuditRuntime{const_cast<void*>(store.Rust()),&borrowedTracking,
+    []{return native_probe::ObserveBindings();},&CyberpunkVR_NativeStereoProbeState,native_probe::DrawCapacity,
+    &CyberpunkVR_DescriptorCaptureFailure,&CyberpunkVR_DescriptorCaptureSeq,&CyberpunkVR_DescriptorDenseSlots,&CyberpunkVR_DescriptorDenseActive,
+    &CyberpunkVR_DescriptorLiveMetadata,&CyberpunkVR_DescriptorLiveMetadataActive,&CyberpunkVR_DescriptorPendingLists,
+    &CyberpunkVR_DescriptorRootCount,CyberpunkVR_DescriptorRoots,std::size(CyberpunkVR_DescriptorRoots),CyberpunkVR_DescriptorStoreStats,
+    &CyberpunkVR_DescriptorHeapSlots,&CyberpunkVR_DescriptorDraws,&CyberpunkVR_DescriptorDrawCount,&CyberpunkVR_DescriptorBindings,
+    &CyberpunkVR_DescriptorBindingCount,&CyberpunkVR_DescriptorIds,&CyberpunkVR_DescriptorIdCount,&CyberpunkVR_DescriptorValues,
+    &CyberpunkVR_DescriptorValueCount,&CyberpunkVR_ObservationProfileEnable,CyberpunkVR_ObservationProfileStats};
+const bool kAuditAttached=(cvr_sda_audit_attach(&kAuditRuntime),true);
+extern "C" void cvr_sda_bsr_stage(uint32_t,uint64_t,uint64_t,uint64_t,uint64_t);
+extern "C" uint32_t cvr_sda_bsr_last(std::array<uint64_t,4>*);
+void BorrowedStage(uint32_t value,uint64_t index=UINT64_MAX,uint64_t gpu=0,uint64_t expected=0,uint64_t actual=0){
+    cvr_sda_bsr_stage(value,index,gpu,expected,actual);
+}
+// Object private data survives for exactly that COM object's lifetime. A reused
+// address cannot inherit a resource/heap identity from a destroyed object.
+constexpr GUID cookieGuid{0xc7ec4301,0x790e,0x4b32,{0x93,0x87,0x7c,0xc1,0x19,0x52,0xd1,0x44}};
+// The known heaps are Rust's; the store removes a retired heap's slots through the callback.
+// A known resource is the Rust lifetime (its layout mirrored here); its pointer stays valid under the metadata mutex,
+// which every drain takes too.
+void HeapRemoved(uint64_t cookie){store.HeapRemoved(cookie);}
+void DrainRetired(){cvr_sda_drain(&HeapRemoved);}
+// The tracking failure, the storage selection and the failure itself are the Rust core's.
+}
+bool Enabled(){return native_probe::ObserveBindings() && !probe::internalCommands;}
+MutationScope::MutationScope():entered_(borrowedTracking.MutationBegin()){}
+MutationScope::~MutationScope(){if(entered_)borrowedTracking.MutationEnd();}
+void BorrowedRangeObserverReady(bool ready){borrowedTracking.Ready(ready);}
+uint32_t BorrowedRangeLastFailure(){return cvr_sda_bsr_last(nullptr);}
+std::array<uint64_t,4> BorrowedRangeLastDetails(){std::array<uint64_t,4> details{};cvr_sda_bsr_last(&details);return details;}
+void Initialize(ID3D12Device* device){cvr_sda_audit_write(0,device,0,0,0,0,nullptr,nullptr);}
+void HeapCreated(ID3D12Device* device,ID3D12DescriptorHeap* heap){cvr_sda_audit_write(1,device,0,0,0,0,heap,nullptr);}
+void HeapsBound(ID3D12Device* device,UINT count,ID3D12DescriptorHeap* const* heaps){
+    cvr_sda_audit_write(7,device,reinterpret_cast<uintptr_t>(heaps),count,0,0,nullptr,nullptr);
+}
+void RootCreated(ID3D12RootSignature* root,const void* bytes,size_t size){
+    cvr_sda_audit_write(2,nullptr,reinterpret_cast<uintptr_t>(bytes),size,0,0,root,nullptr);
+}
+uint64_t SourceResourceCookieAtCreation(ID3D12Resource* resource){return cvr_sda_audit_write(8,nullptr,0,0,0,0,resource,nullptr);}
+bool MatchesHeldResourceCookie(ID3D12Resource* resource,uint64_t cookie)noexcept{
+    return resource && cookie && cvr_sda_audit_held_cookie(resource)==cookie;
+}
+bool GetHeldResourceCookie(const ComPtr<ID3D12Resource>& resource,uint64_t& cookie)noexcept{
+    cookie=resource?cvr_sda_audit_held_cookie(resource.Get()):0;return cookie!=0;
+}
+void Cbv(const D3D12_CONSTANT_BUFFER_VIEW_DESC* d,D3D12_CPU_DESCRIPTOR_HANDLE cpu,const CbvOrigin* origin){
+    cvr_sda_audit_write(3,nullptr,reinterpret_cast<uintptr_t>(d),cpu.ptr,origin?origin->cookie:0,origin?origin->id:0,
+        origin?origin->owner.Get():nullptr,nullptr);
+}
+void Srv(ID3D12Resource* resource,const D3D12_SHADER_RESOURCE_VIEW_DESC* d,D3D12_CPU_DESCRIPTOR_HANDLE cpu){
+    cvr_sda_audit_write(4,nullptr,reinterpret_cast<uintptr_t>(d),cpu.ptr,0,0,resource,nullptr);
+}
+void Uav(ID3D12Resource* resource,ID3D12Resource* counter,const D3D12_UNORDERED_ACCESS_VIEW_DESC* d,D3D12_CPU_DESCRIPTOR_HANDLE cpu){
+    cvr_sda_audit_write(5,nullptr,reinterpret_cast<uintptr_t>(d),cpu.ptr,0,0,resource,counter);
+}
+void Sampler(const D3D12_SAMPLER_DESC* d,D3D12_CPU_DESCRIPTOR_HANDLE cpu){
+    cvr_sda_audit_write(6,nullptr,reinterpret_cast<uintptr_t>(d),cpu.ptr,0,0,nullptr,nullptr);
+}
+void Copy(ID3D12Device* device,UINT n,const D3D12_CPU_DESCRIPTOR_HANDLE* dest,const UINT* sizes,UINT m,const D3D12_CPU_DESCRIPTOR_HANDLE* source,const UINT* counts,D3D12_DESCRIPTOR_HEAP_TYPE type){
+    cvr_sda_audit_copy(device,n,reinterpret_cast<const uint64_t*>(dest),sizes,m,reinterpret_cast<const uint64_t*>(source),counts,int32_t(type));
+}
+void BeginCapture(){cvr_sda_audit_capture(0,0,0,0);}
+void Snapshot(const native_probe::DrawRecord& draw){cvr_sda_audit_snapshot(&draw);}
+void EndCapture(){cvr_sda_audit_capture(1,0,0,0);}
+bool BeginBindings(){return cvr_sda_audit_capture(2,0,0,0);}
+void EndBindings(){cvr_sda_audit_capture(3,0,0,0);}
+bool Healthy(){return cvr_sda_audit_capture(4,0,0,0);}
+// The table metadata snapshot: rust/crates/cvr-render/src/audit_table_snapshot.rs holds the root, device and heaps,
+// the layout and the summary; the pimpl is its handle and the summary is copied out here.
+struct RustTableSummary {
+    uint64_t root,trackingEpoch;UINT rootParameters,rootFlags,layoutReasons,boundTables,unboundTables,unknownFlags;uint64_t unknownSlots;
+    bool complete;const TableMetadataSummary::Range* ranges;size_t rangeCount;const Value* values;size_t valueCount;
+};
+static_assert(sizeof(RustTableSummary)==88 && sizeof(BoundTableMetadata)==16 && sizeof(ComPtr<ID3D12DescriptorHeap>)==sizeof(void*),
+    "mirrored by audit_table_snapshot.rs");
+extern "C" void* cvr_sda_tm_capture(ID3D12RootSignature*,ID3D12DescriptorHeap* const*,size_t,const BoundTableMetadata*,size_t);
+extern "C" void cvr_sda_tm_free(void*);
+extern "C" bool cvr_sda_tm_validate(const void*);
+extern "C" bool cvr_sda_tm_describe(const void*,RustTableSummary*);
+extern "C" uint32_t cvr_sda_tm_failure(uint32_t);
+struct TableMetadataSnapshot::Data {
+    void* rust{};
+    explicit Data(void* handle):rust(handle){}
+    ~Data(){cvr_sda_tm_free(rust);}
+    Data(const Data&)=delete;
+    Data& operator=(const Data&)=delete;
+};
+TableMetadataFailure TableMetadataLastFailure(){return TableMetadataFailure(cvr_sda_tm_failure(UINT32_MAX));}
+bool CaptureTableMetadata(const ComPtr<ID3D12RootSignature>& root,std::span<const ComPtr<ID3D12DescriptorHeap>> heaps,
+    std::span<const BoundTableMetadata> bound,TableMetadataSnapshot& output){
+    output={};
+    void* handle=cvr_sda_tm_capture(root.Get(),reinterpret_cast<ID3D12DescriptorHeap* const*>(heaps.data()),heaps.size(),bound.data(),bound.size());
+    if(!handle)return false;
+    try{output.data_=std::make_shared<const TableMetadataSnapshot::Data>(handle);}
+    catch(...){cvr_sda_tm_free(handle);output={};cvr_sda_tm_failure(UINT(TableMetadataFailure::Exception));return false;}
+    return true;
+}
+bool ValidateTableMetadataNoOverwrite(const TableMetadataSnapshot& value){
+    const auto held=value.data_;if(!held){cvr_sda_tm_failure(UINT(TableMetadataFailure::Arguments));return false;}
+    return cvr_sda_tm_validate(held->rust);
+}
+bool DescribeTableMetadata(const TableMetadataSnapshot& value,TableMetadataSummary& output)try{
+    output={};const auto held=value.data_;if(!held){cvr_sda_tm_failure(UINT(TableMetadataFailure::Arguments));return false;}
+    RustTableSummary view{};if(!cvr_sda_tm_describe(held->rust,&view))return false;
+    TableMetadataSummary summary;summary.root=view.root;summary.trackingEpoch=view.trackingEpoch;summary.rootParameters=view.rootParameters;
+    summary.rootFlags=view.rootFlags;summary.layoutReasons=view.layoutReasons;summary.boundTables=view.boundTables;
+    summary.unboundTables=view.unboundTables;summary.unknownFlags=view.unknownFlags;summary.unknownSlots=view.unknownSlots;
+    summary.complete=view.complete;summary.ranges.assign(view.ranges,view.ranges+view.rangeCount);
+    summary.values.assign(view.values,view.values+view.valueCount);
+    if(!cvr_sda_tm_validate(held->rust))return false;output=std::move(summary);return true;
+}catch(...){output={};cvr_sda_tm_failure(UINT(TableMetadataFailure::Exception));return false;}
+// The borrowed source ranges' held half: rust/crates/cvr-render/src/audit_borrowed_ranges.rs (the device, list, root,
+// pipeline and heaps, the pin, the ranges and the inventory cache). The family, the recording lease and the bindings stay.
+struct RustBorrowedRange {BorrowedUsedRange use;UINT heapIndex{};uint64_t table{};RangeIdentity identity;};
+struct RustBorrowedView {uint64_t root,pipeline;const RustBorrowedRange* ranges;size_t rangeCount;};
+static_assert(sizeof(RustBorrowedRange)==88 && sizeof(RustBorrowedView)==32 && sizeof(BorrowedShaderUse)==20,"mirrored by audit_borrowed_ranges.rs");
+extern "C" void* cvr_sda_bsr_capture(ID3D12GraphicsCommandList*,ID3D12RootSignature*,ID3D12PipelineState*,ID3D12DescriptorHeap* const*,UINT,
+    uint64_t,const D3D12_GPU_DESCRIPTOR_HANDLE*,const BorrowedShaderUse*,size_t);
+extern "C" void cvr_sda_bsr_free(void*);
+extern "C" bool cvr_sda_bsr_validate(const void*);
+extern "C" bool cvr_sda_bsr_matches(const void*,bool);
+extern "C" void cvr_sda_bsr_view(const void*,RustBorrowedView*);
+extern "C" bool cvr_sda_bsr_inventory(const void*,UINT,BorrowedDescriptorInventory*);
+namespace borrowed_fixed_detail {
+// The rules: rust/crates/cvr-render/src/borrowed_fixed.rs (tools/single_pass_tests/descriptor_audit_test runs its cases
+// against them in its Rust variant).
+extern "C" {
+uint32_t cvr_bfd_classify(const Value*,D3D12_SHADER_RESOURCE_VIEW_DESC*);
+bool cvr_bfd_view_matches(const Value*,const D3D12_RESOURCE_DESC*,const D3D12_SHADER_RESOURCE_VIEW_DESC*);
+}
+DescriptorClass Classify(const Value& value,D3D12_SHADER_RESOURCE_VIEW_DESC& output)noexcept{
+    return DescriptorClass(cvr_bfd_classify(&value,&output));
+}
+bool ViewMatches(const Value& value,const D3D12_RESOURCE_DESC& resource,const D3D12_SHADER_RESOURCE_VIEW_DESC& view)noexcept{
+    return cvr_bfd_view_matches(&value,&resource,&view);
+}
+}
+struct BorrowedSourceRanges::Data {
+    void* rust{};
+    std::shared_ptr<const families::Family> family;native_recording::Lease recording;scene_state::Bindings bindings;
+    // BorrowedFixedRange reads a range's identity and matches under the lock it holds.
+    struct Ranges {
+        const Data* owner;
+        struct Entry {RangeIdentity identity;};
+        Entry operator[](size_t index)const{RustBorrowedView view{};cvr_sda_bsr_view(owner->rust,&view);return {view.ranges[index].identity};}
+    } ranges{this};
+    explicit Data(void* handle):rust(handle){}
+    ~Data(){cvr_sda_bsr_free(rust);}
+    Data(const Data&)=delete;
+    Data& operator=(const Data&)=delete;
+    bool MatchesLocked()const{return cvr_sda_bsr_matches(rust,false);}
+};
+namespace {
+bool SameBorrowedBindings(const scene_state::Bindings& a,const scene_state::Bindings& b){
+    if(a.root!=b.root || a.heapCount!=b.heapCount || a.heaps!=b.heaps || a.tableMask!=b.tableMask)return false;
+    for(UINT p=0;p<64;++p)if((a.tableMask&(uint64_t(1)<<p)) && a.tables[p].ptr!=b.tables[p].ptr)return false;
+    return true;
+}
+bool ShaderHash(const std::string& value){
+    return value.size()==64 && std::all_of(value.begin(),value.end(),[](char c){return (c>='0' && c<='9') || (c>='a' && c<='f');});
+}
+bool CurrentBorrowedFamily(ID3D12GraphicsCommandList* list,ID3D12RootSignature* root,
+                          std::shared_ptr<const families::Family>& family,ID3D12PipelineState*& pipeline){
+    family.reset();pipeline=nullptr;native_probe::DrawRecord current;
+    if(!native_probe::CurrentState(list,current) || current.list!=reinterpret_cast<uintptr_t>(list) ||
+        current.root!=reinterpret_cast<uintptr_t>(root) || !current.pipeline)return false;
+    auto bound=families::Bound(list);auto* pso=reinterpret_cast<ID3D12PipelineState*>(current.pipeline);
+    if(!bound || bound!=families::Lookup(pso) || bound->sourceRoot.Get()!=root || !ShaderHash(bound->rootSha256) ||
+        !ShaderHash(bound->vertexSha256) || (bound->pass.pixelShader?!ShaderHash(bound->pixelSha256):!bound->pixelSha256.empty()) ||
+        bound->uses.empty() || bound->uses.size()>4096)return false;
+    family=std::move(bound);pipeline=pso;return true;
+}
+}
+bool CaptureBorrowedSourceRanges(ID3D12GraphicsCommandList* list,const native_recording::Lease& recording,
+    const scene_state::Bindings& bindings,BorrowedSourceRanges& output)try{
+    output={};BorrowedStage(2);
+    if(!Enabled() || !borrowedTracking.Ready())return false;
+    BorrowedStage(1);
+    if(!list || !recording.token || !recording.generation ||
+        recording.list!=reinterpret_cast<uintptr_t>(list) || !bindings.root || !bindings.heapCount || bindings.heapCount>2 ||
+        list->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT)return false;
+    const auto context=camera_upload::CurrentContext(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+    BorrowedStage(3);
+    if(!context || !native_recording::ValidateRecording(recording,list,context))return false;
+    scene_state::Bindings actual;
+    BorrowedStage(4);
+    if(!scene_state::CaptureSourceBindings(list,actual) || !SameBorrowedBindings(bindings,actual))return false;
+    std::shared_ptr<const families::Family> family;ID3D12PipelineState* pipeline{};
+    BorrowedStage(5);
+    if(!CurrentBorrowedFamily(list,bindings.root,family,pipeline))return false;
+    std::vector<BorrowedShaderUse> uses;uses.reserve(family->uses.size());
+    for(const auto& use:family->uses)uses.push_back({use.type,use.visibility,use.space,use.shaderRegister,use.count});
+    void* handle=cvr_sda_bsr_capture(list,bindings.root,pipeline,bindings.heaps.data(),bindings.heapCount,bindings.tableMask,
+        bindings.tables.data(),uses.data(),uses.size());
+    if(!handle)return false;
+    std::shared_ptr<BorrowedSourceRanges::Data> next;
+    try{next=std::make_shared<BorrowedSourceRanges::Data>(handle);}catch(...){cvr_sda_bsr_free(handle);throw;}
+    next->family=family;next->recording=recording;next->bindings=bindings;
+    BorrowedStage(3);
+    if(camera_upload::CurrentContext(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)))!=context ||
+        !native_recording::ValidateRecording(recording,list,context))return false;
+    BorrowedStage(4);
+    if(!scene_state::CaptureSourceBindings(list,actual) || !SameBorrowedBindings(bindings,actual))return false;
+    std::shared_ptr<const families::Family> finalFamily;ID3D12PipelineState* finalPipeline{};
+    BorrowedStage(5);
+    if(!CurrentBorrowedFamily(list,bindings.root,finalFamily,finalPipeline) || finalFamily!=family || finalPipeline!=pipeline)return false;
+    if(!cvr_sda_bsr_matches(next->rust,true))return false;
+    output.data_=std::move(next);BorrowedStage(0);return true;
+}catch(...){output={};BorrowedStage(12);return false;}
+bool ValidateBorrowedSourceRanges(const BorrowedSourceRanges& value)try{
+    BorrowedStage(1);
+    const auto held=value.data_;if(!held)return false;
+    if(!held->family){BorrowedStage(6);return false;}
+    return cvr_sda_bsr_validate(held->rust);
+}catch(...){BorrowedStage(12);return false;}
+namespace {
+BorrowedRangeSummary::Range DescribedRange(const RustBorrowedRange& range){
+    const auto& identity=range.identity;const auto& use=range.use;
+    return {use.parameter,use.type,use.offset,identity.count,identity.stride,use.shaderDeclaredCount,
+        range.table,identity.gpu,identity.heap,identity.version,use.physicalRemainder};
+}
+}
+bool DescribeBorrowedSourceRanges(const BorrowedSourceRanges& value,BorrowedRangeSummary& output)try{
+    output={};BorrowedStage(1);const auto held=value.data_;if(!held || !ValidateBorrowedSourceRanges(value))return false;
+    RustBorrowedView view{};cvr_sda_bsr_view(held->rust,&view);
+    BorrowedRangeSummary next;next.list=held->recording.list;next.generation=held->recording.generation;
+    next.root=view.root;next.pipeline=view.pipeline;next.family=held->family->id;
+    next.ranges.reserve(view.rangeCount);
+    for(size_t i=0;i<view.rangeCount;++i)next.ranges.push_back(DescribedRange(view.ranges[i]));
+    if(!ValidateBorrowedSourceRanges(value))return false;output=std::move(next);return true;
+}catch(...){output={};BorrowedStage(12);return false;}
+bool InventoryBorrowedSourceRange(const BorrowedSourceRanges& value,UINT index,BorrowedRangeInventory& output)try{
+    output={};if(!ValidateBorrowedSourceRanges(value))return false;const auto held=value.data_;
+    BorrowedDescriptorInventory counts{};if(!cvr_sda_bsr_inventory(held->rust,index,&counts))return false;
+    RustBorrowedView view{};cvr_sda_bsr_view(held->rust,&view);
+    BorrowedRangeInventory next;next.list=held->recording.list;next.generation=held->recording.generation;
+    next.root=view.root;next.pipeline=view.pipeline;next.family=held->family->id;next.rangeIndex=index;
+    next.range=DescribedRange(view.ranges[index]);next.counts=counts;
+    if(!ValidateBorrowedSourceRanges(value))return false;output=std::move(next);BorrowedStage(0);return true;
+}catch(...){output={};BorrowedStage(12);return false;}
+struct BorrowedFixedRange::Data {
+    BorrowedSourceRanges witness;
+    BorrowedFixedRangeSummary summary;
+    std::vector<Value> canonical;
+    std::vector<texture_read::ImmutableLease> leases;
+};
+namespace {
+bool FixedRangeIdentity(const BorrowedRangeSummary::Range& expected,const BorrowedRangeSummary::Range& actual){
+    return expected.parameter==actual.parameter && expected.type==actual.type && expected.firstOffset==actual.firstOffset &&
+        expected.count==actual.count && expected.stride==actual.stride && expected.table==actual.table && expected.gpu==actual.gpu &&
+        expected.heap==actual.heap && expected.version==actual.version && expected.physicalRemainder && actual.physicalRemainder;
+}
+bool FixedCanonical(const std::vector<Value>& saved,const RangeIdentity& range){
+    return cvr_sda_fixed_canonical(store.Rust(),saved.data(),saved.size(),&range);
+}
+bool SameFixedRecording(const native_recording::Lease& a,const native_recording::Lease& b){
+    return a.token && a.token==b.token && a.list==b.list && a.generation==b.generation && a.context==b.context && a.registry==b.registry;
+}
+}
+bool CaptureBorrowedFixedRange(ID3D12GraphicsCommandList* list,const native_recording::Lease& recording,
+    const BorrowedSourceRanges& witness,UINT index,BorrowedFixedRange& output)try{
+    output={};BorrowedStage(1);
+    if(!list || probe::internalCommands || !Enabled() || !witness.data_ || !SameFixedRecording(recording,witness.data_->recording) ||
+        recording.list!=reinterpret_cast<uintptr_t>(list))return false;
+    const auto context=camera_upload::CurrentContext(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+    BorrowedStage(3);if(!context || !native_recording::ValidateRecording(recording,list,context))return false;
+    BorrowedRangeSummary rangeSummary;if(!DescribeBorrowedSourceRanges(witness,rangeSummary))return false;
+    BorrowedStage(13,index);
+    if(index>=rangeSummary.ranges.size() || !rangeSummary.ranges[index].physicalRemainder ||
+        rangeSummary.ranges[index].type!=D3D12_DESCRIPTOR_RANGE_TYPE_SRV)return false;
+    const auto held=witness.data_;const auto range=held->ranges[index].identity;
+    if(!range.count || range.count>Store::SlotLimit)return false;
+    auto next=std::make_shared<BorrowedFixedRange::Data>();next->witness=witness;
+    auto& summary=next->summary;summary.list=rangeSummary.list;summary.generation=rangeSummary.generation;
+    summary.root=rangeSummary.root;summary.pipeline=rangeSummary.pipeline;summary.family=rangeSummary.family;
+    summary.rangeIndex=index;summary.range=rangeSummary.ranges[index];summary.slots.resize(range.count);next->canonical.resize(range.count);
+    {
+        std::lock_guard lock(mutex);DrainRetired();if(!held->MatchesLocked())return false;
+        std::vector<uint64_t> candidates(range.count);cvr_sda_fixed_snapshot(store.Rust(),&range,next->canonical.data(),candidates.data());
+        for(UINT i=0;i<range.count;++i){auto& slot=summary.slots[i];slot.offset=summary.range.firstOffset+i;
+            slot.cookie=next->canonical[i][2];slot.candidate=candidates[i];
+        }
+        if(!held->MatchesLocked())return false;
+    }
+    std::map<std::pair<uint64_t,uint64_t>,UINT> assets;
+    for(UINT i=0;i<range.count;++i){auto& slot=summary.slots[i];const auto& value=next->canonical[i];
+        D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+        using C=borrowed_fixed_detail::DescriptorClass;
+        switch(borrowed_fixed_detail::Classify(value,view)){
+        case C::Unknown:continue;
+        case C::TypedNull:slot.status=BorrowedFixedStatus::TypedNull;continue;
+        case C::UnsupportedDescriptor:slot.status=BorrowedFixedStatus::UnsupportedDescriptor;continue;
+        case C::UnsupportedView:slot.status=BorrowedFixedStatus::UnsupportedView;continue;
+        case C::UnsupportedShape:slot.status=BorrowedFixedStatus::UnsupportedShape;continue;
+        case C::Candidate:break;
+        }
+        if(!slot.candidate){slot.status=BorrowedFixedStatus::MissingCandidate;continue;}
+        const auto key=std::pair{slot.cookie,slot.candidate};const auto found=assets.find(key);
+        if(found!=assets.end())slot.asset=found->second;
+        else{
+            slot.asset=UINT(summary.assets.size());assets.emplace(key,slot.asset);summary.assets.emplace_back();next->leases.emplace_back();
+            auto& asset=summary.assets.back();asset.cookie=slot.cookie;asset.candidate=slot.candidate;
+            texture_read::FixedAssetPins pins;asset.stage=1;
+            if(!texture_read::PinFixedAsset(list,slot.candidate,pins)){
+                asset.status=BorrowedFixedStatus::PinRefused;asset.failure=texture_read::LastFailure();asset.pinDetails=texture_read::FixedPinLastDetails();
+            }else{
+                asset.pinDetails=texture_read::FixedPinLastDetails();ComPtr<ID3D12Resource> resource;asset.stage=2;
+                if(!texture_read::GetFixedPinnedResource(pins,resource) || reinterpret_cast<uintptr_t>(resource.Get())!=slot.candidate){
+                    asset.status=BorrowedFixedStatus::PinRefused;asset.failure=texture_read::LastFailure();if(!asset.failure)asset.failure=1;
+                }else{
+                    asset.stage=3;UINT bytes=sizeof(asset.actualCookie);
+                    const auto hr=resource->GetPrivateData(cookieGuid,&bytes,&asset.actualCookie);
+                    if(FAILED(hr) || bytes!=sizeof(asset.actualCookie) || asset.actualCookie!=slot.cookie){
+                        asset.status=BorrowedFixedStatus::CookieMismatch;asset.failure=FAILED(hr)?UINT(hr):1;
+                    }else{
+                        asset.stage=4;
+                        if(!texture_read::AcquirePinnedImmutable(list,pins,next->leases.back())){
+                            asset.status=BorrowedFixedStatus::ImmutableRefused;asset.failure=texture_read::LastFailure();
+                        }else{asset.status=BorrowedFixedStatus::Immutable;asset.stage=asset.failure=0;}
+                    }
+                }
+            }
+        }
+        const auto& asset=summary.assets[slot.asset];slot.status=asset.status;
+        if(slot.status==BorrowedFixedStatus::Immutable){const auto& lease=next->leases[slot.asset];
+            if(!lease.source.resource || !borrowed_fixed_detail::ViewMatches(value,lease.source.resource->GetDesc(),view))
+                slot.status=BorrowedFixedStatus::UnsupportedView;
+        }
+    }
+    for(UINT i=0;i<next->leases.size();++i)if(summary.assets[i].status==BorrowedFixedStatus::Immutable &&
+        !texture_read::ValidateImmutable(next->leases[i])){
+        auto& asset=summary.assets[i];asset.status=BorrowedFixedStatus::ImmutableRefused;asset.stage=5;asset.failure=texture_read::LastFailure();
+        for(auto& slot:summary.slots)if(slot.asset==i && slot.status==BorrowedFixedStatus::Immutable)slot.status=asset.status;
+    }
+    BorrowedStage(3);
+    if(camera_upload::CurrentContext(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)))!=context ||
+        !native_recording::ValidateRecording(recording,list,context))return false;
+    {
+        std::lock_guard lock(mutex);DrainRetired();if(!held->MatchesLocked() || !FixedCanonical(next->canonical,range))return false;
+    }
+    BorrowedStage(3);
+    if(camera_upload::CurrentContext(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)))!=context ||
+        !native_recording::ValidateRecording(recording,list,context))return false;
+    std::array<UINT,10> sampled{};
+    for(UINT index=0;index<summary.slots.size();++index){const auto& slot=summary.slots[index];
+        ++summary.counts[UINT(slot.status)];
+        if(sampled[UINT(slot.status)]++<4)summary.samples.push_back({slot.offset,slot.asset,slot.status,next->canonical[index]});
+    }
+    summary.allSlotsQualified=summary.counts[UINT(BorrowedFixedStatus::TypedNull)]+summary.counts[UINT(BorrowedFixedStatus::Immutable)]==range.count;
+    output.data_=std::move(next);BorrowedStage(0);return true;
+}catch(...){output={};BorrowedStage(12);return false;}
+bool ValidateBorrowedFixedRange(const BorrowedFixedRange& fixed,const BorrowedSourceRanges& witness,UINT index)try{
+    BorrowedStage(1);const auto held=fixed.data_;if(!held || !held->summary.allSlotsQualified || !witness.data_)return false;
+    BorrowedRangeSummary current;if(!DescribeBorrowedSourceRanges(witness,current))return false;
+    BorrowedStage(11,index);
+    if(index>=current.ranges.size() || !FixedRangeIdentity(held->summary.range,current.ranges[index]))return false;
+    for(const auto& lease:held->leases)if(!lease.owner || !texture_read::ValidateImmutable(lease))return false;
+    const auto borrowed=witness.data_;std::lock_guard lock(mutex);DrainRetired();
+    if(!borrowed->MatchesLocked() || !FixedCanonical(held->canonical,borrowed->ranges[index].identity))return false;
+    BorrowedStage(0);return true;
+}catch(...){BorrowedStage(12);return false;}
+bool DescribeBorrowedFixedRange(const BorrowedFixedRange& fixed,BorrowedFixedRangeSummary& output)try{
+    output={};BorrowedStage(1);if(!fixed.data_)return false;
+    output=fixed.data_->summary;BorrowedStage(0);return true;
+}catch(...){output={};BorrowedStage(12);return false;}
+void BeforeSubmit(UINT n,ID3D12CommandList* const* lists){cvr_sda_audit_submit(n,reinterpret_cast<const uint64_t*>(lists));}
+void Reset(ID3D12GraphicsCommandList* list){cvr_sda_audit_capture(5,reinterpret_cast<uintptr_t>(list),0,0);}
+void Root(ID3D12GraphicsCommandList* list,ID3D12RootSignature* root){
+    cvr_sda_audit_capture(6,reinterpret_cast<uintptr_t>(list),reinterpret_cast<uintptr_t>(root),0);
+}
+void Table(ID3D12GraphicsCommandList* list,UINT index,D3D12_GPU_DESCRIPTOR_HANDLE address){
+    cvr_sda_audit_capture(7,reinterpret_cast<uintptr_t>(list),address.ptr,index);
+}
+void ClearBindings(ID3D12GraphicsCommandList* list){cvr_sda_audit_capture(8,reinterpret_cast<uintptr_t>(list),0,0);}
+bool FindBinding(uint64_t root,D3D12_DESCRIPTOR_RANGE_TYPE type,UINT space,UINT shaderRegister,
+                 D3D12_SHADER_VISIBILITY visibility,UINT& parameter,UINT& tableOffset){
+    return cvr_sda_audit_find_binding(root,UINT(type),space,shaderRegister,UINT(visibility),&parameter,&tableOffset);
+}
+static_assert(sizeof(CbvBinding)==32 && sizeof(DescriptorStamp)==176,"mirrored by descriptor_audit.rs");
+bool ResolveCbv(ID3D12GraphicsCommandList* list,uint64_t root,UINT parameter,UINT offset,CbvBinding& output){
+    return cvr_sda_audit_cbv(0,reinterpret_cast<uintptr_t>(list),root,parameter,offset,&output);
+}
+bool ResolveCbvAddress(uint64_t descriptor,CbvBinding& output){return cvr_sda_audit_cbv(1,descriptor,0,0,0,&output);}
+bool CaptureDescriptor(ID3D12GraphicsCommandList* list,uint64_t root,UINT parameter,UINT offset,DescriptorStamp& output){
+    output={};return cvr_sda_audit_stamp(0,reinterpret_cast<uintptr_t>(list),root,parameter,offset,&output,nullptr);
+}
+bool MatchesDescriptor(const DescriptorStamp& expected){
+    return cvr_sda_audit_stamp(1,0,0,0,0,const_cast<DescriptorStamp*>(&expected),nullptr);
+}
+bool CaptureCbvSource(ID3D12GraphicsCommandList* list,uint64_t root,UINT parameter,UINT offset,DescriptorStamp& output,ComPtr<IUnknown>& origin){
+    output={};origin.Reset();DescriptorStamp stamp;IUnknown* owner{};
+    if(!cvr_sda_audit_stamp(2,reinterpret_cast<uintptr_t>(list),root,parameter,offset,&stamp,&owner))return false;
+    output=stamp;origin.Attach(owner);return true;
+}
+bool ResolveSrvAtDraw(ID3D12GraphicsCommandList* list,uint64_t root,UINT parameter,UINT offset,SrvBinding& output){
+    output={};DescriptorStamp stamp;ID3D12Resource* resource{};D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+    if(!cvr_sda_audit_srv(reinterpret_cast<uintptr_t>(list),root,parameter,offset,&stamp,&resource,&view))return false;
+    SrvBinding resolved;resolved.description=stamp.value;resolved.stamp=stamp;resolved.resource.Attach(resource);resolved.view=view;
+    output=std::move(resolved);return true;
+}
+bool ResolveSamplerAtDraw(ID3D12GraphicsCommandList* list,uint64_t root,UINT parameter,UINT offset,SamplerBinding& output){
+    output={};return cvr_sda_audit_sampler(reinterpret_cast<uintptr_t>(list),root,parameter,offset,&output.stamp,&output.view);
+}
+bool ResolveCpuCbvAddress(uint64_t descriptor,CbvBinding& output){return cvr_sda_audit_cbv(2,descriptor,0,0,0,&output);}
+// The layouts: rust/crates/cvr-render/src/source_layout.rs (tools/single_pass_tests/descriptor_audit_test runs its cases
+// against them in its Rust variant).
+struct SourceSlotPlan {uint32_t kind;bool used;};
+static_assert(sizeof(Binding)==64 && sizeof(SourceSlotUse)==12 && sizeof(SourceSlotPlan)==8,"mirrored by source_layout.rs");
+// The source tables: rust/crates/cvr-render/src/audit_source_tables.rs (the layouts, walks and re-checks, the provider
+// called through the trampoline below, the owner and capture-receipt proofs, the cache). The public types are built
+// here from the rows it emits on success.
+struct RustSourceRequest {UINT parameter,count;const SourceSlotUse* uses;size_t useCount;};
+struct RustSourceBindings {ID3D12RootSignature* root;const D3D12_GPU_DESCRIPTOR_HANDLE* tables;uint64_t tableMask;
+    ID3D12DescriptorHeap* const* heaps;UINT heapCount;bool heapsSeen;};
+struct RustOwnedTableRow {UINT parameter,count;ID3D12DescriptorHeap* cpuHeap;IUnknown* owner;uint64_t identity,version,sourceGpu,sourceHeap;
+    IUnknown* provenance;};
+struct RustOwnedSlotsRow {UINT parameter,count;ID3D12DescriptorHeap* cpuHeap;IUnknown* owner;uint64_t identity,version,sourceGpu,sourceHeap;
+    const OwnedSourceSlot* slots;size_t slotCount;};
+struct RustSourceDependency {UINT parameter,offset;D3D12_DESCRIPTOR_RANGE_TYPE type;DescriptorStamp stamp;ID3D12Resource* resource;ID3D12Resource* counter;};
+static_assert(sizeof(RustSourceRequest)==24 && sizeof(RustSourceBindings)==40 && sizeof(RustOwnedTableRow)==64 &&
+    sizeof(RustOwnedSlotsRow)==72 && sizeof(RustSourceDependency)==208 && sizeof(OwnedSourceTable)==64 && sizeof(SrvBinding)==384 &&
+    sizeof(OwnedSourceSlot)==192 && sizeof(SourceTableFailure)==12,"mirrored by audit_source_tables.rs");
+using RustSourceProvider=uint32_t(*)(const void*,ID3D12GraphicsCommandList*,UINT,UINT,const DescriptorStamp*,IUnknown*,ID3D12Resource**,IUnknown**);
+using RustSourceEmit=void(*)(void*,uint32_t,const void*);
+extern "C" bool cvr_sda_st_capture(bool,ID3D12Device*,ID3D12GraphicsCommandList*,const RustSourceBindings*,const RustSourceRequest*,size_t,
+    RustSourceProvider,const void*,void**,bool,RustSourceEmit,void*);
+extern "C" void cvr_sda_st_cache_free(void*);
+extern "C" uint32_t cvr_sda_st_cache_count(const void*,uint32_t);
+extern "C" void cvr_sda_st_failure(const SourceTableFailure*,SourceTableFailure*);
+extern "C" bool cvr_sda_st_matches(const OwnedSourceTable*,UINT,const SrvBinding*);
+extern "C" bool cvr_sda_st_matches_slot(const OwnedSourceSlot*);
+extern "C" bool cvr_sda_st_matches_cpu(uint64_t,const DescriptorStamp*);
+namespace {
+struct SourceProviderCall {SourceCbvProvider provider;void* user;};
+uint32_t CallSourceProvider(const void* context,ID3D12GraphicsCommandList* list,UINT parameter,UINT offset,const DescriptorStamp* stamp,
+    IUnknown* origin,ID3D12Resource** resource,IUnknown** owner)noexcept{
+    try{
+        const auto* call=static_cast<const SourceProviderCall*>(context);if(!call->provider)return 0;
+        const ComPtr<IUnknown> held(origin);SourceCbvBacking backing;
+        if(!call->provider(call->user,list,parameter,offset,*stamp,held,backing))return 0;
+        *resource=backing.resource.Detach();*owner=backing.owner.Detach();return 1;
+    }catch(...){return 2;}
+}
+struct SourceRows {std::vector<OwnedSourceTable>* tables;std::vector<OwnedSourceSlots>* slots;std::vector<SourceResourceBinding>* dependencies;};
+void EmitSourceRow(void* context,uint32_t which,const void* row){
+    auto& rows=*static_cast<SourceRows*>(context);
+    if(which==0){
+        const auto& r=*static_cast<const RustOwnedTableRow*>(row);OwnedSourceTable table{r.parameter,r.count};
+        table.cpuHeap.Attach(r.cpuHeap);table.owner.Attach(r.owner);table.identity=r.identity;table.version=r.version;
+        table.sourceGpu=r.sourceGpu;table.sourceHeap=r.sourceHeap;table.provenance.Attach(r.provenance);rows.tables->push_back(std::move(table));
+    }else if(which==1){
+        const auto& r=*static_cast<const RustOwnedSlotsRow*>(row);OwnedSourceSlots owned;owned.parameter=r.parameter;owned.count=r.count;
+        owned.cpuHeap.Attach(r.cpuHeap);owned.owner.Attach(r.owner);owned.identity=r.identity;owned.version=r.version;owned.sourceGpu=r.sourceGpu;
+        owned.sourceHeap=r.sourceHeap;owned.slots.assign(r.slots,r.slots+r.slotCount);rows.slots->push_back(std::move(owned));
+    }else{
+        const auto& r=*static_cast<const RustSourceDependency*>(row);SourceResourceBinding binding{r.parameter,r.offset,r.type,r.stamp};
+        binding.resource.Attach(r.resource);binding.counter.Attach(r.counter);rows.dependencies->push_back(std::move(binding));
+    }
+}
+bool SourceRefused(UINT reason=1){const SourceTableFailure failure{reason};cvr_sda_st_failure(&failure,nullptr);return false;}
+bool CaptureSourceRows(bool slots,ID3D12Device* device,ID3D12GraphicsCommandList* list,const scene_state::Bindings& bindings,
+    std::span<const SourceTableRequest> requests,SourceCbvProvider provider,void* user,void*& cache,bool dependencies,SourceRows& rows){
+    std::vector<RustSourceRequest> lent;lent.reserve(requests.size());
+    for(const auto& request:requests)lent.push_back({request.parameter,request.count,request.uses.data(),request.uses.size()});
+    const RustSourceBindings lentBindings{bindings.root,bindings.tables.data(),bindings.tableMask,bindings.heaps.data(),bindings.heapCount,bindings.heapsSeen};
+    const SourceProviderCall call{provider,user};
+    return cvr_sda_st_capture(slots,device,list,&lentBindings,lent.data(),lent.size(),&CallSourceProvider,&call,&cache,dependencies,&EmitSourceRow,&rows);
+}
+}
+struct SourceTableCache::Storage {
+    void* rust{};
+    explicit Storage(void* handle):rust(handle){}
+    ~Storage(){cvr_sda_st_cache_free(rust);}
+    Storage(const Storage&)=delete;
+    Storage& operator=(const Storage&)=delete;
+};
+SourceTableCache::SourceTableCache()=default;
+SourceTableCache::~SourceTableCache()=default;
+void SourceTableCache::Clear(){storage_.reset();}
+UINT SourceTableCache::TableCount()const{return storage_?cvr_sda_st_cache_count(storage_->rust,0):0;}
+UINT SourceTableCache::DescriptorCount()const{return storage_?cvr_sda_st_cache_count(storage_->rust,1):0;}
+UINT SourceTableCache::SlotTableCount()const{return storage_?cvr_sda_st_cache_count(storage_->rust,2):0;}
+UINT SourceTableCache::SlotDescriptorCount()const{return storage_?cvr_sda_st_cache_count(storage_->rust,3):0;}
+SourceTableFailure LastSourceTableFailure(){SourceTableFailure failure;cvr_sda_st_failure(nullptr,&failure);return failure;}
+bool MatchesCapturedSourceSrv(const OwnedSourceTable& table,UINT offset,const SrvBinding& binding)noexcept{
+    return cvr_sda_st_matches(&table,offset,&binding);
+}
+bool MatchesSourceSlot(const OwnedSourceSlot& slot){return cvr_sda_st_matches_slot(&slot);}
+bool MatchesCpuSourceSrv(uint64_t cpu,const DescriptorStamp& expected){return cvr_sda_st_matches_cpu(cpu,&expected);}
+bool CaptureSourceTablesAtDraw(ID3D12Device* device,ID3D12GraphicsCommandList* list,const scene_state::Bindings& bindings,
+    std::span<const SourceTableRequest> requests,SourceCbvProvider provider,void* user,SourceTableCache& cache,std::vector<OwnedSourceTable>& output,
+    std::vector<SourceResourceBinding>* dependencies)try{
+    if(!output.empty() || (dependencies && !dependencies->empty()) || requests.size()>64)return SourceRefused();
+    std::vector<OwnedSourceTable> result;std::vector<SourceResourceBinding> used;SourceRows rows{&result,nullptr,&used};
+    void* handle=cache.storage_?cache.storage_->rust:nullptr;
+    const bool captured=CaptureSourceRows(false,device,list,bindings,requests,provider,user,handle,dependencies!=nullptr,rows);
+    if(handle && !cache.storage_){
+        try{cache.storage_=std::make_unique<SourceTableCache::Storage>(handle);}catch(...){cvr_sda_st_cache_free(handle);throw;}
+    }
+    if(!captured)return false;
+    output.swap(result);if(dependencies)dependencies->swap(used);return true;
+}catch(...){return SourceRefused(13);}
+bool CaptureSourceSlotsAtDraw(ID3D12Device* device,ID3D12GraphicsCommandList* list,const scene_state::Bindings& bindings,
+    std::span<const SourceTableRequest> requests,SourceCbvProvider provider,void* user,SourceTableCache& cache,std::vector<OwnedSourceSlots>& output,
+    std::vector<SourceResourceBinding>* dependencies)try{
+    if(!output.empty() || (dependencies && !dependencies->empty()) || requests.size()>64)return SourceRefused();
+    std::vector<OwnedSourceSlots> result;std::vector<SourceResourceBinding> used;SourceRows rows{nullptr,&result,&used};
+    void* handle=cache.storage_?cache.storage_->rust:nullptr;
+    const bool captured=CaptureSourceRows(true,device,list,bindings,requests,provider,user,handle,dependencies!=nullptr,rows);
+    if(handle && !cache.storage_){
+        try{cache.storage_=std::make_unique<SourceTableCache::Storage>(handle);}catch(...){cvr_sda_st_cache_free(handle);throw;}
+    }
+    if(!captured)return false;
+    output.swap(result);if(dependencies)dependencies->swap(used);return true;
+}catch(...){return SourceRefused(13);}
+}
+#endif
+#else
 extern "C" {
 __declspec(dllexport) uint32_t CyberpunkVR_DescriptorBindingBytes=sizeof(cvr::stereo::descriptors::Binding),CyberpunkVR_DescriptorValueBytes=sizeof(cvr::stereo::descriptors::Value);
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_DescriptorCaptureSeq{},CyberpunkVR_DescriptorDrawCount{},CyberpunkVR_DescriptorBindingCount{},CyberpunkVR_DescriptorIdCount{},CyberpunkVR_DescriptorValueCount{},CyberpunkVR_DescriptorCaptureFailure{};
@@ -950,6 +1523,7 @@ bool CaptureBorrowedFixedRange(ID3D12GraphicsCommandList* list,const native_reco
     summary.allSlotsQualified=summary.counts[UINT(BorrowedFixedStatus::TypedNull)]+summary.counts[UINT(BorrowedFixedStatus::Immutable)]==range.count;
     output.data_=std::move(next);BorrowedStage(0);return true;
 }catch(...){output={};BorrowedStage(12);return false;}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 bool ValidateBorrowedFixedRange(const BorrowedFixedRange& fixed,const BorrowedSourceRanges& witness,UINT index)try{
     BorrowedStage(1);const auto held=fixed.data_;if(!held || !held->summary.allSlotsQualified || !witness.data_)return false;
     BorrowedRangeSummary current;if(!DescribeBorrowedSourceRanges(witness,current))return false;
@@ -960,6 +1534,7 @@ bool ValidateBorrowedFixedRange(const BorrowedFixedRange& fixed,const BorrowedSo
     if(!borrowed->MatchesLocked() || !FixedCanonical(held->canonical,borrowed->ranges[index].identity))return false;
     BorrowedStage(0);return true;
 }catch(...){BorrowedStage(12);return false;}
+#endif
 bool DescribeBorrowedFixedRange(const BorrowedFixedRange& fixed,BorrowedFixedRangeSummary& output)try{
     output={};BorrowedStage(1);if(!fixed.data_)return false;
     output=fixed.data_->summary;BorrowedStage(0);return true;
@@ -1518,3 +2093,4 @@ bool CaptureSourceSlotsAtDraw(ID3D12Device* device,ID3D12GraphicsCommandList* li
     if(dependencies)dependencies->swap(resourcesUsed);return true;
 }catch(...){return SourceError(13);}
 }
+#endif

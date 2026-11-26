@@ -40,35 +40,106 @@ namespace detail {
 // QPC wall-clock accumulators, split main vs vrcam, averaged over a window and
 // published to the overlay. Goal: locate the CPU bottleneck (graph build vs node
 // dispatch vs submit) before optimizing the simultaneous true-stereo path.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_start.rs
 LARGE_INTEGER g_qpc_freq = { };
 double        g_qpc_to_ms = 0.0;   // 1000/freq, set in init
+#endif
+#if CVR_RUST_VRIK
+// THE PROFILER'S WORK IS RUST'S (rust/crates/cvr-render/src/stereo_profiler.rs). This file keeps what the other stereo
+// files and the DLL's export table name -- the accumulators, the switches and counters, the HUD gate's state -- and
+// forwards the functions.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's is rust/crates/cvr-render/src/cpp_services.rs'
+extern "C" {
+// The stereo module's log for the Rust half: its switch and its rate cap are one for the whole module.
+void cvr_cpp_stereo_log(const char* text) { log("%s", text); }
+}
+#endif
+#else
 int64_t prof_now() { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
+#endif
 // per-window raw accumulators (reset each publish window)
+#if CVR_RUST_VRIK
+#else
 std::atomic<int64_t>  g_prof_build_main_ticks{0};   // FullBuild+IncrBuild, main views
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<int64_t>  g_prof_build_vrcam_ticks{0};  // FullBuild+IncrBuild, vrcam view
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_prof_build_main_calls{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_prof_build_vrcam_calls{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<int64_t>  g_prof_disp_main_ticks{0};    // NodeDispatch orig call, main-thread nodes
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<int64_t>  g_prof_disp_vrcam_ticks{0};   // NodeDispatch orig call, vrcam nodes
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_prof_disp_main_nodes{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_prof_disp_vrcam_nodes{0};
+#endif
+#if !CVR_RUST_VRIK
 static std::atomic<int64_t>  g_prof_frame_last{0};         // last Present QPC (frame wall time)
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_prof_frames{0};             // frames since last audit dump/reset
+#endif
 // Audit denominators. Present count is NOT a safe divisor (frame generation presents more
 // often than the engine builds views), so the dump also carries the number of TOP-LEVEL
 // node dispatches per view -- that is exactly one per rendered view-frame -- plus the wall
 // window. The DLL therefore emits raw totals and lets the parser normalise.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_prof_top_main{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_prof_top_vrcam{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<int64_t>  g_prof_window_t0{0};          // QPC at window start
+#endif
 // published averages (ms) read by the overlay
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) double   CyberpunkVR_ProfBuildMainMs = 0.0;
 extern "C" __declspec(dllexport) double   CyberpunkVR_ProfBuildVrcamMs = 0.0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) double   CyberpunkVR_ProfDispMainMs = 0.0;
 extern "C" __declspec(dllexport) double   CyberpunkVR_ProfDispVrcamMs = 0.0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) double   CyberpunkVR_ProfFrameMs = 0.0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ProfDispVrcamNodes = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ProfDispMainNodes = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_ProfEnable = 0;   // master toggle (OFF: profiler dormant, no per-node QPC/atomic cost)
 // NODE TIMELINE (diagnostic, off by default). The per-node totals above say how much CPU each view
 // costs, not WHEN it runs -- and in a CPU-bound frame the question is the critical path: whether the
@@ -76,21 +147,39 @@ extern "C" __declspec(dllexport) int32_t  CyberpunkVR_ProfEnable = 0;   // maste
 // build and every Present lands here as one span; tools/hitch_tests/node_timeline.py reads the ring
 // live. kind: 0 MAIN node, 1 VRCAM node, 2 other view's node, 3 Present, 4 MAIN build, 5 VRCAM build.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_NodeTimeline = 0;
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 extern "C" __declspec(dllexport) ProfSpan CyberpunkVR_NodeTimelineRing[ProfSpanCount]{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_NodeTimelineCursor{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 void prof_timeline_add(int64_t start, int64_t end, uint32_t rva, uint32_t kind, uint32_t extra) {
     auto& span = CyberpunkVR_NodeTimelineRing[CyberpunkVR_NodeTimelineCursor.fetch_add(1, std::memory_order_relaxed) & (ProfSpanCount - 1)];
     span.start = start; span.end = end; span.rva = rva; span.kind = kind; span.thread = GetCurrentThreadId(); span.reserved = extra;
 }
+#endif
 // Script-side trigger for CyberpunkVR_ProfDumpNodes (normally an overlay button): a nonzero write
 // makes the next published frame log the per-node audit and reset its window. The live
 // measurement (tools/single_pass_tests/node_cpu_audit.py) dumps once to start a clean window and
 // once to read it; tools/node_audit_md.py parses the log lines.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ProfDumpRequest{0};
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ProfDumpCount{0};
+#endif
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) void CyberpunkVR_ProfDumpNodes();
+#endif
 // Called once per frame from the overlay's Present hook (via the exported symbol
 // below); averages the window and resets. window = frames since last publish.
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) void CyberpunkVR_ProfPublish() {
     if (!CyberpunkVR_ProfEnable || !g_qpc_to_ms) return;
     if (CyberpunkVR_ProfDumpRequest.exchange(0, std::memory_order_acq_rel)) {
@@ -118,6 +207,7 @@ extern "C" __declspec(dllexport) void CyberpunkVR_ProfPublish() {
     g_prof_build_main_calls.exchange(0, std::memory_order_relaxed);
     g_prof_build_vrcam_calls.exchange(0, std::memory_order_relaxed);
 }
+#endif
 
 // ================================================================================================
 // PER-NODE ACCOUNTING, moved here from the monolith in two blocks, with the HUD capability grant that
@@ -137,6 +227,8 @@ extern "C" __declspec(dllexport) void CyberpunkVR_ProfPublish() {
 // own row count, because this project has four times had a fixed-size table stop working silently.
 // ================================================================================================
 
+#if CVR_RUST_VRIK
+#else
 void prof_node_add(uintptr_t work, int64_t dt, int64_t self, bool vrcam) {
     if (!work || !g_exe_base) return;
     const uintptr_t rva = work - reinterpret_cast<uintptr_t>(g_exe_base);
@@ -167,6 +259,7 @@ void prof_node_add(uintptr_t work, int64_t dt, int64_t self, bool vrcam) {
         }
     }
 }
+#endif
 // SceneDrv (sub_140332D5C) is the SINGLE work-fn behind ALL scene-geometry passes; the pass
 // id is the rtId byte at exec-ctx+0x38. CAUTION: rtId is NOT a stable pass identity -- the
 // graph builder hands out the NEXT SEQUENTIAL index per top-level pass scope
@@ -174,7 +267,9 @@ void prof_node_add(uintptr_t work, int64_t dt, int64_t self, bool vrcam) {
 // RENUMBERS the whole tail. MAIN and VRCAM therefore disagree on numbering (a constant
 // shift of 3 in the tail was observed), and comparing views by rtId NUMBER produces phantom
 // "view-only passes". Passes must be matched by CONTENT instead -- hence the pair table below.
+#if !CVR_RUST_VRIK
 const uint32_t SCENE_DRIVER_WORK_RVA = 0x332D5C;
+#endif
 
 // ---- HUD IN THE SECOND EYE ------------------------------------------------------------------
 //
@@ -211,8 +306,10 @@ const uint32_t SCENE_DRIVER_WORK_RVA = 0x332D5C;
 // right-eye capture hangs off it (RENDER_FINAL2D_WORK_RVA above, the ctx-keyed RTV redirect).
 // So the composite that would put a HUD surface on screen is present; only the node that DRAWS
 // the HUD is being refused.
+#if !CVR_RUST_VRIK
 const uint32_t DRAWHUD_WORK_RVA        = 0x33E388;   // CRenderNode_DrawHUD
 const uintptr_t VIEW_FEATURE_CHECK_RVA = 0x5D8D48;   // sub_1405D8D48 (2.31 sub_14021BE28): mask at ctx+0x2688 (2.31: +0x18A0)
+#endif
 
 // OFF -- forcing the gate CRASHES, and that is the useful result.
 //
@@ -227,18 +324,30 @@ const uintptr_t VIEW_FEATURE_CHECK_RVA = 0x5D8D48;   // sub_1405D8D48 (2.31 sub_
 // the node requires, find which of them the second view lacks, and set them where the view is
 // built -- early enough that the engine itself allocates everything that follows. The mask dump
 // below is the measurement that makes that possible.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_HudInVrcam = 0;
+#endif
 // Dispatch census: does the node reach the second view AT ALL? If Vrcam stays 0 while Main
 // climbs, the node is not in that view's graph and the capability test is not the obstacle --
 // a different problem, and this hook cannot fix it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudNodeMain    = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudNodeVrcam   = 0;
 // How often the engine refused the second eye, and how often we overrode that refusal.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudGateDenied  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudGateForced  = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 using ViewFeatureCheckFn = uint8_t (__fastcall*)(uintptr_t work_context, uintptr_t required);
+#endif
+#if !CVR_RUST_VRIK
 ViewFeatureCheckFn g_view_feature_check_orig = nullptr;
+#endif
 
 // ---- THE SECOND GATE: the view's draw-block list ---------------------------------------------
 //
@@ -261,16 +370,26 @@ ViewFeatureCheckFn g_view_feature_check_orig = nullptr;
 // Borrowed and RESTORED around the call, never assigned: the slot belongs to the engine's view
 // object, and leaving a foreign pointer in it after the node returns would hand MAIN's list to
 // whatever runs next on that view.
+#if !CVR_RUST_VRIK
 using HudViewDataFn = void* (__fastcall*)(void*);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 HudViewDataFn g_hud_viewdata_get = nullptr;
 void* g_hud_block_main = nullptr;      // MAIN's list, captured at MAIN's own DrawHUD
+#endif
 // OFF for the same reason as the gate override: lending the list only carried the node further
 // into state the view does not have. Kept because the measurement it produces (null vs ok) is
 // still worth having, and because it becomes correct once the capability bits are set properly.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_HudBorrowBlocks = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudBlockNull    = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudBlockOk      = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudBlockLent    = 0;
+#endif
 
 // ---- WHAT EXACTLY THE SECOND VIEW IS MISSING -------------------------------------------------
 //
@@ -289,9 +408,17 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudBlockLent    = 0;
 // bit positions rather than a theory. Those positions are what has to be set where the view is
 // created -- early enough that the engine allocates the HUD state itself, which is the whole
 // difference between this and the override that crashed.
+#if !CVR_RUST_VRIK
 const uintptr_t HUD_REQUIRED_MASK_RVA = 0x3C1C8A0;   // word_143C1C8A0
+#endif
+#if CVR_RUST_VRIK
+#else
 bool g_hud_mask_dumped_main  = false;
+#endif
+#if CVR_RUST_VRIK
+#else
 bool g_hud_mask_dumped_vrcam = false;
+#endif
 
 // ---- GRANT THE CAPABILITY INSTEAD OF SKIPPING THE TEST ---------------------------------------
 //
@@ -324,10 +451,16 @@ bool g_hud_mask_dumped_vrcam = false;
 // f0/f1 are a superset of MAIN's. Same graph, same nodes; the difference is in the DATA the
 // nodes find, not in which nodes exist. So the empty list has a writer that runs for one view and
 // not the other, and finding that writer is the next step -- not re-litigating the builder.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) int      CyberpunkVR_HudGrantCap  = 1;
+#endif
 
 // ProfPass moved to Stereo/StereoInternal.hpp.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
 ProfPass g_prof_scenepass[256];   // full 0..255: 0xFF is a legitimate rtId value
+#endif
 
 // (rtId, work-fn) pair table: which NAMED nodes ran under which pass, per view. This is what
 // makes the pass list comparable across views without knowing a pass name at all -- a pass is
@@ -340,6 +473,7 @@ ProfPass g_prof_scenepass[256];   // full 0..255: 0xFF is a legitimate rtId valu
 // while still carrying the correct inherited rtId.
 // Depth is a COLUMN, not part of the key: for a top-level node the row means "this node's own
 // ctx slot", not "ran inside pass N".
+#if !CVR_RUST_VRIK
 struct ProfPair {
     std::atomic<uint64_t> key;          // (rtId << 32) | work-fn RVA; 0 = empty slot
     std::atomic<int64_t>  self_main;
@@ -352,7 +486,14 @@ struct ProfPair {
     std::atomic<uint32_t> owner_vrcam;
 };
 static ProfPair g_prof_pairs[2048];     // ~400 live rows expected (363 main / 320 vrcam)
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugProfPairOverflow = 0;
+#endif
+#if CVR_RUST_VRIK
+#else
 // splitmix64 finaliser: the slot index must depend on the WHOLE key. A plain
 // `(key >> 4) * 2654435761` does not work here -- the table index uses the LOW bits of the
 // product, and those depend only on the low bits of the input, i.e. on rva alone. rtId
@@ -393,12 +534,15 @@ void prof_pair_add(uint8_t rtid, uint32_t rva, int64_t self, bool vrcam,
     }
     CVR_DIAGNOSTIC(++CyberpunkVR_DebugProfPairOverflow);   // table full: rows would be lost, dump says so
 }
+#endif
 // Work-fn RVA -> CRenderNode name, generated from the project's own RE census
 // (engine_re/dumps/nodes/nodes_index.md, 163 nodes). This REPLACES the old hand-written
 // switch, several entries of which were wrong guesses: +0x5AA54C was labelled
 // "ShadowCascades?" but is RenderRainMap, +0x425AA0 "ShadowFamily?" is
 // PrepareScreenSpaceWaterDepth, +0xB50EC8 "AsyncRenderJob" is FlushTextureGrabs, and
 // +0x557204 "RasterTonemap" is ApplyTXAA. Table is sorted by RVA -> binary search.
+#if CVR_RUST_VRIK
+#else
 #include "NodeNames.inc"
 extern "C" __declspec(dllexport) const char* CyberpunkVR_ProfNodeName(uint32_t rva) {
     int lo = 0, hi = (int)(sizeof(k_prof_node_names) / sizeof(k_prof_node_names[0])) - 1;
@@ -410,14 +554,26 @@ extern "C" __declspec(dllexport) const char* CyberpunkVR_ProfNodeName(uint32_t r
     }
     return "";
 }
+#endif
 
 // ---- NODE CUT (census experiment): skip selected nodes at dispatch ----------
 // Rules match work-fn RVA (+ optional SceneDrv rtId) and view side. Armed live
 // from the overlay; every change is logged. Master switch default OFF. Used to
 // census which nodes are droppable per view (CPU win) without quality loss.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_NodeCutEnable = 0;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_NodeCutRetVal = 1;  // dispatch return when skipping
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugNodeCutSkips = 0;
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
+extern "C" __declspec(dllexport) void CyberpunkVR_NodeCutSet(uint32_t rva, uint32_t rtid, int mode) {
+    cvr_stereo_node_cut_set(rva, rtid, mode);
+}
+#endif
+#else
 static std::atomic<uint32_t> g_cut_rva[64];    // 0 = empty slot
 static std::atomic<uint32_t> g_cut_meta[64];   // (rtid<<8)|mode; rtid 0xFF=any; mode 0=off 1=vrcam 2=both 3=main
 static std::atomic<int>      g_cut_active{0};
@@ -470,13 +626,32 @@ extern "C" __declspec(dllexport) void CyberpunkVR_NodeCutSet(uint32_t rva, uint3
         mode == 1 ? "cut-vrcam" : mode == 2 ? "cut-both" : mode == 3 ? "cut-main" : "off",
         active);
 }
+#endif
 
 // Script-side node-cut rule (the overlay calls CyberpunkVR_NodeCutSet directly). One packed
 // request per Present: bits 0..31 work RVA, 32..39 rtId (0xFF any), 40..47 mode (0 off,
 // 1 cut-vrcam, 2 cut-both, 3 cut-main), bit 63 set so a zero request means "none".
 // Diagnostic only: CyberpunkVR_NodeCutEnable must be set separately and defaults to 0.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_NodeCutRequest{0};
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_NodeCutApplied{0};
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
+extern "C" __declspec(dllexport) int CyberpunkVR_ProfSnapshotNodes(uint32_t* out_rva, double* out_msv, double* out_msm,
+                                                                  uint32_t* out_cv, uint32_t* out_cm, int maxn) {
+    return cvr_stereo_prof_snapshot_nodes(out_rva, out_msv, out_msm, out_cv, out_cm, maxn);
+}
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
+extern "C" __declspec(dllexport) int CyberpunkVR_ProfSnapshotPasses(uint32_t* out_rtid, double* out_msv, double* out_msm,
+                                                                   int maxn) {
+    return cvr_stereo_prof_snapshot_passes(out_rtid, out_msv, out_msm, maxn);
+}
+#endif
+#else
 extern "C" __declspec(dllexport) void CyberpunkVR_NodeCutPoll() {
     const uint64_t request = CyberpunkVR_NodeCutRequest.exchange(0, std::memory_order_acq_rel);
     if (!(request >> 63)) return;
@@ -663,6 +838,7 @@ static void prof_log_config() {
         CyberpunkVR_DebugMainAaMode, CyberpunkVR_DebugVrcamAaMode,
         CyberpunkVR_ProfFrameMs);
 }
+#endif
 
 }  // namespace detail
 }  // namespace cvr

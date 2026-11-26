@@ -13,12 +13,89 @@ enum class CompilerIdentityFailure:uint32_t {
     FrameOwner,Group,References,Pending,Changed,NotCaptured,AlreadyMatched,CompilerJob,
     CompilerParent,NoCallbackToken,NotMatched,AlreadyReturned
 };
+#if CVR_RUST_VRIK
+// The lease: rust/crates/cvr-render/src/native/compiler_identity.rs through graph_jobs_abi.rs
+// (tools/single_pass_tests/compiler_identity_test runs its cases against it in its Rust variant).
+struct RustCompilerLease;
+struct RustCompilerState {
+    CompilerBinding binding;uint64_t group,producerContext,rendererArgument,compilerJob,compilerParentHandle;
+    uint32_t failure;bool captured,matched,dispatchReturned,compilerReturned,rootReturned,failed;
+};
+static_assert(sizeof(CompilerBinding)==72 && sizeof(RustCompilerState)==128,"mirrored by graph_jobs_abi.rs");
+extern "C" {
+RustCompilerLease* cvr_cl_new();
+void cvr_cl_free(RustCompilerLease*);
+bool cvr_cl_capture(RustCompilerLease*,const CompilerBinding*,uint64_t,uint64_t,uint64_t,uint64_t,ReadMemory,const JobLeaseApi*);
+bool cvr_cl_matches_parent(const RustCompilerLease*,uint64_t,ReadMemory);
+bool cvr_cl_match(RustCompilerLease*,uint64_t,uint8_t,uint64_t,uint64_t,ReadMemory);
+bool cvr_cl_step(RustCompilerLease*,uint32_t);
+bool cvr_cl_matches_binding(const RustCompilerLease*,const CompilerBinding*);
+void cvr_cl_state(const RustCompilerLease*,RustCompilerState*);
+}
+#endif
 
 // Exact ABC574/AF59C0/142634/142F88/1EDA84 body and dispatch coverage are supplied
 // by the caller. The graph label comes from the verified owned constructor/D0
 // receipt: ABC574 and AF59C0 carry renderer, not graph. This pins only D1; it
 // neither owns definitions nor proves resource freshness or GPU completion.
 // Caller serializes methods; native retain/release/complete must not throw.
+#if CVR_RUST_VRIK
+class CompilerIdentityLease {
+public:
+    CompilerIdentityLease():rust_(cvr_cl_new()){}
+    ~CompilerIdentityLease(){cvr_cl_free(rust_);}
+    CompilerIdentityLease(const CompilerIdentityLease&)=delete;
+    CompilerIdentityLease& operator=(const CompilerIdentityLease&)=delete;
+    CompilerIdentityLease(CompilerIdentityLease&&)=delete;
+    CompilerIdentityLease& operator=(CompilerIdentityLease&&)=delete;
+
+    // A throwing reader unwinds through the rules (their pin releases the group) and is refused with Read here.
+    bool CaptureBeforeDispatch(const CompilerBinding& binding,uint64_t producerJob,uint64_t rendererArgumentAddress,
+                               uint64_t caller,uint64_t imageBase,ReadMemory read,JobLeaseApi api)try{
+        return cvr_cl_capture(rust_,&binding,producerJob,rendererArgumentAddress,caller,imageBase,read,&api);
+    }catch(...){return cvr_cl_step(rust_,4);}
+
+    // Non-mutating domain filter: unrelated frame compilations may use the same
+    // pool. A failed filter is not a completion or an authority to discard pins.
+    bool MatchesCompilerParent(uint64_t compilerJob,ReadMemory read)const try{
+        return cvr_cl_matches_parent(rust_,compilerJob,read);
+    }catch(...){return false;}
+
+    // The AF59C0 local JobQueue's +20 points to the actual worker handle. It is
+    // not that worker itself: never apply worker+68/+150 or read job+38 as a
+    // renderer. Matching may happen after root return; no producer stack reads.
+    bool MatchBeforeCompiler(uint64_t pool,uint8_t mode,uint64_t compilerJob,uint64_t caller,ReadMemory read)try{
+        return cvr_cl_match(rust_,pool,mode,compilerJob,caller,read);
+    }catch(...){return cvr_cl_step(rust_,4);}
+
+    bool MarkOriginalDispatchReturned()noexcept{return cvr_cl_step(rust_,0);}
+    bool MarkOriginalCompilerReturned()noexcept{return cvr_cl_step(rust_,1);}
+    // Normal original219730 return, not cancellation, timeout, or AA scheduler
+    // return. Clear ephemeral addresses even when a prior proof failed.
+    bool MarkOriginalRootReturned()noexcept{return cvr_cl_step(rust_,2);}
+    bool Complete()const noexcept{return cvr_cl_step(rust_,3);}
+    bool Captured()const noexcept{return State().captured;}
+    bool Matched()const noexcept{return State().matched;}
+    bool OriginalDispatchReturned()const noexcept{return State().dispatchReturned;}
+    bool OriginalCompilerReturned()const noexcept{return State().compilerReturned;}
+    bool OriginalRootReturned()const noexcept{return State().rootReturned;}
+    bool Failed()const noexcept{return State().failed;}
+    uint64_t Group()const noexcept{return State().group;}
+    const CompilerBinding& Binding()const noexcept{binding_=State().binding;return binding_;}
+    bool MatchesBinding(const CompilerBinding& expected)const noexcept{return cvr_cl_matches_binding(rust_,&expected);}
+    uint64_t ProducerContextAddress()const noexcept{return State().producerContext;}
+    uint64_t RendererArgumentAddress()const noexcept{return State().rendererArgument;}
+    uint64_t CompilerJobAddress()const noexcept{return State().compilerJob;}
+    // Frozen identity label only; no late dereference is permitted.
+    uint64_t CompilerParentHandle()const noexcept{return State().compilerParentHandle;}
+    CompilerIdentityFailure Rejection()const noexcept{return CompilerIdentityFailure(State().failure);}
+private:
+    RustCompilerState State()const noexcept{RustCompilerState state{};cvr_cl_state(rust_,&state);return state;}
+    RustCompilerLease* rust_;
+    // Binding()'s returned copy (the caller serializes this object).
+    mutable CompilerBinding binding_;
+};
+#else
 class CompilerIdentityLease {
 public:
     CompilerIdentityLease()=default;
@@ -187,4 +264,5 @@ private:
     bool attempted_{},captured_{},matched_{},dispatchReturned_{},compilerReturned_{},rootReturned_{},failed_{};
     CompilerIdentityFailure failure_=CompilerIdentityFailure::None;
 };
+#endif
 }

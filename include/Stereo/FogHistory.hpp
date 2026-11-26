@@ -7,6 +7,39 @@ namespace cvr::stereo {
 using FogCamera = std::array<float,212>;
 using FogProjection = std::array<float,16>;
 using FogGrid = std::array<float,16>;
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/fog_history.rs through render_parity_abi.rs (tools/render_parity_tests' fog cases
+// run against them in their Rust variant).
+extern "C" {
+bool cvr_fog_read_grid(const void*,FogGrid*);
+bool cvr_fog_same(uint32_t,const std::array<float,16>*,const std::array<float,16>*);
+bool cvr_fog_projection(uint32_t,const FogCamera*,FogProjection*);
+bool cvr_fog_apply_history(const FogCamera*,const FogProjection*,FogCamera*);
+bool cvr_fog_can_borrow(const FogSample*,const RenderOwner*,uintptr_t,uint32_t,uint64_t,uint64_t,const FogAllocation*,
+    const FogAllocation*,const FogAllocation*,const FogGrid*,const FogGrid*);
+}
+inline bool ReadFogGrid(const void* constants,FogGrid& out){return cvr_fog_read_grid(constants,&out);}
+inline bool SameFogGrid(const FogGrid& a,const FogGrid& b){return cvr_fog_same(0,&a,&b);}
+// camera[51].xy: the NDC jitter alone (the native VS removes it this way, see lens_velocity_ps.hlsl).
+// Anything larger than this is not a sub-pixel jitter.
+constexpr unsigned kFogCameraJitter=204;
+constexpr float kFogMaxJitter=0.05f;
+// The projection alone with the jitter taken out: the frustum the view's froxel grid spans.
+inline bool FogFrustum(const FogCamera& camera,FogProjection& output){return cvr_fog_projection(0,&camera,&output);}
+// The projection with the jitter subtracted and the off-centre shift kept, times the view.
+inline bool FogCurrentProjection(const FogCamera& camera,FogProjection& output){return cvr_fog_projection(1,&camera,&output);}
+// MAIN's fog history stands in for the second view's only when both froxel grids span the same frustum.
+inline bool SameFogFrustum(const FogProjection& a,const FogProjection& b){return cvr_fog_same(1,&a,&b);}
+inline bool ApplyFogHistoryProjection(const FogCamera& native,const FogProjection& source,FogCamera& output){
+    return cvr_fog_apply_history(&native,&source,&output);
+}
+inline bool CanBorrowFog(const FogSample& sample,const RenderOwner& owner,uintptr_t registry,
+    uint32_t frame,uint64_t pose,uint64_t time,const FogAllocation& live,
+    const FogAllocation& scatteringOutput,const FogAllocation& integratedOutput,
+    const FogGrid& sourceGrid,const FogGrid& currentGrid) {
+    return cvr_fog_can_borrow(&sample,&owner,registry,frame,pose,time,&live,&scatteringOutput,&integratedOutput,&sourceGrid,&currentGrid);
+}
+#else
 inline bool ReadFogGrid(const void* constants,FogGrid& out) {
     if(!constants)return false;
     const auto* bytes=static_cast<const unsigned char*>(constants);
@@ -95,5 +128,6 @@ inline bool CanBorrowFog(const FogSample& sample,const RenderOwner& owner,uintpt
         scatteringOutput && integratedOutput && live.resource!=scatteringOutput.resource &&
         live.resource!=integratedOutput.resource && SameFogGrid(sourceGrid,currentGrid);
 }
+#endif
 void ObserveFogConstants(uint32_t size,const void* source);
 }

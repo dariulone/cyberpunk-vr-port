@@ -14,6 +14,17 @@ local Lobby = require("modules/lobby")
 local shared = { mainMenu = nil, menuAway = false, saveNames = nil, creation = nil, creationEvents = nil,
                  creating = false }
 
+-- RUST (stage 6): bit 29 of VRRustMechanics -- the lobby itself (modules/lobby.lua and everything it drives: the place,
+-- the atmosphere, the scene and its items, the engrams and the construct, the intro, the holo menu with the setup and
+-- the new game) is the plugin's (rust/crates/cvr-ffi/src/mechanics/lobby*.rs). The observers below stay here and
+-- report to it: VRLobbyMenu (the controllers, the menu's root or away), VRLobbySaves (the saves' names).
+local function rustOwns()
+  return type(VRRustMechanics) == "function" and math.floor(VRRustMechanics() / 536870912) % 2 == 1
+end
+local function report(what, obj)
+  if type(VRLobbyMenu) == "function" then pcall(VRLobbyMenu, what, obj) end
+end
+
 local function hotLoad()
   local cache = {}
   local function req(name)
@@ -33,36 +44,64 @@ local function hotLoad()
   return req("modules/lobby")
 end
 
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent("onInit", function()
-  pcall(function()
-    ObserveAfter("SingleplayerMenuGameController", "OnInitialize", function(self) shared.mainMenu = self end)
+  if not rustHooks() then pcall(function()
+    ObserveAfter("SingleplayerMenuGameController", "OnInitialize", function(self)
+      shared.mainMenu = self
+      report(0, self)
+    end)
     ObserveBefore("SingleplayerMenuGameController", "OnUninitialize", function(self)
       if shared.mainMenu == self then shared.mainMenu = nil end
+      report(1, self)
     end)
     ObserveAfter("SingleplayerMenuGameController", "OnSavesForLoadReady", function(self, saves)
       shared.saveNames = saves
+      if type(VRLobbySaves) == "function" then
+        local names = {}
+        for i, n in ipairs(saves or {}) do names[i] = tostring(n) end
+        pcall(VRLobbySaves, table.concat(names, "\n"))
+      end
     end)
     -- The main menu's root scenario: entered = the game's menu is at its root; left = one of its own screens.
-    ObserveAfter("MenuScenario_SingleplayerMenu", "OnEnterScenario", function(self) shared.menuAway = false end)
-    ObserveAfter("MenuScenario_SingleplayerMenu", "OnLeaveScenario", function(self) shared.menuAway = true end)
+    ObserveAfter("MenuScenario_SingleplayerMenu", "OnEnterScenario", function(self)
+      shared.menuAway = false
+      report(5, nil)
+    end)
+    ObserveAfter("MenuScenario_SingleplayerMenu", "OnLeaveScenario", function(self)
+      shared.menuAway = true
+      report(6, nil)
+    end)
     -- The new game's screens (life path, body, looks, stats, summary): the one up and the dispatcher they step on.
     ObserveAfter("BaseCharacterCreationController", "OnSetMenuEventDispatcher", function(self, d)
       shared.creation, shared.creationEvents = self, d
+      report(2, self)
+      report(3, d)
     end)
     ObserveBefore("BaseCharacterCreationController", "OnUninitialize", function(self)
       if shared.creation == self then shared.creation = nil end
+      report(4, self)
     end)
-  end)
+  end) end
+  if rustOwns() then
+    print("[VRLobby] ready (the lobby runs in the plugin)")
+    return
+  end
   Lobby.init(shared)
   print("[VRLobby] ready")
 end)
 
 registerForEvent("onUpdate", function(dt)
+  if rustOwns() then return end
   local ok, err = pcall(Lobby.update, dt)
   if not ok then print("[VRLobby] " .. tostring(err)) end
 end)
 
 registerForEvent("onShutdown", function()
+  if rustOwns() then return end
   pcall(Lobby.close)
 end)
 

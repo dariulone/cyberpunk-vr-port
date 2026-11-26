@@ -1,4 +1,7 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // ViewTwinCompiler -- see include/Render/ViewTwinCompiler.hpp.
+#if !CVR_RUST_VRIK
+// The C++ build's compiler; the Rust build's is rust/crates/cvr-render/src/view_twin_compiler.rs (the header calls it).
 #include "Render/ViewTwinCompiler.hpp"
 #include "Render/ViewTwinIr.hpp"
 #include <windows.h>
@@ -104,3 +107,5 @@ TwinShader ViewTwinCompiler::Build(const void* dxil,size_t bytes,const void* ver
     return out;
 }
 }
+#endif
+#endif

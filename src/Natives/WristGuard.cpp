@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // WristGuard -- keeps the forearm readout from sitting there as a black rectangle.
 //
 // WHAT THE FAULT IS, measured rather than reasoned (the full record is in the project memory note
@@ -51,6 +52,8 @@
 #include <RED4ext/Scripting/Natives/Generated/world/AnimationSystem.hpp>
 #include "Natives/NativeHelpers.hpp"
 
+// The Rust build's native is rust/crates/cvr-rig/src/vrik/wrist_guard.rs.
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
 
 namespace
@@ -503,3 +506,5 @@ void VRWristGuard(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, 
     Log("[wrist] render target swapped -> repaired (%d this session)", g_repairs);
     if (aOut) *aOut = 1;
 }
+#endif
+#endif

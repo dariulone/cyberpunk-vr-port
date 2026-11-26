@@ -5,23 +5,48 @@
 #include <atomic>
 #include <mutex>
 #include <map>
+#if CVR_RUST_VRIK
+// The game-code contracts: rust/crates/cvr-render/src/stereo_code.rs (0 draw origin, 1 bounds, 2 particles, 3 scene
+// update; through ReadProcessMemory).
+#endif
 
 extern "C" {
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/scene_update.rs
 void* CvrSceneUpdateQueueOriginal{};void* CvrSceneUpdateProducerOriginal{};
 void* CvrSceneUpdateGeneralOriginal{};void* CvrSceneUpdatePreOriginal{};
 void* CvrSceneUpdateMembershipOriginal{};void* CvrSceneUpdatePostOriginal{};
 void* CvrSceneUpdateGeneralRunnerOriginal{};void* CvrSceneUpdateLaneRunnerOriginal{};
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void CvrSceneUpdateQueueDetour();void CvrSceneUpdateProducerDetour();
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void CvrSceneUpdateGeneralDetour();void CvrSceneUpdatePreDetour();
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void CvrSceneUpdateMembershipDetour();void CvrSceneUpdatePostDetour();
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void CvrSceneUpdateGeneralRunnerDetour();void CvrSceneUpdateLaneRunnerDetour();
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SceneUpdateRequest{},CyberpunkVR_SceneUpdateState{},CyberpunkVR_SceneUpdateCompatible{},CyberpunkVR_SceneUpdateSeq{},CyberpunkVR_SceneUpdatePending{};
 __declspec(dllexport) uint64_t CyberpunkVR_SceneUpdateStats[16]{},CyberpunkVR_SceneUpdateJobs{},CyberpunkVR_SceneUpdateScenes{},CyberpunkVR_SceneUpdateCommands{},CyberpunkVR_SceneUpdateMutations{};
 __declspec(dllexport) uint32_t CyberpunkVR_SceneUpdateJobCount{},CyberpunkVR_SceneUpdateSceneCount{},CyberpunkVR_SceneUpdateCommandCount{},CyberpunkVR_SceneUpdateMutationCount{};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/scene_update.rs
 __declspec(dllexport) uint32_t CyberpunkVR_SceneUpdateJobBytes=64,CyberpunkVR_SceneUpdateSceneBytes=sizeof(cvr::stereo::scene_update::SceneInput),
     CyberpunkVR_SceneUpdateCommandBytes=sizeof(cvr::stereo::scene_update::CommandInput),CyberpunkVR_SceneUpdateMutationBytes=sizeof(cvr::stereo::scene_update::MutationEntry);
+#endif
 }
 
+#if CVR_RUST_VRIK
+// The probe: rust/crates/cvr-render/src/scene_update.rs (its receipt scene_update_receipt.rs; the thunks' scopes proven
+// live by cvr-engine's unwind walk). The detours' registration over the thunks and the exports stay here, lent to it.
+// The table is built in rust/crates/cvr-render/src/scene_update.rs.
+#else
 namespace cvr::stereo::scene_update {
 namespace {
 std::once_flag guardsOnce;bool guardsReady{},guardsValid{};std::atomic<bool> hooksEnabled{};uint64_t imageBase{};
@@ -184,6 +209,9 @@ bool HooksReady(){
 }
 void PrepareCodeGuards()noexcept{
     try{std::call_once(guardsOnce,[]{
+#if CVR_RUST_VRIK
+        imageBase=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));const bool valid=cvr_stereo_code(3,imageBase);
+#else
         imageBase=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));bool valid=imageBase!=0;
         constexpr struct Guard {uint32_t rva,bytes;uint64_t hash;} guards[]{
             {0x3D74F8,0x1F2,0xB682B7BE03C4519Full},{0xCA64A0,0xF9,0xE6E5D30FBC771754ull},
@@ -200,6 +228,7 @@ void PrepareCodeGuards()noexcept{
         for(const auto& guard:guards){if(!ReadNative(imageBase+guard.rva,bytes.data(),guard.bytes)){valid=false;break;}
             uint64_t hash=14695981039346656037ull;for(uint32_t i=0;i<guard.bytes;++i)hash=(hash^bytes[i])*1099511628211ull;
             if(hash!=guard.hash){valid=false;break;}}
+#endif
         guardsValid=valid;guardsReady=true;CyberpunkVR_SceneUpdateCompatible=valid?1:2;
     });}catch(...){CyberpunkVR_SceneUpdateCompatible=2;}
 }
@@ -244,3 +273,4 @@ void ObserveBoundsWrite(uint64_t pool,uint64_t indices,uint64_t caller)noexcept{
 }
 extern "C" uint64_t CvrSceneUpdateBefore(uint32_t event,const cvr::stereo::scene_update::ThunkFrame* frame)noexcept{return cvr::stereo::scene_update::Before(event,frame);}
 extern "C" void CvrSceneUpdateAfter(uint32_t event,uint64_t cookie,const cvr::stereo::scene_update::ThunkFrame* frame)noexcept{cvr::stereo::scene_update::After(event,cookie,frame);}
+#endif

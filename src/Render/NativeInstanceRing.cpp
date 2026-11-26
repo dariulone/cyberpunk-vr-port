@@ -3,6 +3,116 @@
 #include <atomic>
 #include <optional>
 #include <vector>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE LEDGER IS RUST'S (rust/crates/cvr-render/src/instance_ring.rs): this face hands it the C++ half's records and holds
+// the C++ ends -- the completed writers' presence (a shared_ptr the ledger owns through the callbacks below, so the
+// weak_ptr expires when the ledger drops the writer) and the CPU candidates' payload references.
+namespace cvr::stereo::instance_ring {
+struct CvrInstanceRingQuery {const void* payload;CompletedWriter producer;size_t offset,bytes;Publication publication;};
+}
+extern "C" {
+using cvr::stereo::instance_ring::CompletedWriter;
+using cvr::stereo::instance_ring::CvrInstanceRingQuery;
+using cvr::stereo::instance_ring::Limits;
+using cvr::stereo::instance_ring::Publication;
+using cvr::stereo::instance_ring::Range;
+using cvr::stereo::instance_ring::ReadRequest;
+using cvr::stereo::instance_ring::RingObservation;
+using cvr::stereo::instance_ring::Scope;
+using cvr::stereo::instance_ring::Status;
+using cvr::stereo::instance_ring::WriterTicket;
+void cvr_instance_ring_attach(void* (*make)(const WriterTicket*),void (*drop)(void*));
+void* cvr_instance_ring_new(const Limits*);
+void cvr_instance_ring_free(void*);
+bool cvr_instance_ring_range(const RingObservation*,uint64_t,uint32_t,uint32_t,Range*);
+Status cvr_instance_ring_observe(void*,const RingObservation*);
+Status cvr_instance_ring_begin(void*,const RingObservation*,const Scope*,WriterTicket*);
+Status cvr_instance_ring_qualify_write(void*,const RingObservation*,const WriterTicket*,uint64_t,uint32_t,uint32_t);
+Status cvr_instance_ring_validate_write(void*,const WriterTicket*);
+Status cvr_instance_ring_discard_completed(void*,const WriterTicket*);
+Status cvr_instance_ring_invalidate_physical(void*,const RingObservation*,uint32_t,uint32_t);
+Status cvr_instance_ring_finish_unobserved(void*,const RingObservation*,const WriterTicket*,uint32_t,uint32_t);
+Status cvr_instance_ring_complete(void*,const RingObservation*,const CompletedWriter*,const uint8_t*,size_t);
+Status cvr_instance_ring_publish(void*,const RingObservation*,const Publication*);
+Status cvr_instance_ring_restart_observation(void*,const RingObservation*);
+Status cvr_instance_ring_reuse(void*,const RingObservation*,uint64_t,uint32_t,const WriterTicket*);
+void cvr_instance_ring_unknown(void*,uint64_t);
+void cvr_instance_ring_destroy(void*,uint64_t);
+void cvr_instance_ring_reset(void*);
+Status cvr_instance_ring_query(void*,const RingObservation*,const ReadRequest*,CvrInstanceRingQuery*);
+void* cvr_instance_ring_presence(void*,const WriterTicket*);
+size_t cvr_instance_ring_live_cpu_bytes(void*);
+void cvr_instance_ring_payload_retain(const void*);
+void cvr_instance_ring_payload_release(const void*);
+const uint8_t* cvr_instance_ring_payload_bytes(const void*,size_t*);
+}
+namespace cvr::stereo::instance_ring {
+static_assert(sizeof(RingObservation)==120 && sizeof(Scope)==56 && sizeof(WriterTicket)==88 && sizeof(CompletedWriter)==104 &&
+              sizeof(Publication)==64 && sizeof(ReadRequest)==160 && sizeof(Limits)==48 && sizeof(CvrInstanceRingQuery)==192,
+              "mirrored in rust/crates/cvr-render/src/instance_ring.rs");
+namespace {
+using Presence=std::shared_ptr<const WriterTicket>;
+void* MakePresence(const WriterTicket* ticket){return new Presence(std::make_shared<const WriterTicket>(*ticket));}
+void DropPresence(void* presence){delete static_cast<Presence*>(presence);}
+const bool attached=(cvr_instance_ring_attach(&MakePresence,&DropPresence),true);
+}
+bool InstanceRange(const RingObservation& a,uint64_t absolute,uint32_t first,uint32_t instances,Range& output)noexcept{
+    return cvr_instance_ring_range(&a,absolute,first,instances,&output);}
+CpuCandidate::CpuCandidate(const CpuCandidate& other)noexcept:data_(other.data_),producer_(other.producer_),source_(other.source_),
+    publication_(other.publication_),offset_(other.offset_),bytes_(other.bytes_){cvr_instance_ring_payload_retain(data_);}
+CpuCandidate& CpuCandidate::operator=(const CpuCandidate& other)noexcept{
+    if(this!=&other){cvr_instance_ring_payload_retain(other.data_);cvr_instance_ring_payload_release(data_);data_=other.data_;
+        producer_=other.producer_;source_=other.source_;publication_=other.publication_;offset_=other.offset_;bytes_=other.bytes_;}
+    return *this;}
+CpuCandidate::CpuCandidate(CpuCandidate&& other)noexcept:data_(std::exchange(other.data_,nullptr)),producer_(other.producer_),
+    source_(other.source_),publication_(other.publication_),offset_(other.offset_),bytes_(other.bytes_){}
+CpuCandidate& CpuCandidate::operator=(CpuCandidate&& other)noexcept{
+    if(this!=&other){cvr_instance_ring_payload_release(data_);data_=std::exchange(other.data_,nullptr);producer_=other.producer_;
+        source_=other.source_;publication_=other.publication_;offset_=other.offset_;bytes_=other.bytes_;}
+    return *this;}
+CpuCandidate::~CpuCandidate(){cvr_instance_ring_payload_release(data_);}
+CpuCandidate::operator bool()const noexcept{return data_ && bytes_;}
+std::span<const uint8_t> CpuCandidate::Bytes()const noexcept{
+    size_t size{};const auto* bytes=cvr_instance_ring_payload_bytes(data_,&size);
+    return bytes?std::span<const uint8_t>(bytes,size).subspan(offset_,bytes_):std::span<const uint8_t>{};}
+const CompletedWriter& CpuCandidate::Producer()const noexcept{static const CompletedWriter empty;return data_?producer_:empty;}
+struct Ledger::Data {void* rust;~Data(){cvr_instance_ring_free(rust);}};
+Ledger::Ledger(Limits limits):data_(new Data{cvr_instance_ring_new(&limits)}){}
+Ledger::~Ledger()=default;
+Status Ledger::Observe(const RingObservation& a)noexcept{return cvr_instance_ring_observe(data_->rust,&a);}
+Status Ledger::Begin(const RingObservation& a,const Scope& scope,WriterTicket& output)noexcept{
+    return cvr_instance_ring_begin(data_->rust,&a,&scope,&output);}
+Status Ledger::QualifyWrite(const RingObservation& a,const WriterTicket& ticket,uint64_t absolute,uint32_t first,uint32_t instances)noexcept{
+    return cvr_instance_ring_qualify_write(data_->rust,&a,&ticket,absolute,first,instances);}
+Status Ledger::ValidateWrite(const WriterTicket& ticket)const noexcept{return cvr_instance_ring_validate_write(data_->rust,&ticket);}
+Status Ledger::DiscardCompleted(const WriterTicket& ticket)noexcept{return cvr_instance_ring_discard_completed(data_->rust,&ticket);}
+Status Ledger::InvalidatePhysical(const RingObservation& a,uint32_t first,uint32_t instances)noexcept{
+    return cvr_instance_ring_invalidate_physical(data_->rust,&a,first,instances);}
+Status Ledger::FinishUnobserved(const RingObservation& a,const WriterTicket& ticket,uint32_t first,uint32_t instances)noexcept{
+    return cvr_instance_ring_finish_unobserved(data_->rust,&a,&ticket,first,instances);}
+Status Ledger::Complete(const RingObservation& a,const CompletedWriter& completed,std::span<const uint8_t> bytes)noexcept{
+    return cvr_instance_ring_complete(data_->rust,&a,&completed,bytes.data(),bytes.size());}
+Status Ledger::Publish(const RingObservation& a,const Publication& publication)noexcept{
+    return cvr_instance_ring_publish(data_->rust,&a,&publication);}
+Status Ledger::RestartObservation(const RingObservation& a)noexcept{return cvr_instance_ring_restart_observation(data_->rust,&a);}
+Status Ledger::Reuse(const RingObservation& a,uint64_t absolute,uint32_t instances,const WriterTicket* active)noexcept{
+    return cvr_instance_ring_reuse(data_->rust,&a,absolute,instances,active);}
+void Ledger::Unknown(uint64_t ring)noexcept{cvr_instance_ring_unknown(data_->rust,ring);}
+void Ledger::Destroy(uint64_t ring)noexcept{cvr_instance_ring_destroy(data_->rust,ring);}
+void Ledger::Reset()noexcept{cvr_instance_ring_reset(data_->rust);}
+Status Ledger::Query(const RingObservation& a,const ReadRequest& request,CpuCandidate& output)noexcept{
+    output={};CvrInstanceRingQuery out{};const auto status=cvr_instance_ring_query(data_->rust,&a,&request,&out);
+    if(out.payload){output.data_=out.payload;output.producer_=out.producer;output.source_=request;output.offset_=out.offset;
+        output.bytes_=out.bytes;output.publication_=out.publication;}
+    return status;}
+size_t Ledger::LiveCpuBytes()const noexcept{return cvr_instance_ring_live_cpu_bytes(data_->rust);}
+std::weak_ptr<const WriterTicket> Ledger::CompletedPresence(const WriterTicket& ticket)const noexcept{
+    const auto* presence=static_cast<const Presence*>(cvr_instance_ring_presence(data_->rust,&ticket));
+    return presence?std::weak_ptr<const WriterTicket>(*presence):std::weak_ptr<const WriterTicket>{};}
+}
+#endif
+#else
 
 namespace cvr::stereo::instance_ring {
 namespace detail {
@@ -205,3 +315,4 @@ std::weak_ptr<const WriterTicket> Ledger::CompletedPresence(const WriterTicket& 
     const auto* writer=data_->Find(ticket);return writer?writer->presence:std::weak_ptr<const WriterTicket>{};
 }
 }
+#endif

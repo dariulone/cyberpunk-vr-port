@@ -2,10 +2,14 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <source_location>
 #include <stdexcept>
+#include <string>
 
 using namespace cvr::stereo::queue_residency;
-static void Require(bool value){if(!value)throw std::runtime_error("native queue residency scope assertion failed");}
+static void Require(bool value,std::source_location at=std::source_location::current()){
+    if(!value)throw std::runtime_error("native queue residency scope assertion failed at line "+std::to_string(at.line()));
+}
 struct Memory {
     std::map<uint64_t,uint8_t> bytes;
     uint64_t changeAt{};uint32_t changeRead{},readsAt{};
@@ -28,7 +32,7 @@ struct Fixture {
     Memory memory;detail::Frame frame{Base+cvr::stereo::native_recording::detail::ExecuteReturn,0x10000,0x10091,Manager,Queue,2,0};
     detail::SetHeader header{UINT32_MAX,0,Entries,4,0,4096,1,0,0,0,Sync};
     Fixture(){
-        memory.Put(Base+detail::RegistryRva,Registry);memory.Put(Registry+0x13BC4D0,Queue);
+        memory.Put(Base+detail::RegistryRva,Registry);memory.Put(Registry+0x14104D0,Queue);
         memory.Put(frame.rbp+0x5F,Lists);memory.Put(frame.rbp+0x67,Sets);memory.Put(frame.rbp+0x6F,uint32_t(2));
         memory.Put(frame.rbp-0x41,Manager+0x138);memory.Put(frame.rbp-0x39,FenceObject);
         memory.Put(Manager+0x138+offsetof(RTL_CRITICAL_SECTION,OwningThread),Thread);
@@ -211,7 +215,7 @@ int main()try{
     rejectCapture([](auto& f){++f.frame.queue;},15);
     rejectCapture([](auto& f){++f.frame.count;});
     rejectCapture([](auto& f){f.memory.Put(Fixture::Base+detail::RegistryRva,uint64_t(0));},20);
-    rejectCapture([](auto& f){f.memory.Put(Fixture::Registry+0x13BC4D0,Fixture::Queue+8);},22);
+    rejectCapture([](auto& f){f.memory.Put(Fixture::Registry+0x14104D0,Fixture::Queue+8);},22);
     rejectCapture([](auto& f){f.memory.Put(f.frame.rbp+0x5F,Fixture::Lists+8);},30);
     rejectCapture([](auto& f){f.memory.Put(f.frame.rbp+0x67,uint64_t(0));},31);
     rejectCapture([](auto& f){f.memory.Put(f.frame.rbp+0x6F,uint32_t(1));},32);

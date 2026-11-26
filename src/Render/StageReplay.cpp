@@ -25,12 +25,21 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#if CVR_RUST_VRIK
+// The native context reads: rust/crates/cvr-render/src/stage_replay_reads.rs (the slice mirrored there).
+// The layout groups: rust/crates/cvr-render/src/stage_replay_layout.rs.
+// The engine reads and packings: rust/crates/cvr-render/src/stage_replay_ring.rs.
+// The partitions and census copies: rust/crates/cvr-render/src/stage_replay_copies.rs (the heap and rows mirrored there).
+#endif
 
 using namespace cvr::stereo::stage_replay;
 
 extern "C" {
 // 0 off, 1 census (capture only), 2 skip target stages, 3 replay source capture into target,
 // 4 replay with the target camera substituted. See stage_replay::Mode.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StageReplayMode{0};
 // Bit s selects RenderElements stage s (consumer arguments+0x10).
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_StageReplayStages{0};
@@ -57,10 +66,16 @@ __declspec(dllexport) uint64_t CyberpunkVR_StageStreamContextAddr[2][2];
 // captures, captureOverflow, captureBusy, skipped, replayed, replayCommands, replayTicks, fallbacks,
 // cameraTables, cameraDescriptors, restoreOps, reserved..., [16+reason] fallback by reason.
 __declspec(dllexport) uint64_t CyberpunkVR_StageReplayStats[32];
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 __declspec(dllexport) void CyberpunkVR_StageReplayPoll();
+#endif
 // Census timeline: 6 qwords per event -- frame|side<<32|stage<<40|ordinal<<48|kind<<56, thread,
 // startQpc, endQpc, spanBegin, spanEnd. Kind 0 forward, 1 capture, 2 skip, 3 replay, 4 fallback,
 // 5 present. Written only while a census window runs.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) uint64_t CyberpunkVR_StageEvents[16384 * 6];
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StageEventCount{0};
 // 1: give VRCAM's GBuffer_Solid the same worker partitions as MAIN. The scene graph builder
@@ -99,8 +114,20 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StageReplayWaitUs{0};
 // camera, tables built, tables reused; the last target camera, source camera, table size; then
 // ring code mismatch, ring heap mismatch, ring exhausted, descriptors reserved.
 __declspec(dllexport) uint64_t CyberpunkVR_StageReplayCameraDiag[12]{};
+#endif
 }
 
+#if CVR_RUST_VRIK
+// The runtime: rust/crates/cvr-render/src/stage_replay_runtime.rs (the chained command-list hooks and their shadows, the
+// captures, the consumer scope, the replay, the census and the partitions trampoline). The device hooks' command-list
+// vtables and the log are named to it there; the boot hook's registration and the forwarders stay here.
+extern "C" {
+}
+namespace cvr::stereo::stage_replay {
+// VRCAM's G-buffer partitions trampoline at the scene builder (0x2277A46), installed at boot: registered from
+// rust/crates/cvr-render/src/hook_table.rs.
+}  // namespace cvr::stereo::stage_replay
+#else
 namespace cvr::stereo::stage_replay {
 namespace {
 using cvr::detail::CommandListVtableHook;
@@ -138,10 +165,14 @@ bool WriteCursor(uint64_t state, uint32_t cursor) {
 // same frame. [[engine+0x60]], which the consumer hands to its uploads, looked like a frame index
 // but is constant (census 816).
 uint32_t EngineFrame() {
+#if CVR_RUST_VRIK
+    return cvr_srg_engine_frame(Base());
+#else
     const uintptr_t base = Base(); if (!base) return 0;
     uint64_t renderer = 0; uint32_t frame = 0;
     if (!ReadSafe(base + 0x3BBCAE8, &renderer, 8) || !renderer || !ReadSafe(renderer + 0x4CC8, &frame, 4)) return 0;
     return frame;
+#endif
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -737,6 +768,12 @@ std::array<std::atomic<uint32_t>, 128> g_lastCount{};
 // Per target stage: frame << 2 | state (1 replay in progress, 2 replayed, 3 failed). The first
 // partition of a frame claims the replay; the others wait for its outcome, then skip or record.
 std::array<std::atomic<uint64_t>, 64> g_claim{};
+#if CVR_RUST_VRIK
+extern "C" uint32_t cvr_srg_next_ordinal(const void*, const void*, uint32_t);   // rust/crates/cvr-render/src/stage_replay_frame.rs
+uint32_t NextOrdinal(uint32_t row, uint32_t frame) {
+    return cvr_srg_next_ordinal(&g_ordinals[row].frameCount, &g_lastCount[row], frame);
+}
+#else
 uint32_t NextOrdinal(uint32_t row, uint32_t frame) {
     auto& st = g_ordinals[row].frameCount;
     uint64_t cur = st.load(std::memory_order_relaxed);
@@ -749,6 +786,7 @@ uint32_t NextOrdinal(uint32_t row, uint32_t frame) {
         }
     }
 }
+#endif
 
 void LogEvent(uint32_t frame, uint32_t side, uint32_t stage, uint32_t ordinal, uint32_t kind, int64_t start, int64_t end,
               uint64_t spanBegin, uint64_t spanEnd) {
@@ -756,7 +794,11 @@ void LogEvent(uint32_t frame, uint32_t side, uint32_t stage, uint32_t ordinal, u
     const uint32_t i = CyberpunkVR_StageEventCount.fetch_add(1, std::memory_order_relaxed);
     if (i >= 16384) return;
     uint64_t* e = CyberpunkVR_StageEvents + size_t(i) * 6;
+#if CVR_RUST_VRIK
+    e[0] = cvr_srg_event_key(frame, side, stage, ordinal, kind);
+#else
     e[0] = uint64_t(frame) | (uint64_t(side & 0xFF) << 32) | (uint64_t(stage & 0xFF) << 40) | (uint64_t(ordinal & 0xFF) << 48) | (uint64_t(kind & 0xFF) << 56);
+#endif
     e[1] = GetCurrentThreadId(); e[2] = uint64_t(start); e[3] = uint64_t(end); e[4] = spanBegin; e[5] = spanEnd;
 }
 
@@ -768,8 +810,12 @@ CameraInfo ReadCamera(const camera_upload::Context& ctx) {
     const bool v = camera_upload::ResolveCameraSlot(&ReadFn, ctx.state, 0, vs);
     const bool p = camera_upload::ResolveCameraSlot(&ReadFn, ctx.state, 1, ps);
     info.vs = v ? vs.descriptor : 0; info.ps = p ? ps.descriptor : 0;
+#if CVR_RUST_VRIK
+    info.packed = cvr_srg_camera_packed(v, vs.parameter, vs.index, p, ps.parameter, ps.index);
+#else
     info.packed = (v ? (uint64_t(vs.parameter) | (uint64_t(vs.index) << 16)) : 0xFFFF) |
                   ((p ? (uint64_t(ps.parameter) | (uint64_t(ps.index) << 16)) : 0xFFFF) << 32);
+#endif
     info.ok = v || p;
     return info;
 }
@@ -778,6 +824,9 @@ CameraInfo ReadCamera(const camera_upload::Context& ctx) {
 // layout's slot maps (sub_140336D3C: kind 0 SRV at layout+0x4C3, 1 UAV +0x8C3, 2 CBV +0x453,
 // 3 sampler +0x95B; two bytes per slot, the first is the group). 0 when the layout has no such slot.
 uint64_t ReadBound(uint64_t state, uint32_t stage, uint32_t kind, uint32_t slot) {
+#if CVR_RUST_VRIK
+    return cvr_srr_bound(state, stage, kind, slot);
+#else
     static constexpr uint32_t base[4] = {1219, 2243, 1107, 2395}, stride[4] = {256, 38, 28, 32}, slots[4] = {128, 19, 14, 16};
     if (!state || stage > 2 || kind > 3 || slot >= slots[kind]) return 0;
     uint64_t layout = 0, cpu = 0, value = 0;
@@ -788,6 +837,7 @@ uint64_t ReadBound(uint64_t state, uint32_t stage, uint32_t kind, uint32_t slot)
     if (!ReadSafe(entry + 4, &start, 4) || !ReadSafe(entry + 8, &first, 2) || !ReadSafe(entry + 10, &count, 2) ||
         slot < first || slot - first >= count || start > 8192) return 0;
     return ReadSafe(cpu + (uint64_t(start) + slot - first) * 8, &value, 8) ? value : 0;
+#endif
 }
 
 // The view descriptors of a native context (stage_replay::ViewDescriptors), read at consumer entry.
@@ -796,6 +846,10 @@ uint64_t ReadBound(uint64_t state, uint32_t stage, uint32_t kind, uint32_t slot)
 stage_replay::ViewDescriptors ReadView(const camera_upload::Context& ctx, const CameraInfo& cam) {
     stage_replay::ViewDescriptors v;
     if (!ctx) return v;
+#if CVR_RUST_VRIK
+    static_assert(stage_replay::ViewDescriptors::Count == 6);
+    cvr_srr_view(ctx.state, cam.vs, cam.ps, v.d.data());
+#else
     using V = stage_replay::ViewDescriptors;
     v.d[V::CameraVs] = cam.vs; v.d[V::CameraPs] = cam.ps;
     for (uint32_t stage = 0; stage < 2; ++stage) {
@@ -804,6 +858,7 @@ stage_replay::ViewDescriptors ReadView(const camera_upload::Context& ctx, const 
         if (texture && texture != ReadBound(ctx.state, stage, 0, 36) && texture != ReadBound(ctx.state, stage, 0, 38))
             v.d[stage ? V::TexturePs : V::TextureVs] = texture;
     }
+#endif
     return v;
 }
 
@@ -811,8 +866,13 @@ struct Slice { uint64_t heap{}; uint32_t base{}, capacity{}, stride{}, cursor{};
 Slice ReadSlice(const camera_upload::Context& ctx) {
     Slice s;
     if (!ctx) return s;
+#if CVR_RUST_VRIK
+    static_assert(sizeof(Slice) == 32, "mirrored by stage_replay_reads.rs");
+    cvr_srr_slice(ctx.state, &s);
+#else
     s.ok = ReadSafe(ctx.state, &s.heap, 8) && ReadSafe(ctx.state + 8, &s.base, 4) && ReadSafe(ctx.state + 0xC, &s.capacity, 4) &&
            ReadSafe(ctx.state + 0x10, &s.stride, 4) && ReadSafe(ctx.state + 0x14, &s.cursor, 4);
+#endif
     return s;
 }
 
@@ -855,22 +915,37 @@ bool RingReserve(const HeapInfo& heap, uint32_t count, uint32_t& first) {
     auto* diag = CyberpunkVR_StageReplayCameraDiag;
     const uintptr_t base = Base();
     static const bool compatible = [base] {
+#if CVR_RUST_VRIK
+        return cvr_srg_ring_code(base);
+#else
         std::array<uint8_t, 177> bytes{};
         if (!base || !ReadSafe(base + 0x419DF4, bytes.data(), bytes.size())) return false;
         uint64_t h = 14695981039346656037ull;
         for (const auto b : bytes) h = (h ^ b) * 1099511628211ull;
         return h == 0xBF311A1C73348164ull;
+#endif
     }();
     if (!compatible) { Add(diag[8], 1); return false; }
+#if CVR_RUST_VRIK
+    uint64_t ring = 0, capacity = 0;
+    if (const uint32_t slot = cvr_srg_ring_find(base, reinterpret_cast<uint64_t>(heap.heap), heap.count, count, &ring, &capacity)) {
+        Add(diag[slot], 1); return false;
+    }
+#else
     uint64_t registry = 0, ringHeap = 0, capacity = 0; uint32_t heaps = 0;
     if (!ReadSafe(base + 0x3BCDCA8, &registry, 8) || !registry || registry > UINT64_MAX - 0x14F1E40 - 72) { Add(diag[9], 1); return false; }
     const uint64_t ring = registry + 0x14F1E40;
     if (!ReadSafe(ring + 64, &heaps, 4) || heaps != 1 || !ReadSafe(ring + 56, &ringHeap, 8) || !ReadSafe(ring + 16, &capacity, 8) ||
         ringHeap != reinterpret_cast<uint64_t>(heap.heap) || !capacity || capacity > heap.count) { Add(diag[9], 1); return false; }
     if (!count || count > capacity) { Add(diag[10], 1); return false; }
+#endif
     using Reserve = uint64_t(__fastcall*)(void*, uint64_t, uint64_t, void*);
     const uint64_t r = reinterpret_cast<Reserve>(base + 0x419DF4)(reinterpret_cast<void*>(ring), count, 1, nullptr);
+#if CVR_RUST_VRIK
+    if (!cvr_srg_ring_reserved(r, count, capacity)) { Add(diag[10], 1); return false; }
+#else
     if (r >= capacity || count > capacity - r) { Add(diag[10], 1); return false; }
+#endif
     first = uint32_t(r);
     Add(diag[11], count);
     return true;
@@ -952,6 +1027,29 @@ struct CameraGroups { uint64_t layout{}, params{}, shape{}; std::vector<camera_u
 // Read straight from the binding layout: at consumer entry no program is bound yet and the engine
 // may have a full rebind pending, which the strict flush snapshot (NativeCameraFlushState.hpp)
 // rejects; the layout's camera groups and the CPU table entries are valid regardless.
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The groups are read by rust/crates/cvr-render/src/stage_replay_camera.rs (a failing read keeps what was read).
+struct RustCameraTable {uint32_t group,rootParameter,start,count,first;};
+struct RustCameraGroups {uint64_t layout,params,shape;uint32_t count;bool complete;RustCameraTable tables[2];uint64_t descriptors[2][256];};
+static_assert(sizeof(RustCameraGroups)==4168,"mirrored by stage_replay_camera.rs");
+extern "C" void cvr_srr_camera_groups(uint64_t,RustCameraGroups*);
+CameraGroups ReadCameraGroups(uint64_t state) {
+    CameraGroups out;
+    thread_local RustCameraGroups groups;const auto* read=&groups;cvr_srr_camera_groups(state,&groups);
+    for (uint32_t i = 0; i < read->count; ++i) {
+        const auto& row = read->tables[i];camera_upload::flush_state::Table table;
+        table.group = row.group; table.rootParameter = row.rootParameter; table.start = row.start; table.count = row.count; table.first = row.first;
+        table.descriptors.assign(read->descriptors[i], read->descriptors[i] + row.count);
+        out.tables.push_back(std::move(table));
+    }
+    out.params = read->params;
+    if (!read->complete) return out;
+    out.layout = read->layout;out.shape = read->shape;out.ok = out.params != 0;
+    return out;
+}
+#endif
+#else
 CameraGroups ReadCameraGroups(uint64_t state) {
     CameraGroups out;
     if (!state) return out;
@@ -985,6 +1083,7 @@ CameraGroups ReadCameraGroups(uint64_t state) {
     out.ok = out.params != 0;
     return out;
 }
+#endif
 CameraGroups ReadCameraGroups(const camera_upload::Context& ctx) { return ctx ? ReadCameraGroups(ctx.state) : CameraGroups{}; }
 
 // The layout pointer changes with every program switch, so this runs often inside a capture: it
@@ -992,6 +1091,10 @@ CameraGroups ReadCameraGroups(const camera_upload::Context& ctx) { return ctx ? 
 // allocating and remembers the last few layouts per thread. Census run 826 put the old
 // vector-building version at ~100 ns per command.
 bool ReadLayoutGroups(uint64_t layout, std::array<Scope::CameraGroup, Scope::MaxGroups>& groups, uint32_t& count) {
+#if CVR_RUST_VRIK
+    static_assert(sizeof(Scope::CameraGroup) == 12 && Scope::MaxGroups == 24, "mirrored by stage_replay_layout.rs");
+    return cvr_srl_groups(layout, groups.data(), &count);
+#else
     count = 0;
     __try {
         const uint64_t* visibility = reinterpret_cast<const uint64_t*>(layout + 0x18);
@@ -1008,6 +1111,7 @@ bool ReadLayoutGroups(uint64_t layout, std::array<Scope::CameraGroup, Scope::Max
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { count = 0; return false; }
     return count != 0;
+#endif
 }
 void RefreshScopeGroups(Scope& s) {
     struct Entry { uint64_t layout; std::array<Scope::CameraGroup, Scope::MaxGroups> groups; uint32_t count; };
@@ -1053,6 +1157,9 @@ void RecordCameraTable(Scope& s, Command& c, std::array<uint64_t, 257>& buffer, 
 // Census diagnostic: the CPU-table contents behind any root table bind, found through the layout
 // group whose root parameter is the bound one (groups visible to VS/PS/GS, layout+0x18).
 size_t RecordAnyTable(const Scope& s, const Command& c, std::array<uint64_t, 257>& buffer) {
+#if CVR_RUST_VRIK
+    return cvr_srl_any_table(s.state, c.a, buffer.data());
+#else
     __try {
         const uint64_t layout = *reinterpret_cast<const volatile uint64_t*>(s.state + 0x68);
         const uint64_t cpuTable = *reinterpret_cast<const volatile uint64_t*>(s.state + 0x28);
@@ -1072,6 +1179,7 @@ size_t RecordAnyTable(const Scope& s, const Command& c, std::array<uint64_t, 257
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
     return 0;
+#endif
 }
 
 // Blocking ops other than the barriers AllowBarriers lets through.
@@ -1241,6 +1349,21 @@ namespace {
 // CopyDescriptors call of the game: its stack probe ran on all of them.
 __declspec(noinline) void CensusCopy(Scope* s, UINT n, const D3D12_CPU_DESCRIPTOR_HANDLE* dest, const UINT* sizes, UINT m,
                                      const D3D12_CPU_DESCRIPTOR_HANDLE* src, const UINT* counts) {
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+    static_assert(sizeof(D3D12_CPU_DESCRIPTOR_HANDLE) == 8);
+    std::array<uint64_t, 512> flat{}; std::vector<RustCopyRow> rows(n);
+    const RustCopyHeap heap{s->heapCpu, s->heapCount, s->stride, s->camVs, s->camPs};
+    const uint32_t kept = cvr_srx_copy_plan(&heap, n, reinterpret_cast<const uint64_t*>(dest), sizes, m, reinterpret_cast<const uint64_t*>(src), counts,
+                                            flat.data(), rows.data());
+    for (uint32_t k = 0; k < kept; ++k) {
+        const auto& row = rows[k];
+        Command c{Op::Copy, uint8_t(row.flags), uint16_t(row.size), row.index};
+        if (s->row) Add(s->row[CopiedDescriptors], row.size);
+        Record(nullptr, c, flat.data() + row.offset, size_t(row.size) * 8);
+    }
+#endif
+#else
     // Flatten sources.
     std::array<uint64_t, 512> flat{}; uint32_t total = 0;
     for (UINT r = 0; r < m && total < flat.size(); ++r) {
@@ -1262,6 +1385,7 @@ __declspec(noinline) void CensusCopy(Scope* s, UINT n, const D3D12_CPU_DESCRIPTO
         }
         consumed += size;
     }
+#endif
 }
 }  // namespace
 
@@ -1335,9 +1459,14 @@ bool SourcePartitioned(uint32_t stage, uint32_t frame, uint32_t expected) {
         if (!cap || cap->state.load(std::memory_order_acquire) != Complete || !SameFrame(cap->frame, frame, true)) return true;
         spans[o] = {cap->spanBegin, cap->spanEnd};
     }
+#if CVR_RUST_VRIK
+    static_assert(sizeof(spans[0]) == 16);
+    return cvr_srx_tiled(spans.data(), expected);
+#else
     std::sort(spans.begin(), spans.begin() + expected);
     for (uint32_t o = 0; o + 1 < expected; ++o) if (spans[o].second != spans[o + 1].first) return false;
     return true;
+#endif
 }
 
 bool Enter(Ticket& t, int32_t side, uint32_t node, const void* arguments, const void* span) {
@@ -1577,6 +1706,10 @@ CVR_HOOK("VrcamGbufferPartitions", ::cvr::hooks::Stage::Boot, 50, InstallVrcamPa
 
 // Publishes VRCAM's and the scope's camera names to the trampoline. VRCAM's can be re-resolved at
 // runtime (vrcam pick), so it is re-read on every poll rather than latched.
+#if CVR_RUST_VRIK
+extern "C" void cvr_srg_apply_partitions(uint32_t);   // rust/crates/cvr-render/src/stage_replay_frame.rs
+void ApplyPartitions(uint32_t want) { cvr_srg_apply_partitions(want); }
+#else
 void ApplyPartitions(uint32_t want) {
     static uint32_t applied = 0;
     if (CyberpunkVR_VrcamGbufferPartitionsState.load(std::memory_order_relaxed) == 2) return;
@@ -1592,8 +1725,10 @@ void ApplyPartitions(uint32_t want) {
         cvr::log("[stage-replay] VRCAM GBuffer_Solid partitions %s", state ? "follow the worker count (VRCAM only)" : "native");
     applied = state;
 }
+#endif
 
 }  // namespace cvr::stereo::stage_replay
+#endif
 
 // The validated configuration (docs/single-pass-stage-replay-20261008.md): eleven RenderElements
 // stages (3-7, 9, 20-23, 30), VRCAM as the source, VRCAM's G-buffer in worker-count partitions
@@ -1602,6 +1737,8 @@ void ApplyPartitions(uint32_t want) {
 // substituted: stage 10 (deferred decals; their packets carry per-view instance data --
 // startInstance differs in 55% of the draws, census 841) and stage 24 (distant city hazed over,
 // hologram colours changed on the roof). 0 turns all of it off.
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) void CyberpunkVR_StageReplayConfigure(int enable) {
     constexpr uint64_t kStages = 0x40F002F8ull;
     CyberpunkVR_StageReplaySource.store(1);
@@ -1610,9 +1747,23 @@ extern "C" __declspec(dllexport) void CyberpunkVR_StageReplayConfigure(int enabl
     CyberpunkVR_StageReplayMode.store(enable ? uint32_t(cvr::stereo::stage_replay::Mode::ReplayCamera) : 0u);
     cvr::log("[stage-replay] configured %s", enable ? "on (11 stages)" : "off");
 }
+#endif
 
 // xr_vrcam_gbuffer_partitions: applied by the next StageReplayPoll (ApplyPartitions), with or
 // without stage replay.
+#if CVR_RUST_VRIK
+// rust/crates/cvr-render/src/stage_replay_frame.rs.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
+extern "C" __declspec(dllexport) void CyberpunkVR_VrcamGbufferPartitionsConfigure(int enable) {
+    cvr_srg_vrcam_partitions_configure(enable);
+}
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
+extern "C" __declspec(dllexport) void CyberpunkVR_ScopeGbufferPartitionsConfigure(int enable) {
+    cvr_srg_scope_partitions_configure(enable);
+}
+#endif
+#else
 extern "C" __declspec(dllexport) void CyberpunkVR_VrcamGbufferPartitionsConfigure(int enable) {
     CyberpunkVR_VrcamGbufferPartitions.store(enable ? 1u : 0u);
 }
@@ -1621,7 +1772,10 @@ extern "C" __declspec(dllexport) void CyberpunkVR_VrcamGbufferPartitionsConfigur
 extern "C" __declspec(dllexport) void CyberpunkVR_ScopeGbufferPartitionsConfigure(int enable) {
     CyberpunkVR_OpticsGbufferPartitions.store(enable ? 1u : 0u);
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) void CyberpunkVR_StageReplayPoll() {
     using namespace cvr::stereo::stage_replay;
     Add(CyberpunkVR_StageCensusSummary[1], 1);
@@ -1660,3 +1814,4 @@ extern "C" __declspec(dllexport) void CyberpunkVR_StageReplayPoll() {
     CyberpunkVR_StageCensusSummary[6] = EngineFrame();
     g_presents.fetch_add(1, std::memory_order_relaxed);
 }
+#endif

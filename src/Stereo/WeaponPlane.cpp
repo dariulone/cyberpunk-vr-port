@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // EVERY DRAW ITEM THROUGH THE SCENE PLANE.
 //
 // The first-person plane (ERenderingPlane::RPl_Weapon) is not a property the renderer reads off a
@@ -48,10 +49,18 @@
 // 0 = the game's own routing, first-person plane intact (DEFAULT).
 // 1 = every draw item takes the scene branch, so the first-person plane is drawn with the scene's
 //     parameter block. Live: flipping the key applies or reverts the single byte in place.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_WeaponPlaneAsScene = 0;
+#endif
 // Last result, readable from the debugger and the overlay:
 //   0 untouched   1 patched   -1 bytes did not validate   -2 VirtualProtect refused
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DebugWeaponPlaneState = 0;
+#endif
 
 // THE HIGHLIGHT'S OWN PLANE FILTER, which is a different thing from the routing above and the one
 // that actually decides whether a held object can be outlined.
@@ -65,9 +74,17 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_DebugWeaponPlaneState = 0;
 //
 // 0 = the game's own filter (DEFAULT). 1 = the jnz becomes a six-byte nop, so no object is dropped
 // for its plane. Live, and validated against the exact bytes before every write.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_HighlightAnyPlane = 0;
+#endif
 //   0 untouched   1 patched   -1 bytes did not validate   -2 VirtualProtect refused
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DebugHighlightAnyPlane = 0;
+#endif
 
 // EVERY DRAW ITEM INTO THE SCENE BUCKET. This is the one that actually moves the first-person plane,
 // as opposed to the two knobs above, which were aimed at gates that turned out not to exist.
@@ -81,10 +98,22 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_DebugHighlightAnyPlane = 0;
 // scene plane by event looked fine, so the usual first-person-plane arguments -- wall clipping, near
 // plane, its own field of view -- are not evidenced here. Default 0 all the same, because this moves
 // every draw in the frame and that deserves a deliberate switch.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_PlaneBucketScene = 0;
+#endif
 //   0 untouched   1 patched   -1 bytes did not validate   -2 VirtualProtect refused
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DebugPlaneBucketScene = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// THE PATCHES ARE RUST'S (rust/crates/cvr-render/src/plane_patches.rs): the switches and their debug states above stay
+// exported here, and the live-controls poll's three syncs forward.
+#else
 namespace cvr {
 namespace detail {
 
@@ -233,3 +262,5 @@ void weapon_plane_sync() {
 
 }  // namespace detail
 }  // namespace cvr
+#endif
+#endif

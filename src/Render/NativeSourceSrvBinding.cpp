@@ -5,6 +5,23 @@
 #include <map>
 #include <mutex>
 #include <tuple>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The observer: rust/crates/cvr-render/src/source_srv_observe.rs (the setters' candidates, CvrSourceSrvBefore and the
+// thunks' globals, the extended state, the capture at the source). The API forwards.
+namespace cvr::stereo::source_srv {
+static_assert(sizeof(descriptors::SrvBinding)==384 && sizeof(SourceSrvBacking)==1112 && offsetof(SourceSrvBacking,recording)==384 &&
+    offsetof(SourceSrvBacking,slot)==512 && offsetof(SourceSrvBacking,allocation)==768 && offsetof(SourceSrvBacking,allocator)==960 &&
+    offsetof(SourceSrvBacking,gpu)==1024 && offsetof(SourceSrvBacking,stage)==1080,"mirrored by source_srv_observe.rs' Backing");
+extern "C" {
+bool cvr_ssrvo_compatible();
+uint32_t cvr_ssrvo_read_at_source(uint64_t,uint64_t,uint32_t,uint32_t,const descriptors::SrvBinding*,const native_recording::Lease*,
+                                  SourceSrvBacking*);
+}
+bool Compatible()noexcept{return cvr_ssrvo_compatible();}
+}
+#endif
+#else
 
 namespace cvr::stereo::descriptors {
 bool MatchesCpuSourceSrv(uint64_t,const DescriptorStamp&);
@@ -238,3 +255,4 @@ extern "C" void CvrSourceSrvBefore(uint32_t route,const cvr::stereo::source_srv:
         }
     }catch(...){lost.store(true,std::memory_order_release);last=Status::Failure;}
 }
+#endif

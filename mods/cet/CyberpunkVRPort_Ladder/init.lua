@@ -6,6 +6,18 @@ local topPoll = 0
 local reportedError = false
 local topReportedError = false
 local function onLadder(state) return state >= 10 and state <= 12 end
+
+-- THE RUST BUILD RUNS THE STATE BRIDGE (rust/crates/cvr-ffi/src/mechanics.rs ladder, bit 5 of VRRustMechanics): the
+-- locomotion read, the publication, the top rail measurement every frame and the shutdown. The override stays here as it
+-- is, and the observers below hand the plugin the owner and the description they capture. The reference build has no
+-- such native, and the whole bridge keeps running here.
+local rustOwned = nil
+local function rustOwnsBridge()
+    if rustOwned == nil then
+        rustOwned = type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 32) % 2 == 1
+    end
+    return rustOwned
+end
 local function clear()
     owner, description, topKey, topMatrix, topFound, moduleTop = nil, nil, nil, nil, false, nil
     topPoll = 0
@@ -81,6 +93,10 @@ local function publishTop(player, dt)
         end
     end
 end
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent("onInit", function()
     local function capture(_, _, context, interface)
         local ok = pcall(function()
@@ -89,11 +105,19 @@ registerForEvent("onInit", function()
                 or context:GetTemporaryScriptableParameter(CName.new("usingLadder"))
         end)
         if not ok then clear() end
+        if rustOwnsBridge() then
+            if ok then VRLadderCapture(owner, description) else VRLadderClear() end
+        end
     end
+    if not rustHooks() then
     for _, class in ipairs({"LadderEvents", "LadderSprintEvents", "LadderSlideEvents"}) do
         ObserveAfter(class, "OnUpdate", capture)
     end
-    ObserveAfter("PlayerPuppet", "OnGameAttached", clear)
+    ObserveAfter("PlayerPuppet", "OnGameAttached", function()
+        clear()
+        if rustOwnsBridge() then VRLadderClear() end
+    end)
+    end
     -- The plugin gives a resting MoveY the climbing axis natively (src/Natives/ActionReads.cpp, debug value 21 = 1);
     -- this override is the fallback for a plugin that could not (it runs on every state machine's MoveY read).
     if Game.GetVRLadderDebug(21) ~= 1 then
@@ -131,11 +155,13 @@ local function bridgeState(dt)
     topReportedError = not topOk
 end
 registerForEvent("onUpdate", function(dt)
+    if rustOwnsBridge() then return end
     local ok, err = pcall(bridgeState, dt)
     if not ok and not reportedError then
         reportedError = true;print("[ladder] state bridge unavailable: " .. tostring(err))
     elseif ok then reportedError = false end
 end)
 registerForEvent("onShutdown", function()
+    if rustOwnsBridge() then return end
     pcall(function() Game.SetVRLadderState(nil, -1, 1, nil) end)
 end)

@@ -4,8 +4,14 @@
 #include <cstdint>
 
 extern "C" {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
 __declspec(dllexport) inline std::atomic<uint32_t> CyberpunkVR_ObservationProfileEnable{};
 __declspec(dllexport) inline std::atomic<uint64_t> CyberpunkVR_ObservationProfileStats[16]{};
+#else
+// The plugin's: rust/crates/cvr-render/src/render_moved_exports.rs.
+extern std::atomic<uint32_t> CyberpunkVR_ObservationProfileEnable;
+extern std::atomic<uint64_t> CyberpunkVR_ObservationProfileStats[16];
+#endif
 }
 namespace cvr::stereo::observation_profile {
 enum class Phase:uint32_t {Cbv,OtherDescriptor,CopyDescriptors,BindHeaps,TouchUpload,UnwindUpload,BindPipeline,BindRoot};

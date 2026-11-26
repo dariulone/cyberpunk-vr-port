@@ -10,8 +10,8 @@
 namespace tree=cvr::stereo::definition_tree;
 namespace owned=cvr::stereo::owned_execution;
 namespace {
-constexpr uint64_t Base=0x100000000ull,CommonAllocator=Base+0x3438B00;
-constexpr uint64_t ArrayAllocator=Base+0x2B39FA0,ArrayCallback=Base+0x985ABC;
+constexpr uint64_t Base=0x100000000ull,CommonAllocator=Base+0x3BCDD80;
+constexpr uint64_t ArrayAllocator=Base+0x30947E8,ArrayCallback=Base+0x120F6F0;
 constexpr uint64_t Root0=0x10000,Root1=0x10100,Description=0x10200;
 constexpr uint64_t Elements=0x20000,Name=0x20100,Control0=0x40000,Control1=0x40010;
 constexpr uint64_t Handles0=0x30000,Handles1=0x30100,ElementsData=0x30200;
@@ -111,9 +111,9 @@ tree::Snapshot CaptureDag(){const std::array<uint64_t,3> roots{Root0,Root1,Descr
 
 void InventoryAndEveryCertifiedTriple(){
     constexpr std::array<uint32_t,10> expectedDestructors{
-        0x983FD8,0x986590,0x986600,0x98663C,0x986798,0x986EDC,
-        0x18AD4C8,0x18B8500,0x1D42FE0,0x1D43010};
-    Require(std::size(owned::CertificateNodes)==134,"Certificate changed its audited 134-triple inventory");
+        0x8E7E38,0x8E913C,0x8EA4E0,0x8EA51C,0x8EA620,0x8EAB98,
+        0x190F138,0x19159E0,0x2276DC0,0x2276DF0};
+    Require(std::size(owned::CertificateNodes)==133,"Certificate changed its audited 133-triple inventory (2.5: FSR3 gone)");
     std::set<std::tuple<uint32_t,uint32_t,uint32_t>> triples;
     std::set<uint32_t> destructors;
     for(const auto& row:owned::CertificateNodes){
@@ -142,12 +142,12 @@ void CompositeRoutes(){
             [&](const tree::Node& node){return node.kind==kind;}),"Composite DAG missed a known structural route");
 }
 void UnknownTriples(){
-    const auto& plain=Route(0x983FD8);
+    const auto& plain=Route(0x8E7E38);
     Fresh();Leaf(Root0,plain);Methods(Base+plain.vtable,Base+plain.destructor,Base+plain.work+1);CheckUncertified(Single());
     Fresh();Leaf(Root0,plain);Methods(Base+plain.vtable,Base+plain.destructor+1,Base+plain.work);CheckUncertified(Single());
     Fresh();Leaf(Root0,plain);const uint64_t unknownVtable=Base+0x3F00000;
     Put(Root0,unknownVtable);Methods(unknownVtable,Base+plain.destructor,Base+plain.work);CheckUncertified(Single());
-    Fresh();Leaf(Root0,plain);Methods(Base+plain.vtable,Base+plain.destructor,Base+Route(0x986798).work);
+    Fresh();Leaf(Root0,plain);Methods(Base+plain.vtable,Base+plain.destructor,Base+Route(0x8EA620).work);
     CheckUncertified(Single());
     Dag();const auto& elements=Route(tree::RenderElementsDestructorRva);
     Methods(Base+elements.vtable,Base+elements.destructor,Base+elements.work+1);CheckUncertified(CaptureDag());
@@ -155,7 +155,7 @@ void UnknownTriples(){
     Put(Root0,unknownVtable);Methods(unknownVtable,Base+driver.destructor,Base+driver.work);CheckUncertified(CaptureDag());
 }
 void UnsupportedAllocatorAndStringRoutes(){
-    const auto& plain=Route(0x983FD8);
+    const auto& plain=Route(0x8E7E38);
     for(const auto global:{tree::ObjectAllocatorRva,tree::ControlAllocatorRva}){
         Fresh();Leaf(Root0,plain);Put(Base+global,CommonAllocator+0x100);CheckUncertified(Single());
     }
@@ -224,6 +224,6 @@ void InvalidChildTrees(){
 int main()try{
     InventoryAndEveryCertifiedTriple();CompositeRoutes();UnknownTriples();UnsupportedAllocatorAndStringRoutes();
     CurrentAllocatorIdentityChanges();InvalidChildTrees();
-    std::puts("PASS owned execution certificate: 134 unique triples, 10 destructor routes, shared child DAG and exact array/CString allocator identities; no allocator-liveness or native-free authority");
+    std::puts("PASS owned execution certificate: 133 unique triples, 10 destructor routes, shared child DAG and exact array/CString allocator identities; no allocator-liveness or native-free authority");
     return 0;
 }catch(const std::exception& error){std::fprintf(stderr,"%s\n",error.what());return 1;}

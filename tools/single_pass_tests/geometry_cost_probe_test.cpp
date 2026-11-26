@@ -11,7 +11,7 @@ int main() {
     constexpr uint32_t re = kRenderElementsNode;
     // Off and malformed controls never touch a draw.
     CHECK(Decide(0, 0, re, 0) == Action::Forward);
-    CHECK(Decide(0x40u | 1u | kSide0, 0, re, 0) == Action::Forward);   // unknown bit
+    CHECK(Decide(0x100u | 1u | kSide0, 0, re, 0) == Action::Forward);  // unknown bit (0x40 / 0x80 are the eye halves)
     CHECK(Decide(3u | kSide0 | kSide1, 0, re, 0) == Action::Forward);  // invalid action
     CHECK(Decide(kSide0 | kSide1, 0, re, 1) == Action::Forward);       // no action
     CHECK(Decide(1u, 0, re, 0) == Action::Forward);                    // no side

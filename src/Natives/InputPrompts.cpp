@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // The prompts' buttons (include/Hooks/PromptButtons.hpp): the part of the controller icon atlas the game wants to
 // show, mapped onto the physical button that produces that pad button through the port's XInput merge, and the
 // native that hands it to the game's UI scripts (mods/redscript/CyberpunkVRPort_Prompts).
@@ -21,8 +22,17 @@
 #include <mutex>
 #include <set>
 
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VehicleDialogConfirmOnA;   // src/Hooks/XInput.cpp
+#endif
 
+#if CVR_RUST_VRIK
+// The icon lookup, the refresh and VRPromptPart are rust/crates/cvr-rig/src/vrik/input_prompts.rs; the registration
+// stays (the refresh's game state is rust/crates/cvr-ffi/src/plugin.rs's).
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("PromptIcons", ::cvr::hooks::Stage::Boot, 84, cvr_hook_prompt_icons_install);
+#endif
+#else
 namespace cvr::input {
 
 PromptLayout CurrentPromptLayout() {
@@ -154,3 +164,5 @@ void VRPromptPart(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::
     const std::string mapped = cvr::input::PromptPart(text, cvr::input::CurrentPromptLayout());
     if (mapped != text) *aOut = RED4ext::CName(mapped.c_str());
 }
+#endif
+#endif

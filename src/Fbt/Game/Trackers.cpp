@@ -10,6 +10,11 @@
 #include <cstring>
 #include <mutex>
 
+#if CVR_RUST_VRIK
+// The trackers are rust/crates/cvr-xr/src/trackers.rs (the calibration they tick, rust/crates/cvr-render/src/
+// fbt_calibration.rs); the C++ names its callers use stay.
+static_assert(sizeof(cvr::trackers::Pose) == 64, "mirrored by Pose in rust/crates/cvr-xr/src/trackers.rs");
+#else
 extern void Log(const char*, ...);
 
 namespace cvr::trackers {
@@ -344,3 +349,4 @@ bool Read(Role role, Pose* out) {
 }
 
 }
+#endif

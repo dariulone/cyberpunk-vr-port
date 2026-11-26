@@ -16,7 +16,149 @@
 #include <mutex>
 #include <stdexcept>
 #include <tuple>
+#if CVR_RUST_VRIK
+#include "Rust/JsonTree.hpp"
+#endif
 using Microsoft::WRL::ComPtr;
+#if CVR_RUST_VRIK
+extern "C" {
+// The exported state is Rust's (rust/crates/cvr-render/src/native_state_exports.rs), declared in the header; the records
+// are written by rust/crates/cvr-render/src/families_native.rs.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+__declspec(dllexport) cvr::stereo::families::Record CyberpunkVR_StereoFamilyRecords[cvr::stereo::families::Capacity]{};
+#endif
+}
+// THE REGISTRY IS RUST'S (rust/crates/cvr-render/src/families_native.rs): the manifest's assets, the roots' identity, the
+// pipelines' observation and registration, the lists' bound families and their draws. This half reads the manifest with
+// jsoncpp and keeps a mirror of each family and paired root for its C++ consumers, made through the host below.
+namespace cvr::stereo::families {
+namespace {
+struct RustFamilyBytes {const uint8_t* p;size_t n;};
+struct RustFamilyAsset {
+    uint32_t index,vsBytes,psBytes,cameraStages;RustFamilyBytes vsHash,psHash,vs,ps,cameraVs,cameraPs;
+    const PairedBinding* pairs;size_t pairCount;const ResourceUse* uses;size_t useCount;
+};
+struct RustFamilyManifest {const RustFamilyAsset* assets;size_t assetCount;char manifestHash[65];};
+struct RustVariant {ID3D12RootSignature* root;const uint8_t* serialized;size_t serializedLength;const PairedBindingLocation* bindings;
+    size_t bindingCount;UINT scalars[6];};
+struct RustFamily {
+    uint64_t id;UINT asset,record;RustFamilyBytes rootSha,vertexSha,pixelSha;ID3D12RootSignature* sourceRoot;ID3D12PipelineState* pipeline;
+    ID3D12PipelineState* nativeCameraPipeline;UINT nativeCameraStages,skinningReadContract,alphaDepthContract;
+    bool instanceRebaseSafe,instanceOrdinalIndependent;const ResourceUse* uses;size_t useCount;PassContract pass;
+};
+static_assert(sizeof(RustFamilyAsset)==144 && sizeof(RustFamilyManifest)==88,"mirrored by stereo_family_manifest.rs");
+static_assert(sizeof(RustVariant)==64 && sizeof(RustFamily)==232 && sizeof(PassContract)==112,"mirrored by families_native.rs");
+struct Host {
+    void*(*load)(const wchar_t*,size_t,const RustFamilyManifest**,char*,size_t);
+    void*(*variant)(const RustVariant*);
+    void*(*family)(const RustFamily*,const void*);
+    void(*free)(uint32_t,void*);
+};
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin makes no C++ mirrors (families_native.rs keeps the families)
+using SharedVariant=std::shared_ptr<const RootVariant>;
+using SharedFamily=std::shared_ptr<const Family>;
+std::string Text(RustFamilyBytes b){return std::string(reinterpret_cast<const char*>(b.p),b.n);}
+#endif
+void Require(bool yes,const char* reason){if(!yes)throw std::runtime_error(reason);}
+}
+}
+extern "C" {
+void* cvr_nsf_load(const cvr::json_tree::Node*,size_t,const wchar_t*,size_t,const uint8_t*,size_t,
+    const cvr::stereo::families::RustFamilyManifest**,char*,size_t);
+void cvr_nsf2_attach(const void*);
+bool cvr_nsf2_enabled();
+void cvr_nsf2_root_created(ID3D12RootSignature*,UINT,const void*,size_t);
+void cvr_nsf2_graphics_created(ID3D12Device*,const D3D12_GRAPHICS_PIPELINE_STATE_DESC*,ID3D12PipelineState*);
+void cvr_nsf2_stream_created(ID3D12Device*,const D3D12_PIPELINE_STATE_STREAM_DESC*,ID3D12PipelineState*);
+void cvr_nsf2_pipeline_bound(ID3D12GraphicsCommandList*,ID3D12PipelineState*);
+void cvr_nsf2_root_bound(ID3D12GraphicsCommandList*,ID3D12RootSignature*);
+void cvr_nsf2_reset(ID3D12GraphicsCommandList*,ID3D12PipelineState*);
+void cvr_nsf2_observe_draw(ID3D12GraphicsCommandList*,UINT,int);
+const void* cvr_nsf2_lookup(void*,uint32_t,void**);
+}
+namespace cvr::stereo::families {
+namespace {
+const Host kHost{
+    // Load: the manifest's text read and parsed by jsoncpp, its tree handed to stereo_family_manifest.rs.
+    [](const wchar_t* path,size_t length,const RustFamilyManifest** view,char* failure,size_t capacity)->void*{
+        try{
+            const std::filesystem::path file(std::wstring(path,length));
+            const auto size=std::filesystem::file_size(file);Require(size>0 && size<=8*1024*1024,"Invalid family manifest size");
+            Json::CharReaderBuilder builder;builder["collectComments"]=false;builder["failIfExtra"]=true;builder["rejectDupKeys"]=true;
+            Json::Value manifest;std::string errors,text(size,'\0');std::ifstream stream(file,std::ios::binary);stream.read(text.data(),text.size());
+            Require(bool(stream),"Cannot read family manifest");
+            std::unique_ptr<Json::CharReader> parser(builder.newCharReader());
+            Require(parser->parse(text.data(),text.data()+text.size(),&manifest,&errors),"Invalid family manifest JSON");
+            std::vector<json_tree::Node> nodes(1);json_tree::Flatten(manifest,nodes,0);
+            const auto dir=file.parent_path().wstring();
+            return cvr_nsf_load(nodes.data(),nodes.size(),dir.data(),dir.size(),reinterpret_cast<const uint8_t*>(text.data()),text.size(),
+                view,failure,capacity);
+        }catch(const std::exception& e){strncpy_s(failure,capacity,e.what(),_TRUNCATE);return nullptr;}},
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin makes no C++ mirrors (families_native.rs keeps the families)
+    [](const RustVariant* v)->void*{
+        try{auto variant=std::make_shared<RootVariant>();variant->root=v->root;auto& plan=variant->plan;
+            plan.serialized.assign(v->serialized,v->serialized+v->serializedLength);plan.bindings.assign(v->bindings,v->bindings+v->bindingCount);
+            plan.parameters={v->scalars[0],v->scalars[1]};plan.descriptors={v->scalars[2],v->scalars[3]};
+            plan.originalParameters=v->scalars[4];plan.rootDwords=v->scalars[5];
+            return new SharedVariant(std::move(variant));}catch(...){return nullptr;}},
+    [](const RustFamily* v,const void* variant)->void*{
+        try{auto f=std::make_shared<Family>();f->id=v->id;f->asset=v->asset;f->record=v->record;
+            f->rootSha256=Text(v->rootSha);f->vertexSha256=Text(v->vertexSha);f->pixelSha256=Text(v->pixelSha);
+            f->sourceRoot=v->sourceRoot;f->pairedRoot=*static_cast<const SharedVariant*>(variant);f->pipeline=v->pipeline;
+            f->nativeCameraPipeline=v->nativeCameraPipeline;f->nativeCameraStages=v->nativeCameraStages;
+            f->skinningReadContract=v->skinningReadContract;f->alphaDepthContract=v->alphaDepthContract;
+            f->uses.assign(v->uses,v->uses+v->useCount);f->instanceRebaseSafe=v->instanceRebaseSafe;
+            f->instanceOrdinalIndependent=v->instanceOrdinalIndependent;f->pass=v->pass;
+            return new SharedFamily(std::move(f));}catch(...){return nullptr;}},
+    [](uint32_t kind,void* mirror){if(kind)delete static_cast<SharedFamily*>(mirror);else delete static_cast<SharedVariant*>(mirror);},
+#else
+    nullptr,nullptr,nullptr,
+#endif
+};
+[[maybe_unused]] const bool kAttached=(cvr_nsf2_attach(&kHost),true);
+// Lookup and Bound: the family's mirror copied while its owner is held.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+SharedFamily Mirror(void* object,uint32_t which){
+    void* held{};const auto* mirror=static_cast<const SharedFamily*>(cvr_nsf2_lookup(object,which,&held));
+    SharedFamily family=mirror?*mirror:nullptr;if(held)static_cast<IUnknown*>(held)->Release();return family;
+}
+#endif
+}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool Enabled(){return cvr_nsf2_enabled();}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's hooks and detours call families_native.rs themselves
+void RootCreated(ID3D12RootSignature* root,UINT node,const void* bytes,size_t size){cvr_nsf2_root_created(root,node,bytes,size);}
+void GraphicsCreated(ID3D12Device* device,const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source,ID3D12PipelineState* original){
+    cvr_nsf2_graphics_created(device,&source,original);
+}
+void StreamCreated(ID3D12Device* device,const D3D12_PIPELINE_STATE_STREAM_DESC& source,ID3D12PipelineState* original){
+    cvr_nsf2_stream_created(device,&source,original);
+}
+bool NativeDepthCompatible(ID3D12PipelineState* pso){return NativeDepthStatus(pso)==1;}
+uint32_t NativeDepthStatus(ID3D12PipelineState* pso){
+    constexpr GUID key{0x0db3e624,0x37df,0x4491,{0xa6,0x91,0xa1,0x1e,0x6d,0x2d,0x5e,0x50}};
+    uint32_t status{};UINT bytes=sizeof(status);return pso && SUCCEEDED(pso->GetPrivateData(key,&bytes,&status)) && bytes==sizeof(status)?status:0;
+}
+uint32_t NativeGeometryStatus(ID3D12PipelineState* pso){
+    constexpr GUID key{0x0db3e624,0x37df,0x4491,{0xa6,0x91,0xa1,0x1e,0x6d,0x2d,0x5e,0x51}};
+    uint32_t status{};UINT bytes=sizeof(status);return pso && SUCCEEDED(pso->GetPrivateData(key,&bytes,&status)) && bytes==sizeof(status)?status:0;
+}
+void PipelineBound(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso){cvr_nsf2_pipeline_bound(list,pso);}
+void Reset(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso){cvr_nsf2_reset(list,pso);}
+void ObserveDraw(ID3D12GraphicsCommandList* list,UINT node,int side){cvr_nsf2_observe_draw(list,node,side);}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void RootBound(ID3D12GraphicsCommandList* list,ID3D12RootSignature* root){cvr_nsf2_root_bound(list,root);}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+std::shared_ptr<const Family> Lookup(ID3D12PipelineState* pso){return Mirror(pso,0);}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+std::shared_ptr<const Family> Bound(ID3D12GraphicsCommandList* list){return Mirror(list,1);}
+#endif
+}
+#else
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoFamilyAssetStatus{},CyberpunkVR_StereoFamilyAssetCount{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoFamilyNativeCameras{};
@@ -327,3 +469,4 @@ void ObserveDraw(ID3D12GraphicsCommandList* list,UINT node,int side) {
     ++CyberpunkVR_StereoFamilyRecords[family->record].draws[side];CyberpunkVR_StereoFamilySeq.fetch_add(1);
 }
 }
+#endif

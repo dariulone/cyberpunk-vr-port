@@ -13,7 +13,7 @@ graph_snapshot::Snapshot Fixture(){
     for(uint32_t i=0;i<6;++i){graph_snapshot::Node node;node.handle=(10+i*10)|0x20000000u;node.order=i;
         Put(node.bytes,0,i);Put(node.bytes,8,uint32_t(4));Put(node.bytes,16,uint64_t(0x10000+(i==3?1:i)*4096));
         Put(node.bytes,24,uint32_t(i>=3));Put(node.bytes,28,uint32_t(0xdead0000));
-        node.vtable=Base+0x2B3A008;node.work=Base+0x1EC1D0;Put(node.definition,0,node.vtable);
+        node.vtable=Base+0x3094850;node.work=Base+0x332D5C;Put(node.definition,0,node.vtable);
         Put(node.definition,24,paired_frontier::Name(i==1 || i==3?"GBuffer_Discard":"Other"));source.nodes.push_back(node);
     }
     std::array<paired_frontier::Edges,2> edges;
@@ -139,7 +139,7 @@ int main(int argc,char** argv)try{
     if(argc==3){graph_snapshot::Snapshot source;source.nodes=Read<graph_snapshot::Node>(argv[1]);source.edges=Read<graph_snapshot::Edge>(argv[2]);
         bool tested{};for(uint32_t i=0;i<source.nodes.size();++i){const auto& node=source.nodes[i];
             if(graph_snapshot::Field<uint64_t>(node.definition,24)!=paired_frontier::Name("GBuffer_Discard"))continue;
-            const auto base=node.work-0x1EC1D0;auto defs=Definitions(source,i);scene_expansion::Plan plan;
+            const auto base=node.work-0x332D5C;auto defs=Definitions(source,i);scene_expansion::Plan plan;
             if(!plan.Build(source,base,node.handle,defs)){
                 std::fprintf(stderr,"Saved source expansion rejected: handle=%u, reason=%u\n",node.handle,uint32_t(plan.Rejection()));
                 Require(false);

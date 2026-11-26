@@ -14,6 +14,46 @@ struct BorrowedTarget {
 };
 enum class State:uint32_t {Empty,Acquired,Submitted,Fenced,Releasing,Retired,Quarantined};
 namespace detail {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/residency_transaction.rs (tools/single_pass_tests/gpu_residency_lease_test runs
+// its cases against them in its Rust variant). The members stay here, mirrored there; the SDK callbacks run here,
+// their exceptions caught here and reported to Rust as a flag.
+class Transaction;
+extern "C" {
+HRESULT cvr_rt_acquire(Transaction*,size_t,HRESULT(*)(void*,size_t,bool*),void*);
+HRESULT cvr_rt_op(Transaction*,uint32_t,uint64_t,HRESULT);
+HRESULT cvr_rt_release(Transaction*,uint32_t,uint64_t,HRESULT(*)(void*,size_t,bool*),void*);
+}
+// Shared pure transaction logic. SDK callbacks are supplied by the owned lease.
+class Transaction {
+public:
+    State Status()const noexcept{return state_;}
+    size_t ObjectCount()const noexcept{return count_;}
+    size_t EvictionAttempts()const noexcept{return attempted_;}
+    template<class Make>HRESULT Acquire(size_t count,Make&& make){
+        using Callable=std::remove_reference_t<Make>;
+        const auto call=[](void* context,size_t,bool* threw)->HRESULT{
+            try{return (*static_cast<Callable*>(context))();}catch(...){*threw=true;return E_FAIL;}
+        };
+        return cvr_rt_acquire(this,count,call,const_cast<void*>(static_cast<const void*>(&make)));
+    }
+    bool MarkSubmitted()noexcept{return cvr_rt_op(this,0,0,S_OK)!=0;}
+    HRESULT AssociateFence(uint64_t value,HRESULT signalResult)noexcept{return cvr_rt_op(this,1,value,signalResult);}
+    template<class Evict>HRESULT Cancel(Evict&& evict){return Release(0,0,evict);}
+    template<class Evict>HRESULT Retire(uint64_t completed,Evict&& evict){return Release(1,completed,evict);}
+    void Quarantine()noexcept{cvr_rt_op(this,2,0,S_OK);}
+private:
+    template<class Evict>HRESULT Release(uint32_t which,uint64_t completed,Evict& evict){
+        using Callable=std::remove_reference_t<Evict>;
+        const auto call=[](void* context,size_t index,bool* threw)->HRESULT{
+            try{return (*static_cast<Callable*>(context))(index);}catch(...){*threw=true;return E_FAIL;}
+        };
+        return cvr_rt_release(this,which,completed,call,const_cast<void*>(static_cast<const void*>(&evict)));
+    }
+    State state_=State::Empty;size_t count_{},attempted_{};uint64_t signal_{};
+};
+static_assert(sizeof(Transaction)==32,"mirrored by residency_transaction.rs");
+#else
 // Shared pure transaction logic. SDK callbacks are supplied by the owned lease.
 class Transaction {
 public:
@@ -58,6 +98,7 @@ private:
     }
     State state_=State::Empty;size_t count_{},attempted_{};uint64_t signal_{};
 };
+#endif
 struct Storage;
 }
 // Owns additional SDK residency references only. The caller separately proves

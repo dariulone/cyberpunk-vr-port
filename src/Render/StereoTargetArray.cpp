@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's arrays; the Rust build's are rust/crates/cvr-gpu/src/target_array.rs (the header calls them).
 #include "Render/StereoTargetArray.hpp"
 #include <array>
 #include <utility>
@@ -146,3 +148,4 @@ HRESULT StereoTargetArray::CopyEye(ID3D12GraphicsCommandList* list,UINT eye,D3D1
     return S_OK;
 }
 }
+#endif

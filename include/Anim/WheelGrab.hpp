@@ -7,7 +7,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include "Runtimes/VehicleMinimap.hpp"
 
 namespace cvr::anim {
 
@@ -21,22 +20,21 @@ namespace cvr::anim {
 // Atomic because the producer and the consumers are different threads: the pose hook writes them on
 // the engine's animation thread, the XInput detour reads them on the input thread and the overlay on
 // the present thread.
+//
+// C linkage, defined in src/Anim/CharacterRigState.cpp: the Rust port (rust/crates/cvr-rig/src/vrik/wheel_grab.rs,
+// CVR_RUST_VRIK) writes the same objects.
+extern "C" {
 extern std::atomic<float> g_wheelBlendRight;   // 0 = arm IK drives the hand, 1 = the animation does
 extern std::atomic<float> g_wheelBlendLeft;
 extern std::atomic<float> g_wheelSteer;        // -1 full left .. +1 full right, immediate controller input
 extern std::atomic<float> g_wheelSteerDeg;     // the raw angle, for the overlay read-out
 extern std::atomic<int>   g_wheelHornMask;     // a hand is on the hub: vrshared::kWheelArmed*Bit
+}
+struct WheelTrackingFrame;
 // Functional script bridge: bit 2 = wheel feature available in driver seat;
 // bits 0/1 = fresh right/left grip ownership. Gamepad settings are read, not changed.
 int WheelControlState();
 void WheelSetMountedCar(bool car);
-void WheelSetMountedBike(bool bike); // the map over the bars; steering pushes and pulls them
-bool WheelMountedBike();              // what the last refresh saw: the player is on a motorcycle
-// The car's own cabin wheel (its steering_wheel slot) in the player's model space, from script each frame while a
-// hand holds the rim: a hand on it rides it exactly (WheelBlendTarget). False for a non-finite pose.
-bool WheelSetCabinSlot(const float pos[3], const float rot[4]);
-// Fresh cabin- or bars-locked HUD anchor (a car or a bike); false for transitions, stale poses or recenter.
-bool WheelReadMinimapAnchor(uint64_t origin,cvr::hud::VehicleMinimapAnchor& out);
 bool WheelSetGamepadProfile(float inner,float outer);
 float WheelGamepadSteer(float normalized);
 float WheelSteerInput(); // latest coherent raw tracking, sampled by XInput
@@ -75,3 +73,6 @@ void WheelFingers(uint8_t* boneBuf);
 void WheelReset();
 
 }  // namespace cvr::anim
+
+// The wheel's tracking sample for tests (src/Anim/CharacterRigState.cpp); null = OpenXRManager::GetGestureHandFrame.
+extern "C" bool (*g_VRIKWheelFrame)(cvr::anim::WheelTrackingFrame* out);

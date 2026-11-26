@@ -7,8 +7,8 @@
 --   * `slider` (11) is the upper. Empty, the gun holds it 70.0 mm back; the empty reload ends with the left thumb on
 --     it, a 2 mm nudge further back and it slams home in 0.07 s (`handle_release`). So it is the pistols' slide stop
 --     -- R3 or the hand releases it.
---   * Two hinges fold with it: `front_hinge` (13) rides it 1:1 and turns 54 deg, `back_hinge` (12) only turns, 86 deg,
---     both at the stop -- riders that turn (`turn`, read from home with `abs`).
+--   * The slider and both hinges are children of barrel (1). The front hinge follows the slider in Z,
+--     the back hinge has a fixed pivot, and each folds about its own local +Z.
 --   * `chamber` (6) spins a half turn at the start of every reload, on its own; nothing to drive.
 --   * The hand lets the magazine go 80-130 mm short and it flies home in 0.09 s -- `selfSeat`, shortened (below).
 return {
@@ -34,12 +34,13 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_barrel' },
 
     slide = {
+        ejectLiveRound = true,
         slot       = 'vrp_slider',
         which      = 1, bone = 11,
         -- home at Z +62.9, on the stop at -7.1 (both empty takes to 0.1 mm), and the release nudge 2 mm deeper
         travel     = 0.0720,
-        restLocal  = { 0.00000, 0.05320, 0.06290 },
-        lockLocal  = { 0.00000, 0.05320, -0.00710 },
+        restLocal  = { 0, 0.05319124,  0.06285872 },
+        lockLocal  = { 0, 0.05319124, -0.00714128 },
         localAxis  = { 0, 0, -1 },
         sign       = 1.0,
         -- 69 mm in 0.067 s at the release (t=3.088..3.155 of metel_empty_a)
@@ -57,8 +58,32 @@ return {
                        pose = 'metel_slide_left' },
         },
         riders = {
-            { bone = 13, ratio = 1.0, abs = true, turn = 54.0, axis = { 0, 0, 1 }, turnAt = 0.070 },
-            { bone = 12, ratio = 0.0, abs = true, turn = 86.0, axis = { 0, 0, 1 }, turnAt = 0.070 },
+            -- Parent-local rest from the base1 rig. Keys pair metres from home with degrees from rest.
+            -- idle_break_01 supplies the hand pull, recoil_shoulder the 35 mm sample, weapon_empty the
+            -- 70 mm stop, and the recorded metel_empty_b release nudge the final 2 mm.
+            {
+                bone = 13, ratio = 1, abs = true, axis = { 0, 0, 1 },
+                restLocal = { 0, 0.05232933, 0.04773954 },
+                restRot = { -0.04101248, 0.70591646, -0.04101258, 0.70591635 },
+                turnKeys = {
+                    { 0, 0 }, { 0.000417, 1.32 }, { 0.000835, 3.84 }, { 0.001461, 8.90 },
+                    { 0.007394, 19.98 }, { 0.016660, 29.89 }, { 0.024422, 35.94 }, { 0.032184, 41.14 },
+                    { 0.035000, 42.79 }, { 0.039510, 45.41 }, { 0.046818, 48.66 }, { 0.051318, 50.89 },
+                    { 0.055818, 51.99 }, { 0.059001, 52.97 }, { 0.060154, 53.19 }, { 0.070, 54.48 }, { 0.072, 55.12 },
+                },
+            },
+            {
+                bone = 12, ratio = 0, abs = true, axis = { 0, 0, 1 },
+                restLocal = { 0, 0.04213088, -0.05907093 },
+                restRot = { -0.02539964, -0.70665056, 0.02539953, 0.70665044 },
+                turnKeys = {
+                    { 0, 0 }, { 0.000417, 1.47 }, { 0.000835, 4.31 }, { 0.001461, 10.05 },
+                    { 0.007394, 22.94 }, { 0.016660, 35.13 }, { 0.024422, 43.11 }, { 0.032184, 50.56 },
+                    { 0.035000, 53.10 }, { 0.039510, 57.42 }, { 0.046818, 63.49 }, { 0.051318, 68.52 },
+                    { 0.055818, 71.53 }, { 0.056389, 72.59 }, { 0.059001, 74.71 }, { 0.060154, 75.58 },
+                    { 0.070, 85.71 }, { 0.072, 87.58 },
+                },
+            },
         },
     },
 

@@ -1,0 +1,59 @@
+CyberpunkVRPort $Version -- UNINSTALL
+=====================================
+
+Run UNINSTALL.bat in this folder and it does all of part 1, 2 and 3 below for you, then offers to
+put your own Cyberpunk settings back. This file is the same thing written out, for anyone who
+would rather delete by hand or wants to know what the .bat touches before running it.
+
+Nothing here installs to Windows. There is no installer, no registry key and no service: every
+file this mod adds is inside the Cyberpunk 2077 game folder, and deleting them IS the uninstall.
+The two lists below are generated from the package itself, so they name exactly what it added.
+
+If you only want to TURN IT OFF for a session you need none of this. Rename
+bin\x64\powrprof.dll (the port's loader) and the game starts flat: everything the port does is
+in cyberpunkvrport\cyberpunkvrport.dll, and nothing else starts it.
+
+1. DELETE THESE FOLDERS -- every one of them is ours, nothing else lives in them
+
+$dirLines
+
+2. DELETE THESE FILES -- these sit in folders that are NOT ours, so delete the file, not the folder
+
+$looseLines
+
+3. AND THESE -- the plugin writes them at runtime, so they are not in the package
+
+    bin\x64\vrport.ini                     every setting you changed in the F10 overlay
+    bin\x64\vrport-launcher.ini            the launcher's headset, resolution and DEBUG choice
+    cyberpunkvrport\log\cyberpunkvrport.log   the plugin's log
+    r6\input\CyberpunkVRPort_ScannerHud.xml   the port's bindings, handed to Input Loader when it is installed
+    r6\input\CyberpunkVRPort_PhotoMode.xml    (the same)
+
+4. RESTORE YOUR GAME SETTINGS IF NEEDED
+
+    YOUR GAME SETTINGS. On its first launch the plugin merged the VR preset into
+
+        %LOCALAPPDATA%\CD Projekt Red\Cyberpunk 2077\UserSettings.json
+
+    while preserving personal preferences, and copied the original to
+    UserSettings.pre-vr-<date>-<time>-<id>.json in the same folder. Removing the mod does not put it
+    back. UNINSTALL.bat offers to; by hand, rename that backup over UserSettings.json yourself
+    with the game closed. Skip it and you keep the applied VR graphics, input and comfort settings
+    for good.
+
+5. IF YOU MOVED A dxgi.dll ASIDE FOR THIS MOD
+
+    Some other VR mods install bin\x64\dxgi.dll, and this port cannot share a
+    process with one, so you may have renamed it -- deploy_stereo.ps1 renames it to
+    dxgi.dll.disabled-red4ext. Rename it back if you want that mod again.
+
+6. WHAT IS NOT TOUCHED, so you do not go looking for it
+
+    Your saves. Nothing here reads or writes them, and nothing this mod does is persisted into a
+    save: no custom quest facts, no items that stop existing, no scripted entities parked in the
+    world. A save made with the mod loads without it.
+
+    RED4ext, when another mod of yours installed it: the port does not need it (it brings its own
+    loader) and the lists above remove only what this package added.
+
+Generated from commit $(git -C $RepoRoot rev-parse --short HEAD 2>$null) on $(Get-Date -Format "yyyy-MM-dd").

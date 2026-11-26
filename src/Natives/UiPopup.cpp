@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // WHICH UI OVERLAY OWNS THE B BUTTON RIGHT NOW, published from the script side.
 //
 // The phone, the radio port and the vehicle list are OVERLAYS, not menus: the game's menu-mode value
@@ -18,9 +19,24 @@
 #include <windows.h>
 #include <atomic>
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
 std::atomic<int> g_uiPopupOpen{0};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
 std::atomic<unsigned long long> g_uiPopupClosedMs{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int CyberpunkVR_PopupVisualStateFilter = 1;
+// [0] requests held back, [1] restores swallowed with them, [2] calls passed to the game
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_PopupVisualStateStats[3] = {};
+#endif
 
+#if CVR_RUST_VRIK
+// The natives are rust/crates/cvr-rig/src/vrik/ui_popup.rs.
+// The flags and their services are Rust's (rust/crates/cvr-render/src/cpp_services.rs, cpp_globals).
+#else
 void VRUiPopup(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)
 {
     RED4EXT_UNUSED_PARAMETER(aContext);
@@ -56,9 +72,6 @@ void VRUiPopup(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int
 // So in VR the state is not entered: the popups keep their own widgets, game context and time
 // dilation. Requests held back are counted and only that many restores of the same state are
 // swallowed, so the engine's state stack stays balanced if VR starts or stops while a popup is up.
-extern "C" __declspec(dllexport) int CyberpunkVR_PopupVisualStateFilter = 1;
-// [0] requests held back, [1] restores swallowed with them, [2] calls passed to the game
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_PopupVisualStateStats[3] = {};
 static std::atomic<int> g_heldPopupStates{0};
 
 // Whether the wrapped UISystem call goes ahead: (state, request) -> pass.
@@ -89,3 +102,5 @@ void VRPopupVisualState(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aF
     if (pass) ++CyberpunkVR_PopupVisualStateStats[2];
     if (aOut) *aOut = pass;
 }
+#endif
+#endif

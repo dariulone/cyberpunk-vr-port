@@ -17,3 +17,26 @@ target_compile_features(foveated_gpu PRIVATE cxx_std_20)
 target_compile_definitions(foveated_gpu PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(foveated_gpu PRIVATE d3d12 dxgi d3dcompiler)
 add_test(NAME foveated_gpu COMMAND foveated_gpu)
+
+# The policy against Rust (rust/crates/cvr-render through cvr_rust.lib), as the DLL calls it.
+option(CVR_FOVEATED_TESTS_RUST "Also run the settings test against the Rust policy" ON)
+if(CVR_FOVEATED_TESTS_RUST)
+    include(../../cmake/RustStaticlib.cmake)
+    add_executable(foveated_tests_rust main.cpp ../rust_test_support/plugin_stubs.cpp)
+    target_include_directories(foveated_tests_rust PRIVATE ../../include)
+    target_compile_features(foveated_tests_rust PRIVATE cxx_std_20)
+    target_compile_definitions(foveated_tests_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    cvr_link_rust(foveated_tests_rust)
+    add_test(NAME foveated_settings_rust COMMAND foveated_tests_rust)
+    # The GPU passes against Rust (rust/crates/cvr-gpu), and both traces compared bit for bit.
+    add_executable(foveated_gpu_rust gpu.cpp ../rust_test_support/plugin_stubs.cpp)
+    target_include_directories(foveated_gpu_rust PRIVATE ../../include)
+    target_compile_features(foveated_gpu_rust PRIVATE cxx_std_20)
+    target_compile_definitions(foveated_gpu_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    target_link_libraries(foveated_gpu_rust PRIVATE d3d12 dxgi d3dcompiler)
+    cvr_link_rust(foveated_gpu_rust)
+    add_test(NAME foveated_gpu_rust COMMAND foveated_gpu_rust)
+    add_test(NAME foveated_gpu_parity
+             COMMAND ${CMAKE_COMMAND} -DCPP=$<TARGET_FILE:foveated_gpu> -DRUST=$<TARGET_FILE:foveated_gpu_rust>
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/ParityTrace.cmake)
+endif()

@@ -1,6 +1,7 @@
 #include "Fbt/Game/Natives.hpp"
 #include "Fbt/Game/Calibration.hpp"
 #include <RED4ext/Scripting/Functions.hpp>
+#if !CVR_RUST_VRIK   // the Rust build's natives: rust/crates/cvr-ffi/src/natives.rs
 
 namespace {
 // VRFbtCalibrating() -> Int32: 1 while full-body tracking calibrates (Fbt/Game/Calibration.hpp). The VR menu closes
@@ -43,3 +44,4 @@ void RegisterNatives(RED4ext::CRTTISystem* rtti) {
 }
 
 }  // namespace cvr::fbt::game
+#endif

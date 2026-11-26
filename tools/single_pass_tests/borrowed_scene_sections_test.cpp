@@ -40,7 +40,7 @@ void Fresh(){
     for(uint32_t slot=0;slot<sections::ChildCount;++slot){const auto& profile=sections::detail::Pattern[slot];
         const auto vtable=Base+profile.vtable;Put(vtable,Base+profile.destructor);Put(vtable+8,Base+profile.work);
         if(slot==2 || slot==8){const bool late=slot==8;const uint64_t data=late?Late:Early;const uint32_t count=late?4:2;
-            stage::Header header{};Field(header,0,vtable);Field(header,24,Base+(late?0x1134C40:0x1D41BE0));
+            stage::Header header{};Field(header,0,vtable);Field(header,24,Base+(late?0x22749E0:0x2274AE0));
             Field(header,48,data);Field(header,56,count);Field(header,60,count);Put(Object(slot),header);
             for(uint32_t i=0;i<count;++i){stage::Stage value{};Field(value,8,i%2?17u:33u);value[12]=uint8_t(i%2?1:0);
                 Field(value,16,late?(i<2?9u:8u):7u);value[20]=uint8_t(i%2?0:2);Field(value,36,UINT32_MAX);
@@ -131,7 +131,7 @@ void Contracts(){
     std::map<uint32_t,uint32_t> spans;
     for(const auto& code:borrowed::Contract){Require(code.rva && code.bytes && code.hash && spans.emplace(code.rva,code.bytes).second);}
     for(const auto rva:borrowed::VtableTargets)Require(spans.contains(rva));
-    Require(spans.at(0x1E3CFD2)==13 && spans.at(0x1F56840)==22 && spans.at(0x1F360B8)==19 && spans.at(0x1E297C2)==62);
+    Require(spans.at(0x2457DD4)==13 && spans.at(0x252C20C)==22 && spans.at(0x24E89A6)==19 && spans.at(0x2442FCA)==62);
 }
 static_assert(!std::is_copy_constructible_v<borrowed::Sections> && !std::is_copy_assignable_v<borrowed::Sections>);
 static_assert(std::is_nothrow_move_constructible_v<borrowed::Sections> && std::is_nothrow_move_assignable_v<borrowed::Sections>);

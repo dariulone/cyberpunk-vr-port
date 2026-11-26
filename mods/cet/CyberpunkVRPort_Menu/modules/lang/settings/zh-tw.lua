@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "預設關閉，以保持 cyberpunkvrport.log 簡潔。僅在\n擷取 ClipCursor / 深度 / 掛鉤診斷時開啟。",
   ["FRAMEGEN"] = "畫格生成",
   ["Enable frame generation"] = "啟用畫格生成",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "啟用畫格生成時，手部平滑以本身速率乘以 xr_hand_lerp_framegen_scale 執行（1.25；0 為關閉）。",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "啟用畫格生成時，手部平滑以本身速率乘以 xr_hand_lerp_framegen_scale 執行（1.10；0 為關閉）。",
   ["Frame generator"] = "畫格產生器",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

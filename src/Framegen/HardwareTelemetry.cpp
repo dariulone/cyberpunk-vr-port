@@ -15,6 +15,20 @@
 #include <mutex>
 #include <thread>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE SAMPLER AND ITS MONITOR THREAD ARE RUST'S (rust/crates/cvr-gpu/src/hardware_telemetry.rs); framegen's metrics
+// switch is handed over as a callback.
+extern "C" {
+}
+namespace cvr::framegen {
+static_assert(sizeof(HardwareStatistics) == 824);
+namespace {
+bool Metrics() { return MetricsEnabled(); }
+}  // namespace
+}  // namespace cvr::framegen
+#endif
+#else
 namespace cvr::framegen {
 namespace {
 using Microsoft::WRL::ComPtr;
@@ -182,3 +196,4 @@ void WakeHardwareTelemetry() {Hardware().Wake();}
 void StopHardwareTelemetry() {Hardware().Stop();}
 HardwareStatistics GetHardwareStatistics() {return Hardware().Read();}
 }
+#endif

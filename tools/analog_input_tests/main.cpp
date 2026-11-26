@@ -1,84 +1,99 @@
 #include "Hooks/AnalogStick.hpp"
 #include "Hooks/KeypadInput.hpp"
 #include "Hooks/WeaponTrigger.hpp"
-#include "Hooks/TurnInput.hpp"
+#include <bit>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 void Check(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
+#if CVR_RUST_INPUT
+// Both implementations on the same inputs, compared bit for bit: the C++ reference (cvr::input::cpp) and Rust
+// (cvr_rust.lib) called directly. Dense sweeps, every boundary and its float neighbours, special values and random
+// bit patterns, then random update sequences for the two stateful types.
+namespace parity {
+struct Rng { uint64_t s=0x9E3779B97F4A7C15ull; uint64_t Next(){s^=s<<13;s^=s>>7;s^=s<<17;return s;} };
+bool Same(float a,float b){return std::bit_cast<uint32_t>(a)==std::bit_cast<uint32_t>(b);}
+std::vector<float> Inputs() {
+    std::vector<float> v;
+    for(int i=-20000;i<=20000;++i)v.push_back(i*1e-4f);
+    const float lim[]={0,.15f,.2f,.3f,.5f,.525f,.575f,.8f,.85f,.849f,.9f,.901f,1,1.01f,1.1f,2,-.1f,.31f,.79f};
+    for(float b:lim)for(float s:{1.f,-1.f}){
+        float x=s*b; v.push_back(x);
+        float up=x,down=x;
+        for(int k=0;k<4;++k){up=std::nextafter(up,INFINITY);down=std::nextafter(down,-INFINITY);v.push_back(up);v.push_back(down);}
+    }
+    using L=std::numeric_limits<float>;
+    for(float x:{L::denorm_min(),L::min(),L::max(),L::infinity(),L::quiet_NaN(),L::signaling_NaN(),L::epsilon()}){v.push_back(x);v.push_back(-x);}
+    Rng r;for(int i=0;i<200000;++i)v.push_back(std::bit_cast<float>(uint32_t(r.Next())));
+    return v;
+}
+uint64_t Run() {
+    using namespace cvr::input;
+    uint64_t n=0;
+    const auto in=Inputs();
+    const float settings[]={0,.05f,.15f,.3f,.31f,-.1f,.8f,.9f,1,1.01f,.79f,INFINITY,-INFINITY,NAN};
+    for(float x:in){
+        Check(Same(cpp::StickDeadzone(x),cvr_stick_deadzone(x)),"StickDeadzone differs");
+        Check(Same(cpp::StickFullInput(x),cvr_stick_full_input(x)),"StickFullInput differs");
+        n+=2;
+        for(float d:settings){
+            Check(Same(cpp::KeypadCursorAxis(x,d),cvr_keypad_cursor_axis(x,d)),"KeypadCursorAxis differs");++n;
+            for(float f:settings){Check(Same(cpp::AnalogAxis(x,d,f),cvr_analog_axis(x,d,f)),"AnalogAxis differs");++n;}
+            for(bool a:{false,true})for(bool neg:{false,true}){
+                Check(cpp::AtFullTravel(x,a,d,neg)==cvr_at_full_travel(x,a,d,neg),"AtFullTravel differs");++n;
+            }
+        }
+    }
+    for(int mode=-5;mode<=5;++mode)for(bool v:{false,true}){
+        Check(cpp::UseAnalogMovement(mode,v)==cvr_use_analog_movement(mode,v),"UseAnalogMovement differs");++n;
+    }
+    const uint64_t stamps[]={0,1,349,350,351,999,1000,1350,1351,~0ull-351,~0ull-350,~0ull};
+    for(uint64_t s:stamps)for(uint64_t t:stamps){
+        for(int64_t dt:{-1,0,1,349,350,351})
+            {Check(cpp::KeypadInputFresh(s,t+dt)==cvr_keypad_input_fresh(s,t+dt),"KeypadInputFresh differs");++n;}
+    }
+    Rng r;
+    auto pick=[&](const std::vector<float>& pool){return pool[r.Next()%pool.size()];};
+    const std::vector<float> coords={0,1,50,55,75,300,533,599,600,1065,1066,-5,2,1.5f,NAN,INFINITY,-INFINITY};
+    const std::vector<float> sticks={0,.1f,-.1f,.5f,-.5f,.7f,-2,NAN,INFINITY};
+    const std::vector<float> dts={0,1.f/30,1.f/90,1.f/144,.02f,.05f,.06f,10,-1,NAN,INFINITY};
+    const std::vector<float> trig={0,.2f,.200001f,.5f,.84f,.849f,.85f,.9f,1,-1,2,NAN,INFINITY};
+    for(int run=0;run<2000;++run){
+        cpp::KeypadCursor a;CvrKeypadCursor b{};
+        cpp::WeaponTrigger ta;CvrWeaponTrigger tb{};
+        for(int step=0;step<200;++step){
+            const bool hit=r.Next()&1;
+            const KeypadPoint head{pick(coords),pick(coords)},stick{pick(sticks),pick(sticks)};
+            const KeypadPoint size=(r.Next()%16)?KeypadPoint{600,1066}:KeypadPoint{pick(coords),pick(coords)};
+            const float dt=pick(dts);
+            const bool ra=a.Update(hit,head,stick,size,dt);
+            const bool rb=cvr_keypad_cursor_update(&b,hit,{head.x,head.y},{stick.x,stick.y},{size.x,size.y},dt);
+            // Field by field: the two bytes of padding after hadHead are not part of the state.
+            Check(ra==rb && Same(a.position.x,b.position.x) && Same(a.position.y,b.position.y) &&
+                  Same(a.previousHead.x,b.previousHead.x) && Same(a.previousHead.y,b.previousHead.y) &&
+                  a.initialized==b.initialized && a.hadHead==b.hadHead,"KeypadCursor diverged");
+            const bool en=(r.Next()%8)!=0;const float v=pick(trig);
+            const bool da=ta.Update(en,v),db=cvr_weapon_trigger_update(&tb,en,v);
+            Check(da==db && ta.active==tb.active && ta.down==tb.down && ta.ready==tb.ready,"WeaponTrigger diverged");
+            n+=2;
+        }
+    }
+    return n;
+}
+}
+#endif
 int main(int argc,char** argv)try {
     using namespace cvr::input;
     Check(argc==2,"case required");const std::string name=argv[1];
-    if(name=="snap_travel") {
-        // Physical snap travel stays identical across movement modes and
-        // camera curves; none of these parameters is a snap sensitivity knob.
-        for(float sign:{-1.f,1.f})for(float raw:{.8f,.85f,.9f,.915f,1.f})
-            for(float dead:{0.f,.15f,.18f,.3f})for(float full:{.8f,.9f,1.f}) {
-                int armed=0;
-                const float look=AnalogAxis(sign*raw,dead,full);
-                const auto turn=RouteControllerTurn(sign*raw,look,true,armed,45);
-                Check(turn.axis==0 && turn.snapDegrees==-sign*45,"deliberate snap flick missed after camera deadzone");
-            }
-        int oldCount=0,newCount=0,armed=0;
-        // Synthetic regression trace, not a recorded hardware failure rate.
-        for(float raw:{.95f,.87f,1.f,.91f,.93f,.89f,1.f,.96f,.82f,.94f}) {
-            const float look=AnalogAxis(raw,.18f,1.f);
-            oldCount+=look>.9f;
-            newCount+=RouteControllerTurn(raw,look,true,armed,45).snapDegrees!=0;
-            RouteControllerTurn(0,0,true,armed,45);
-        }
-        Check(oldCount==6 && newCount==10,"ten-flick regression trace changed");
-        std::cout<<"synthetic flicks: old="<<oldCount<<"/10 fixed="<<newCount<<"/10\n";
-    } else if(name=="snap_hysteresis") {
-        for(float sign:{-1.f,1.f})for(float angle:{15.f,30.f,45.f,90.f}) {
-            int armed=0;
-            for(float raw:{0.f,.1f,.49f,.5f,.6f,.79f})
-                Check(RouteControllerTurn(sign*raw,raw,true,armed,angle).snapDegrees==0,"rest/partial travel fired snap");
-            Check(RouteControllerTurn(sign*.8f,1,true,armed,angle).snapDegrees==-sign*angle,"configured snap angle lost");
-            for(int i=0;i<100;++i)for(float raw:{1.f,.81f,.79f,.51f,.85f})
-                Check(RouteControllerTurn(sign*raw,raw,true,armed,angle).snapDegrees==0,"held stick or fire-boundary jitter repeated");
-            RouteControllerTurn(sign*.5f,.4f,true,armed,angle);
-            Check(RouteControllerTurn(sign*.8f,1,true,armed,angle).snapDegrees==-sign*angle,"release did not rearm");
-            Check(RouteControllerTurn(-sign*.8f,-1,true,armed,angle).snapDegrees==sign*angle,"fast direction reversal missed");
-        }
-    } else if(name=="snap_native") {
-        Check(NativeOwnsTurn(true,0,false) && NativeOwnsTurn(false,0,true),"vehicle/ladder ownership lost");
-        Check(NativeOwnsTurn(false,static_cast<int>(RED4ext::game::PSMVehicle::Combat),false),"window combat ownership lost");
-        for(float sign:{-1.f,1.f}) {
-            int armed=0;
-            auto turn=RouteControllerTurn(sign,.6f*sign,false,armed,45);
-            Check(turn.axis==.6f*sign && turn.clearPending && turn.snapDegrees==0,"native look curve/queue clearing changed");
-            Check(RouteControllerTurn(sign,sign,true,armed,45).snapDegrees==0,"native exit snapped held stick");
-            RouteControllerTurn(.5f*sign,.4f*sign,true,armed,45);
-            Check(RouteControllerTurn(sign,sign,true,armed,45).snapDegrees==-45*sign,"native exit never rearmed");
-        }
-        int armed=0;
-        Check(RouteControllerTurn(.85f,1,true,armed,45,.95f,.3f).snapDegrees==0,"custom fire ignored");
-        Check(RouteControllerTurn(.95f,1,true,armed,45,.95f,.3f).snapDegrees==-45,"custom fire boundary missed");
-        RouteControllerTurn(.31f,0,true,armed,45,.95f,.3f);
-        Check(RouteControllerTurn(.95f,1,true,armed,45,.95f,.3f).snapDegrees==0,"custom rearm ignored");
-        RouteControllerTurn(.3f,0,true,armed,45,.95f,.3f);
-        Check(RouteControllerTurn(.95f,1,true,armed,45,.95f,.3f).snapDegrees==-45,"custom rearm boundary missed");
-    } else if(name=="snap_boundary") {
-        int armed=0;
-        Check(RouteTurn(.9f,true,armed,45,.9f,.5f).snapDegrees==-45,"exact snap fire threshold missed");
-        Check(RouteTurn(.5f,true,armed,45,.9f,.5f).snapDegrees==0,"release caused a snap");
-        Check(RouteTurn(.9f,true,armed,45,.9f,.5f).snapDegrees==-45,"exact release threshold did not rearm");
-    } else if(name=="snap_invalid") {
-        const float nan=std::numeric_limits<float>::quiet_NaN(),inf=std::numeric_limits<float>::infinity();
-        for(float raw:{nan,inf,-inf}) {
-            int armed=0;
-            Check(RouteTurn(raw,true,armed,45,.9f,.5f).snapDegrees==0,"nonfinite stick generated a snap");
-            armed=1;
-            RouteTurn(raw,true,armed,45,.9f,.5f);
-            Check(RouteTurn(1,true,armed,45,.9f,.5f).snapDegrees==0,"nonfinite sample falsely rearmed a held stick");
-            const auto native=RouteControllerTurn(raw,raw,false,armed,45);
-            Check(native.axis==0 && native.clearPending,"nonfinite native input retained pending snap");
-        }
-        int armed=0;
-        Check(RouteTurn(1,true,armed,inf,.9f,.5f).snapDegrees==-30,"nonfinite snap angle escaped into heading");
-    } else if(name=="weapon_trigger") {
+#if CVR_RUST_INPUT
+    Check(cvr_rust_abi_version()==CVR_RUST_ABI_VERSION,"cvr_rust.lib ABI differs from include/Rust/CvrRust.h");
+    if(name=="parity") {std::cout<<"PASS parity: "<<parity::Run()<<" identical results\n";return 0;}
+#endif
+    if(name=="weapon_trigger") {
         WeaponTrigger t;
         Check(!t.Update(true,0),"rest fired");
         for(float v:{.2f,.5f,.849f})Check(!t.Update(true,v),"early break");

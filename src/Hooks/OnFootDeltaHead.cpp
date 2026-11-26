@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // OnFootDeltaHead -- one hook, one file. It registers itself at the bottom; Hooks/Hook.hpp says why the
 // stage and order live here rather than in a boot function.
 //
@@ -21,12 +22,25 @@
 #include <cstddef>
 
 // Physical follower lifecycle; its motion requests use a separate native source.
+#if !CVR_RUST_VRIK
 extern "C" void  BodyYawFollowRelease();
 extern "C" double RecoilLastShotMs();
+#endif
 // Peak |heading delta| seen within 150 ms of a shot, degrees. Non-zero means the game kicks the
 // camera through this channel. Physical body motion never enters this input.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugShotHeadingKickDeg = 0.0f;
+#endif
 
+#if CVR_RUST_VRIK
+// THE HOOK IS RUST'S (rust/crates/cvr-rig/src/vrik/on_foot_delta_head.rs: the callback and the stub); the export above and
+// the registration stay here, so the install order holds.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("OnFootDeltaHead", ::cvr::hooks::Stage::Boot, 76, cvr_hook_on_foot_delta_head_install);
+#endif
+#else
 extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     // The log printed "DeltaHead: hits=0" for this hook while it was running 72 times a second:
     // the telemetry field existed and nobody incremented it, left behind by an older trampoline
@@ -187,3 +201,5 @@ bool InstallOnFootDeltaHeadHook() {
     return true;
 }
 CVR_HOOK("OnFootDeltaHead", ::cvr::hooks::Stage::Boot, 76, InstallOnFootDeltaHeadHook);
+#endif
+#endif

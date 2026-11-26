@@ -3,7 +3,44 @@
 #include <cstring>
 #include <bitset>
 #include <utility>
+#include <cstddef>
+#include <string>
+#include <vector>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE STREAMS ARE RUST'S (rust/crates/cvr-render/src/pipeline_stream.rs): the walk, reading, describing, editing and
+// rebuilding them with view instancing, the classic description's stream and the view-instanced pipelines. What stays
+// here are the C++ names.
+extern "C" {
+bool cvr_pipeline_stream_read(const D3D12_PIPELINE_STATE_STREAM_DESC* source, cvr::stereo::PipelineStreamInfo* output);
+HRESULT cvr_pipeline_stream_create_view_instanced(ID3D12Device2* device, const D3D12_PIPELINE_STATE_STREAM_DESC* source,
+                                                  const D3D12_SHADER_BYTECODE* vs, const D3D12_VIEW_INSTANCE_LOCATION* locations,
+                                                  bool allowMasking, ID3D12PipelineState** result,
+                                                  const D3D12_SHADER_BYTECODE* ps, ID3D12RootSignature* root);
+HRESULT cvr_pipeline_stream_create_view_instanced_graphics(ID3D12Device2* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* source,
+                                                           const D3D12_VIEW_INSTANCE_LOCATION* locations, bool allowMasking,
+                                                           ID3D12PipelineState** result);
+}
+
+namespace cvr::stereo {
+static_assert(sizeof(PipelineStreamInfo) == 512 && offsetof(PipelineStreamInfo, targets) == 40 &&
+                  offsetof(PipelineStreamInfo, blend) == 80 && offsetof(PipelineStreamInfo, input) == 472 &&
+                  offsetof(PipelineStreamInfo, haveBlend) == 488 && offsetof(PipelineStreamInfo, forcedSamples) == 496 &&
+                  offsetof(PipelineStreamInfo, flags) == 504 && sizeof(PipelineStreamOffsets) == 48,
+              "PipelineStreamInfo and PipelineStreamOffsets are mirrored in rust/crates/cvr-render/src/pipeline_stream.rs");
+bool ReadPipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC& source, PipelineStreamInfo& output) {
+    return cvr_pipeline_stream_read(&source, &output);
+}
+HRESULT CreateViewInstancedPipeline(ID3D12Device2* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source,
+                                    const ViewInstancedLayout& layout, ID3D12PipelineState** result) {
+    return cvr_pipeline_stream_create_view_instanced_graphics(device, &source, layout.locations.data(), layout.allowMasking,
+                                                              result);
+}
+#else
+namespace cvr::stereo {   // closed with the file (the C++ build's namespace)
+#endif
+#else
 namespace cvr::stereo {
 namespace {
 // D3D12's pipeline stream ABI requires pointer-aligned subobjects and padding.
@@ -255,7 +292,9 @@ HRESULT CreateViewInstancedPipeline(ID3D12Device2* device,
     D3D12_PIPELINE_STATE_STREAM_DESC stream{offsetof(Stream,views),&s};
     return CreateViewInstancedPipelineStream(device,stream,source.VS,layout,result);
 }
+#endif
 
+#if !CVR_RUST_VRIK
 namespace {
 // Two passes over the same pointers: the counter sizes every array so nothing reallocates while
 // the copy hands out addresses into them.
@@ -315,7 +354,9 @@ bool IsShaderPart(D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type) {
     }
 }
 }
+#endif
 
+#if !CVR_RUST_VRIK
 bool OwnPipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC& source,OwnedPipelineStream& output) {
     PartCounter count;
     if(!Walk(source,[&](auto type,size_t,const uint8_t* value) {
@@ -346,6 +387,8 @@ bool OwnPipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC& source,OwnedPipel
         return true;
     });
 }
+#endif
+#if !CVR_RUST_VRIK
 bool OwnGraphicsDesc(const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source,OwnedGraphicsDesc& output) {
     PartCounter count;
     for(const auto* s:{&source.VS,&source.PS,&source.DS,&source.HS,&source.GS})count.Shader(*s);
@@ -356,4 +399,5 @@ bool OwnGraphicsDesc(const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source,OwnedGraph
     OwnInput(p,d.InputLayout);OwnOutput(p,d.StreamOutput);d.CachedPSO={};
     return true;
 }
+#endif
 }

@@ -53,25 +53,33 @@ def describe(dll, extra_types=()):
             symbol = Symbol()
             symbol.size, symbol.maxLength = 88, 1023
             is_symbol=type_name.startswith('symbol:')
-            found=(d.SymFromName(handle,type_name[7:].encode(),c.byref(symbol)) if is_symbol else
+            # A private nested type can be reached through a data symbol, e.g.
+            # symbol:cvr::physhands::steps/data/motor/touch. Arrays describe one element.
+            symbol_path = type_name[7:].split('/') if is_symbol else []
+            found=(d.SymFromName(handle,symbol_path[0].encode(),c.byref(symbol)) if is_symbol else
                    d.SymGetTypeFromName(handle, base, type_name.encode(), c.byref(symbol)))
             if not found:
                 if type_name not in required_types:
                     continue
                 raise RuntimeError('Missing PDB type: ' + type_name)
+            def members(type_id):
+                count = info(type_id, 13)
+                if count is None:
+                    raise RuntimeError('Missing type members: ' + type_name)
+                children = (w.ULONG * (count + 2))()
+                children[0] = count
+                if not d.SymGetTypeInfo(handle, base, type_id, 7, c.byref(children)):
+                    raise c.WinError(c.get_last_error())
+                return {name(child): child for child in children[2:] if info(child, 10) is not None}
+
+            for part in symbol_path[1:]:
+                while info(symbol.type,0) in (14,15):
+                    symbol.type=info(symbol.type,3)
+                symbol.type = info(members(symbol.type)[part], 3)
             if is_symbol:
                 while info(symbol.type,0) in (14,15):  # pointer/array -> element type
                     symbol.type=info(symbol.type,3)
-            count = info(symbol.type, 13)  # TI_GET_CHILDRENCOUNT
-            children = (w.ULONG * (count + 2))()
-            children[0] = count
-            if not d.SymGetTypeInfo(handle, base, symbol.type, 7, c.byref(children)):
-                raise c.WinError(c.get_last_error())
-            fields = {}
-            for child in children[2:]:
-                offset = info(child, 10)  # TI_GET_OFFSET (only instance fields)
-                if offset is not None:
-                    fields[name(child)] = {'offset': offset}
+            fields = {key: {'offset': info(child, 10)} for key, child in members(symbol.type).items()}
             result[type_name] = {'size': info(symbol.type, 2, c.c_ulonglong), 'fields': fields}
     finally:
         d.SymCleanup(handle)

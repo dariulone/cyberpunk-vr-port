@@ -1,4 +1,6 @@
 #include "Render/StereoPairedRoot.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's builder; the Rust build's is rust/crates/cvr-render/src/paired_root.rs (the header calls it).
 #include <wrl/client.h>
 #include <algorithm>
 #include <tuple>
@@ -106,3 +108,4 @@ HRESULT BuildPairedRoot(const void* bytes,size_t length,std::span<const PairedBi
     output=std::move(result);return S_OK;
 }
 }
+#endif

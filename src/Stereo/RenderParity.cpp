@@ -20,8 +20,13 @@
 #include <wrl/client.h>
 
 extern "C" {
+#if !CVR_RUST_VRIK   // the Rust build's original is engine_detours.rs's (the thunk reads it by symbol)
 void CvrRenderGraphCacheDetour();
 void* CvrRenderGraphCacheOriginal{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 __declspec(dllexport) int CyberpunkVR_RenderCachePerEye=1;
 __declspec(dllexport) int CyberpunkVR_EarlyAaMode=1;
 __declspec(dllexport) int CyberpunkVR_FogHistorySync=1;
@@ -30,9 +35,18 @@ __declspec(dllexport) int CyberpunkVR_OpticsSkyRadianceSync=1;
 __declspec(dllexport) float CyberpunkVR_OpticsSkyRadianceDebug[8]{};
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsSkyRadianceSeq{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_OpticsSkyRadianceWrites{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+__declspec(dllexport) extern int CyberpunkVR_RenderParityDebugCapture;
+#else
 __declspec(dllexport) int CyberpunkVR_RenderParityDebugCapture=0;
+#endif
 // gated: cache salts / AA MAIN / AA swaps / AA misses / fog MAIN / fog applied /
 // fog different frame-or-owner / fog invalid pose / fog recycled resource / fog same handle
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_RenderParityCounters[10]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_RenderParityDebugSeq[3]{};
 __declspec(dllexport) uint64_t CyberpunkVR_RenderParityDebug[3][10]{};
@@ -52,12 +66,14 @@ __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_FogFrustumMismatch{};
 // fog constants (396 floats) as last seen -- to tell which fields carry the frustum.
 __declspec(dllexport) float CyberpunkVR_FogCameraDump[2][212]{};
 __declspec(dllexport) float CyberpunkVR_FogConstantsDump[2][396]{};
+#endif
 }
 #define CVR_PARITY_DIAGNOSTIC(...) do { if(CyberpunkVR_RenderParityDebugCapture || ::cvr::RuntimeDiagnosticsEnabled()) { __VA_ARGS__; } } while(false)
 
 namespace cvr::stereo {
 namespace {
 using namespace cvr::detail;
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/render_parity.rs
 struct Prepared {uint64_t name{};uint32_t frame{};bool valid{};};
 thread_local Prepared prepared;
 thread_local uintptr_t fogWorkContext{};
@@ -144,12 +160,16 @@ uint64_t GraphKey(uint32_t frame,uint64_t hash,uintptr_t caller) {
     if(caller==reinterpret_cast<uintptr_t>(g_exe_base)+0x40A1D1)hash^=cvr::stereo::stage_replay::GraphSalt();
     return hash;
 }
+#endif
+#if !CVR_RUST_VRIK   // the Rust build registers the cache lookup, with its site check, from engine_detours.rs
 bool CacheSiteMatches() {
     const uint8_t bytes[]={0x48,0x89,0x5c,0x24,0x08,0x48,0x89,0x6c,0x24,0x10,
                            0x48,0x89,0x74,0x24,0x18,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57};
     return g_exe_base && !std::memcmp(g_exe_base+GRAPH_CACHE_LOOKUP_RVA,bytes,sizeof(bytes));
 }
 CVR_DETOUR_IF("[render-parity] GraphCacheLookup",GRAPH_CACHE_LOOKUP_RVA,CvrRenderGraphCacheDetour,CvrRenderGraphCacheOriginal,CacheSiteMatches);
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/render_parity.rs
 struct RestoreAa {
     uintptr_t address{};uint32_t saved{};
     ~RestoreAa(){if(address)WriteU32Safe(address,saved);}
@@ -190,7 +210,13 @@ bool BindFogCamera(const FogCamera& camera) {
     return true;
 }
 
+#endif
+#if !CVR_RUST_VRIK
 using FogSrvFn=int64_t(__fastcall*)(uint32_t,uint32_t*,uintptr_t,uint32_t,uint8_t);
+#endif
+#if CVR_RUST_VRIK
+// The fog history bind, its original and its registration are Rust's (render_parity.rs, engine_detours.rs).
+#else
 FogSrvFn originalFogSrv{};
 int64_t __fastcall BindFogHistory(uint32_t slot,uint32_t* handle,uintptr_t unused,uint32_t mip,uint8_t stage) {
     const auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
@@ -236,10 +262,21 @@ int64_t __fastcall BindFogHistory(uint32_t slot,uint32_t* handle,uintptr_t unuse
     CVR_PARITY_DIAGNOSTIC(++CyberpunkVR_FogReprojectionCounters[1];++CyberpunkVR_RenderParityCounters[5]);
     return originalFogSrv(slot,&borrowed,unused,mip,stage);
 }
+#endif
 // VRCAM's fog history only (t_view_side 1), on a bind every node makes: not installed in engine stereo.
+#if !CVR_RUST_VRIK
 CVR_DETOUR_IF("[render-parity] reproject MAIN fog history",0x3E05F8,BindFogHistory,originalFogSrv,cvr::engine_stereo::SecondViewWanted);
+#endif
 }
+#if CVR_RUST_VRIK
+#else
 bool RenderGraphCacheObservationInstalled(){return g_cvrDetourReg_CvrRenderGraphCacheDetour.installed;}
+#endif
+#if CVR_RUST_VRIK
+// RENDER PARITY IS RUST'S (rust/crates/cvr-render/src/render_parity.rs; CvrRenderGraphKey, which the graph-cache
+// thunk calls, is defined there); the C++ names forward, and Rust is handed what it shares with the stereo module.
+// Its table, the XR owner and the node's pose are built in Rust (render_parity.rs).
+#else
 extern "C" uint64_t CvrRenderGraphKey(uint32_t frame,uint64_t hash,uintptr_t caller,uintptr_t cache,uint32_t views,uintptr_t missed) {
     const auto key=GraphKey(frame,hash,caller);
     definition_tracking::BeforeCacheLookup(cache,frame,key,views,missed,caller);
@@ -393,4 +430,5 @@ void SynchronizeFogHistory(uintptr_t registry,uint32_t* handle,uint32_t logicalI
     // Never replace the integration input. It belongs to this view's current
     // grid; MAIN sharing is applied only to t1 of the reprojecting shader above.
 }
+#endif
 }

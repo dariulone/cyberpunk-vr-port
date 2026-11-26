@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/MonoCascades.hpp"
 #include "Render/MonoCascadePolicy.hpp"
 #include "Render/MonoCascadeImage.hpp"
@@ -13,6 +14,10 @@
 #include <vector>
 #include <cstdio>
 #include <memory>
+#if CVR_RUST_VRIK
+// The exports' tables are attached by rust/crates/cvr-render/src/export_attach.rs as the plugin loads;
+// nothing of this file remains in the Rust build.
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_MonoCascades{1};
@@ -276,3 +281,5 @@ void Poll() {
     InterlockedIncrement(reinterpret_cast<volatile LONG*>(&CyberpunkVR_MonoCascadeReportSeq));
 }
 }
+#endif
+#endif

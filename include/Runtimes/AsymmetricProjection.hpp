@@ -60,6 +60,27 @@ bool ViewWindowOf(int side, ViewWindow* out);
 
 // Yaw of an eye against the head, positive to the right, from the two eye orientations. The head is
 // taken as the midway orientation, which is the VIEW space of every runtime that reports a cant.
+#if CVR_RUST_ROOM
+}  // namespace cvr::projection
+// rust/crates/cvr-camera/src/projection.rs.
+extern "C" {
+void cvr_projection_eye_yaws_against_head(const XrQuaternionf* a, const XrQuaternionf* b, float* yaw);
+bool cvr_projection_windows(const XrFovf* fov, const XrQuaternionf* eyeOrientation, cvr::projection::EyeWindow* out, float guard, float target);
+void cvr_projection_to_fov(const cvr::projection::EyeWindow* w, XrFovf* out);
+void cvr_projection_to_engine(const cvr::projection::EyeWindow* w, cvr::projection::EngineProjection* out);
+float cvr_projection_map_ndc_x(float n, const cvr::projection::EyeWindow* from, const cvr::projection::EyeWindow* to);
+float cvr_projection_map_ndc_y(float n, const cvr::projection::EyeWindow* from, const cvr::projection::EyeWindow* to);
+}
+namespace cvr::projection {
+inline void EyeYawsAgainstHead(const XrQuaternionf& a, const XrQuaternionf& b, float yaw[2]) { cvr_projection_eye_yaws_against_head(&a, &b, yaw); }
+inline bool WindowsWith(const XrFovf fov[2], const XrQuaternionf* eyeOrientation, EyeWindow out[2], float guard, float target) {
+    return cvr_projection_windows(fov, eyeOrientation, out, guard, target);
+}
+inline XrFovf ToFov(const EyeWindow& w) { XrFovf f{}; cvr_projection_to_fov(&w, &f); return f; }
+inline EngineProjection ToEngine(const EyeWindow& w) { EngineProjection p; cvr_projection_to_engine(&w, &p); return p; }
+inline float MapNdcX(float n, const EyeWindow& from, const EyeWindow& to) { return cvr_projection_map_ndc_x(n, &from, &to); }
+inline float MapNdcY(float n, const EyeWindow& from, const EyeWindow& to) { return cvr_projection_map_ndc_y(n, &from, &to); }
+#else
 inline void EyeYawsAgainstHead(const XrQuaternionf& a, const XrQuaternionf& b, float yaw[2]) {
     yaw[0] = yaw[1] = 0.0f;
     float bx = b.x, by = b.y, bz = b.z, bw = b.w;
@@ -85,7 +106,8 @@ inline void EyeYawsAgainstHead(const XrQuaternionf& a, const XrQuaternionf& b, f
 }
 
 // The rendered window of both eyes. False when the runtime frusta are not usable.
-inline bool Windows(const XrFovf fov[2], const XrQuaternionf* eyeOrientation, EyeWindow out[2], bool fitTarget = true) {
+// Windows with its guard (0..1) and target aspect (0: none) already chosen.
+inline bool WindowsWith(const XrFovf fov[2], const XrQuaternionf* eyeOrientation, EyeWindow out[2], float guard, float target) {
     float yaw[2] = {0.0f, 0.0f};
     if (eyeOrientation) EyeYawsAgainstHead(eyeOrientation[0], eyeOrientation[1], yaw);
     constexpr float kMax = 1.48f;   // 85 deg
@@ -130,8 +152,6 @@ inline bool Windows(const XrFovf fov[2], const XrQuaternionf* eyeOrientation, Ey
     // own eye's window at its build; with that switched off both eyes render the clone's window as it is, and
     // then that window has to be the same for both: the union. So does the MONO MODE, where one picture is drawn
     // for both eyes: through the union, nothing either lens shows is left black.
-    const float guard = (cvr::engine_stereo::SharedWindow() || cvr::engine_stereo::MonoView()) ? 1.0f :
-        std::isfinite(CyberpunkVR_AsymInnerGuard) ? std::fmin(1.0f, std::fmax(0.0f, CyberpunkVR_AsymInnerGuard)) : 0.0f;
     if (guard > 0.0f) {
         const float ul = std::fmin(w[0].l, w[1].l), ur = std::fmax(w[0].r, w[1].r);
         for (int e = 0; e < 2; ++e) {
@@ -141,7 +161,6 @@ inline bool Windows(const XrFovf fov[2], const XrQuaternionf* eyeOrientation, Ey
     }
     // Square pixels: one vertical span for both eyes, at least each eye's horizontal span over the
     // target's aspect; then each eye's horizontal span widened to that vertical span times the aspect.
-    const float target = (fitTarget && CyberpunkVR_AsymSquarePixels) ? RenderAspect() : 0.0f;
     const bool fit = target > 0.2f && target < 5.0f;
     if (fit)
         for (int e = 0; e < 2; ++e) span = std::fmax(span, (w[e].r - w[e].l) / target);
@@ -191,4 +210,24 @@ inline float MapNdcY(float n, const EyeWindow& from, const EyeWindow& to) {
     return (2.0f * t - (to.u + to.d)) / (to.u - to.d);
 }
 
+#endif
+// Windows()' guard and square-pixel target, for callers that hand the windows to Rust.
+#if CVR_RUST_VRIK
+}  // namespace cvr::projection
+// rust/crates/cvr-render/src/asym_projection.rs window_params.
+extern "C" void cvr_projection_window_params(bool fitTarget, float* guard, float* target);
+namespace cvr::projection {
+inline void WindowParams(bool fitTarget, float* guard, float* target) { cvr_projection_window_params(fitTarget, guard, target); }
+#else
+inline void WindowParams(bool fitTarget, float* guard, float* target) {
+    *guard = (cvr::engine_stereo::SharedWindow() || cvr::engine_stereo::MonoView()) ? 1.0f :
+        std::isfinite(CyberpunkVR_AsymInnerGuard) ? std::fmin(1.0f, std::fmax(0.0f, CyberpunkVR_AsymInnerGuard)) : 0.0f;
+    *target = (fitTarget && CyberpunkVR_AsymSquarePixels) ? RenderAspect() : 0.0f;
+}
+#endif
+inline bool Windows(const XrFovf fov[2], const XrQuaternionf* eyeOrientation, EyeWindow out[2], bool fitTarget = true) {
+    float guard = 0.0f, target = 0.0f;
+    WindowParams(fitTarget, &guard, &target);
+    return WindowsWith(fov, eyeOrientation, out, guard, target);
+}
 }  // namespace cvr::projection

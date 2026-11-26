@@ -10,11 +10,29 @@
 #include <mutex>
 #include <unordered_map>
 
+#if !CVR_RUST_VRIK
 extern "C" {
 __declspec(dllexport) uint32_t CyberpunkVR_FixedVrsReportSeq=0;
 __declspec(dllexport) char CyberpunkVR_FixedVrsReport[1024]="{}";
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The GPU half: rust/crates/cvr-render/src/fixed_vrs.rs; its exports (the moved exports' modules) and the engine-stereo
+// query are attached by export_attach.rs as the plugin loads. The pipeline stream reader stays here.
+namespace cvr::vrs {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's pipeline hooks read the stream themselves (pso_hooks.rs)
+void StreamCreated(ID3D12PipelineState* pso,const D3D12_PIPELINE_STATE_STREAM_DESC& source) {
+    stereo::PipelineStreamInfo info;
+    if(!pso || stereo::probe::internalCommands || !stereo::ReadPipelineStream(source,info))return;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC d{};d.PS=info.ps;d.VS=info.vs;d.NumRenderTargets=info.targets.NumRenderTargets;
+    d.DepthStencilState=info.depth;d.BlendState=info.blend;d.SampleDesc=info.samples;
+    if(!info.haveDepth || !info.haveBlend || info.otherStages || info.viewInstancing || info.forcedSamples)return;
+    GraphicsCreated(pso,d);
+}
+#endif
+}
+#else
 namespace cvr::vrs {
 using Microsoft::WRL::ComPtr;
 std::atomic<bool> enabled{};
@@ -245,3 +263,4 @@ void Shutdown(){enabled.store(false,std::memory_order_relaxed);recordingEpoch.fe
     const auto done=fence?fence->GetCompletedValue():0;std::erase_if(maps,[&](const auto& m){return m->completion && m->completion<=done;});
 }
 }
+#endif

@@ -36,19 +36,56 @@ struct ReservationRange {
 };
 // Only runtime's nonblocking gate around the genuine guarded native allocator
 // makes headBefore exclusive. Later heads alone cannot create this receipt.
+#if !CVR_RUST_VRIK
 bool ReservationResult(uint64_t headBefore,uint32_t capacity,uint32_t instances,uint32_t returnedFirst,
     uint64_t actualHeadAfter,ReservationRange&)noexcept;
+#endif
 struct CachedCursor {
     uint64_t address{},ring{},ringGeneration{},thread{};
     ReservationRange reservation;
     Cursor next;
 };
 struct WriterRange {uint64_t absoluteBegin{};ReservationRange reservation;std::optional<CachedCursor> cache;};
+#if !CVR_RUST_VRIK
 bool ResolveWriter(uint64_t cursorAddress,uint64_t ring,uint64_t ringGeneration,uint64_t thread,uint32_t capacity,
     Cursor before,Cursor after,uint32_t returnedFirst,uint32_t instances,const std::optional<ReservationRange>& actualReservation,
     const std::optional<CachedCursor>& previous,WriterRange&)noexcept;
 bool InstanceLayout(std::span<const shader_snapshot::Input>,uint32_t stride)noexcept;
+#endif
 struct CallData;
+#if CVR_RUST_VRIK
+// The plan: rust/crates/cvr-render/src/instance_observer_plan.rs (optional values handed over as pointers).
+struct RustWriterRange {uint64_t absoluteBegin{};ReservationRange reservation;uint32_t hasCache{};CachedCursor cache;};
+struct RustLayoutInput {UINT format,slot,offset,classification,step;};
+static_assert(sizeof(ReservationRange)==48 && sizeof(CachedCursor)==88 && sizeof(RustWriterRange)==152,
+    "mirrored by rust/crates/cvr-render/src/instance_observer_plan.rs");
+extern "C" {
+bool cvr_instance_reservation_result(uint64_t,uint32_t,uint32_t,uint32_t,uint64_t,ReservationRange*);
+bool cvr_instance_resolve_writer(uint64_t,uint64_t,uint64_t,uint64_t,uint32_t,Cursor,Cursor,uint32_t,uint32_t,
+    const ReservationRange*,const CachedCursor*,RustWriterRange*);
+bool cvr_instance_layout(const RustLayoutInput*,size_t,uint32_t);
+}
+inline bool ReservationResult(uint64_t headBefore,uint32_t capacity,uint32_t instances,uint32_t returnedFirst,
+    uint64_t actualHeadAfter,ReservationRange& output)noexcept{
+    return cvr_instance_reservation_result(headBefore,capacity,instances,returnedFirst,actualHeadAfter,&output);
+}
+inline bool ResolveWriter(uint64_t cursorAddress,uint64_t ring,uint64_t ringGeneration,uint64_t thread,uint32_t capacity,
+    Cursor before,Cursor after,uint32_t returnedFirst,uint32_t instances,const std::optional<ReservationRange>& actualReservation,
+    const std::optional<CachedCursor>& previous,WriterRange& output)noexcept{
+    RustWriterRange row{};
+    const bool resolved=cvr_instance_resolve_writer(cursorAddress,ring,ringGeneration,thread,capacity,before,after,returnedFirst,instances,
+        actualReservation?&*actualReservation:nullptr,previous?&*previous:nullptr,&row);
+    output={};output.absoluteBegin=row.absoluteBegin;output.reservation=row.reservation;
+    if(row.hasCache)output.cache=row.cache;
+    return resolved;
+}
+inline bool InstanceLayout(std::span<const shader_snapshot::Input> inputs,uint32_t stride)noexcept{
+    if(inputs.size()>32)return false;
+    std::array<RustLayoutInput,32> rows{};
+    for(size_t i=0;i<inputs.size();++i)rows[i]={inputs[i].format,inputs[i].slot,inputs[i].offset,inputs[i].classification,inputs[i].step};
+    return cvr_instance_layout(rows.data(),inputs.size(),stride);
+}
+#endif
 }
 // Capture exact originals BEFORE Root installs any of the three entry detours.
 // Captured guards remain valid when those entries subsequently use trampolines.

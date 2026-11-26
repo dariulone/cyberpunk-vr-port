@@ -13,6 +13,7 @@ local GameSettings = require("modules/gamesettings")
 local VRSettings = require("modules/vrsettings")
 local Sound = require("modules/sound")
 local Ink = require("modules/ink")
+local Controls = require("modules/controls")
 -- The ambience's button on the first page: a loudspeaker giving sound while it plays, silent when it does not.
 local function ambientGlyph(parent, x, y, size, col)
   return Ink.speaker(parent, x, y, size, Sound.ambientOn() and 3 or 0, col, 1.0)
@@ -309,6 +310,7 @@ function M.root(Holo, Creation, Engrams)
           go = function() Holo.push(loadPage(T, Holo)) end },
         { key = "settings", label = label("UI-Labels-Settings", T.settings),
           go = function() Holo.push(settingsPage(T, Holo)) end },
+        { key = "controls", label = Controls.title(), go = function() Holo.push(Controls.page()) end },
         { key = "quit", label = label("UI-Labels-CloseGame", T.quit), go = function() Holo.push(quitPage(T, Holo)) end },
       }
     end,

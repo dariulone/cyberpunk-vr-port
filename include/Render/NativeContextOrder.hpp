@@ -21,6 +21,39 @@ struct Result {
     bool PrefixReady()const{return failure==Failure::None;}
 };
 
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/context_order.rs (tools/single_pass_tests/context_order_test runs its cases
+// against them in its Rust variant). Analyze's result is assembled here from what Rust lends back.
+namespace detail {
+struct RustAnalysis {
+    uint32_t failure,publishers;uint64_t fingerprint;uint32_t synchronizers,requiredPairs,provedPairs;
+    const Classification* classes;size_t classCount;const Witness* missing;size_t missingCount;
+};
+struct RustHeld;
+static_assert(sizeof(Classification)==12 && sizeof(Witness)==20 && sizeof(RustAnalysis)==64,"mirrored by context_order.rs");
+extern "C" {
+bool cvr_co_classify(const graph_snapshot::Node*,uint64_t,Read,Classification*);
+RustHeld* cvr_co_analyze(const graph_snapshot::Node*,size_t,const graph_snapshot::Edge*,size_t,uint32_t,uint64_t,Read,RustAnalysis*);
+void cvr_co_free(RustHeld*);
+}
+}
+inline bool Classify(const graph_snapshot::Node& node,uint64_t base,Read read,Classification& out){
+    return detail::cvr_co_classify(&node,base,read,&out);
+}
+// 1EC404 publishes type-2 contexts only in execution mode. 58DC98 consumes and
+// clears EVERY slot through its phase-1 rank, even an as-yet unpublished slot.
+// A phase-1 DAG alone cannot prove these producers finished on the CPU.
+inline Result Analyze(const graph_snapshot::Snapshot& graph,uint64_t base,Read read)try{
+    detail::RustAnalysis lent{};
+    const auto held=detail::cvr_co_analyze(graph.nodes.data(),graph.nodes.size(),graph.edges.data(),graph.edges.size(),graph.failure,
+        base,read,&lent);
+    struct Release{detail::RustHeld* held;~Release(){detail::cvr_co_free(held);}}release{held};
+    Result result;result.failure=Failure(lent.failure);result.fingerprint=lent.fingerprint;result.publishers=lent.publishers;
+    result.synchronizers=lent.synchronizers;result.requiredPairs=lent.requiredPairs;result.provedPairs=lent.provedPairs;
+    result.classes.assign(lent.classes,lent.classes+lent.classCount);result.missing.assign(lent.missing,lent.missing+lent.missingCount);
+    return result;
+}catch(...){Result result;result.failure=Failure::Allocation;return result;}
+#else
 inline bool Classify(const graph_snapshot::Node& node,uint64_t base,Read read,Classification& out){
     out={node.handle&0xDFFFFFFFu,0,0};
     if(!node.work && !node.vtable)return
@@ -105,4 +138,5 @@ inline Result Analyze(const graph_snapshot::Snapshot& graph,uint64_t base,Read r
     result.failure=result.missing.empty()?Failure::None:Failure::UnpublishedPrefix;
     return result;
 }catch(...){Result result;result.failure=Failure::Allocation;return result;}
+#endif
 }

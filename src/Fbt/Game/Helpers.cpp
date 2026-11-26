@@ -31,10 +31,14 @@
 #include <cmath>
 #include <string>
 
-extern volatile int32_t g_lastLocatePosFP[3];
+#if !CVR_RUST_VRIK
+extern "C" volatile int32_t g_lastLocatePosFP[3];
+#endif
 extern void Log(const char*, ...);
+#if !CVR_RUST_VRIK
 extern "C" float CyberpunkVRPort_HalfIpd();
 extern "C" int CyberpunkVR_MainIsRightEye;
+#endif
 
 namespace overlay {
 namespace {
@@ -46,6 +50,9 @@ namespace {
 // (no such font, not loaded in time, not a TrueType file) the overlay's font.
 ImFont* g_cyberpunkFont = nullptr;
 constexpr float kCyberpunkFontPx = 48.0f;
+#if CVR_RUST_VRIK
+// The helpers' drawing: rust/crates/cvr-render/src/overlay_fbt_helpers.rs.
+#else
 ImFont* TextFont(const char*) { return g_cyberpunkFont ? g_cyberpunkFont : ImGui::GetFont(); }
 
 constexpr float kBallRadiusM = 0.04f;   // a Vive Tracker is about 8 cm across
@@ -213,6 +220,7 @@ void Line(ImDrawList* dl, const EyeView& v, int eye, const float a[3], const flo
     NeonLine(dl, pa, pb, kLineColor, kLineThicknessPx * 0.6f);
     Neon(kLineColor, 2.0f, [&](ImU32 c, float t) { dl->AddCircle(pb, kLineThicknessPx * 1.4f, c, 20, t); });   // the bone's end
 }
+#endif
 }
 
 void LoadCyberpunkFont(ImGuiIO& io) {
@@ -241,6 +249,16 @@ void LoadCyberpunkFont(ImGuiIO& io) {
         g_cyberpunkFont ? "" : " -- could not be added");
 }
 
+#if CVR_RUST_VRIK
+// The helpers in Rust (rust/crates/cvr-render/src/overlay_fbt_helpers.rs): the calibration, the trackers, the typeface
+// and the screen projection lent to them.
+static_assert(sizeof(cvr::fbt::game::CrossView)==88, "mirrored by overlay_fbt_helpers.rs");
+extern "C" {
+// The calibration helpers' service (rust/crates/cvr-render/src/overlay_fbt_helpers.rs builds their table; the
+// calibration's texts and cross are rust/crates/cvr-render/src/fbt_calibration.rs's): the texts' typeface.
+void* cvr_cpp_fbt_font(){return g_cyberpunkFont?g_cyberpunkFont:ImGui::GetFont();}
+}
+#else
 void DrawFbtCalibrationHelpers() {
     if (!cvr::fbt::game::Calibrating()) return;
     VrikFbtReference ref{};
@@ -390,5 +408,6 @@ void DrawFbtCalibrationHelpers() {
         dl->PopClipRect();
     }
 }
+#endif
 
 }  // namespace overlay

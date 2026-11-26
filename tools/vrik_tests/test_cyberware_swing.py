@@ -34,7 +34,7 @@ for hz in (30, 60, 90, 120):
     impact = round(g.stamp + 1000 / hz)
     travel = 3.5 / hz
     frame(travel)
-    assert len(g.starts) == 1 and g.starts[1][1] == impact, (hz, 'short punch starts late')
+    assert len(g.starts) == 0 and module.state.fullSwingStarts == 1, (hz, 'short punch must be physical')
     assert len(g.contacts) == 1 and g.contacts[1][1] == impact, (hz, 'contact delayed')
     assert g.contacts[1][3] == 0 and abs(g.contacts[1][4] - travel) < 1e-6, 'lost swept interval'
     for _ in range(hz):
@@ -43,7 +43,7 @@ for hz in (30, 60, 90, 120):
     for i in range(20):
         g.renderedMotion = .1 if i % 2 else -.1
         frame(travel)
-    assert len(g.starts) == 1 and len(g.contacts) == 1, 'native body/IK motion triggered another punch'
+    assert module.state.fullSwingStarts == 1 and len(g.contacts) == 1, 'native body/IK motion triggered another punch'
     g.renderedMotion = 0
     frame(travel + 2)
     assert len(g.contacts) == 1, 'tracking teleport damages'
@@ -62,7 +62,7 @@ for kind in (1, 2, 3):
             GetSystemRequestsHandler=function() return {IsGamePaused=function() return false end} end,
             VRCyberwareFrame=function() return {
               v(kind,2,2,stamp),v(0,0,0,stamp),v(x,0,1),v(0,0,1),v(0,0,0,1),v(0,0,0,1),
-              v(x,0,1),v(x,jiggle,1),v(0,0,1),v(0,0,1),
+              v(stoppedX or x,0,1),v(stoppedX or x,jiggle,1),v(0,0,1),v(0,0,1),
               v(x,0,1),v(0,0,1),v(0,0,0,1),v(0,0,0,1)} end}
           player={VRCyberwareBeginSwing=function() swings=swings+1;return true end,
             VRCyberwareContacts=function() end,VRMeleeWhoosh=function() whooshes=whooshes+1 end}
@@ -81,12 +81,19 @@ for kind in (1, 2, 3):
         for _ in range(hz):tick(0)
         for _ in range(round(.14*hz)):tick(2.2)
         expected=1 if kind==1 else 0
-        assert g.whooshes==expected and g.swings==expected,(kind,hz,'Gorilla 2m/s override changed other weapons')
+        assert g.whooshes==expected and (m.state.fullSwingStarts or 0)==expected and g.swings==0,(kind,hz,'Gorilla 2m/s override changed other weapons')
         for _ in range(hz):tick(0)
         for _ in range(round(.14*hz)):tick(3.6)
         assert g.whooshes==expected+1,(kind,hz,'real swing must make exactly one sound',g.whooshes)
         for i in range(hz):tick(0,.1 if i%2 else -.1)
         assert g.whooshes==expected+1,(kind,hz,'residual rope motion repeated the sound')
+        # The solved item moves for one frame and then meets a fixed obstacle.
+        # The controller continues through the audio window at the original speed.
+        for _ in range(hz):tick(0)
+        tick(3.6)
+        g.stoppedX=g.x
+        for _ in range(round(.20*hz)):tick(3.6)
+        assert g.whooshes==expected+1,(kind,hz,'blocked item made an air sound')
         print(f'kind={kind} {hz}Hz: slow/settling silent; deliberate swing sounds once')
 
 # Ordinary weapons share the tracked gate. Test model-only motion separately
@@ -98,7 +105,7 @@ for hz in (30, 60, 90, 120):
       stamp=0;x=0;renderedX=0;theta=0;held=false;swings=0;whooshes=0;activeContacts=0
       function v(x,y,z,w) return {x=x,y=y,z=z,w=w or 1} end
       Vector4={new=v}
-      Game={GetVRSharedSlot=function() return 0 end,
+      Game={VRWeaponInLeftHand=function() return false end,GetVRSharedSlot=function() return 0 end,
         GetSystemRequestsHandler=function() return {IsGamePaused=function() return false end} end,
         VRMeleeInputFrame=function() return {
           v(stamp,stamp,held and 1 or 0),v(x+.2*math.sin(theta),.2*math.cos(theta),1,1),v(x,0,1,1),
@@ -107,7 +114,7 @@ for hz in (30, 60, 90, 120):
         VRCyberwareUpdateSwing=function() end,
         VRMeleeSweepHit=function(_,w,p,t,oldP,oldT,r,passive) if not passive then activeContacts=activeContacts+1 end end,
         VRMeleeWhoosh=function() whooshes=whooshes+1 end}
-      weapon={VRMeleeReach=function() return 1 end}
+      weapon={VRMeleeReach=function() return 1 end,VRBladeKind=function() return -1 end}
       function position() return v(renderedX,0,1) end
       function forward() return v(math.sin(theta),math.cos(theta),0,0) end
       origin=v(0,0,0)
@@ -122,13 +129,13 @@ for hz in (30, 60, 90, 120):
     g.renderedX=0
     for _ in range(hz):tick()
     for _ in range(round(.12*hz)):g.x+=6.5/hz;g.renderedX=g.x;tick()
-    assert g.swings==g.whooshes==1 and g.activeContacts>0,(hz,'physical ordinary swing missing')
+    assert g.swings==0 and m.state.fullSwingStarts==g.whooshes==1 and g.activeContacts>0,(hz,'physical ordinary swing missing')
     for _ in range(hz):tick()
     g.held=True
     for _ in range(hz):tick()
     # Right controller stays still; the left rotates the physical grip line.
     for _ in range(round(.12*hz)):g.theta+=8/hz;tick()
-    assert g.swings==g.whooshes==2,(hz,'support-hand-only steering missing')
+    assert g.swings==0 and m.state.fullSwingStarts==g.whooshes==2,(hz,'support-hand-only steering missing')
     print(f'ordinary {hz}Hz: tracked wrist and support-hand swings; model-only motion silent')
 
 # CET has one callback slot per event per mod. Loading the actual entry point

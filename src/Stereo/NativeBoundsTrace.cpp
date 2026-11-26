@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/NativeBoundsTrace.hpp"
 #include "Render/NativeSceneUpdate.hpp"
 #include "Stereo/StereoInternal.hpp"
@@ -8,18 +9,54 @@
 #include <cstring>
 #include <vector>
 #include <algorithm>
+#if CVR_RUST_VRIK
+// The game-code contracts: rust/crates/cvr-render/src/stereo_code.rs (0 draw origin, 1 bounds, 2 particles, 3 scene
+// update; through ReadProcessMemory).
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) uint32_t CyberpunkVR_BoundsTraceFormat=2;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_BoundsTraceCompatible{},CyberpunkVR_BoundsTraceCount{},CyberpunkVR_BoundsTraceLost{};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/bounds_trace.rs
 __declspec(dllexport) cvr::stereo::bounds_trace::Record CyberpunkVR_BoundsTraceRecords[cvr::stereo::bounds_trace::Capacity]{};
 void* CvrBoundsOriginal{};
+#endif
+#if !CVR_RUST_VRIK
 void CvrBoundsDetour();
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/bounds_trace.rs
 void* CvrParticleOriginal{};
+#endif
+#if !CVR_RUST_VRIK
 void CvrParticleDetour();
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ParticleTraceCompatible{},CyberpunkVR_ParticleTraceCount{},CyberpunkVR_ParticleTraceLost{};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/bounds_trace.rs
 __declspec(dllexport) cvr::stereo::bounds_trace::ParticleRecord CyberpunkVR_ParticleTraceRecords[cvr::stereo::bounds_trace::Capacity]{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+// The trace: rust/crates/cvr-render/src/bounds_trace.rs. The exports' arrays, the detours' registration over the thunks
+// and the stereo state it reads stay here, lent through the runtime.
+// The table is built in rust/crates/cvr-render/src/bounds_trace.rs.
+// The two detours register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 namespace cvr::stereo::bounds_trace {
 namespace {
 std::mutex mutex;
@@ -37,13 +74,22 @@ void Append(Record row) {
 }
 bool Compatible(){
     if(!GetEnvironmentVariableW(L"CVR_STEREO_BOUNDS_TRACE",nullptr,0))return false;
+#if CVR_RUST_VRIK
+    const bool valid=cvr_stereo_code(1,reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+    CyberpunkVR_BoundsTraceCompatible=valid?1:2;return valid;
+#else
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));std::array<uint8_t,0x1A9> code{};
     if(!Read(reinterpret_cast<void*>(base+0x29ABD8),code.data(),code.size())){CyberpunkVR_BoundsTraceCompatible=2;return false;}
     uint64_t hash=14695981039346656037ull;for(auto b:code)hash=(hash^b)*1099511628211ull;
     const bool valid=hash==0x92FA499B9D21DB2Cull;CyberpunkVR_BoundsTraceCompatible=valid?1:2;return valid;
+#endif
 }
 bool ParticleCompatible(){
     if(!GetEnvironmentVariableW(L"CVR_STEREO_BOUNDS_TRACE",nullptr,0))return false;
+#if CVR_RUST_VRIK
+    const bool valid=cvr_stereo_code(2,reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+    CyberpunkVR_ParticleTraceCompatible=valid?1:2;return valid;
+#else
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));std::array<uint8_t,2048> code{};
     struct Region{uint32_t rva,bytes;uint64_t hash;};
     for(const auto& row:std::array<Region,2>{{{0x29173C,0xD7,0x2D8AD96221D4BDBCull},{0x291814,0x79F,0x9700D29BBBBDD215ull}}}){
@@ -52,6 +98,7 @@ bool ParticleCompatible(){
         if(hash!=row.hash){CyberpunkVR_ParticleTraceCompatible=2;return false;}
     }
     CyberpunkVR_ParticleTraceCompatible=1;return true;
+#endif
 }
 void ParticleSnapshot(uintptr_t emitter,void* context,uint32_t onscreen,uint32_t kind,uintptr_t caller,void* system=nullptr){
     if(!std::binary_search(emitters.begin(),emitters.end(),emitter))return;
@@ -140,3 +187,5 @@ void BeforeParticle(void* system,void* context,void* emitter,const void* stack){
 }
 extern "C" void CvrBoundsBefore(void* pool,void* indices,const void* bounds,uintptr_t caller){cvr::stereo::bounds_trace::Before(pool,indices,bounds,caller);}
 extern "C" void CvrParticleBefore(void* system,void* context,void* emitter,const void* stack){cvr::stereo::bounds_trace::BeforeParticle(system,context,emitter,stack);}
+#endif
+#endif

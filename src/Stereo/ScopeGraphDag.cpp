@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // ScopeGraphDag -- the camera scope's render graph built with MAIN's dependencies, not as one chain.
 //
 // The scene graph builder sub_142276E60(owner, graph, builder, features = view+0x25B0, view data) adds a
@@ -27,14 +28,33 @@
 #include <cstring>
 #include <initializer_list>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // 1 = the scope's graph gets MAIN's dependency rules (next build). Read by the stub, live; set from
 // xr_scope_graph_dag (Core/LiveControlsPoll.cpp).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) volatile uint32_t CyberpunkVR_ScopeGraphDag = 1;
+#endif
 // 0 not installed, 1 installed, 2 the site did not match.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ScopeGraphDagState{0};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE STUB AND THE PATCH ARE RUST'S (rust/crates/cvr-render/src/scope_graph_dag.rs); the switch, the state and the
+// Boot hook's registration stay here.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("ScopeGraphDag", ::cvr::hooks::Stage::Boot, 50, cvr_hook_scope_graph_dag_install);
+#endif
+#else
 namespace {
 
 constexpr uintptr_t SERIAL_TEST_CALL_RVA = 0x227B6FF;   // call sub_1403C1C00, in sub_142276E60
@@ -77,3 +97,5 @@ bool InstallScopeGraphDag() {
 }  // namespace
 
 CVR_HOOK("ScopeGraphDag", ::cvr::hooks::Stage::Boot, 50, InstallScopeGraphDag);
+#endif
+#endif

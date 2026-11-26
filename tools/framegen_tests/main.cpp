@@ -1,8 +1,12 @@
 #include "Framegen/Presenter.hpp"
+#include "Anim/RifleElbowAudit.hpp"
 #include "Framegen/StatsOverlay.hpp"
 #include "Framegen/GpuTimer.hpp"
+#include "Framegen/Fsr3.hpp"
 #include "Framegen/InputCopy.hpp"
 #include "Render/StereoDepth.hpp"
+#include "Render/SceneVelocityPass.hpp"
+#include "hand_motion.hpp"
 #include "Runtimes/DepthSwapchainImage.hpp"
 #include "Utils/DebugGate.hpp"
 extern "C" { int CyberpunkVR_RuntimeDiagnostics=0; }
@@ -51,6 +55,8 @@ LONG WINAPI Crash(EXCEPTION_POINTERS* exception) {
     }
     return EXCEPTION_EXECUTE_HANDLER;
 }
+// Offline captures have no player rig to supply optional arm-pose metadata.
+namespace cvr::anim {RifleElbowPose FindRifleElbowPose(uint64_t) {return {};}}
 namespace cvr::framegen {uint64_t InputVram(){return 0;}void ReleaseInputs(){}}
 void Check(bool value,const char* text) {if(!value)throw std::runtime_error(text);}
 void Hr(HRESULT result) {if(FAILED(result)) {char text[64];std::snprintf(text,sizeof(text),"D3D12 failure %08X",unsigned(result));throw std::runtime_error(text);}}
@@ -147,6 +153,120 @@ struct ReplayGpu {
     std::function<void(ID3D12Fence*,uint64_t*)> fence;
 };
 int Replay(ReplayGpu&,const std::filesystem::path&,const std::filesystem::path&);
+int HandMotion(const std::filesystem::path&,int,hand_motion::Region);
+int HandMidpoints(ReplayGpu&,const std::filesystem::path&,const std::filesystem::path&,const hand_motion::Region (&)[2],int);
+void SceneVelocityPassTest() {
+    using namespace cvr::scene_velocity;
+    constexpr uint32_t solid=137,discard=96;
+    std::array<Pass,2> out;
+    for(auto id:{solid,discard}) {
+        Pass scene{};
+        scene.stage=id;scene.flags=0x11;scene.sortMode=id==solid;scene.sharedSort=-1;
+        Check(WithObjectVelocity(scene,solid,discard,out),"late velocity pass skipped");
+        Check(std::memcmp(&out[0],&scene,sizeof(scene))==0,"scene pass modified");
+        auto expected=scene;expected.bucket=2;expected.sortMode=0;
+        Check(std::memcmp(&out[1],&expected,sizeof(scene))==0,"object pass changed material or view flags");
+        auto split=scene;split.sharedSort=0;
+        Check(!WithObjectVelocity(split,solid,discard,out),"shared sorted draws duplicated");
+        auto early=expected;early.flags=0x21;
+        Check(!WithObjectVelocity(early,solid,discard,out),"early velocity pass duplicated");
+        Check(!WithObjectVelocity(scene,UINT32_MAX,UINT32_MAX,out),"unknown stage accepted");
+    }
+}
+void HandMotionTest() {
+    constexpr int w=256,h=192;
+    std::vector<uint8_t> texture(w*h);
+    uint32_t seed=42;
+    for(auto& value:texture) {seed=seed*1664525u+1013904223u;value=uint8_t(seed>>24);}
+    for(int dx:{-24,24}) {
+        auto shifted=[&](int shift,int down) {
+            std::vector<uint8_t> rgba(w*h*4);
+            for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+                const uint8_t v=texture[((y+h-down)%h)*w+(x+w-shift)%w];
+                for(int c=0;c<3;++c)rgba[4*(y*w+x)+c]=v;
+            }
+            return hand_motion::Luma(rgba,w,h);
+        };
+        const auto a=shifted(0,0),b=shifted(dx,16),mid=shifted(dx/2,8);
+        const auto tracks=hand_motion::Matches(a,b,{80,64,80,50});
+        Check(tracks.size()>=30,"lost synthetic hand correspondences");
+        for(const auto& track:tracks)Check(track.other.x-track.middle.x==dx && track.other.y-track.middle.y==16,"wrong track sign or units");
+        const auto err=hand_motion::ScoreMidpoint(a[0],b[0],mid[0],tracks);
+        Check(err.generated==0 && err.blend>15,"midpoint score missed a doubled image");
+    }
+}
+void GpuFsr3(bool extrapolate,bool hardware) {
+    Gpu gpu(hardware);
+    Settings settings;
+    settings.enabled=true;
+    settings.backend=extrapolate ? Backend::Fsr3Extrapolation : Backend::Fsr3Interpolation;
+    SetSettings(settings);
+    Presenter presenter;
+    constexpr unsigned width=128,height=96;
+    for(unsigned n=1;n<=2;++n) {
+        Frame frame{};
+        frame.identity.serial=n;frame.identity.nativeFrame=n;frame.identity.origin=1;
+        frame.identity.capturedMs=30.0*n;frame.identity.stereo=frame.identity.inputs=true;
+        frame.lease=std::make_shared<ReadLease>();
+        ComPtr<ID3D12Resource> color[2];
+        for(unsigned eye=0;eye<2;++eye) {
+            frame.identity.pose[eye]=n;frame.pose[eye].orientation.w=1;
+            frame.pose[eye].position.x=.01f*n;
+            frame.fov[eye]={-.8f,.8f,.7f,-.7f};
+            auto input=std::make_shared<Inputs>();
+            input->width=input->motionWidth=width;input->height=input->motionHeight=height;
+            input->frameId=n;input->origin=1;input->hasDepth=input->hasMotion=true;
+            input->camera.inverted=true;input->camera.nearPlane=.1f;input->camera.farPlane=100;
+            input->camera.verticalFov=1.3f;input->camera.aspect=float(width)/height;
+            input->camera.forward[2]=1;input->camera.motionScale[0]=input->camera.motionScale[1]=1;
+            std::vector<uint32_t> pixels(width*height,0xff101010u);
+            std::vector<float> depth(width*height,.01f),motion(width*height*2);
+            const unsigned start=24+eye*32+n*6;
+            for(unsigned y=25;y<67;++y)for(unsigned x=start;x<start+24;++x) {
+                const auto i=y*width+x;pixels[i]=0xffeeeeee;depth[i]=.6f;motion[2*i]=-6.0f/width;
+            }
+            color[eye]=gpu.Texture(width,height,eye ? DXGI_FORMAT_R8G8B8A8_TYPELESS : DXGI_FORMAT_R8G8B8A8_UNORM,D3D12_RESOURCE_STATE_COPY_DEST);
+            input->depth=gpu.Texture(width,height,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+            input->motion=gpu.Texture(width,height,DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+            gpu.Upload(color[eye].Get(),pixels.data(),4,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            gpu.Upload(input->depth.Get(),depth.data(),4,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            gpu.Upload(input->motion.Get(),motion.data(),8,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            frame.color[eye]=color[eye].Get();frame.inputs[eye]=std::move(input);
+        }
+        auto take=[&] {
+            auto result=presenter.Select(gpu.device.Get(),gpu.queue.Get(),frame,true,11.1);
+            cvr::fsr3::QueueWaitForLast(gpu.queue.Get());
+            return result;
+        };
+        auto accept=[&](const Selection& x) {gpu.Wait();presenter.Submitted(x,gpu.fence.Get(),gpu.value,true);};
+        auto selected=take();
+        if(n==1) {Check(!selected.synthetic,"first frame must prime");accept(selected);continue;}
+        if(extrapolate) {
+            Check(!selected.synthetic,"extrapolation delayed the real frame");accept(selected);selected=take();
+        }
+        Check(selected.synthetic,"FSR3 did not produce a stereo pair");
+        for(unsigned eye=0;eye<2;++eye) {
+            const auto pixels=gpu.Read(selected.frame.color[eye]);double sum=0;unsigned count=0;
+            for(unsigned x=0;x<width;++x)if(pixels[(40*width+x)*4]>120) {sum+=x;++count;}
+            Check(count>10,"generated object missing");
+            const double center=sum/count,realCenter=24+eye*32+n*6+11.5;
+            std::printf("FSR3 eye %u produced center %.2f, endpoint %.2f\n",eye,center,realCenter);
+            Check(extrapolate ? center>realCenter+.4 : center<realCenter-.4,"generated frame moved in the wrong direction");
+        }
+        accept(selected);
+        if(extrapolate) {
+            Check(selected.kind==Cadence::Next::Extrapolated,"first prediction counted as a repeat");
+            const auto held=take();
+            Check(held.synthetic && held.kind==Cadence::Next::Repeat && held.frame.color[0]==selected.frame.color[0],
+                  "repeated display cycle regressed from prediction to the older real image");
+        }
+        if(!extrapolate) {selected=take();Check(!selected.synthetic && selected.kind==Cadence::Next::PendingReal,
+            "missing real endpoint after FSR3 midpoint");accept(selected);}
+    }
+    presenter.Reset();settings.enabled=false;SetSettings(settings);
+    Check(cvr::fsr3::ReleaseResources(),"FSR3 still owns completed GPU work");
+}
+
 void GpuGeneration(bool nvidia,bool engineMotion=true,bool rgbaMotion=false,bool halfMotion=false,Backend backend=Backend::FidelityFX,int flowScale=50) {
     Gpu gpu(nvidia);Generator generator;Settings settings;settings.backend=nvidia?Backend::Nvidia:Backend::FidelityFX;settings.flowScale=flowScale;
     if(NgxBackend(backend))settings.backend=backend;
@@ -476,7 +596,7 @@ void GpuInputCopy() {
     const auto copied=gpu.Read(input.depth.Get());
     Check(copied.size()==values.size()*4 && !std::memcmp(copied.data(),values.data(),copied.size()),"depth values changed");
 }
-// Real-frame release against the display: the XR thread takes the newest real frame at each cycle start and shows
+    // Real-frame release against the display: the XR thread takes the newest real frame at each cycle start and shows
 // midpoint, endpoint, then needs the next real frame (Cadence). A cycle with nothing new is a repeat (reprojected).
 struct PacingRun {double repeats{},realStep{},spread{};};
 PacingRun SimulatePacing(bool phaseLocked,double actualPeriod,double reportedPeriod,double startPhase,double work,
@@ -518,6 +638,7 @@ PacingRun SimulatePacing(bool phaseLocked,double actualPeriod,double reportedPer
 void PhasePacing() {
     const double period=1000.0/75;
     double oldWorst=0,newWorst=0;unsigned oldBad=0;
+    // The game's MaximumFPS lock has no XR phase, so its fixed interval is the free-running reference here.
     // Every start phase of the display against the game, small frame-time jitter: the lottery of the report.
     for(unsigned i=0;i<24;++i) {
         const double startPhase=period*i/24;
@@ -526,7 +647,7 @@ void PhasePacing() {
         oldWorst=std::max(oldWorst,old.repeats);newWorst=std::max(newWorst,locked.repeats);oldBad+=old.repeats>.05;
         Check(std::abs(locked.realStep-2)<.01,"locked real frames are not two display periods apart");
     }
-    std::printf("free-running: worst %.1f%% repeats, %u/24 start phases over 5%%; phase-locked: worst %.2f%%\n",
+    std::printf("engine FPS lock: worst %.1f%% repeats, %u/24 start phases over 5%%; port cadence: worst %.2f%%\n",
                 oldWorst*100,oldBad,newWorst*100);
     Check(oldBad>0,"test premise: the free-running release never lost its phase");
     Check(newWorst<.005,"phase-locked release still repeats display frames");
@@ -578,15 +699,30 @@ void PhasePacing() {
 int main(int argc,char** argv) try {
     setvbuf(stdout,nullptr,_IONBF,0);SetUnhandledExceptionFilter(Crash);
     Check(argc>=2,"case required");const std::string test=argv[1];
-    if(test=="replay") {
-        // framegen_tests replay <capture directory> <output directory>
-        Check(argc==4,"replay <capture> <out>");Gpu gpu(true);ReplayGpu r;r.device=gpu.device.Get();r.queue=gpu.queue.Get();
+    if(test=="hand_motion") {
+        Check(argc==8,"hand_motion <capture> <eye> <x> <y> <width> <height> (frame 1 display pixels)");
+        return HandMotion(argv[2],std::stoi(argv[3]),{std::stoi(argv[4]),std::stoi(argv[5]),std::stoi(argv[6]),std::stoi(argv[7])});
+    }
+    if(test=="replay" || test=="hand_midpoints") {
+        if(test=="replay")Check(argc==4,"replay <capture> <out>");
+        else Check(argc==13,"hand_midpoints <capture> <out> <flow percent> <left x y w h> <right x y w h>");
+        Gpu gpu(true);ReplayGpu r;r.device=gpu.device.Get();r.queue=gpu.queue.Get();
         r.texture=[&](unsigned w,unsigned h,DXGI_FORMAT f,D3D12_RESOURCE_STATES s){return gpu.Texture(w,h,f,s);};
         r.upload=[&](ID3D12Resource* t,const void* d,unsigned p,D3D12_RESOURCE_STATES s){gpu.Upload(t,d,p,s);};
         r.read=[&](ID3D12Resource* t){return gpu.Read(t);};r.wait=[&]{gpu.Wait();};
+        if(test=="hand_midpoints") {
+            hand_motion::Region regions[2]{};
+            for(int e=0;e<2;++e)regions[e]={std::stoi(argv[5+4*e]),std::stoi(argv[6+4*e]),std::stoi(argv[7+4*e]),std::stoi(argv[8+4*e])};
+            const int scale=std::stoi(argv[4]);Check(scale>=1 && scale<=100,"expected active optical flow (1..100)");
+            const int result=HandMidpoints(r,argv[2],argv[3],regions,scale);StopHardwareTelemetry();return result;
+        }
         const int result=Replay(r,argv[2],argv[3]);StopHardwareTelemetry();return result;
     }
-    if(test=="policy") {
+    if(test=="scene_velocity_pass") {
+        SceneVelocityPassTest();
+    } else if(test=="hand_motion_test") {
+        HandMotionTest();
+    } else if(test=="policy") {
         Identity a{1,1,10,{5,6},100,true,true,false},b{2,1,11,{5,6},122,true,true,false};
         Check(CanInterpolate(a,b),"same tracked pose across two real frames rejected");
         auto c=b;c.nativeFrame=12;Check(!CanInterpolate(a,c),"wrong motion-vector interval accepted");
@@ -605,6 +741,12 @@ int main(int argc,char** argv) try {
         Check(c.Select(2,true,true)==Cadence::Next::Repeat,"repeat counted as new");c.Reset();Check(c.Pending()==0,"reset retained old endpoint");
     } else if(test=="settings") {
         Settings s;Check(s.backend==Backend::Nvidia && s.flowScale==50,"defaults are not NVIDIA OFA + FidelityFX at half-resolution flow");
+        DisplayPeriod(11111111);
+        SetSettings(Settings{});
+        Check(std::abs(DisplayHz()-90.0)<.1 && std::abs(TargetGameHz()-90.0)<.1,"framegen-off target is not the headset refresh");
+        Settings targetFg;targetFg.enabled=true;SetSettings(targetFg);
+        Check(std::abs(TargetGameHz()-45.0)<.1,"framegen target is not half the headset refresh");
+        SetSettings(Settings{});
         Check(ParseSetting("xr_framegen_flow_scale=0",s) && s.flowScale==0,"optical flow off parse");
         Check(ParseSetting("xr_framegen_backend=2",s) && s.backend==Backend::DlssG,"DLSS-G parse");
         Check(ParseSetting("xr_framegen_backend=3",s) && s.backend==Backend::Anr,"ANR FG parse");
@@ -674,7 +816,12 @@ int main(int argc,char** argv) try {
         const auto elapsed=NowMs()-started;
         std::printf("16 worker-migrating frames: %.2f ms (target150 ms)\n",elapsed);
         Check(elapsed>=130 && elapsed<2000,"frame pacing lost its deadline on a thread change");
-        s.enabled=false;SetSettings(s);PaceRenderedFrame();
+        s.enabled=false;SetSettings(s);
+        const auto unlocked=NowMs();
+        for(unsigned i=0;i<16;++i)PaceRenderedFrame();
+        const auto unlockedElapsed=NowMs()-unlocked;
+        std::printf("16 framegen-off frames: %.2f ms (target75 ms)\n",unlockedElapsed);
+        Check(unlockedElapsed>=55 && unlockedElapsed<2000,"framegen-off pacing did not use the headset refresh rate");
     } else if(test=="metrics") {
         Settings options;options.overlay=true;SetSettings(options);
         const double now=NowMs();for(unsigned i=0;i<45;++i) {OnRealFrame(i+1,now-1000+i*1000.0/45);OnSubmitted(i+1,false,false,now-1000+i*1000.0/45);OnSubmitted(i+1,true,false,now-1000+(i+.5)*1000.0/45);}
@@ -763,6 +910,9 @@ int main(int argc,char** argv) try {
         b.Transition={copied.depth.Get(),0,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE};gpu.list->ResourceBarrier(1,&b);gpu.Execute();
         const auto values=gpu.Read(copied.depth.Get());float value{};std::memcpy(&value,values.data(),sizeof(value));Check(value==.25f,"depth plane values changed");
     } else if(test=="input_copy")GpuInputCopy();
+    else if(test=="fsr3_interpolation" || test=="fsr3_extrapolation" ||
+            test=="fsr3_interpolation_hw" || test=="fsr3_extrapolation_hw")
+        GpuFsr3(test.find("extrapolation")!=std::string::npos,test.ends_with("_hw"));
     else if(test=="gpu_fidelityfx_rgba16" || test=="gpu_nvidia_rgba16")GpuGeneration(test=="gpu_nvidia_rgba16",true,true);
     else if(test=="gpu_fidelityfx" || test=="gpu_nvidia")GpuGeneration(test=="gpu_nvidia");
     else if(test=="gpu_fidelityfx_half_motion" || test=="gpu_nvidia_half_motion")GpuGeneration(test=="gpu_nvidia_half_motion",true,false,true);

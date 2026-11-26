@@ -1,4 +1,28 @@
 #include "Framegen/FrameCapture.hpp"
+
+#include <atomic>
+#include <cstddef>
+
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_FramegenCapture{0};
+#endif
+
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE CAPTURE IS RUST'S (rust/crates/cvr-gpu/src/frame_capture.rs): each eye's inputs are handed over as the fields it
+// reads, the switch above by its address.
+extern "C" {
+}
+namespace cvr::framegen {
+static_assert(sizeof(CameraData) == 96 && offsetof(CameraData, shift) == 80 && offsetof(CameraData, inverted) == 88 &&
+                  offsetof(CameraData, motion3d) == 93 && sizeof(EyeCamera) == 32,
+              "CameraData and EyeCamera are mirrored in rust/crates/cvr-gpu/src/frame_capture.rs");
+static_assert(sizeof(std::atomic<int32_t>) == 4);
+}  // namespace cvr::framegen
+#endif
+#else
 #include "Core/Paths.hpp"
 #include <atomic>
 #include <cstdio>
@@ -10,7 +34,6 @@
 #include <vector>
 
 extern void Log(const char*,...);
-extern "C" __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_FramegenCapture{0};
 namespace cvr::framegen {
 namespace {
 using Microsoft::WRL::ComPtr;
@@ -149,3 +172,4 @@ void CaptureFrame(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Resource*
     state.frames.clear();
 }
 }
+#endif

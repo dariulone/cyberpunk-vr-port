@@ -1,4 +1,4 @@
-"""Progress reports to a Telegram bot (Bot API sendMessage / sendPhoto / sendDocument).
+"""Progress reports to a Telegram bot (Bot API sendMessage / sendPhoto / sendDocument / sendVideo).
 
 The token and chat id live OUTSIDE the repository, in %LOCALAPPDATA%\\vr_bench\\telegram.json:
     {"token": "<bot token>", "chat_id": "<chat id>"}
@@ -6,6 +6,7 @@ Without that file every call is a no-op that returns False, so a bench run never
 
     py -3.13 -B tools/vr_bench/telegram.py "text"            # one message
     py -3.13 -B tools/vr_bench/telegram.py --photo a.jpg "caption"
+    py -3.13 -B tools/vr_bench/telegram.py --video a.mp4 "caption"   # plays inline
 """
 import argparse
 import json
@@ -76,8 +77,21 @@ def photo(path, caption=''):
     return _post('sendPhoto', {'caption': caption[:1000]}, {'photo': path})
 
 
+def album(paths, caption=''):
+    """2..10 photos as one album (sendMediaGroup); the caption goes on the first."""
+    paths = [Path(p) for p in paths][:10]
+    media = [dict(type='photo', media=f'attach://p{i}', **({'caption': caption[:1000]} if i == 0 and caption else {}))
+             for i in range(len(paths))]
+    return _post('sendMediaGroup', {'media': json.dumps(media)}, {f'p{i}': p for i, p in enumerate(paths)}, timeout=180)
+
+
 def document(path, caption=''):
     return _post('sendDocument', {'caption': caption[:1000]}, {'document': path})
+
+
+def video(path, caption=''):
+    """An MP4 (H.264) the chat plays inline."""
+    return _post('sendVideo', {'caption': caption[:1000], 'supports_streaming': 'true'}, {'video': path}, timeout=240)
 
 
 def main():
@@ -85,11 +99,17 @@ def main():
     parser.add_argument('text', nargs='?', default='')
     parser.add_argument('--photo', type=Path)
     parser.add_argument('--document', type=Path)
+    parser.add_argument('--video', type=Path)
+    parser.add_argument('--album', type=Path, nargs='+')
     args = parser.parse_args()
-    if args.photo:
+    if args.album:
+        ok = album(args.album, args.text)
+    elif args.photo:
         ok = photo(args.photo, args.text)
     elif args.document:
         ok = document(args.document, args.text)
+    elif args.video:
+        ok = video(args.video, args.text)
     else:
         ok = send(args.text)
     print('sent' if ok else 'NOT sent')

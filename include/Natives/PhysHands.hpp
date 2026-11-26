@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "Natives/HandReferenceFrame.hpp"
 // PhysHands -- each hand a rigid body of its own in the game's PhysX world, steered toward the controller with a hand's
 // force, and the drawn hand where that body is. A wall stops it because PhysX stops it; a cup it meets is pushed by
 // it; a crate does not move for it. Nothing here asks a ray.
@@ -13,10 +14,24 @@
 //   * a worker thread of its own turns each step's result into the drawn hand's offset, solves the fingers against
 //     that list (PxGeometryQuery, no scene access), decides when the hands are on (vehicles, menus, ladders, water),
 //     reloads config/physhands.ini when it changes, and keeps the statistics.
-// They meet in lock-free snapshots (a sequence counter around each copy), one writer each.
+// Physics/render outputs use sequence-counted snapshots. The primary avatar's
+// complete input pose is copied together under a short mutex, once per step.
 namespace cvr::physhands {
+// One primary avatar pose, under the animation pose lock. Targets, shoulders,
+// forearms and the solved body are committed together after the final FK pass.
+struct PoseFrame { handspace::Reference entity, tracking; };
+void BeginPoseFrame(const PoseFrame& frame);
+bool PoseFramePending();
+void PublishPoseFrame();
 // PhysXStep, before PxScene::simulate, on the thread that steps: the scene is not simulating.
 void BeforeSimulate(void* scene, float dt);
+// Physics-thread access to this step's world origin. Held bodies must not keep
+// the origin from their initial pickup after the scene rebases.
+bool SceneOrigin(void* scene, float* origin);
+// Share one immutable avatar pose across a physics callback or an NPC grip
+// batch. Both hands read the same frame; independent threads cannot replace it.
+void BeginPhysicsPoseFrame();
+void EndPhysicsPoseFrame();
 // PhysXStep, after PxScene::fetchResults handed over this step's results.
 void AfterFetch(void* scene);
 // VRIK_ApplyHandStop: where tracking puts the hand bone this frame, model space (the rotation as it is solved).
@@ -34,6 +49,11 @@ bool Adjust(int side, float* modelPos, float* modelRot);
 // go. False when its scene is not the hands'. Script thread (one writer).
 bool HoldBody(int side, void* actor, void* actorScene, uint32_t proxy, uint32_t body, const float* pos, const float* rot,
               const float* grip, void* ref = nullptr, uint32_t refBody = 0);
+// Original mass of a currently held actor, before its solver-only mass override.
+// Reads the existing completed-step snapshot; false leaves `mass` unchanged.
+bool OriginalHeldMass(uint32_t proxy, uint32_t body, float& mass);
+// Uncached PhysX getMass, for on-demand diagnostics. Negative if no live dynamic actor.
+float BodySolverMass(void* actor, uint32_t proxy, uint32_t body);
 // The point `local` of an actor's frame in the game's world (`origin` its scene's). False when it faults. Script thread.
 bool ActorPoint(void* actor, const float* origin, const float* local, float* world);
 // The point of a body's own shapes nearest `point` (the game's world; `origin` is its scene's, Natives/DebugView.hpp
@@ -54,6 +74,11 @@ bool BodyPull(float* velocity);
 bool HoldsOn(int side);
 // A fresh weighted body grip owns the wrist pose; arm IK must not shorten it after load compensation.
 bool HoldsBody(int side);
+// Fresh constrained wrist in world space, for contact interactions.
+bool DrawnWorld(int side, float* position);
+// The completed primary-avatar wrist, with position and orientation from the
+// same entity/pose sample. Never reads the mutable FK diagnostic arrays.
+bool SolvedWorldPose(int side, float* position, float* rotation);
 // VRIK_SolveArm, once the arm is solved: the elbow, the wrist and the hand's turn as drawn, model space. The forearm's
 // capsule on the hand's body is posed by them; the shoulder says whether an arm reaches where tracking is, and
 // `reach` (m) is the farthest the drawn hand gets from that shoulder (the solve's stretch caps), 0 for none.
@@ -94,6 +119,17 @@ void TestStack(const float* worldAt, bool dump, bool dumpShapes = false);
 // The gun in a hand: `count` boxes (each set before by SetWeaponPart, corners in the gun's frame), the gun's frame in the
 // hand bone's (rotation x y z w, then position). Count 0: none. Script thread.
 bool SetWeapon(int side, int count, const float* frame);
+bool RequestBladeJoint(int side, uint32_t serial, uint32_t proxy, uint32_t body, const float* point, const float* edge);
+bool BladeJointBound(int side, uint32_t serial);
+bool ReadBladeJointPoint(int side,uint32_t serial,float* point);
+bool RenewBladeJoint(int side,uint32_t serial,float resistance=0.f,bool holdDepth=false,const float* cuttingEdge=nullptr,bool inserting=false,float edgeAdvance=-1.f);
+uint32_t ReadBladeEdgePath(int side,uint32_t serial,float* from,float* to,float* axis=nullptr,int* stage=nullptr);
+bool BladeEdgeStrokeLive(int side,uint32_t serial,uint32_t stroke);
+uint32_t ReadBladeSlotEdge(int side,uint32_t serial,float* offset,float* axis);
+int UpdateBladeAttachment(int side,uint32_t serial,const float* animated,const float* slotRotation,
+                          const float* station,bool bind,float* goal);
+bool ApplyBladeAttachment(int side,float* target,const float* rotation);
+bool BladeAttachmentMatches(int side,const float* target);
 bool SetWeaponPart(int side, int index, const float* lo, const float* hi);
 // The people near the hands: capsule `index` between a and b (the game's world), its radius; then the count of them. Every
 // frame, script thread.

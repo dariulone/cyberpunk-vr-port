@@ -41,6 +41,100 @@
 
 extern void Log(const char* fmt, ...);
 
+#if CVR_RUST_VRIK
+// The Rust build's spawning is rust/crates/cvr-ffi/src/spawn_system.rs (the entities spawned and kept, the template
+// records, the registry entries, the natives); this file keeps VRPortSpawnSystem -- the game system the world's attach
+// and detach reach -- and the narrow adapter over the SDK's game systems and their callbacks below.
+extern "C" {
+void cvr_spawn_listen();
+void cvr_spawn_stop_listening();
+void cvr_spawn_world_detached();
+}
+
+namespace {
+
+using RED4ext::CName;
+using RED4ext::EntityID;
+using RED4ext::Handle;
+using RED4ext::TweakDBID;
+
+struct SpawnSystem : RED4ext::game::IGameSystem {
+    RED4ext::CClass* GetNativeType() override;
+
+    void OnStreamingWorldLoaded(RED4ext::world::RuntimeScene*, uint64_t, const RED4ext::JobGroup&) override {
+        cvr_spawn_listen();
+    }
+    void OnBeforeWorldDetach(RED4ext::world::RuntimeScene*) override { cvr_spawn_stop_listening(); }
+    void OnAfterWorldDetach() override { cvr_spawn_world_detached(); }
+};
+
+RED4ext::TTypedClass<SpawnSystem> g_type("VRPortSpawnSystem");
+RED4ext::CClass* SpawnSystem::GetNativeType() { return &g_type; }
+
+Handle<RED4ext::IScriptable> g_instance;
+
+RED4ext::GameInstance* Game() {
+    auto* engine = RED4ext::CGameEngine::Get();
+    return engine && engine->framework ? engine->framework->gameInstance : nullptr;
+}
+
+template<typename T>
+T* System() {
+    auto* game = Game();
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* type = rtti ? rtti->GetClass(T::NAME) : nullptr;
+    return game && type ? reinterpret_cast<T*>(game->GetSystem(type)) : nullptr;
+}
+
+// What the stub system hands its callback, and the stub it may carry: released to the Rust half as a pointer (its delete
+// and free are rust/crates/cvr-ffi/src/spawn_system.rs's).
+
+}  // namespace
+
+extern "C" {
+bool cvr_cpp_spawn_system_present() { return g_instance.instance != nullptr; }
+// The game's system a spawn needs that is not there, or null.
+const char* cvr_cpp_spawn_missing_system() {
+    if (!g_instance) return "VRPortSpawnSystem";
+    if (!System<RED4ext::game::IDynamicEntityIDSystem>()) return "IDynamicEntityIDSystem";
+    if (!System<RED4ext::game::IEntityStubSystem>()) return "IEntityStubSystem";
+    return nullptr;
+}
+// The spawner events' listener: rust/crates/cvr-ffi/src/spawn_system.rs.
+// The next transient id: rust/crates/cvr-ffi/src/spawn_system.rs.
+// The stub's creation: rust/crates/cvr-ffi/src/spawn_system.rs.
+// The stub token's reads, the stub's delete and free: rust/crates/cvr-ffi/src/spawn_system.rs.
+// The population's register, remove and find, the entity push, the gameObject check and the runtime scene:
+// rust/crates/cvr-ffi/src/spawn_system.rs.
+}
+
+namespace cvr::spawn {
+
+void RegisterTypes() {
+    RED4ext::CNamePool::Add("VRPortSpawnSystem");
+    g_type.flags = {.isNative = true};
+    RED4ext::CRTTISystem::Get()->RegisterType(&g_type);
+}
+
+void PostRegisterTypes() { g_type.parent = RED4ext::CRTTISystem::Get()->GetClass("gameIGameSystem"); }
+
+// Into the game instance's systems, like the game's own (the world's attach and detach then reach it).
+bool AddToGame(RED4ext::CGameApplication*) {
+    auto* game = Game();
+    if (!game || g_instance) return true;
+    if (game->systemMap.Get(&g_type)) return true;
+    g_instance = Handle<RED4ext::IScriptable>(static_cast<RED4ext::IScriptable*>(g_type.CreateInstance(true)));
+    static_cast<SpawnSystem*>(g_instance.instance)->gameInstance = game;
+    game->systemMap.Insert(&g_type, g_instance);
+    game->systemImplementations.Insert(&g_type, &g_type);
+    game->systemInstances.EmplaceBack(g_instance);
+    cvr_spawn_listen();
+    Log("[spawn] VRPortSpawnSystem added to the game's systems\n");
+    return true;
+}
+
+}  // namespace cvr::spawn
+#else
 namespace {
 
 using RED4ext::CName;
@@ -459,3 +553,4 @@ void VRSpawnTaggedIDs(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, RED4ex
     if (SpawnSystem* system = Instance())
         for (const auto& spawned : Tagged(*system, tag)) out->PushBack(spawned->id);
 }
+#endif

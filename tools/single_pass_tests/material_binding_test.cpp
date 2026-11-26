@@ -37,7 +37,7 @@ void PutRecord(Memory& memory,uint8_t type=0x36,uint32_t size=292,uint64_t gpu=a
 }
 Memory Fixture(){
     Memory memory;
-    Put(memory,game+0x3438A28,registry);Put(memory,context.context+0x30,context.list);
+    Put(memory,game+0x3BCDCA8,registry);Put(memory,context.context+0x30,context.list);
     Put(memory,context.context+0x60,context.state);Put(memory,context.state+0x68,layout);
     Put(memory,context.state+0x28,table);Put(memory,layout+0x477,uint8_t(parameter));
     Put(memory,entry,uint32_t(2));Put(memory,entry+4,uint32_t(50));
@@ -93,7 +93,7 @@ int main()try{
     Require(detail::ReadSnapshotOnce(Read,&memory,game,context,handle,once));const auto reads=memory.calls;
     memory=Fixture();memory.mutateAt=reads+1;memory.mutationAddress=table+50*8;
     Require(!SnapshotOf(memory,changed));
-    memory=Fixture();memory.mutateAt=reads+1;memory.mutationAddress=game+0x3438A28;
+    memory=Fixture();memory.mutateAt=reads+1;memory.mutationAddress=game+0x3BCDCA8;
     Require(!SnapshotOf(memory,changed));
     memory=Fixture();
     for(const auto invalid:{0u,0x100001u,UINT32_MAX})Require(!detail::ReadSnapshot(Read,&memory,game,context,invalid,changed));

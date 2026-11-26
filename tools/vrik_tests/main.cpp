@@ -1,8 +1,31 @@
 #include "Anim/VrikHook.hpp"
 #include "Anim/CharacterRig.hpp"
+#include "Anim/RifleElbowAudit.hpp"
 #include "Anim/Cyberware.hpp"
 #include "Anim/CyberwareMuscles.hpp"
 #include "Anim/ReloadPose.hpp"
+#include "Anim/LeftHanded.hpp"
+#include "Anim/HeadAimWeapon.hpp"
+#include "Anim/AdsEyeAlign.hpp"
+#include "Anim/AdsMuzzleStabilizer.hpp"
+#include "Anim/FkRecorder.hpp"
+#include "Anim/SmokingPose.hpp"
+#include "Anim/ReloadHandOff.hpp"
+#include "Anim/WeaponRig.hpp"
+#include "Anim/WheelGrab.hpp"
+#include "Anim/Recoil.hpp"
+#include "Runtimes/Haptics.hpp"
+#include "Runtimes/FingerGrip.hpp"
+#include "Anim/GraspPose.hpp"
+#include "Anim/TwoHandGrip.hpp"
+#include "Camera/CameraLink.hpp"
+#include "Hooks/CyberwareChord.hpp"
+#include "Camera/PoseIdentity.hpp"
+#include <span>
+#include "Hooks/RoomscaleMove.hpp"
+#include <map>
+#include "Anim/TrackedWheelSteering.hpp"
+#include "Core/LiveControls.hpp"
 #include "Anim/HandGestures.hpp"
 #include "Anim/HandGesturePose.hpp"
 #include "Anim/HandGestureCalibration.hpp"
@@ -18,6 +41,8 @@
 #include "Core/VrCoreShared.hpp"
 #include "Runtimes/RoomscaleMovement.hpp"
 #include <array>
+#include <bit>
+#include <cstdio>
 #include <limits>
 #include <cmath>
 #include <cstring>
@@ -33,8 +58,188 @@
 extern "C" int CyberpunkVR_RestFingerCaptureReqR;
 extern "C" int CyberpunkVR_RestFingerApplyR;
 extern "C" int CyberpunkVR_VrikElbowPolicy;
+extern "C" int CyberpunkVR_TwoHandActive;
 extern "C" int CyberpunkVR_GestureMode[2];
-extern char g_VRSmokeFingerName[32][48],g_VRSmokeFingerNameL[32][48];
+extern "C" char g_VRSmokeFingerName[32][48],g_VRSmokeFingerNameL[32][48];
+extern uintptr_t g_gameModuleBase;
+extern size_t g_gameModuleSize;
+extern bool testOverlayVisible;
+extern std::vector<float> testHapticPlays;
+extern "C" int CyberpunkVR_HapticStats[8];
+extern "C" int CyberpunkVR_Haptics;extern "C" float CyberpunkVR_HapticScale,CyberpunkVR_HapticSupportMul,CyberpunkVR_HapticProfiles[16][6];
+extern std::string testGripDir;
+extern "C" void cvr_anim_pose_apply(void* a1,void* a2,unsigned int a4,bool* playerStateLocked);
+extern std::atomic<int> g_sceneTier,g_vehicleState;
+extern bool testDeviceCam,testBodyYawFollow,testFbtCalibrating,testFbtArm,testLobby,testRecipeOk,testRestNeckOk,testSwimming,testLadder;
+extern int testCutsceneTier;extern int testLadderKinds[2];
+extern cvr::camera::AnchorRecipe testRecipe;extern cvr::roomscale::Vec2 testConsumed,testRestNeck;
+extern std::vector<float> testServiceCalls;
+extern "C" float CyberpunkVRPort_HalfIpd();bool IsPlausiblePositionVec4(const float* v);
+#ifdef VRIK_ROOM_TESTS
+#include <windows.h>
+#include <Xinput.h>
+#include "Hooks/BodyHeading.hpp"
+#include "Hooks/SwimmingInput.hpp"
+#include "Hooks/RoomscaleDebug.hpp"
+#include "Runtimes/TrackedBodyYaw.hpp"
+extern cvr::roomscale::Sample testRoomSample;extern OpenXRHeadPose testFrameHead,testAcquireHead;extern int64_t testFrameTime;
+extern bool testRoomSampleOk,testAcquireOk,testBodyFrameOk,testSteerOk,testLobby,testSwimming,testLadder,testFbtCalibrating;
+extern cvr::body::TrackingFrame testBodyFrame;extern float testCapsuleRadius,testSteer[3];extern int testPlayerChanged,testSteerState,testCutsceneTier;
+extern std::vector<float> testFlushes;
+extern "C" {
+uintptr_t cvr_roomscale_move(void* backend,float* displacement,float dt);
+float* cvr_roomscale_velocity_from(void* provider,float* output,uintptr_t caller);
+uintptr_t cvr_roomscale_property(void* registry,uint32_t handle,uint32_t flags,uint32_t mode,uint32_t property,void* output,uint32_t bytes);
+void cvr_roomscale_bind(uintptr_t base,void* move,void* velocity,void* property);
+void cvr_body_heading_motion(void* provider,float* position,float* rotation);
+bool cvr_body_heading_apply(void* adapter,const float* position,const float* rotation,uint8_t flag);
+void cvr_body_heading_bind(uintptr_t base,void* apply,void* motion);
+float BodyYawFollowStep(float);void BodyYawFollowTick(float,float,const float*);
+extern int CyberpunkVR_HeadLeadsCapsule,CyberpunkVR_BodyStrictUnderHead,CyberpunkVR_BodyHeadingHooksReady,CyberpunkVR_DebugBodyHeadingSkip;
+extern uint64_t CyberpunkVR_BodyHeadingCommits,CyberpunkVR_BodyHeadingRequests,CyberpunkVR_DebugBodyFollowCalls,CyberpunkVR_DebugBodyFollowApplied;
+extern float CyberpunkVR_BodyTrackingYawRad,CyberpunkVR_BodyYawRealignRad,CyberpunkVR_DebugBodyFollowOffsetDeg,CyberpunkVR_BodyYawFollowDeadDeg;
+extern int CyberpunkVR_BodyYawFollow,CyberpunkVR_DebugHybridEstimate,CyberpunkVR_BodyYawFinalValid,CyberpunkVR_PlayerEntityValid,CyberpunkVR_EngineBodyYawValid;
+extern float CyberpunkVR_DebugHybridTrackedWeight,CyberpunkVR_DebugHybridHandsDeg,CyberpunkVR_DebugHybridNeckPullDeg,CyberpunkVR_DebugHybridAlignDeg;
+extern float CyberpunkVR_DebugTrackedTrace[8],CyberpunkVR_DebugBodyFollowErrDeg,CyberpunkVR_BodyYawFinalRad,CyberpunkVR_PlayerEntityPos[3],CyberpunkVR_PlayerEntityQuat[4];
+extern uint32_t CyberpunkVR_DebugTrackedGates;extern float CyberpunkVR_SwimmingRedirect[3];
+extern uint64_t CyberpunkVR_SwimmingFeedbackReads[2],CyberpunkVR_SwimmingPropertyFeedbackReads,CyberpunkVR_DebugVrikNativePairPublished,CyberpunkVR_DebugVrikNativePairRejected;
+extern RoomscaleDebug CyberpunkVR_RoomscaleDebug;extern std::atomic<uint32_t> CyberpunkVR_RoomscaleDebugSeq;
+DWORD cvr_xinput_merge(DWORD user,XINPUT_STATE* state,DWORD realResult);
+extern int CyberpunkVR_TestPadButtons,CyberpunkVR_WeaponClass;extern uint64_t CyberpunkVR_LeftTriggerBlockUntil,CyberpunkVR_DualWieldUntil,CyberpunkVR_DebugWheelHornGestures;
+extern volatile long CyberpunkVR_LeftStickClicks;extern volatile int g_VRSprintActive;
+}
+#include <Xinput.h>
+#include "Hooks/ScannerGesture.hpp"
+#include "Hooks/WeaponTrigger.hpp"
+extern float testXrShared[256],testShotShared[256],testCurtain;extern VRControllerState testController;
+extern bool testControllerOk,testCrouchRequested,testClueConsume,testVruiCaptures,testReachHeld,testMenuCaptures,testWheelArmed;
+extern bool testKeypad,testInBraindance,testSceneYawArmed,testIntroRunning,testSwimSprint,testGestureOk;extern cvr::swimming::Input testSwimInput;
+extern std::vector<float> testInputCalls;extern OpenXRHeadPose testGestureHead,testGestureHands[2];
+extern bool testForegroundInProcess;extern "C" std::atomic<uint64_t> CyberpunkVR_CyberwareChordSent;
+extern "C" bool testResolveRenderedPose,testExternalPoseReset;
+extern int testVrcamView,testMainView;extern uintptr_t testCamObjMain;extern uint32_t testTelemetryHits;extern uintptr_t testTelemetryRsi;
+extern std::vector<std::pair<OpenXRHeadPose,bool>> testRenderedPoses;
+extern "C" void OnFinalCameraCallback(float* rsi);
+extern "C" void OnPitchHookCallback(void* pitchState,float originalPitch);
+extern "C" void CvrWorldBlendBeforeNotify(uintptr_t component);
+// CameraPoseTransport (src/Hooks/CameraPoseTransport.cpp, or rust/crates/cvr-rig/src/vrik/pose_transport.rs).
+extern bool testSessionRunning,testBdScenePose,testEnsureCopyHook;extern uintptr_t testVrcamComp;extern OpenXRHeadPose testCameraPoseFrame;
+extern uint64_t testCameraPoseSequence;extern bool testCameraPoseOk;extern float testNormalFov;extern int testVrcamLive;
+extern std::vector<uintptr_t> testTransportCalls;
+// PatchCamera (src/Hooks/PatchCamera.cpp, or rust/crates/cvr-rig/src/vrik/patch_camera.rs) and its scripted services
+// (tools/vrik_tests/camera_state.cpp).
+#include <map>
+extern std::map<uintptr_t,int> testCameraKinds;
+extern bool testLocateOwnsTakeover,testBdPushOwns,testSurveillanceOk,testFbtEyeOk,testAfwActive;
+extern float testSurveillanceYaw,testFbtEyeZ;extern int testAfwEye,testMenuRect;extern std::vector<float> testCameraCalls;
+extern OpenXRHeadPose testHeadPose,testLocatedPose,testFrameSample;extern bool testHeadPoseOk,testLocatedOk,testFrameSampleOk;
+extern uint64_t testAimEpoch;extern int64_t testAimTime;
+extern "C" void OnPatchCameraCallback(float* cameraState,void* ownerState);
+extern "C" float CyberpunkVR_SceneStickYawDps,CyberpunkVR_SightApproach[3],CyberpunkVR_DebugSceneStickYawDeg,CyberpunkVR_DebugFppSceneComfortLagDeg;
+extern "C" uint64_t CyberpunkVR_DebugVehicleWorldRecompose,CyberpunkVR_DebugSceneWorldRecompose,CyberpunkVR_DebugTakeoverWorldRecompose;
+// LocateCamera (src/Hooks/LocateCamera.cpp, or rust/crates/cvr-rig/src/vrik/locate_camera.rs).
+extern int testRenderEye;extern float testCamOffset[3];extern OpenXRHeadPose testHandPose;extern bool testHandOk;
+extern "C" void OnLocateCameraCallback(float* rbx,float xmm0);
+extern "C" int32_t CyberpunkVR_AdsWeaponZoomSync,CyberpunkVR_SightZoom;extern "C" float CyberpunkVR_MainAdsZoomFactor;
+extern "C" uint64_t CyberpunkVR_DebugAdsZoomWrites,CyberpunkVR_DebugAdsZoomRejects,CyberpunkVR_DebugSceneLabelPublished;
+extern "C" float CyberpunkVR_DebugSceneComfortLagDeg;extern "C" uint32_t CyberpunkVR_DebugSceneComfortCuts;
+#include "Overlay/LiveControlsUi.hpp"
+// WeaponAim (src/Hooks/WeaponAim.cpp, or rust/crates/cvr-rig/src/vrik/weapon_aim.rs).
+#include "Anim/WeaponAimState.hpp"
+#include "Camera/GazeCenter.hpp"
+#include "Hooks/SightLine.hpp"
+extern "C" void CvrWeaponAimBind(uintptr_t eval,uintptr_t exe,uintptr_t poseCopy,uintptr_t targeting);
+extern "C" void* Hooked_WaTargetingUpdate(void* rcx,void* rdx,void* r8,void* r9);
+extern "C" void* Hooked_WaPoseCopy(void* rcx,void* rdx,void* r8,void* r9);
+extern "C" char Hooked_WaPhysicalRayOrigin(void* rcx,void* rdx,float* out);
+extern "C" char Hooked_WaPhysicalRayForward(void* rcx,void* rdx,float* out);
+extern "C" int CyberpunkVR_HitscanFromMuzzle,CyberpunkVR_ConeCentreFromCamera,CyberpunkVR_HitscanSharedRay;
+extern "C" uintptr_t CyberpunkVR_GazeTargetState;extern "C" uint64_t CyberpunkVR_GazeTargetUpdates,CyberpunkVR_DebugConeFirstRay;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayCalls,CyberpunkVR_DebugPhysicalRayMine,CyberpunkVR_DebugPhysicalRayOriginWrites,
+    CyberpunkVR_DebugPhysicalRayForwardWrites,CyberpunkVR_DebugPhysicalRayConeRays,CyberpunkVR_DebugPhysicalRayRecoil,CyberpunkVR_DebugPhysicalRayForeign,
+    CyberpunkVR_DebugPhysicalRayLeftGun,CyberpunkVR_DebugPhysicalRayStaleMuzzle,CyberpunkVR_DebugPhysicalRaySightLine,CyberpunkVR_DebugPhysicalRayShared,
+    CyberpunkVR_DebugPhysicalRaySharedMissing;
+extern "C" float CyberpunkVR_DebugDualShot[4],CyberpunkVR_DebugPhysicalRaySightLift[4],CyberpunkVR_DebugPhysicalRayRawForward[4],CyberpunkVR_DebugPhysicalRayOutForward[4];
+extern "C" uint32_t CyberpunkVR_DebugDualShotRecord[3];extern "C" uint64_t CyberpunkVR_DebugPhysicalRayKeys[64];
+extern "C" volatile uint32_t CyberpunkVR_DualWieldRecords[2];
+// The tank hooks (src/Hooks/PanzerSteering.cpp / PanzerWeaponAim.cpp, or rust/crates/cvr-rig/src/vrik/panzer.rs).
+#include "Hooks/PanzerState.hpp"
+// The ini parse (src/Core/LiveControlsParse.cpp, or rust/crates/cvr-settings).
+#include "Core/LiveControlsParse.hpp"
+#include <share.h>
+#include <string>
+extern std::vector<std::pair<int,std::string>> testSubsystemLines;
+// The menu mode hook (src/Hooks/MenuModeCallback.cpp, or rust/crates/cvr-rig/src/vrik/menu_mode.rs).
+extern std::vector<uintptr_t> testLobbyHolds;
+extern "C" void OnMenuModeHookCallback(void* menuState,int newMode);
+// The left-handed mirror (src/Hooks/LeftHandedMirror.cpp, or rust/crates/cvr-rig/src/vrik/left_handed_animation.rs).
+extern std::map<uintptr_t,uint32_t> testItemHandlings;
+// StoryAttention (src/Hooks/StoryAttention.cpp, or rust/crates/cvr-rig/src/vrik/story_attention.rs).
+#include "Quest/StoryAttention.hpp"
+extern bool testReachOk;extern float testReachPoint[3];
+// SurveillanceBody (src/Hooks/SurveillanceBody.cpp, or rust/crates/cvr-rig/src/vrik/surveillance_body.rs).
+struct SurveillanceControl {uintptr_t owner{};uint64_t entity{};bool enabled{};uint8_t kind{};};
+extern std::map<uintptr_t,SurveillanceControl> testSurveillanceControls;
+extern "C" {
+void CvrSurveillanceInputAfter(uintptr_t component,float* delta);
+void CvrSurveillanceFinishInput(uintptr_t component,float* automatic,float* delta);
+extern int CyberpunkVR_SurveillanceBodyFollow,CyberpunkVR_DeviceCamOrient;
+extern std::atomic<uint64_t> CyberpunkVR_SurveillanceBodyUpdates,CyberpunkVR_SurveillanceBodyInjected,CyberpunkVR_SurveillanceAutoFiltered;
+extern float CyberpunkVR_SurveillanceBodyDebug[9],CyberpunkVR_SurveillanceAutoDebug[6];
+}
+namespace cvr::camera { bool SurveillanceViewYaw(uintptr_t lens,uintptr_t owner,uint64_t origin,float ownerYaw,float& yaw);bool SniperHeadFollowActive(); }
+extern "C" {
+void CvrStoryAttentionAfter(uintptr_t user,float* transform);
+extern std::atomic<uint64_t> CyberpunkVR_StoryAttentionCounters[5];extern std::atomic<uint64_t> CyberpunkVR_ReachTurns;
+}
+struct LeftHandedNameRecord { uint64_t name;uint32_t info,pad; };
+extern "C" {
+uint64_t CvrLeftHandedApplyFeature(uintptr_t controller,uint64_t name,void* feature);
+uint64_t CvrLeftHandedPushEvent(uintptr_t controller,uint64_t name);
+uint64_t cvr_left_handed_apply_feature(uintptr_t controller,uint64_t name,void* feature);
+void cvr_left_handed_bind(uintptr_t apply,uintptr_t push);
+extern std::atomic<uint64_t> CyberpunkVR_LeftHandedNamesMirrored;extern std::atomic<uintptr_t> CyberpunkVR_LeftHandedController;
+extern LeftHandedNameRecord CyberpunkVR_LeftHandedNameLog[64];extern std::atomic<uint32_t> CyberpunkVR_LeftHandedNameLogCount;
+}
+extern uintptr_t testMountedVehicle;extern bool testIsTank;
+#include "Camera/ExternalView.hpp"
+#include "Hooks/CameraPoseTransportState.hpp"
+extern "C" {
+uintptr_t CvrPtBlend(uintptr_t director);
+void CvrPtBlendFinalizeAt(uintptr_t array,uintptr_t returnAddress);
+void CvrPtSerialize(uintptr_t interfacePointer,uintptr_t destination);
+void CvrPtGenericSerialize(uintptr_t interfacePointer,uintptr_t destination);
+uintptr_t CvrPtMainRead(uintptr_t director,uintptr_t destination,uintptr_t setup);
+double CvrPtRttBuild(uintptr_t component,uintptr_t destination,char force);
+void CvrPtRttRefresh(uintptr_t component);
+uintptr_t CvrPtDescriptorBuildAt(uintptr_t destination,uintptr_t descriptor,uintptr_t returnAddress);
+uintptr_t CvrPtCameraClone(uintptr_t destination,uintptr_t source);
+uintptr_t CvrPtRenderBuildAt(uintptr_t destination,uintptr_t descriptor,uintptr_t clipPlanes,uintptr_t returnAddress);
+void CvrPoseTransportBind(uintptr_t exe,const uintptr_t* originals);
+void CvrPoseSetupDefaultBefore(uintptr_t destination);
+void CvrPoseSetupCopyBefore(void* storage,uintptr_t source);
+void CvrPoseSetupCopyAfter(cvr::camera::PoseReceipt* receipt,uintptr_t destination);
+}
+extern "C" std::atomic<uint64_t> CyberpunkVR_WorldBlendPoseCalls,CyberpunkVR_WorldBlendPoseApplied,CyberpunkVR_WorldBlendPoseMissing,
+    CyberpunkVR_WorldBlendPoseChanged;
+extern "C" std::atomic<uint64_t> CyberpunkVR_PoseIdComponent[2],CyberpunkVR_PoseIdCopied,CyberpunkVR_PoseIdCopyChanged;
+extern volatile LONG g_pendingSnapYawDeltaBits;extern std::atomic<int> g_uiPopupOpen;extern std::atomic<unsigned long long> g_uiPopupClosedMs;
+extern std::atomic<float> g_lookStickX;extern std::atomic<bool> g_isDriving;extern "C" bool g_hasWeaponEquipped;
+#endif
+#ifdef VRIK_WATER_TESTS
+#include "Hooks/LadderInput.hpp"
+extern bool testSimulatorLoaded,testScriptHooks;extern uint64_t testGestureSequence,testGestureStamp;
+extern "C" { extern void* CvrSwimmingActionOriginal;float CvrSwimmingActionAfter(void* object,uint64_t name,float original); }
+#endif
+extern uint64_t testOriginSerial,testPoseIdentity;extern float testRuntimeIpd;
+extern "C" int CyberpunkVR_OneSamplePerFrame,CyberpunkVR_CamWriteInFinal,CyberpunkVR_VrcamHeadTranslation,CyberpunkVR_DeltaFromFreshSample,CyberpunkVR_CamFinalRowOrder;
+extern "C" int32_t CyberpunkVR_VrcamPosFromMain;
+extern "C" std::atomic<uint64_t> CyberpunkVR_BodyCentreMatch,CyberpunkVR_BodyCentreMiss,CyberpunkVR_BodyLuaCentreMatch,CyberpunkVR_BodyLuaCentreRejected,CyberpunkVR_PlacedPoseMatch,CyberpunkVR_PlacedPoseMiss,CyberpunkVR_PlacedPoseAmbiguous;
+extern "C" float CyberpunkVR_DebugRestNeck[2];
+extern "C" char CyberpunkVR_WeaponName[64];
+extern "C" volatile int g_VRBodyCarryingState;
+extern "C" float CyberpunkVR_TwoHandRecoil,CyberpunkVR_TwoHandLever,CyberpunkVR_TwoHandWeight;
+extern "C" int CyberpunkVR_RuntimeDiagnostics;
 
 namespace {
 struct Bone { float p[4],q[4],s[4]; };
@@ -822,6 +1027,136 @@ void CombatElbow() {
     CyberpunkVR_VrikElbowPolicy=0;
 }
 
+// Use a fresh solve for each comparison so wall-clock swivel smoothing cannot hide a bad pole.
+std::array<float,3> WeaponElbow(bool left, bool weaponHand, int weaponClass,
+                                float outward, float ahead, float height, float poleAngle=0.f) {
+    Setup();
+    Setup("weapon_stance");
+    testWeaponInLeftHand = weaponHand ? left : !left;
+    g_hasWeaponEquipped = true;
+    CyberpunkVR_WeaponClass = weaponClass;
+    const int upper = left ? 17 : 18, fore = left ? 20 : 21, hand = left ? 23 : 24;
+    auto pose = Read<Bone>("shotgun-2.bin");
+    SolveBody(pose);
+    auto* buf = reinterpret_cast<uint8_t*>(pose.data());
+    float right[3], up[3], forward[3];
+    Check(VRIK_BodyAxesFromRig(right,up,forward),"missing arm frame");
+    float shoulder[3], target[3];
+    VRIK_AnchorShoulder(buf,upper,g_fkPos[16],left,right,up,.14f,shoulder);
+    const float sign = left ? -1.f : 1.f;
+    for (int k=0; k<3; ++k)
+        target[k] = shoulder[k] + right[k]*sign*outward + forward[k]*ahead + up[k]*height;
+    // Give both wrists the same forearm continuation in body space. Their local rig axes differ.
+    auto ref = Read<Bone>("reference_full.bin");
+    VRIK_ComputeFK(reinterpret_cast<uint8_t*>(ref.data()),g_VRBoneCount);
+    float axis[3], aim[3], turn[4], wrist[4];
+    for (int k=0; k<3; ++k) {
+        axis[k] = g_fkPos[hand][k] - g_fkPos[fore][k];
+        aim[k] = forward[k] + .3f*up[k];
+    }
+    VRIK_Norm3(axis); VRIK_Norm3(aim);
+    VRIK_QuatFromTo(axis,aim,turn);
+    VRIK_QuatMul(turn,g_fkRot[hand],wrist);
+    VRIK_ComputeFK(buf,g_VRBoneCount);
+    if (CyberpunkVR_RifleElbowAB.load()) {
+        shared[115]=2;
+        const uint32_t next=g_handsStableSeq+2;
+        std::memcpy(&shared[127],&next,sizeof(next));
+        RefreshHandsSnapshot();
+    }
+    VRIK_SolveArm(buf,upper,fore,hand,target,wrist,right,up,forward,poleAngle,1,left,true);
+    VRIK_ComputeFK(buf,g_VRBoneCount);
+    if (CyberpunkVR_RifleElbowAB.load()) {
+        VRIK_SyncShadowUpper(buf);
+        VRIK_CaptureModelCache();
+        const uint64_t id=(uint64_t{1}<<63)|g_handsStableSeq;
+        const auto rendered=cvr::anim::FindRifleElbowPose(id);
+        Check(rendered.poseId==id && rendered.mode==CyberpunkVR_RifleElbowAB.load(),"missing final arm for this pose");
+        Check(!cvr::anim::FindRifleElbowPose(id+2).poseId,"another pose acquired this arm");
+        for(int i=0;i<3;++i) {
+            const int bones[]={upper,fore,hand};
+            for(int k=0;k<3;++k) Near(rendered.joints[i*3+k],g_fkPos[bones[i]][k],1e-6f,"captured wrong joint");
+        }
+    }
+    float upperArm[3], forearm[3];
+    for (int k=0; k<3; ++k) {
+        upperArm[k] = g_fkPos[fore][k] - g_fkPos[upper][k];
+        forearm[k] = g_fkPos[hand][k] - g_fkPos[fore][k];
+        Near(g_fkPos[hand][k],target[k],.001f,"rifle wrist missed controller");
+    }
+    QuatNear(g_fkRot[hand],wrist,"rifle tilted controller wrist");
+    const auto* lengths = left ? g_VRIKDbgLensL : g_VRIKDbgLens;
+    Near(std::sqrt(VRIK_Dot3(upperArm,upperArm)),lengths[0],.001f,"rifle stretched upper arm");
+    Near(std::sqrt(VRIK_Dot3(forearm,forearm)),lengths[1],.001f,"rifle stretched forearm");
+    return {sign*VRIK_Dot3(upperArm,right), VRIK_Dot3(upperArm,forward), VRIK_Dot3(upperArm,up)};
+}
+
+void RifleElbow() {
+    CyberpunkVR_VrikElbowPolicy=1;
+    CyberpunkVR_RifleElbowAB=1;
+    const auto old=WeaponElbow(false,true,2,-.10f,.07f,.06f);
+    Check(old[2]>.2f && CyberpunkVR_RifleElbowSample[1]==0.f,"A/B baseline did not reproduce raised elbow");
+    CyberpunkVR_RifleElbowAB=2;
+    const auto fixed=WeaponElbow(false,true,2,-.10f,.07f,.06f);
+    Check(fixed[2]<-.1f && CyberpunkVR_RifleElbowSample[1]>.99f,"A/B did not select corrected swivel");
+    CyberpunkVR_RifleElbowAB=0;
+    const auto normal=WeaponElbow(false,true,2,-.10f,.07f,.06f);
+    for(int k=0;k<3;++k) Near(normal[k],fixed[k],.0001f,"A/B changed normal solver behavior");
+    for (const auto& offset : {std::array{-.10f,.07f,.06f}, {-.10f,.05f,-.07f}, {-.14f,.12f,.10f},
+                               {-.12f,0.f,.005f}, {-.12f,-.015f,-.04f}, {-.08f,.17f,-.04f},
+                               {-.03f,.42f,-.08f}, {.04f,.06f,-.38f}, {.23f,.02f,-.04f}}) {
+        const auto [out,ahead,height] = offset;
+        const bool close = out < 0.f && ahead < .2f;
+        CyberpunkVR_TwoHandActive = 1;
+        const auto right = WeaponElbow(false,true,2,out,ahead,height);
+        const auto left = WeaponElbow(true,true,4,out,ahead,height);
+        for (int k=0; k<3; ++k) Near(left[k],right[k],.002f,"elbow bend fails to mirror");
+        std::cout<<"right elbow from shoulder (out, forward, up) = "<<right[0]<<", "<<right[1]<<", "<<right[2]<<'\n';
+        if (close) {
+            // Remove the component along the shoulder-to-wrist line to measure the pole itself.
+            const float along = VRIK_Dot3(right.data(),offset.data())/VRIK_Dot3(offset.data(),offset.data());
+            const float poleUp = right[2]-along*height;
+            Check(poleUp < -.06f,"rifle elbow folded over the shoulder-to-wrist line");
+            Check(right[0] > out+.005f && right[2] < std::min(0.f,height)-.08f,
+                  "close rifle elbow must sit outboard of the wrist and below both shoulder and wrist");
+            if (height<0 && ahead>0)
+                Check(right[1]<ahead,"elbow lies ahead of a chest-level grip");
+        } else {
+            const auto ordinary = WeaponElbow(false,true,1,out,ahead,height);
+            for (int k=0; k<3; ++k) Near(right[k],ordinary[k],.0001f,"rifle changed ordinary reach");
+        }
+        const auto support = WeaponElbow(true,false,2,out,ahead,height);
+        const auto other = WeaponElbow(true,false,1,out,ahead,height);
+        for (int k=0; k<3; ++k) Near(support[k],other[k],.0001f,"rifle changed support elbow");
+    }
+    // Opposite signed trims around the mirrored wrist-to-shoulder axes have the same anatomical effect.
+    const float trim = .2f;
+    const auto neutral = WeaponElbow(false,true,2,-.10f,.07f,.06f);
+    const auto trimmed = WeaponElbow(false,true,2,-.10f,.07f,.06f,trim);
+    const auto mirrored = WeaponElbow(true,true,2,-.10f,.07f,.06f,-trim);
+    float line[3] = {.10f,-.07f,-.06f}, baseNormal[3], trimNormal[3], cross[3];
+    VRIK_Norm3(line);
+    VRIK_Cross3(line,neutral.data(),baseNormal);
+    VRIK_Cross3(line,trimmed.data(),trimNormal);
+    VRIK_Cross3(baseNormal,trimNormal,cross);
+    Near(std::atan2(VRIK_Dot3(cross,line),VRIK_Dot3(baseNormal,trimNormal)),trim,.002f,"rifle lost signed pole trim");
+    for (int k=0; k<3; ++k) Near(mirrored[k],trimmed[k],.002f,"trimmed poles fail to mirror");
+
+    // Sample successive targets from the raised pose through the blend into an ordinary reach.
+    CyberpunkVR_TwoHandActive = 0;
+    for (bool left : {false,true}) for (bool lower : {false,true}) {
+        std::array<float,3> prev{};
+        for (int i=0; i<=70; ++i) {
+            const float t = i/70.f;
+            const auto elbow = lower
+                ? WeaponElbow(left,true,2,-.10f+.11f*t,.07f,.06f-.44f*t)
+                : WeaponElbow(left,true,2,-.10f+.07f*t,.07f+.35f*t,.06f-.14f*t);
+            if (i>0) for (int k=0; k<3; ++k) Near(elbow[k],prev[k],.025f,"elbow flipped during rifle raise");
+            prev = elbow;
+        }
+    }
+}
+
 void ElbowBlendProfiles() {
     const float right[3]={1,0,0},up[3]={0,0,1},forward[3]={0,1,0};
     CyberpunkVR_VrikElbowPolicy=1;
@@ -1575,6 +1910,108 @@ void PassengerWindow() {
              <<" after="<<requested[1][0]<<','<<requested[1][1]<<'\n';
 }
 
+void VehicleSeated() {
+    Setup("passenger-window");shared[31]=1;
+    Check(cvr::anim::IsSeatedVehicleState(1) && cvr::anim::IsSeatedVehicleState(3) &&
+          cvr::anim::IsSeatedVehicleState(6),"driving/passenger states excluded");
+    for(int state:{0,2,4,5,7})Check(!cvr::anim::IsSeatedVehicleState(state),"transition/scene/window used seated solver");
+    auto reference=Read<Bone>("reference_full.bin");
+    VRIK_ComputeFK(reinterpret_cast<uint8_t*>(reference.data()),static_cast<int>(reference.size()));
+    int eyes[2]{-1,-1};
+    for(int i=0;i<g_VRBoneCount;++i) {
+        if(names[i]=="l_J_eye_JNT")eyes[0]=i;
+        if(names[i]=="r_J_eye_JNT")eyes[1]=i;
+    }
+    Check(eyes[0]>=0 && eyes[1]>=0,"fixture eye bones missing");
+    const int head=g_VRHeadBoneIdx,hips=g_VRHipsIdx;
+    float inverse[4],eyeLocal[3],eyeDelta[3];VRIK_QuatConj(g_fkRot[head],inverse);
+    for(int k=0;k<3;++k)eyeDelta[k]=.5f*(g_fkPos[eyes[0]][k]+g_fkPos[eyes[1]][k])-g_fkPos[head][k];
+    VRIK_QuatRotateVec(inverse,eyeDelta,eyeLocal);
+    cvr::camera::AnchorVector mount{};Check(cvr::camera::ReadNeckCameraEyeOffset(&mount),"seat camera mount missing");
+    const float cameraOffset[3]={mount.x,mount.y,mount.z};
+    float worstEye=0,worstHand=0;
+    for(bool bike:{false,true}) {
+        auto native=Read<Bone>("vehicle_pose.bin");
+        if(bike)for(int i=0;i<g_VRSpineCount;++i) {
+            const float bend[4]={std::sin(-.06f),0,0,std::cos(-.06f)};float q[4];
+            VRIK_QuatMul(bend,native[g_VRSpineIdx[i]].q,q);std::copy_n(q,4,native[g_VRSpineIdx[i]].q);
+        }
+        VRIK_ComputeFK(reinterpret_cast<uint8_t*>(native.data()),static_cast<int>(native.size()));
+        float orientation[4],camera[3],eye[3];VRIK_QuatConj(g_VRHeadReferenceModelRot,inverse);
+        VRIK_QuatMul(g_fkRot[head],inverse,orientation);VRIK_QuatNorm(orientation);
+        VRIK_QuatRotateVec(g_fkRot[head],eyeLocal,eye);
+        for(int k=0;k<3;++k)camera[k]=g_fkPos[head][k]+eye[k]+cameraOffset[k];
+        // An authored seat camera can be displaced from the avatar's eyes;
+        // unlike on-foot mounting, this offset must not bend a neutral rider.
+        camera[0]+=.08f;camera[1]-=.05f;camera[2]-=.10f;
+        float nativeHands[2][3],nativeHandQ[2][4];
+        for(int side=0;side<2;++side) {
+            const int hand=side ? g_VRLeftBoneIdx:g_VRRightBoneIdx;
+            std::copy_n(g_fkPos[hand],3,nativeHands[side]);std::copy_n(g_fkRot[hand],4,nativeHandQ[side]);
+        }
+        auto fixedLower=[&](const auto& pose) {
+            for(int bone=0;bone<g_VRBoneCount;++bone)
+                if(!g_VRUpperOwned[bone] && g_VRShadowSource[bone]<0)
+                    Check(std::memcmp(&pose[bone],&native[bone],48)==0,"seated fit modified native lower/camera pose");
+            Check(std::memcmp(&pose[hips],&native[hips],48)==0,"seated fit moved pelvis off its seat");
+        };
+        for(float dx:{-.08f,0.f,.08f})for(float dy:{-.1f,0.f,.1f}) {
+            auto pose=native;auto* buffer=reinterpret_cast<uint8_t*>(pose.data());
+            const float target[3]={camera[0]+dx,camera[1]+dy,camera[2]-(dx || dy ? .03f:0.f)};
+            VRIK_BeginBodySolve(buffer);
+            Check(VRIK_PlaceSeatedUpper(buffer,target,camera,orientation,head),"seated fit rejected valid native pose");
+            fixedLower(pose);
+            float error=0;for(int k=0;k<3;++k)error+=(g_VRIKBodyEyeSolved[k]-g_VRIKBodyEyeTarget[k])*(g_VRIKBodyEyeSolved[k]-g_VRIKBodyEyeTarget[k]);
+            worstEye=std::max(worstEye,std::sqrt(error));
+            float desiredHead[4];VRIK_QuatMul(orientation,g_VRHeadReferenceModelRot,desiredHead);
+            QuatNear(g_fkRot[head],desiredHead,"seated head orientation missed HMD");
+            for(int bone=head;bone!=hips;bone=g_VRBoneParent[bone]) {
+                Check(std::memcmp(pose[bone].p,native[bone].p,sizeof(Bone::p))==0,"seated spine stretched a segment");
+                if(!dx && !dy)QuatNear(pose[bone].q,native[bone].q,"neutral HMD flattened authored seated posture");
+            }
+            const auto once=pose;
+            VRIK_BeginBodySolve(buffer);
+            Check(VRIK_PlaceSeatedUpper(buffer,target,camera,orientation,head),"seated repeat rejected");
+            for(int bone=head;bone!=hips;bone=g_VRBoneParent[bone])QuatNear(pose[bone].q,once[bone].q,"seated bend accumulated");
+            VRIK_SyncShadowUpper(buffer,true);VRIK_CaptureLocalArmCache(buffer,true,true,true);
+            Check(!g_solveCacheModel,"seat cache retained world/model coordinates");
+            const auto solved=pose;
+            auto replay=native;auto* replayBuffer=reinterpret_cast<uint8_t*>(replay.data());
+            VRIK_ReplaySolveCache(replayBuffer);fixedLower(replay);
+            for(int i=0;i<g_solveCacheN;++i) {
+                const int bone=g_solveCacheIdx[i];
+                QuatNear(replay[bone].q,solved[bone].q,"seat cache lost an upper rotation");
+            }
+            VRIK_BeginBodySolve(replayBuffer);
+            for(int i=0;i<g_solveCacheN;++i) {
+                const int bone=g_solveCacheIdx[i];
+                Check(std::memcmp(&replay[bone],&native[bone],48)==0,"leaving seat retained an owned pose on another buffer");
+            }
+        }
+        // Native steering hands stay at their original wheel contacts while the back bends.
+        auto held=native;auto* buffer=reinterpret_cast<uint8_t*>(held.data());
+        const float target[3]={camera[0]+.025f,camera[1]-.025f,camera[2]-.02f};
+        VRIK_BeginBodySolve(buffer);
+        Check(VRIK_PlaceSeatedUpper(buffer,target,camera,orientation,head,true,true),"held-wheel body solve rejected");
+        fixedLower(held);
+        for(int side=0;side<2;++side) {
+            const int hand=side ? g_VRLeftBoneIdx:g_VRRightBoneIdx;
+            const float miss=std::hypot(g_fkPos[hand][0]-nativeHands[side][0],g_fkPos[hand][1]-nativeHands[side][1],g_fkPos[hand][2]-nativeHands[side][2]);
+            worstHand=std::max(worstHand,miss);QuatNear(g_fkRot[hand],nativeHandQ[side],"seat bend rotated wheel contact");
+        }
+        // Impossible head translations are bounded by joint rotation, never by moving the seat or stretching bones.
+        auto distant=native;buffer=reinterpret_cast<uint8_t*>(distant.data());
+        const float unreachable[3]={camera[0]+2,camera[1]+2,camera[2]};VRIK_BeginBodySolve(buffer);
+        Check(VRIK_PlaceSeatedUpper(buffer,unreachable,camera,orientation,head),"bounded far solve rejected");fixedLower(distant);
+        for(int bone=head;bone!=hips;bone=g_VRBoneParent[bone]) {
+            Check(std::memcmp(distant[bone].p,native[bone].p,sizeof(Bone::p))==0,"unreachable head stretched spine");
+            for(float q:distant[bone].q)Check(std::isfinite(q),"unreachable head produced invalid rotation");
+        }
+    }
+    std::cout<<"seated max eye miss="<<worstEye<<" wheel hand miss="<<worstHand<<'\n';
+    Check(worstEye<.025f,"ordinary seated lean did not follow the HMD");
+    Check(worstHand<.02f,"body lean detached native steering hands");
+}
 void VehicleUpperBody() {
     Setup("passenger-window");
     auto distance=[](const float* a,const float* b) { return std::hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]); };
@@ -2080,17 +2517,27 @@ void LadderUpper() {
     }
     std::cout<<"native_ladder_bones="<<native.size()<<" pelvis_and_legs_preserved=true min_neck_reach_gain="<<minReachGain<<"\n";
 }
+#include "parity_trace.hpp"
 }
+void TestWeaponFollow(bool left);
+void TestSupportWrist(bool weaponLeft, uint8_t* native, int bones);
 int main(int argc,char** argv) {
     try {
         g_VRBendLimitClockUs=TestClock;
         Setup();const std::string name=argc>1?argv[1]:"";
         if(name=="fk_fixture")FkFixture();
+        else if(name=="weapon_follow_right" || name=="weapon_follow_left") TestWeaponFollow(name=="weapon_follow_left");
+        else if(name=="support_wrist_left" || name=="support_wrist_right") {
+            Setup("weapon_stance");
+            auto native = Read<Bone>("shotgun-2.bin");
+            TestSupportWrist(name=="support_wrist_left", reinterpret_cast<uint8_t*>(native.data()), static_cast<int>(native.size()));
+        }
         else if(name=="packet_atomicity")PacketAtomicity();
         else if(name=="coordinate_roundtrip")CoordinateRoundtrip();
         else if(name=="passenger_window")PassengerWindow();
         else if(name=="vehicle_hand_frame")VehicleHandFrame();
         else if(name=="vehicle_upper_body")VehicleUpperBody();
+        else if(name=="vehicle_seated")VehicleSeated();
         else if(name=="body_write_census")BodyWriteCensus();
         else if(name=="swimming_body")SwimmingBody();
         else if(name=="ladder_upper")LadderUpper();
@@ -2118,6 +2565,7 @@ int main(int argc,char** argv) {
         else if(name=="mantis_wrist")MantisWrist();
         else if(name=="cyberware_wire")CyberwareWire();
         else if(name=="combat_elbow")CombatElbow();
+        else if(name=="rifle_elbow")RifleElbow();
         else if(name=="elbow_blend")ElbowBlendProfiles();
         else if(name=="cyberware_muscles")CyberwareMuscles();
         else if(name=="launcher_axis")LauncherAxis();
@@ -2149,6 +2597,13 @@ int main(int argc,char** argv) {
         else if(name=="missing_camera_expiry")MissingCameraExpiry();
         else if(name=="missing_native_centre")MissingNativeCentre();
         else if(name=="paired_consumed")PairedConsumed();
+        else if(name=="trace")Trace();
+#ifdef VRIK_ROOM_TESTS
+        else if(name=="room_trace")RoomTrace();
+#endif
+#ifdef VRIK_WATER_TESTS
+        else if(name=="water_trace")WaterTrace();
+#endif
         else throw std::runtime_error("unknown test");
         return 0;
     }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}

@@ -49,7 +49,7 @@ void Fresh(bool shared=false){
         const auto vt=Base+profile.vtable;
         Put(vt,Base+profile.destructor);Put(vt+8,Base+profile.work);
         if(slot==2 || slot==8){const bool late=slot==8;stage::Header header{};
-            Field(header,0,vt);Field(header,0x18,Base+(late?0x1134C40:0x1D41BE0));
+            Field(header,0,vt);Field(header,0x18,Base+(late?0x22749E0:0x2274AE0));
             Field(header,0x30,late?LateStages:EarlyStages);Field(header,0x38,late?4u:2u);Field(header,0x3C,late?4u:2u);
             Put(Object(slot),header);StageArray(late?LateStages:EarlyStages,late);
         }else if(profile.bytes==24){std::array<uint8_t,24> child{};Field(child,0,vt);child[9]=0x93;Put(Object(slot),child);
@@ -121,7 +121,7 @@ void FreshPatternMutations(){
     reject([]{Put(Handles+3*16,tree::NativeHandle{Object(0),Control(0)});Put(Control(0),int32_t(2));});
     reject([]{Put(Base+sections::detail::Setup.vtable+8,Base+0x1EDD65);});
     reject([]{Put(Base+sections::detail::Special.vtable,Base+0x986799);});
-    reject([]{Put(Object(8)+0x18,Base+0x1134C48);});reject([]{Put(Object(2)+0x18,Base+0x1D41B70);});
+    reject([]{Put(Object(8)+0x18,Base+0x22749E8);});reject([]{Put(Object(2)+0x18,Base+0x2274A70);});
     reject([]{Put(Object(8)+0x20,Base+0x123450);});reject([]{Put(Object(8)+0x28,Base+0x123450);});
     reject([]{Put(LateStages,Base+0x123450);});reject([]{Put(LateStages+8,uint32_t(17));});
     reject([]{Put(LateStages+0xC,uint8_t(1));});reject([]{Put(LateStages+0x14,uint8_t(0));});

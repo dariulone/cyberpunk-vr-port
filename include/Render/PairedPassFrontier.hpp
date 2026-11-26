@@ -5,6 +5,10 @@
 #include <memory>
 #include <set>
 #include <string_view>
+#if CVR_RUST_VRIK
+#include <array>
+#include <cstddef>
+#endif
 
 namespace cvr::stereo::paired_frontier {
 using graph_snapshot::Field;
@@ -28,6 +32,56 @@ constexpr uint64_t Name(std::string_view value){
     uint64_t hash=14695981039346656037ull;for(const auto c:value)hash=(hash^uint8_t(c))*1099511628211ull;return hash;
 }
 namespace detail {
+#if CVR_RUST_VRIK
+// The helpers: rust/crates/cvr-render/src/paired_frontier.rs (tools/single_pass_tests/paired_pass_frontier_test runs its
+// cases against them in its Rust variant). Edge sets are lent flattened, in their order.
+using RustLink=std::array<uint32_t,2>;
+extern "C" {
+size_t cvr_pf_path(const RustLink*,size_t,uint32_t,uint32_t,uint32_t*);
+bool cvr_pf_acyclic(const uint32_t*,size_t,const RustLink*,size_t);
+bool cvr_pf_only(uint32_t,const RustLink*,size_t,uint32_t,uint32_t*);
+uint64_t cvr_pf_fingerprint(const graph_snapshot::Node*,size_t,const graph_snapshot::Edge*,size_t,uint32_t,uint64_t);
+}
+inline std::vector<RustLink> Flat(const Edges& edges){
+    std::vector<RustLink> flat;flat.reserve(edges.size());for(const auto& [from,to]:edges)flat.push_back({from,to});return flat;
+}
+inline std::vector<uint32_t> Path(const Edges& edges,uint32_t from,uint32_t to){
+    const auto flat=Flat(edges);std::vector<uint32_t> result(flat.size()+1);
+    result.resize(cvr_pf_path(flat.data(),flat.size(),from,to,result.data()));return result;
+}
+inline bool Acyclic(const std::set<uint32_t>& nodes,const Edges& edges){
+    const std::vector<uint32_t> ids(nodes.begin(),nodes.end());const auto flat=Flat(edges);
+    return cvr_pf_acyclic(ids.data(),ids.size(),flat.data(),flat.size());
+}
+inline bool OnlySuccessor(const Edges& edges,uint32_t source,uint32_t& target){
+    const auto flat=Flat(edges);return cvr_pf_only(0,flat.data(),flat.size(),source,&target);
+}
+inline bool OnlyPredecessor(const Edges& edges,uint32_t target,uint32_t& source){
+    const auto flat=Flat(edges);return cvr_pf_only(1,flat.data(),flat.size(),target,&source);
+}
+inline uint64_t Fingerprint(const graph_snapshot::Snapshot& source,uint64_t base){
+    return cvr_pf_fingerprint(source.nodes.data(),source.nodes.size(),source.edges.data(),source.edges.size(),source.failure,base);
+}
+// Plan::BuildCandidate's members, lent by Rust until cvr_pf_free.
+struct RustRoles {uint32_t ids[8];const uint32_t* solid;size_t solidCount;const uint32_t* prefix;size_t prefixCount;};
+struct RustLinks {const RustLink* data;size_t count;};
+struct RustIds {const uint32_t* data;size_t count;};
+struct RustPlan {
+    uint32_t result,failure,boundary;bool hasSource;uint64_t base,fingerprint;
+    RustRoles roles[2];RustLinks links[9];RustIds ids[3];Invariants invariants;
+};
+struct RustBuilt;
+static_assert(sizeof(RustLink)==8 && sizeof(Invariants)==11 && sizeof(RustRoles)==64 && sizeof(RustPlan)==368 &&
+    offsetof(RustPlan,invariants)==352,"mirrored by paired_frontier.rs");
+extern "C" {
+RustBuilt* cvr_pf_build(const graph_snapshot::Node*,size_t,const graph_snapshot::Edge*,size_t,uint32_t,uint64_t,uint32_t,RustPlan*);
+void cvr_pf_free(RustBuilt*);
+}
+inline Edges Unflat(const RustLinks& links){
+    Edges edges;for(size_t i=0;i<links.count;++i)edges.emplace_hint(edges.end(),links.data[i][0],links.data[i][1]);return edges;
+}
+inline std::vector<uint32_t> Ids(const uint32_t* data,size_t count){return std::vector<uint32_t>(data,data+count);}
+#else
 inline std::vector<uint32_t> Path(const Edges& edges,uint32_t from,uint32_t to){
     std::map<uint32_t,uint32_t> previous{{from,from}};std::vector<uint32_t> pending{from};
     for(size_t i=0;i<pending.size();++i){const auto current=pending[i];
@@ -63,12 +117,38 @@ inline uint64_t Fingerprint(const graph_snapshot::Snapshot& source,uint64_t base
     for(const auto& edge:source.edges){number(edge.handle);number(edge.order);bytes(edge.bytes);}
     return hash;
 }
+#endif
 }
 
 // This is an immutable source-bound topology receipt, NOT NativePreparationSchedule
 // JobGraph, a resource dependency graph, or an executable native graph shadow.
 class Plan {
 public:
+#if CVR_RUST_VRIK
+    // The rules: paired_frontier.rs; a rejection keeps the members computed so far, as here.
+    Result BuildCandidate(const graph_snapshot::Snapshot& source,uint64_t imageBase,Boundary boundary=Boundary::Solid)try{
+        [[maybe_unused]] const auto previousSource=source_;
+        *this=Plan{};
+        detail::RustPlan lent{};
+        const auto built=detail::cvr_pf_build(source.nodes.data(),source.nodes.size(),source.edges.data(),source.edges.size(),
+            source.failure,imageBase,uint32_t(boundary),&lent);
+        struct Release{detail::RustBuilt* built;~Release(){detail::cvr_pf_free(built);}}release{built};
+        for(uint32_t eye=0;eye<2;++eye){const auto& from=lent.roles[eye];auto& roles=roles_[eye];
+            roles.collector=from.ids[0];roles.depth=from.ids[1];roles.solidReady=from.ids[2];roles.discard=from.ids[3];
+            roles.afterDiscard=from.ids[4];roles.postGBuffer=from.ids[5];roles.lighting=from.ids[6];roles.final2D=from.ids[7];
+            roles.solid=detail::Ids(from.solid,from.solidCount);roles.prefix=detail::Ids(from.prefix,from.prefixCount);
+        }
+        for(uint32_t phase=0;phase<2;++phase){
+            original_[phase]=detail::Unflat(lent.links[phase]);proposed_[phase]=detail::Unflat(lent.links[2+phase]);
+            removed_[phase]=detail::Unflat(lent.links[4+phase]);added_[phase]=detail::Unflat(lent.links[6+phase]);
+        }
+        cpuIncoming_=detail::Unflat(lent.links[8]);invariants_=lent.invariants;
+        cpuBlocker_=detail::Ids(lent.ids[0].data,lent.ids[0].count);orderBlocker_=detail::Ids(lent.ids[1].data,lent.ids[1].count);
+        peerCpuClosure_=detail::Ids(lent.ids[2].data,lent.ids[2].count);boundary_=Boundary(lent.boundary);
+        if(lent.hasSource){source_=std::make_shared<const graph_snapshot::Snapshot>(source);base_=lent.base;fingerprint_=lent.fingerprint;}
+        failure_=Failure(lent.failure);result_=Result(lent.result);return result_;
+    }catch(...){*this=Plan{};failure_=Failure::Allocation;return result_;}
+#else
     Result BuildCandidate(const graph_snapshot::Snapshot& source,uint64_t imageBase,Boundary boundary=Boundary::Solid)try{
         [[maybe_unused]] const auto previousSource=source_;
         *this=Plan{};failure_=Failure::Source;
@@ -176,6 +256,7 @@ public:
         source_=std::make_shared<const graph_snapshot::Snapshot>(source);base_=imageBase;fingerprint_=detail::Fingerprint(source,imageBase);
         failure_=Failure::None;result_=Result::CandidateNeedsCpuAndResourceCompile;return result_;
     }catch(...){*this=Plan{};failure_=Failure::Allocation;return result_;}
+#endif
 
     bool Matches(const graph_snapshot::Snapshot& current,uint64_t imageBase)const{
         return source_ && result_==Result::CandidateNeedsCpuAndResourceCompile && imageBase==base_ && !current.failure &&
@@ -200,6 +281,7 @@ public:
     const std::vector<uint32_t>& PeerCpuClosure()const{return peerCpuClosure_;}
     const Edges& CpuIncoming()const{return cpuIncoming_;}
 private:
+#if !CVR_RUST_VRIK
     static uint32_t PrefixRole(const graph_snapshot::Node& node,uint64_t base){
         const auto work=node.work>=base?node.work-base:0;const auto word=Field<uint32_t>(node.definition,24);
         if(work==0xC0F204)return 1;
@@ -217,6 +299,7 @@ private:
         if(name==Name("GBuffer_Solid"))return 48;
         return 0;
     }
+#endif
     Result result_=Result::Rejected;Failure failure_=Failure::None;
     Boundary boundary_=Boundary::Solid;
     uint64_t base_{},fingerprint_{};

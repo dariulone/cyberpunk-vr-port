@@ -1,4 +1,6 @@
 #include "Render/DxilPatch.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's patches; the Rust build's are rust/crates/cvr-render/src/dxil_patch.rs (the header calls them).
 #include <cstring>
 
 namespace cvr::dxil_patch {
@@ -108,3 +110,4 @@ bool WriteFloat(std::vector<uint8_t>& container,size_t bit,float value) {
     return true;
 }
 }
+#endif

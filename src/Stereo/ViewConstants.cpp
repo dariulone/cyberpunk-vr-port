@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // ViewConstants -- what each view's shaders are actually TOLD, as opposed to what we believe we set.
 //
@@ -42,6 +43,37 @@
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
 
+#if CVR_RUST_VRIK
+// THE PROBES ARE RUST'S (rust/crates/cvr-render/src/view_constants.rs, called from the CBV hook by capture_cbv.rs): their
+// exported switches and counters stay here, with the upload-heap lookup the C++ capture shares.
+// OFF -- the 256-byte b6 blocks turned out to be ring garbage past register 0.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_CbvProbe = 1;
+#endif
+// Resolve a GPU virtual address inside a mapped upload heap to its CPU bytes.
+// The mapped heaps are Rust's (rust/crates/cvr-render/src/upload_maps.rs).
+// For the Rust censuses (rust/crates/cvr-render/src/census_draws.rs).
+// One node's block, both views, in full. Live-settable so the next candidate costs no rebuild.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CbvDumpNode = 0x40FC6C;  // LightChannelVolumes
+#endif
+// OFF: a mutex and an 848-byte memcpy on every constant-buffer view over 768 bytes.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_CamCbProbe = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CamPairMaxMs = 40;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamPairs = 0;
+#endif
+#else
 namespace cvr {
 namespace detail {
 
@@ -336,3 +368,5 @@ void camcb_note(const uint8_t* cp, bool vrcam) {
 
 }  // namespace detail
 }  // namespace cvr
+#endif
+#endif

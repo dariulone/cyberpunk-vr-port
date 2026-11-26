@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // ProjAspectCopy -- one hook, one file.
 //
 // The projection block copy: one of the four sites that carry FOV and aspect into the
@@ -29,6 +30,12 @@
 #include <cstddef>
 #include <cmath>
 
+#if CVR_RUST_VRIK
+// The callback and the stub are rust/crates/cvr-rig/src/vrik/proj_aspect.rs; the registration (gated off) stays.
+extern "C" bool cvr_hook_proj_aspect_copy_install();
+extern "C" bool cvr_hook_proj_aspect_copy_wanted();
+CVR_HOOK_IF("ProjAspectCopy", ::cvr::hooks::Stage::Boot, 50, cvr_hook_proj_aspect_copy_install, cvr_hook_proj_aspect_copy_wanted);
+#else
 // State private to this hook.
 namespace {
 float g_projAspectLastSrcFov = 0.0f;
@@ -216,3 +223,5 @@ bool InstallProjAspectCopyHook() {
 }
 
 CVR_HOOK_IF("ProjAspectCopy", ::cvr::hooks::Stage::Boot, 50, InstallProjAspectCopyHook, ProjAspectCopyWanted);
+#endif
+#endif

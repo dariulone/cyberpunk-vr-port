@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 #include "Stereo/RenderParity.hpp"
 #include "Render/NativePreparation.hpp"
@@ -46,6 +47,7 @@
 namespace cvr {
 namespace detail {
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 void* __fastcall Detour_GatherCtxInit(void* ctx, uintptr_t view, void* cull_query, uint8_t flag) {
     void* const r = g_orig_gather_ctx_init(ctx, view, cull_query, flag);
     if (CyberpunkVR_LodThreshOverrideEnable && ctx && view) {
@@ -68,6 +70,7 @@ void* __fastcall Detour_GatherCtxInit(void* ctx, uintptr_t view, void* cull_quer
     }
     return r;
 }
+#endif
 
 // ---- occlusion gate force ---------------------------------------------------------------
 // sub_1405AC174 is visQuerySingleFrustum's vfn+0x20 (per-view visibility prepare). It gates
@@ -80,14 +83,25 @@ void* __fastcall Detour_GatherCtxInit(void* ctx, uintptr_t view, void* cull_quer
 // OWN frustum -> correct occlusion, no cross-eye parallax error. The occluder list itself is
 // scene-wide (this+8 -> +0x80, 604 entries observed for every caller) and sub_14079F518
 // already early-outs when that list is empty, so this stays safe for views without occluders.
+#if !CVR_RUST_VRIK
 constexpr uintptr_t VIS_QUERY_PREPARE_RVA = 0x5AC174;
 constexpr uintptr_t TESTER_OCC_GATE_OFF = 0x19E;
+#endif
+#if !CVR_RUST_VRIK
 using VisQueryPrepareFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 VisQueryPrepareFn g_orig_visquery_prepare = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_OcclusionGateForce = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOcclGateForced = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOcclGateAlreadyOn = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 __int64 __fastcall Detour_VisQueryPrepare(void* tester, void* job) {
     if (CyberpunkVR_OcclusionGateForce && tester) {
         __try {
@@ -102,7 +116,9 @@ __int64 __fastcall Detour_VisQueryPrepare(void* tester, void* job) {
     }
     return g_orig_visquery_prepare(tester, job);
 }
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 static bool visibility_replay_enabled() {
     return CyberpunkVR_CullReuseMode == 7 || CyberpunkVR_CullReuseMode == 8 ||
         CyberpunkVR_CullReuseMode == 9;
@@ -320,25 +336,49 @@ __int64 __fastcall Detour_MainCullTest(
         g_fine_reuse_phase.store(FINE_REUSE_IDLE, std::memory_order_release);
     return g_orig_main_cull_test(manager, job, output, tester, query);
 }
+#endif
 
 // --- PrepareRenderElements stage profiler (diagnostic, default OFF) --------
+#if !CVR_RUST_VRIK
 using PrepareStageFn = void(__fastcall*)(void*, void*, void*, uint32_t, uint32_t);
 using PrepareGatherFn = void*(__fastcall*)(void*, void*);
 using PrepareFilterFn = __int64(__fastcall*)(void*, char, uint32_t, uint32_t);
 using PrepareFinalizeFn = void(__fastcall*)(void*, char, __int64, __int64);
 using PrepareSortFn = void(__fastcall*)(void*, void*, uint32_t, void*);
+#endif
+#if !CVR_RUST_VRIK
 PrepareStageFn g_orig_prepare_stage = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 PrepareGatherFn g_orig_prepare_gather = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 PrepareFilterFn g_orig_prepare_filter = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 PrepareFinalizeFn g_orig_prepare_finalize = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 PrepareSortFn g_orig_prepare_sort_a = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 PrepareSortFn g_orig_prepare_sort_b = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 PrepareSortFn g_orig_prepare_sort_c = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 PrepareSortFn g_orig_prepare_sort_final = nullptr;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 static thread_local uint32_t t_prepare_view_kind = 0; // 1=VRCAM, 2=MAIN gameplay
 static thread_local uintptr_t t_prepare_bucket_key = 0;
 static thread_local uint32_t t_prepare_stage_id = 0;
 static thread_local uint8_t t_prepare_mode = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_PrepareProfileEnable = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_PrepareCacheAuditEnable = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareStageTicksMain = 0;
@@ -359,11 +399,19 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareSortFinalTicks
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareSortFinalTicksVrcam = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareCallsMain = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareCallsVrcam = 0;
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t PREPARE_STAGE_MAX = 64;
 constexpr uint32_t PREPARE_MODE_MAX = 4;
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t PREPARE_STAGE_MODE_COUNT = PREPARE_STAGE_MAX * PREPARE_MODE_MAX;
 constexpr uint32_t PREPARE_HIST_BUCKETS = 10;
 constexpr uint32_t PREPARE_TOP_BUCKETS = 24;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugPrepareTopBucketCount = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugPrepareTopBucketStage[PREPARE_TOP_BUCKETS] = {};
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugPrepareTopBucketMode[PREPARE_TOP_BUCKETS] = {};
@@ -401,6 +449,8 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareFilterOutMain[
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareFilterOutVrcam[PREPARE_STAGE_MODE_COUNT] = {};
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareFilterCallsMain[PREPARE_STAGE_MODE_COUNT] = {};
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareFilterCallsVrcam[PREPARE_STAGE_MODE_COUNT] = {};
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 struct PrepareFinalizeBucketStat {
     std::atomic<uint64_t> key{0};
     std::atomic<int64_t> ticks_main{0};
@@ -454,7 +504,10 @@ static PrepareFinalizeBucketStat* prepare_finalize_bucket(uint32_t stage_id, uin
     }
     return nullptr;
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) void CyberpunkVR_DumpPrepareFinalizeBuckets() {
     struct Row {
         uint32_t stage = 0;
@@ -515,12 +568,18 @@ extern "C" __declspec(dllexport) void CyberpunkVR_DumpPrepareFinalizeBuckets() {
     }
     CyberpunkVR_DebugPrepareTopBucketCount = static_cast<uint32_t>(lim);
 }
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareCacheHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareCacheMisses = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareCacheHitDescriptors = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareSetHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareSetMisses = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPrepareSetHitDescriptors = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 struct PrepareCacheAuditEntry {
     uint64_t hash = 0;
     uint64_t set_sum = 0;
@@ -555,7 +614,9 @@ static void prepare_prof_add(uint64_t& main_ticks, uint64_t& vrcam_ticks, int64_
         InterlockedAdd64(reinterpret_cast<volatile LONG64*>(&main_ticks), ticks);
     }
 }
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 void __fastcall Detour_PrepareStage(
         void* stage_context, void* buckets, void* output, uint32_t flags0, uint32_t flags1) {
     if(!CyberpunkVR_PrepareProfileEnable && !CyberpunkVR_PrepareCacheAuditEnable &&
@@ -832,6 +893,7 @@ void __fastcall Detour_PrepareSortFinal(
         prepare_stage_mode_index(t_prepare_stage_id, t_prepare_mode),
         dt);
 }
+#endif
 
 // --- VRCAM localCtx test in multifrustum worker ---------------------------
 // Live RE proved query+0x350 (global occlusion ctx) is ALREADY shared between MAIN and
@@ -840,9 +902,16 @@ void __fastcall Detour_PrepareSortFinal(
 //   VRCAM -> [query+0x348] != 0
 // One-shot live nulling of VRCAM's +0x348 kept the scene intact, but FPS did not move in a
 // single-frame poke. Mode 4 repeats that null EVERY invocation for a real measurement.
+#if !CVR_RUST_VRIK
 constexpr uintptr_t QUERYWORK_RVA = 0x29C158;   // sub_14029C158 multifrustum worker
+#endif
+#if !CVR_RUST_VRIK
 using QueryWorkFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 QueryWorkFn g_orig_querywork = nullptr;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 __int64 __fastcall Detour_QueryWork(void* query, void* a2) {
     if (CyberpunkVR_CullReuseMode == 4 && query) {
         void** local_ctx = reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(query) + 0x348);
@@ -857,27 +926,60 @@ __int64 __fastcall Detour_QueryWork(void* query, void* a2) {
     }
     return g_orig_querywork(query, a2);
 }
+#endif
 
 // ---- these detours declare themselves, in the file that defines them -------------------------
 // Culling and prepare detours that serve VRCAM (its cull reuse and replay), the profilers and the single-pass
 // capture are not installed in engine stereo (Stereo/EngineStereo.hpp SecondViewWanted). The LOD threshold,
 // the occlusion gate and the graph context stay: they act on MAIN and the scope camera's view as well.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[cull] FineMaterialize sub_14029D110", FINE_MATERIALIZE_RVA, Detour_FineMaterialize, g_orig_fine_materialize, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR("[cull] GatherCtxInit sub_140623FD8 (LOD-thresh sweep)", MAIN_CULL_CTX_INIT_RVA, Detour_GatherCtxInit, g_orig_gather_ctx_init)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[cull] MainCullPrepare sub_140C65218", MAIN_CULL_PREP_RVA, Detour_MainCullPrepare, g_orig_main_cull_prepare, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[cull] MainCullTest sub_140C651C4", MAIN_CULL_TEST_RVA, Detour_MainCullTest, g_orig_main_cull_test, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[prep] filter sub_14229D240", PREPARE_FILTER_RVA, Detour_PrepareFilter, g_orig_prepare_filter, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[prep] finalize sub_140426AE4", PREPARE_FINALIZE_RVA, Detour_PrepareFinalize, g_orig_prepare_finalize, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[prep] gather sub_1404EE6BC", PREPARE_GATHER_RVA, Detour_PrepareGather, g_orig_prepare_gather, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[prep] sortA sub_140427AC8", PREPARE_SORT_A_RVA, Detour_PrepareSortA, g_orig_prepare_sort_a, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[prep] sortB sub_140427F00", PREPARE_SORT_B_RVA, Detour_PrepareSortB, g_orig_prepare_sort_b, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[prep] sortC sub_140428330", PREPARE_SORT_C_RVA, Detour_PrepareSortC, g_orig_prepare_sort_c, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[prep] finalSort sub_140695F80", PREPARE_SORT_FINAL_RVA, Detour_PrepareSortFinal, g_orig_prepare_sort_final, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[prep] stage sub_14229D3E0", PREPARE_STAGE_RVA, Detour_PrepareStage, g_orig_prepare_stage, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[cull] QueryWork sub_14029C158", QUERYWORK_RVA, Detour_QueryWork, g_orig_querywork, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[cull] VisibleAppend sub_14019B75C", VISIBLE_APPEND_RVA, Detour_VisibleAppend, g_orig_visible_append, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[cull] VisibilityCollector sub_1404ED29C", VIS_COLLECTOR_RVA, Detour_VisibilityCollector, g_orig_visibility_collector, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR("[cull] VisQueryPrepare sub_1405AC174 (occlusion gate)", VIS_QUERY_PREPARE_RVA, Detour_VisQueryPrepare, g_orig_visquery_prepare)
+#endif
 
 // ================================================================================================
 // CULL REUSE, THE GATHER CONTEXT, AND THE LOD SWEEP, moved out of the monolith to sit with the culling
@@ -892,7 +994,14 @@ CVR_DETOUR("[cull] VisQueryPrepare sub_1405AC174 (occlusion gate)", VIS_QUERY_PR
 // that quietly does nothing looks exactly like a feature that does not help.
 // ================================================================================================
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CullReuseMode = 0;   // 0=off, 1=skip VRCAM cull, 2=skip MAIN cull (diag), 4=force VRCAM query localCtx(+0x348)=0, 5=REUSE MAIN block-list v5, 6=unsafe graph-output experiment, 7=replay VRCAM tagged visibility, 8=mode7 + skip duplicate MAIN candidate gather, 9=mode8 + replay fine drawable IDs
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCullSkipHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLocalCtxZeroHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBlockReuseHits = 0;
@@ -903,11 +1012,21 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBlockReuseHits = 0;
 // metadata), then skip MAIN's duplicate cull. MAIN draw consumes VRCAM's current-frame
 // output. The next MAIN->VRCAM transition performs the normal reset, so nothing accumulates.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugContainerRedirectHits = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugMainContainer = 0;
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugVrcamContainer = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisibilityResetSkipHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEndRenderResetSkipHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainCullReuseHits = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 static std::atomic<bool> g_main_visibility_reuse_armed{false};
 enum : uint32_t {
     VIS_REUSE_IDLE = 0,
@@ -918,12 +1037,23 @@ enum : uint32_t {
 static std::atomic<uint32_t> g_visibility_reuse_phase{VIS_REUSE_IDLE};
 static thread_local bool t_preserve_vrcam_graph = false;
 static thread_local void* t_preserve_container = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK
 using GraphContextPrepareFn = void*(__fastcall*)(void*, void*, void*);
 using GraphContextResetFn = __int64(__fastcall*)(void*);
+#endif
+#if CVR_RUST_VRIK
+// The trampolines of DoCulling, GraphContextPrepare, MainCullTest and FineMaterialize are Rust's (cull_visibility.rs's
+// cvr_cull_stage_originals, registered from engine_detours.rs); PreparePair and the CPU collector probe call through them.
+#else
 static GraphContextPrepareFn g_orig_graph_context_prepare = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 static GraphContextResetFn g_orig_graph_context_reset = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 static void* __fastcall Detour_GraphContextPrepare(void* a1, void* a2, void* a3) {
     cvr::stereo::preparation::Graph(a1,false);
     cvr::stereo::ClearPreparedGraph();
@@ -1062,6 +1192,7 @@ static char __fastcall Detour_DoCulling(void* a1, void* a2, void* a3) {
     if (doculling_is_vrcam(a2)) { CVR_DIAGNOSTIC(++CyberpunkVR_DebugCullSkipHits); return 0; }
     return g_orig_doculling(a1, a2, a3);
 }
+#endif
 
 // --- mode7: replay compact VRCAM visibility into fresh MAIN output ---------
 // sub_14029CCEC classifies global candidate records via AABB/frustum + optional HZB and
@@ -1071,26 +1202,53 @@ static char __fastcall Detour_DoCulling(void* a1, void* a2, void* a3) {
 // (fresh frame-local payload/setup) while replacing only 624694's tester-loop with replay.
 static_assert(offsetof(ReplayVisibilityBatch, count) == 0x100);
 
+#if !CVR_RUST_VRIK
 using MainCullTestFn = __int64(__fastcall*)(void*, void*, void*, void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 using MainCullPrepareFn = __int64(__fastcall*)(void*, void*, void*);
 using MainCullCtxInitFn = void*(__fastcall*)(void*, uintptr_t, void*, uint8_t);  // 2.5 added the bool (ctx+0x32 bit 3)
 using VisibilityCollectorFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 using MaterializeWorkerFn = void*(__fastcall*)(void*, void*);
 using FineMaterializeFn = char(__fastcall*)(void*, __int64*, char, void*);
+#endif
+#if !CVR_RUST_VRIK
 using VisibleAppendFn = char(__fastcall*)(void*, uintptr_t*);
+#endif
 uint64_t prepare_mix64(uint64_t value);
+#if !CVR_RUST_VRIK
 MainCullPrepareFn g_orig_main_cull_prepare = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 MainCullCtxInitFn g_main_cull_ctx_init = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 MainCullTestFn g_orig_main_cull_test = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 VisibilityCollectorFn g_orig_visibility_collector = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 static MaterializeWorkerFn g_orig_materialize_worker = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 FineMaterializeFn g_orig_fine_materialize = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 VisibleAppendFn g_orig_visible_append = nullptr;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 thread_local bool t_capture_vrcam_visibility = false;
 thread_local std::vector<ReplayVisibilityBatch> t_vrcam_visibility_batches;
 std::mutex g_visibility_batches_mutex;
 std::vector<ReplayVisibilityBatch> g_vrcam_visibility_batches;
 std::atomic<uint64_t> g_vrcam_visibility_generation{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisibilityBatchCaptures = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisibilityBatchReplays = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisibilityCandidatesCaptured = 0;
@@ -1109,6 +1267,8 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFineCandidateReplays 
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFineCandidateFallbacks = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFineDrawableIdsCaptured = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFineDrawableIdsReplayed = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 std::atomic<uint32_t> g_fine_reuse_phase{FINE_REUSE_IDLE};
 std::mutex g_fine_visibility_mutex;
 std::unordered_map<uintptr_t, std::vector<uintptr_t>> g_fine_visible_ids;
@@ -1116,6 +1276,10 @@ thread_local bool t_capture_fine_ids = false;
 thread_local std::vector<uintptr_t> t_fine_ids;
 static thread_local uint32_t t_materialize_view_kind = 0; // 1=VRCAM, 2=MAIN gameplay
 thread_local uintptr_t t_materialize_output_key = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_MaterializeProfileEnable = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMaterializeWorkerTasksMain = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMaterializeWorkerTasksVrcam = 0;
@@ -1139,6 +1303,8 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMaterializeRangeCtxDu
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMaterializeRangeCtxDuplicateVrcam = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMaterializeRangeCtxProbeOverflowMain = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMaterializeRangeCtxProbeOverflowVrcam = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 constexpr uint32_t MATERIALIZE_RANGE_HASH_CAP = 1u << 22; // 4M slots, diagnostic only
 static std::atomic<uint64_t> g_materialize_range_hash_main[MATERIALIZE_RANGE_HASH_CAP];
 static std::atomic<uint64_t> g_materialize_range_hash_vrcam[MATERIALIZE_RANGE_HASH_CAP];
@@ -1243,6 +1409,7 @@ static void* __fastcall Detour_MaterializeWorker(void* task, void* queue_ctx) {
     t_materialize_output_key = previous_output_key;
     return result;
 }
+#endif
 
 // ---- LOD/detail threshold sweep: override gather-context ctx+0x28 (sub_140623FD8) ----------
 // 623FD8 builds the shared gather-context; ctx+0x28 is the LOD/detail threshold (normal 1.0,
@@ -1250,14 +1417,23 @@ static void* __fastcall Detour_MaterializeWorker(void* task, void* queue_ctx) {
 // NOT into the 14DFE8 fine test. This override sweeps the threshold live so we can measure the
 // DrawableAppends delta per view. a1=ctx out, a2=view ptr, a3=cull-query. key@view+0x28,
 // aspect@view+0x98. Same detection ABI as the rest of the cull hooks.
+#if !CVR_RUST_VRIK
 MainCullCtxInitFn g_orig_gather_ctx_init = nullptr;
+#endif
 // OBSERVE-ONLY DEFAULT (2026-07-31): Enable=1 with ApplyMask=0 reads the threshold each view
 // actually gets and writes nothing. Two night symptoms -- no stars, and distance lost to fog
 // while MAIN is fine -- are both "a distant drawable is not there", and the note above says the
 // engine FORCES this threshold to 0.1 for some view kinds instead of 1.0. If VRCAM is one of
 // them it culls far geometry hard, which is exactly both symptoms. Set ApplyMask=2 and
 // LodThreshValue to MAIN's reading to hand VRCAM the same threshold -- live, no rebuild.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_LodThreshOverrideEnable = 1;   // answered: detail threshold is 1.0 on both views
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float    CyberpunkVR_LodThreshValue = 1.0f;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_LodThreshApplyMask = 0; // b0=MAIN b1=VRCAM b2=other
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLodThreshHitsMain = 0;
@@ -1265,9 +1441,12 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLodThreshHitsVrcam = 
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLodThreshHitsOther = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugLodThreshSeenMainBits = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugLodThreshSeenVrcamBits = 0;
+#endif
 
 // One line every 5 s: what threshold each view is handed. Reported as a float because that is
 // what the field is -- 1.0 is "keep everything", the smaller it gets the earlier detail drops.
+#if CVR_RUST_VRIK
+#else
 void lod_thresh_report() {
     static std::atomic<uint64_t> s_next{0};
     const uint64_t now = GetTickCount64();
@@ -1285,12 +1464,34 @@ void lod_thresh_report() {
         CyberpunkVR_DebugLodThreshHitsMain, CyberpunkVR_DebugLodThreshHitsVrcam,
         CyberpunkVR_DebugLodThreshHitsOther);
 }
+#endif
 
 // ---- registered where they are defined -----------------------------------------------------
+#if CVR_RUST_VRIK
+// THE CULLING HALF IS RUST'S (rust/crates/cvr-render/src/cull_visibility.rs): the detail threshold, the occlusion gate,
+// the graph context's preparation and reset, DoCulling and the multifrustum worker, registered here with this file's
+// trampolines; Rust is handed them, the main and second views' contexts and the stereo log (it calls is_main_view,
+// NativePreparation and NativeCpuCollector's Rust halves itself).
+// Its table is built in Rust (cull_visibility.rs, from stereo_shared.rs's and moved_globals.rs's objects).
+// DoCulling and GraphContextPrepare register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 CVR_DETOUR_IF("[cull] DoCulling sub_140BF436C", DOCULLING_RVA, Detour_DoCulling, g_orig_doculling, cvr::engine_stereo::SecondViewWanted)
 CVR_DETOUR("[cull] GraphContextPrepare sub_140423180", GRAPH_CONTEXT_PREPARE_RVA, Detour_GraphContextPrepare, g_orig_graph_context_prepare)
 CVR_DETOUR_IF("[cull] GraphContextReset sub_1404ECEA0", GRAPH_CONTEXT_RESET_RVA, Detour_GraphContextReset, g_orig_graph_context_reset, cvr::engine_stereo::SecondViewWanted)
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/cull_visibility.rs
 CVR_DETOUR_IF("[cull] MaterializeWorker sub_1404ED62C", MATERIALIZE_WORKER_RVA, Detour_MaterializeWorker, g_orig_materialize_worker, cvr::engine_stereo::SecondViewWanted)
+#endif
 
+#if CVR_RUST_VRIK
+// THE PREPARATION AND REPLAY DETOURS ARE RUST'S TOO (cull_visibility.rs): the stage with its eager depth, tickets,
+// profiler and cache audit, the cull callbacks' profile, the visibility capture and replay, the fine materialize and
+// the materialize worker; Rust is handed their trampolines (NativePreparation's tickets and NativeCpuCollector's capture
+// are its own).
+static_assert(sizeof(cvr::stereo::preparation::Ticket) == 136, "the Ticket rust/crates/cvr-render/src/cull_visibility.rs keeps");
+static_assert(sizeof(cvr::stereo::preparation::MaterializeTicket) == 120, "the MaterializeTicket cull_visibility.rs keeps");
+// FineMaterialize and MainCullTest register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#endif
 }  // namespace detail
 }  // namespace cvr
+#endif

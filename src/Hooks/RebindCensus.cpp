@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 #include "Utils/DebugGate.hpp"
 // RebindCensus -- how many times per frame the engine re-establishes world transforms from their
 // bindings, and nothing else.
@@ -32,8 +33,18 @@
 
 // Read by the rate census in src/Runtimes/OpenXRPresent.cpp, and live-readable so the number can be
 // checked without waiting for a log line.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+extern "C" __declspec(dllexport) extern volatile uint64_t CyberpunkVR_DebugRebindLoopCalls;
+#else
 extern "C" __declspec(dllexport) volatile uint64_t CyberpunkVR_DebugRebindLoopCalls = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/rebind_census.rs: the same detour and counter.
+extern "C" bool cvr_hook_rebind_census_install();
+CVR_HOOK("RebindCensus", ::cvr::hooks::Stage::Boot, 60, cvr_hook_rebind_census_install);
+#else
 namespace {
 
 // sub_140329460: the binding -> SetWorldTransform loop. Hard RVA, like the pose-apply detour next
@@ -63,3 +74,5 @@ bool InstallRebindCensusHook() {
 }  // namespace
 
 CVR_HOOK("RebindCensus", ::cvr::hooks::Stage::Boot, 60, InstallRebindCensusHook);
+#endif
+#endif

@@ -33,9 +33,6 @@
 // appears in this module's history at all.
 
 #include "Stereo/SyncStereo.hpp"
-#include "Stereo/ScopeDlssState.hpp"
-#include "Stereo/ScopeRrOptions.hpp"
-#include "Stereo/ScopeResolution.hpp"
 #include "Framegen/Inputs.hpp"
 #include "Camera/ImagePoseIdentity.hpp"
 #include "Utils/StereoLog.hpp"
@@ -56,7 +53,6 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#include <sl_core_types.h>
 #include "MinHook.h"
 #include "Utils/LogThrottle.hpp"
 #include "Stereo/StereoInternal.hpp"
@@ -70,91 +66,8 @@
 namespace cvr {
 namespace detail {
 
-namespace {
-scope_dlss::State scopeState;
-thread_local bool scopeConstants = false;
-thread_local uint8_t* scopeEvaluation = nullptr;
-
-using RrOptionsFn=sl::Result(*)(const sl::ViewportHandle&,const sl::DLSSDOptions&);
-RrOptionsFn originalRrOptions=nullptr;
-static sl::Result ScopeRrOptions(const sl::ViewportHandle& viewport,const sl::DLSSDOptions& options) {
-    auto* p=scopeEvaluation;
-    if(!p || uint32_t(viewport)!=scope_dlss::kViewport ||
-       options.structType!=sl::DLSSDOptions::s_structType || options.structVersion!=sl::kStructVersion3)
-        return originalRrOptions(viewport,options);
-    auto matched=options;
-    if(!scope_dlss::MatchRrMode(uint32_t(viewport),matched,
-        scope_dlss::Read<uint32_t>(p,0x3d0),scope_dlss::Read<uint32_t>(p,0x3d4),
-        scope_dlss::Read<uint32_t>(p,0x3e0),scope_dlss::Read<uint32_t>(p,0x3e4)))
-        return originalRrOptions(viewport,options);
-    const auto result=originalRrOptions(viewport,matched);
-    static unsigned reports=0;
-    if(reports++<3) Log("[scope-dlss] RR 1:1 mode=%u->%u extent=%ux%u result=%d; MAIN options unchanged\n",
-        unsigned(options.mode),unsigned(matched.mode),matched.outputWidth,matched.outputHeight,int(result));
-    return result;
-}
-static bool RrOptionsSiteMatches() {
-    // CP2.5 native wrapper of slDLSSDSetOptions, verified by its1001 feature import.
-    const uint8_t expected[]{0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x20};
-    return std::memcmp(g_exe_base+0x22902d0,expected,sizeof(expected))==0;
-}
-
-CRITICAL_SECTION* NativeDlssLock() {
-    // Derive the lock used by BOTH native Evaluate and Configure, and validate
-    // its EnterCriticalSection import before using it. The hook entry is earlier
-    // than these bytes. Using a separate mutex would miss native settings writes.
-    static auto* lock = []() -> CRITICAL_SECTION* {
-        auto* site = g_exe_base + DLSS_EVAL_RVA + 0x21;
-        auto* call = site + 13;
-        if (site[0]!=0x48 || site[1]!=0x8d || site[2]!=0x0d ||
-            call[0]!=0xff || call[1]!=0x15) return nullptr;
-        const auto target = call+6+scope_dlss::Read<int32_t>(call,2);
-        if (*reinterpret_cast<void**>(target)!=reinterpret_cast<void*>(&EnterCriticalSection)) return nullptr;
-        auto* result = reinterpret_cast<CRITICAL_SECTION*>(site+7+scope_dlss::Read<int32_t>(site,3));
-        Log("[scope-dlss] isolated viewport=%08X native lock RVA=%llX\n",scope_dlss::kViewport,
-            static_cast<unsigned long long>(reinterpret_cast<uint8_t*>(result)-g_exe_base));
-        return result;
-    }();
-    return lock;
-}
-struct NativeDlssGuard {
-    CRITICAL_SECTION* lock = NativeDlssLock();
-    NativeDlssGuard() { if(lock) EnterCriticalSection(lock); }
-    ~NativeDlssGuard() { if(lock) LeaveCriticalSection(lock); }
-};
-uintptr_t ScopeObject(void* spec) {
-    __try {
-        if(!spec) return 0;
-        const auto ctx=*reinterpret_cast<uintptr_t*>(static_cast<uint8_t*>(spec)+0x18);
-        return ctx && *reinterpret_cast<uint64_t*>(ctx+0x28)==cvr::cname_hash("vr_optics_feed")
-            ? sl_view_obj(spec) : 0;
-    } __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
-}
-uint8_t* NativeDlssState() {
-    __try {
-        const auto renderer=*reinterpret_cast<uintptr_t*>(g_exe_base+RENDERER_GLOBAL_RVA);
-        auto* state=renderer ? *reinterpret_cast<uint8_t**>(renderer+OFF_VIEWSTATE) : nullptr;
-        if(!state) return nullptr;
-        const auto* handle=reinterpret_cast<const sl::ViewportHandle*>(state+0x480);
-        if(handle->structType!=sl::ViewportHandle::s_structType || handle->structVersion!=sl::kStructVersion1) {
-            static bool warned=false;
-            if(!warned) { warned=true; Log("[scope-dlss] native viewport ABI mismatch; isolation disabled\n"); }
-            return nullptr;
-        }
-        return state;
-    } __except(EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
-}
-// The scope RTT's view frame can stay at zero. Use the same renderer clock for
-// its constants AND evaluate; restore the view field before leaving the call.
-struct ScopeFrameToken {
-    uint32_t* field;
-    uint32_t saved;
-    ScopeFrameToken(uintptr_t obj,uint32_t frame) : field(reinterpret_cast<uint32_t*>(obj+0x1a0)),saved(*field) { *field=frame; }
-    ~ScopeFrameToken() { *field=saved; }
-};
-}
-
-static __int64 __fastcall SlConstantsInner(void* a1, void* a2, void* a3) {
+#if !CVR_RUST_VRIK  // the Rust build's are rust/crates/cvr-render/src/stereo_dlss.rs
+static __int64 __fastcall Detour_SlConstants(void* a1, void* a2, void* a3) {
     // MAIN identity, step 2: this writer is the only place that sees the view OBJECT and the
     // view CTX for the same view, so it is where the object recorded from MAIN-only nodes
     // becomes a ctx pointer every other hook can compare against. Re-pinned every frame, so a
@@ -313,28 +226,9 @@ static __int64 __fastcall SlConstantsInner(void* a1, void* a2, void* a3) {
     return sl_ret;
 }
 
-static __int64 __fastcall Detour_SlConstants(void* a1, void* a2, void* a3) {
-    NativeDlssGuard guard;
-    const auto obj=ScopeObject(a2);
-    auto* state=NativeDlssState();
-    uint32_t frame=0;
-    if(!guard.lock || !obj || !state || !framegen::ReadRenderFrameIndex(&frame))
-        return SlConstantsInner(a1,a2,a3);
-    scopeState.Select(reinterpret_cast<uintptr_t>(state),obj);
-    scopeState.PrepareFrame(frame);
-    scope_dlss::Swap swap(state,scopeState);
-    ScopeFrameToken token(obj,frame);
-    struct Active {
-        bool previous=scopeConstants;
-        Active() { scopeConstants=true; }
-        ~Active() { scopeConstants=previous; }
-    } active;
-    return SlConstantsInner(a1,a2,a3);
-}
-
 // DLSS constants driver (sub_1407EEA54 -> slSetConstants). Flip to vrcam's SL
 // viewport while the camera writer is processing the vrcam view.
-static __int64 __fastcall DlssConstInner(void* a1, unsigned int a2) {
+static __int64 __fastcall Detour_DlssConst(void* a1, unsigned int a2) {
     bool flipped = false; int32_t saved = 0;
     if (CyberpunkVR_VrcamDlss && t_vrcam_sl_active && a1) {
         __try {
@@ -352,10 +246,7 @@ static __int64 __fastcall DlssConstInner(void* a1, unsigned int a2) {
     }
     // Framegen also consumes native TAA: its eye identity must not depend on
     // whether the Streamline viewport override is enabled for DLSS.
-    if(!scopeConstants)
-        cvr::framegen::RecordNativeCamera(a1,cvr::camera::CurrentNodePoseIdentity().view);
-    if(scopeConstants && scopeState.reset)
-        *reinterpret_cast<uint8_t*>(static_cast<uint8_t*>(a1)+0x1f0)=0; // native -> Constants.reset
+    cvr::framegen::RecordNativeCamera(a1,cvr::camera::CurrentNodePoseIdentity().view);
     __int64 r = g_orig_dlss_const(a1, a2);
     if (flipped) {
         __try {
@@ -365,18 +256,10 @@ static __int64 __fastcall DlssConstInner(void* a1, unsigned int a2) {
     return r;
 }
 
-static __int64 __fastcall Detour_DlssConst(void* a1,unsigned int frame) {
-    NativeDlssGuard guard;
-    const auto result=DlssConstInner(a1,frame);
-    if(scopeConstants && a1)
-        scopeState.constants=scope_dlss::Read<uint64_t>(static_cast<uint8_t*>(a1),scope_dlss::kToken)==frame;
-    return result;
-}
-
 // DLSS tag+eval driver (sub_14228F210). a2 = view spec; key at *(*(a2+0x18)+0x28).
 // Flip to vrcam's own SL viewport around the whole call (covers its internal
 // slSetTag x N + slEvaluateFeature) so vrcam gets a distinct DLSS feature/history.
-static void __fastcall DlssEvalInner(void* a1, void* a2, int a3, int a4, int a5,
+static void __fastcall Detour_DlssEval(void* a1, void* a2, int a3, int a4, int a5,
                                        int a6, int a7, int a8, int a9, int a10,
                                        int a11, int a12, int a13, int a14) {
     bool flipped = false; int32_t saved = 0; uintptr_t cache_addr = 0; uintptr_t vrcam_ctx = 0;
@@ -415,38 +298,6 @@ static void __fastcall DlssEvalInner(void* a1, void* a2, int a3, int a4, int a5,
     // only for the vrcam eval. Cleared at the command-list Reset that starts the next frame.
     if (flipped && CyberpunkVR_VrcamDlssScale)
         t_vrcam_dlss_post = true;
-}
-
-static void __fastcall Detour_DlssEval(void* a1,void* a2,int a3,int a4,int a5,
-                                     int a6,int a7,int a8,int a9,int a10,
-                                     int a11,int a12,int a13,int a14) {
-    NativeDlssGuard guard;
-    const auto obj=ScopeObject(a2);
-    if(guard.lock && obj && a1 && scopeState.constants && scopeState.view==obj &&
-       scopeState.owner==reinterpret_cast<uintptr_t>(a1)) {
-        scope_dlss::Swap swap(static_cast<uint8_t*>(a1),scopeState);
-        ScopeFrameToken token(obj,scopeState.frame);
-        struct Evaluation {
-            uint8_t* previous=scopeEvaluation;
-            explicit Evaluation(void* state) { scopeEvaluation=static_cast<uint8_t*>(state); }
-            ~Evaluation() { scopeEvaluation=previous; }
-        } evaluation(a1);
-        g_orig_dlss_eval(a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14);
-        static unsigned reports=0;
-        if(reports++<3) {
-            auto* p=static_cast<uint8_t*>(a1);
-            const auto* handle=reinterpret_cast<const sl::ViewportHandle*>(p+0x480);
-            Log("[scope-dlss] evaluate actual_viewport=%08X version=%llu frame=%u input=%ux%u output=%ux%u\n",
-                uint32_t(*handle),static_cast<unsigned long long>(handle->structVersion),scopeState.frame,scope_dlss::Read<uint32_t>(p,0x3d0),
-                scope_dlss::Read<uint32_t>(p,0x3d4),scope_dlss::Read<uint32_t>(p,0x3e0),scope_dlss::Read<uint32_t>(p,0x3e4));
-        }
-        return;
-    }
-    if(obj) {
-        static bool warned=false;
-        if(!warned) { warned=true; Log("[scope-dlss] no matching scope constants; using native path\n"); }
-    }
-    DlssEvalInner(a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14);
 }
 
 // Did MAIN's ApplyDLSS have flag 0x45 set (i.e. is the game actually using DLSS)? Observed
@@ -489,6 +340,7 @@ static __int64 __fastcall Detour_ApplyDlss(void* a1, void* a2) {
     return g_orig_applydlss(a1, a2);
 }
 
+#endif
 // PATH-A graph-level experiment: skip the DLSS-gated salt70 post-color node for the
 // vrcam view. Mirrors the node's own view/id computation: view = (a2[6]&1)?0:a2[13];
 // id = (view<<24)^0x3D7E6258; vrcam id = 0x3C7E6258. When skipped we do NOT call the
@@ -509,9 +361,20 @@ static __int64 __fastcall Detour_ApplyDlss(void* a1, void* a2) {
 // the value main uses, so vrcam auto-mirrors main's quality mode (DLAA->skip, Balanced->0.58,
 // Performance->0.5). Discriminator = view identity (CName "vrcam" @ view+0x28), NOT resolution.
 // Gated by VrcamDlss (only when vrcam is on DLSS) + dedicated toggle CyberpunkVR_VrcamDlssScale.
+#if !CVR_RUST_VRIK
 using RenderResFn = __int64(__fastcall*)(void*, void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static RenderResFn g_orig_render_res = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamDlssScale         = 1;  // RETIRED/vestigial: core upscale + crop-fix now key off VrcamDlss ALONE (see Detour_RenderRes). FlagCompute drives the native downscale from VrcamDlss. Kept default=1 for overlay/back-compat (only gates dormant STAGE2 / diagnostics now).
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamClearFlag64       = 1;  // 1=clear vrcam build-flag 64 (bit0 view+0x17D8) -> build output-res post like main (crop fix)
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugClearFlag64Hits   = 0;  // times flag64 cleared for vrcam
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamResScaleHits = 0;  // times vrcam res was scaled
@@ -528,6 +391,7 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamComputeResolve   = 2;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugP17D0Hits        = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugP17D0Before      = 0;  // view+0x17D0 before our edit (diag)
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugP17D0After       = 0;  // view+0x17D0 after our edit (diag)
+#endif
 
 // ===== POST-DLSS CROP FIX: command-list viewport/scissor correction (slots 21/22/10) =====
 // The vrcam-only post-DLSS blit (PipelineState_563) sets a render-res (1418) viewport+scissor on
@@ -544,6 +408,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugP17D0After       = 0;
 // matched. This catches BOTH pre-DLSS vrcam scene passes AND the post-DLSS crop pass; we separate
 // them offline by intersecting the captured node RVAs with the readers of post-color 0x3D7E6258.
 // (removed: vrcam_render_res_viewport helper -- only used by the now-pass-through viewport/scissor hooks)
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_GeometryCostTrackViewport(ID3D12GraphicsCommandList*,UINT,const D3D12_VIEWPORT*);
 void STDMETHODCALLTYPE hk_RSSetViewports(
         ID3D12GraphicsCommandList* self, UINT count, const D3D12_VIEWPORT* vps) {
@@ -632,6 +497,7 @@ extern "C" void CyberpunkVR_GeometryCostTrackScissor(ID3D12GraphicsCommandList*,
     }
     return result;
 }
+#endif
 
 // EXPERIMENT (attempt 2): overriding only the render-res struct was DISPROVEN live -- the
 // whole struct (view+0x34..) went to 1418 yet the vrcam SCENE still rendered 2444 (DLSS then
@@ -642,56 +508,9 @@ extern "C" void CyberpunkVR_GeometryCostTrackScissor(ID3D12GraphicsCommandList*,
 // re-set LATE by ApplyDLSS. Attempt 2: set the flag EARLY (before g_orig, at the earliest
 // per-frame setup hook we own) so vrcam takes main's full dynamic-res path. Still gated by the
 // toggle (default OFF until proven); belt-and-suspenders render-res override kept for determinism.
+#if !CVR_RUST_VRIK
 extern "C" void __fastcall OnDLSSResCallback(void* dlssPtr);   // Hooks/DlssRes.cpp: the size log
-namespace {
-bool ScopeResolutionSiteMatches() {
-    // Installed CP2.5 scaler: upscaler tests followed by native unscaled size writes.
-    // Verify beyond the detoured entry, which MinHook has already patched.
-    static const bool matches=[] {
-        constexpr uint8_t expected[]{
-            0x49,0x8b,0x86,0xb8,0x25,0x00,0x00,0xa8,0x40,0x75,0x57,0x84,0xc0,0x78,0x53,0x48,0x0f,0xba,0xe0,0x09,0x72,0x4c,0x48,0x0f,0xba,0xe0,0x08,0x72,0x45,0x48,0x0f,0xba,0xe0,0x0d,0x72,0x3e,0x48,0x0f,0xba,0xe0,0x0c,0x72,0x37,0x48,0x0f,0xba,0xe0,0x0a,0x72,0x30,0x48,0x0f,0xba,0xe0,0x0e,0x72,0x29,0x48,0x0f,0xba,0xe0,0x1b,0x72,0x22,0x44,0x8b,0x5b,0x24,0x45,0x8b,0xc3,0x44,0x8b,0x4b,0x20,0x41,0x8b,0xf3,0x44,0x89,0x5b,0x1c,0x41,0x8b,0xfb,0x44,0x89,0x5b,0x18,0x4c,0x89,0x63,0x30,0xe9,0xdc,0x00,0x00,0x00
-        };
-        const bool ok=std::memcmp(g_exe_base+RENDER_RES_RVA+0x569,expected,sizeof(expected))==0;
-        if(!ok)Log("[scope-resolution] native scaler signature mismatch; full resolution disabled\n");
-        return ok;
-    }();
-    return matches;
-}
-bool ScopeFullResolutionReady(void* dimensions,void* rect,void* ctx) {
-    if(!scope_dlss::fullResolution.load(std::memory_order_relaxed))return false;
-    bool eligible=false;
-    __try {
-        if(!dimensions || !rect || !ctx ||
-           dimensions!=static_cast<uint8_t*>(ctx)+0x34)return false;
-        const auto* bounds=static_cast<const int32_t*>(rect);
-        const auto* view=static_cast<const uint8_t*>(ctx);
-        eligible=scope_dlss::FullResolutionEligible(true,
-            scope_dlss::Read<uint64_t>(view,0x28)==cvr::cname_hash("vr_optics_feed"),
-            scope_dlss::Read<uint64_t>(view,0x25b8),
-            int64_t(bounds[2])-bounds[0],int64_t(bounds[3])-bounds[1]);
-    } __except(EXCEPTION_EXECUTE_HANDLER){return false;}
-    return eligible && originalRrOptions && ScopeResolutionSiteMatches() &&
-        NativeDlssLock() && NativeDlssState();
-}
-__int64 RenderScopeFullResolution(void* dimensions,void* rect,void* ctx) {
-    __int64 result;
-    {
-        auto& flags=*reinterpret_cast<uint64_t*>(static_cast<uint8_t*>(ctx)+0x25b8);
-        scope_dlss::NativeResolutionFlags nativeResolution(flags);
-        result=g_orig_render_res(dimensions,rect,ctx);
-    } // Restore RR/stereo/graph flags BEFORE returning to any builder or pass.
-    static std::atomic<unsigned> reports{};
-    if(reports.fetch_add(1,std::memory_order_relaxed)<3) {
-        const auto* d=static_cast<const uint8_t*>(dimensions);
-        Log("[scope-resolution] RR full-size render=%ux%u target=%ux%u; graph flags restored\n",
-            scope_dlss::Read<uint32_t>(d,0),scope_dlss::Read<uint32_t>(d,4),
-            scope_dlss::Read<uint32_t>(d,0x20),scope_dlss::Read<uint32_t>(d,0x24));
-    }
-    return result;
-}
-}
 static __int64 __fastcall Detour_RenderRes(void* a1, void* a2, void* a3) {
-    if(ScopeFullResolutionReady(a1,a2,a3))return RenderScopeFullResolution(a1,a2,a3);
     bool vrcam = false;
     // CONSOLIDATED: gate the whole vrcam upscale + crop-fix path on VrcamDlss ALONE. VrcamDlssScale
     // is retired -- Detour_FlagCompute (VrcamDlss-gated) forces the DLSS upscaler group at graph
@@ -771,15 +590,34 @@ static __int64 __fastcall Detour_RenderRes(void* a1, void* a2, void* a3) {
     return r;
 }
 
+#endif
 
 // ---- registered here, in the file that defines them --------------------------------------------
+#if !CVR_RUST_VRIK  // the Rust build registers it from Rust (rust/crates/cvr-render/src/engine_detours.rs)
 CVR_DETOUR("[flagforce] flag-compute sub_14227E5D0", FLAG_COMPUTE_RVA, Detour_FlagCompute, g_orig_flag_compute)
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE FIVE DETOURS ARE RUST'S (rust/crates/cvr-render/src/stereo_dlss.rs), registered here with the trampolines this
+// file (and SyncStereo.cpp) defines; Rust is handed the stereo state they share with the C++ half.
+}  // namespace detail
+}  // namespace cvr
+extern "C" {
+}
+namespace cvr {
+namespace detail {
+// Its table is built in Rust (stereo_dlss.rs, from stereo_shared.rs's and moved_globals.rs's objects); the post-DLSS
+// marker and the node's view stay here.
+// cvr_cpp_node_view: rust/crates/cvr-render/src/stereo_shared.rs.
+// The five detours and their originals register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#endif
+#else
 CVR_DETOUR("[dlss] ApplyDLSS work sub_14077E4C8", APPLYDLSS_WORK_RVA, Detour_ApplyDlss, g_orig_applydlss)
 CVR_DETOUR("[dlss] constants driver sub_1407EEA54", DLSS_CONST_RVA, Detour_DlssConst, g_orig_dlss_const)
 CVR_DETOUR("[dlss] tag/eval driver sub_14228F210", DLSS_EVAL_RVA, Detour_DlssEval, g_orig_dlss_eval)
 CVR_DETOUR("[dlss] render-res scaler sub_140425054", RENDER_RES_RVA, Detour_RenderRes, g_orig_render_res)
 CVR_DETOUR("[sl] SetStreamlineConstants sub_1407EE0BC", SL_CONSTANTS_RVA, Detour_SlConstants, g_orig_sl_const)
-CVR_DETOUR_IF("[scope] RR options sizing", 0x22902d0, ScopeRrOptions, originalRrOptions, RrOptionsSiteMatches)
+#endif
 
 // ================================================================================================
 // THE VRCAM STREAMLINE VIEWPORT KNOBS, moved out of the monolith to sit with the DLSS path they steer.
@@ -791,21 +629,27 @@ CVR_DETOUR_IF("[scope] RR options sizing", 0x22902d0, ScopeRrOptions, originalRr
 
 // ---- DLSS-for-VRCAM: give vrcam its OWN Streamline viewport ----------------
 // The engine's DLSS drivers key off ONE global DLSS-state object (arg a1); the
-// Streamline ViewportHandle is at a1+0x480 with the viewport id at a1+0x4A0 (=0
+// Streamline ViewportHandle is at a1+0x478 with the viewport id at a1+0x498 (=0
 // for main). Both the constants driver (sub_1407EEA54 -> slSetConstants) and the
 // tag+eval driver (sub_14228F210 -> slSetTag x N + slEvaluateFeature) submit to
 // that single viewport, so vrcam (which already reaches the eval driver with its
 // OWN ctx + resources -- verified live: eval a2 key == VRCAM) collides on main's
 // viewport 0 and produces no distinct DLSS. Fix: when the current view is vrcam,
-// flip a1+0x4A0 to a distinct id (default 1) around each driver call and restore
+// flip a1+0x498 to a distinct id (default 1) around each driver call and restore
 // after (idempotent, no persistent state). Streamline auto-creates a 2nd DLSS
 // feature (own temporal history) for the new viewport on first eval. RVAs @ base
 // 0x7FF6EF660000 (found via named refs to sl.interposer exports).
 using DlssEvalFn  = void(__fastcall*)(void*, void*, int, int, int, int, int,
                                       int, int, int, int, int, int, int);
+#if !CVR_RUST_VRIK
 using DlssConstFn = __int64(__fastcall*)(void*, unsigned int);
+#endif
+#if !CVR_RUST_VRIK
 DlssEvalFn  g_orig_dlss_eval  = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 DlssConstFn g_orig_dlss_const = nullptr;
+#endif
 // PATH-A graph-level EXPERIMENT (doc 19): the DLSS-gated frame-graph node
 // sub_142E9E3EC (vtable 0x14312CDA8 +0x28) inserts an extra type-4 WRITE declare of
 // post-color at salt70 and does a GPU->CPU readback. It perturbs the salt70 post-color
@@ -813,10 +657,18 @@ DlssConstFn g_orig_dlss_const = nullptr;
 // (bright) versions. This flag skips the node FOR THE VRCAM VIEW ONLY, to test whether
 // removing it from the salt70 timeline makes Final2D deterministically read the correct
 // version. DEFAULT 0 (no effect on shipped build); reversible; SEH-guarded.
+#if !CVR_RUST_VRIK
 using ReadbackNodeFn = char(__fastcall*)(__int64, void*);
+#endif
+#if !CVR_RUST_VRIK
 static ReadbackNodeFn g_orig_readback_node = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_SkipVrcamReadbackNode = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugReadbackSkips = 0;
+#endif
 // AUTOMATIC, NOT A SETTING. Written by Detour_FlagCompute from MAIN's own upscaler groups and
 // read everywhere else; there is no overlay switch any more.
 //
@@ -836,19 +688,29 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugReadbackSkips = 0;
 //
 // 0 while MAIN is not upscaling (DLAA, TAA, no upscaler, or before the first graph build) --
 // which is exactly the old default, so nothing changes for those setups.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_VrcamDlss          = 0;  // derived; do not set by hand
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_VrcamDlssViewport  = 1;  // distinct SL viewport id
+#endif
 // DIAGNOSTIC A/B: zero the DLSS jitter the engine feeds vrcam (live float @ a1+0x1E0/+0x1E4,
 // found in x64dbg -- the source the const-setter copies into sl::Constants). If vrcam's
 // GEOMETRY render is NOT jittered but DLSS un-jitters by this offset, that mismatch shimmers;
 // forcing jitter=0 aligns them (stable spatial DLAA) and the flicker should stop. If the
 // render IS jittered, zeroing makes it worse -> tells us jitter is not the cause.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_VrcamDlssZeroJitter = 0;  // 1=force vrcam DLSS jitter to 0
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamDlssEvalHits  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamDlssConstHits = 0;
+#endif
 // Set by Detour_SlConstants (camera writer) while it runs for the vrcam view, so
 // the constants driver -- called INSIDE the camera writer -- knows to flip too.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
 thread_local bool t_vrcam_sl_active = false;
+#endif
 
 // ApplyDLSS node work-fn (sub_14077E4C8). vrcam takes a NO-EVAL path because it lacks
 // feature flag 0x45 ("DLSS eval enable"): the flag bitset is at *(ctx+0x18)+0x17D0, so
@@ -858,9 +720,17 @@ thread_local bool t_vrcam_sl_active = false;
 // (verified live SAFE: reaches eval, no crash -- unlike forcing the owner bit at ctx+0x30&2
 // which runs an owner-only block reading [ctx+0x1D70]+0x268 that vrcam lacks). Set before
 // g_orig, restore after (minimal footprint).
+#if !CVR_RUST_VRIK
 using ApplyDlssFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 ApplyDlssFn g_orig_applydlss = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamApplyDlssHits = 0;
+#endif
 
 //  VRCAM POST -> CASE C (global output res) FORCE 
 // Verified live (x64dbg): the view-dims getter sub_1401EDA54 returns CASE A (render
@@ -875,10 +745,18 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamApplyDlssHits = 
 // per-eye res == vrcam output -> post lands full-res, no crop. Scene (pre-DLSS, t_vpost=0)
 // keeps CASE A (render 1418) so the DLSS upscale is preserved. Save+restore so only the
 // getter sees the cleared desc (caller's struct intact).
+#if !CVR_RUST_VRIK
 using GetterFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static GetterFn g_orig_getter = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamForceCaseC   = 0;  // vrcam post getter override: 0=off, 1=CASE C (renderer+0x148 global output; VR-correct but desktop=window res != 2444), 2=CASE B (vrcam OWN output VP+0x54=2444; matches RTT texture+DLSS out in BOTH desktop and VR -- preferred)
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugForceCaseCHits = 0;
+#endif
 
 // The eval driver's "feature changed?" check (in sub_14228F210) compares the CURRENT view
 // dims/ids against a cache stored in the single global DLSS-state a1 at a1+0x3C8..+0x3E7.
@@ -888,8 +766,12 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugForceCaseCHits = 0;
 // Fix: keep a SEPARATE copy of that cache for vrcam and swap it in/out of a1 around vrcam's
 // eval, so each viewport's "changed" check sees its OWN previous dims (constant) -> no false
 // recreate -> stable history. (verified live: cache held main's 1114x627 while vrcam=2444.)
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
 uint8_t g_vrcam_dlss_cache[DLSS_CACHE_SZ] = {0};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
 bool    g_vrcam_dlss_cache_valid = false;
+#endif
 
 // --- vrcam DLSS render/output dims (for the subrect+MV fix) --------------------
 // Nsight proved: vrcam's OWN DLSS feature gets Render.Subrect.Dimensions and MV.Scale =
@@ -899,9 +781,15 @@ bool    g_vrcam_dlss_cache_valid = false;
 // square 1418^2 input -> crop. Fix: while vrcam's DLSS const/eval run, overwrite a1+0x3D0/0x3E0
 // with vrcam's dims (render 1418, output 2444) so the subrect+MV become 1418. Values captured
 // by Detour_RenderRes (runs earlier each frame). Gate: VrcamDlssScale (fwd-declared; defined below).
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamDlssScale;   // fwd decl (definition further down)
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 volatile int32_t g_vrcam_dlss_rw = 0, g_vrcam_dlss_rh = 0;  // vrcam render dims (1418)
 volatile int32_t g_vrcam_dlss_ow = 0, g_vrcam_dlss_oh = 0;  // vrcam output dims (2444)
+#endif
 
 }  // namespace detail
 }  // namespace cvr

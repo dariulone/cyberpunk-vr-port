@@ -1,5 +1,7 @@
 #include "Render/FoveatedGpu.hpp"
 #include "Render/CommandResources.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's passes; the Rust build's are rust/crates/cvr-gpu/src/foveated_gpu.rs (the header calls them).
 #include <d3dcompiler.h>
 #include <cstring>
 #include <algorithm>
@@ -191,3 +193,4 @@ bool FoveatedGpu::Composite(ID3D12GraphicsCommandList* list,const Source& s,bool
     return true;
 }
 }
+#endif

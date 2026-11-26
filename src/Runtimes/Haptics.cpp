@@ -12,18 +12,12 @@
 // decay instead, which every motor can render.
 //
 // ONE ENVELOPE PER HAND. A new event replaces what is playing unless that has a higher priority and
-// is still running: full-auto restarts the recoil pulse every round, and a belt tick never cuts a
-// shot's tail. Vehicle audio cannot interrupt a pulse or an interaction envelope.
+// is still running: full-auto restarts the rifle tap every round, and a belt tick never cuts a
+// shotgun's tail.
 
 #include "Runtimes/Haptics.hpp"
 #include "Anim/LeftHanded.hpp"
-#include "Anim/WheelGrab.hpp"
-#include "Runtimes/HapticRouting.hpp"
-#include "Runtimes/Psvr2HapticChannel.hpp"
-#include "Runtimes/LegacyHapticPolicy.hpp"
-#include "Core/VrCoreShared.hpp"
 
-#include "Runtimes/OpenXRManager.hpp"
 
 #include <windows.h>
 #include <algorithm>
@@ -31,42 +25,19 @@
 #include <mutex>
 
 extern "C" {
-// Master switch (ini xr_haptics) and the strength of everything (ini xr_haptic_scale, 0..2).
-__declspec(dllexport) int   CyberpunkVR_Haptics = 1;
-__declspec(dllexport) float CyberpunkVR_HapticScale = 1.0f;
-// THE SECOND HAND IN A TWO-HANDED GRIP feels the round as the trigger hand does: in 2H the weapon is
-// in both hands, held in one it is in one (2026-10-17). This is its share; 1 = the same.
-__declspec(dllexport) float CyberpunkVR_HapticSupportMul = 1.0f;
-// THE PROFILES, live-tunable: per profile three segments of (amplitude 0..1, milliseconds); an
-// amplitude of 0 is a gap. Rows: 0 handgun, 1 rifle/SMG/LMG, 2 shotgun, 3 sniper/precision,
-// 4 belt touch, 5 melee block, 6 melee parry, 7 bullet block, 8 bullet deflect, 9 grenade pin (the
-// pulling hand), 10 grenade pin (the holding hand), 11 VR menu click, 12 VR menu hover, 13 VR menu
-// slider step, 14 melee hit, 15 melee swing. A segment under ~12 ms can fall between two XR frames and never
-// play, so none is shorter.
-__declspec(dllexport) float CyberpunkVR_HapticProfiles[16][6] = {
-    { 0.85f, 28.0f,  0.25f, 30.0f,  0.00f,  0.0f },   // handgun: one crisp snap
-    { 0.60f, 22.0f,  0.00f,  0.0f,  0.00f,  0.0f },   // rifle: short, so full-auto stays a rattle of rounds
-    { 1.00f, 55.0f,  0.55f, 70.0f,  0.20f, 60.0f },   // shotgun: a heavy thump that rolls off
-    { 1.00f, 45.0f,  0.60f, 60.0f,  0.25f, 90.0f },   // sniper: the hardest kick and the longest tail
-    { 0.30f, 14.0f,  0.00f,  0.0f,  0.00f,  0.0f },   // belt: a light tick
-    { 0.90f, 40.0f,  0.40f, 50.0f,  0.00f,  0.0f },   // melee block: a dull thud
-    { 1.00f, 20.0f,  0.00f, 35.0f,  0.75f, 25.0f },   // melee parry: a double "clang"
-    { 0.65f, 30.0f,  0.20f, 30.0f,  0.00f,  0.0f },   // bullet block: a short knock
-    { 1.00f, 15.0f,  0.45f, 25.0f,  0.00f,  0.0f },   // bullet deflect: a sharp ping
-    { 1.00f, 18.0f,  0.35f, 30.0f,  0.00f,  0.0f },   // grenade pin: the snap of the ring coming free
-    { 0.45f, 25.0f,  0.00f,  0.0f,  0.00f,  0.0f },   // grenade pin, felt through the grenade
-    { 0.80f, 16.0f,  0.00f, 12.0f,  0.35f, 12.0f },   // menu click: a press and its release
-    { 0.15f, 12.0f,  0.00f,  0.0f,  0.00f,  0.0f },   // menu hover: a faint tick on entering a control
-    { 0.22f, 12.0f,  0.00f,  0.0f,  0.00f,  0.0f },   // menu slider: one tick per step crossed
-    { 1.00f, 35.0f,  0.50f, 55.0f,  0.00f,  0.0f },   // melee hit: the blow landing, then its weight
-    { 0.50f, 45.0f,  0.00f,  0.0f,  0.00f,  0.0f },   // melee swing: the weapon cutting the air
-};
+// The controls and read-outs (src/Runtimes/HapticsState.cpp): the master switch, the scale, the support hand's share,
+// the profiles (per row three segments of amplitude 0..1 and milliseconds) and the counters.
+__declspec(dllexport) extern int   CyberpunkVR_Haptics;
+__declspec(dllexport) extern float CyberpunkVR_HapticScale;
+__declspec(dllexport) extern float CyberpunkVR_HapticSupportMul;
+__declspec(dllexport) extern float CyberpunkVR_HapticProfiles[16][6];
+__declspec(dllexport) extern int   CyberpunkVR_HapticStats[8];
 // The off hand is on the weapon (src/Anim/TwoHandGrip.cpp).
 __declspec(dllexport) extern int CyberpunkVR_TwoHandActive;
-extern float CyberpunkVR_WeaponKickDeg;
-// [0] events accepted, [1] segments applied left, [2] right, [3] last xrApplyHapticFeedback result,
-// [4] last profile row, [5] dropped (switched off, no action, no session), [6] shots, [7] events.
-__declspec(dllexport) int   CyberpunkVR_HapticStats[8] = {};
+// The one device call (src/Runtimes/HapticsDevice.cpp): OpenXR, or the PSVR2 bridge.
+void cvr_cpp_haptics_play(int hand, float amplitude, float seconds);
+// The tests' counter (ticks at 1 MHz), src/Anim/CharacterRigState.cpp; null = QueryPerformanceCounter.
+extern int64_t (*g_VRIKClockQpc)();
 }
 
 namespace cvr::haptics {
@@ -86,14 +57,13 @@ struct Envelope {
 
 std::mutex g_lock;
 Envelope   g_hand[2];            // 0 left, 1 right
-PulseRequest g_pulse[2];
-float g_vehicle[2]{};
-uint64_t g_vehicleMs = 0;
-std::atomic<float> g_legacyGain{1.25f};
-std::atomic<float> g_vehicleGain{1.0f};
 
-int64_t Qpc() { LARGE_INTEGER c{}; QueryPerformanceCounter(&c); return c.QuadPart; }
+int64_t Qpc() {
+    if (g_VRIKClockQpc) return g_VRIKClockQpc();
+    LARGE_INTEGER c{}; QueryPerformanceCounter(&c); return c.QuadPart;
+}
 int64_t QpcFreq() {
+    if (g_VRIKClockQpc) return 1000000;
     static const int64_t f = [] { LARGE_INTEGER q{}; QueryPerformanceFrequency(&q); return q.QuadPart; }();
     return f;
 }
@@ -110,7 +80,7 @@ int PriorityOf(int row) {
 void Queue(int row, int handMask, float mul) {
     if (row < 0 || row >= kProfileCount) return;
     if (!CyberpunkVR_Haptics) { ++CyberpunkVR_HapticStats[5]; return; }
-    const float scale = SafeGain(CyberpunkVR_HapticScale) * mul;
+    const float scale = std::clamp(CyberpunkVR_HapticScale, 0.0f, 2.0f) * mul;
     if (scale <= 0.0f) return;
     const float* p = CyberpunkVR_HapticProfiles[row];
     const int64_t now = Qpc();
@@ -140,58 +110,15 @@ void Queue(int row, int handMask, float mul) {
 
 }  // namespace
 
-void SetLegacyGain(float gain) { g_legacyGain.store(SafeGain(gain, 1.25f)); }
-float LegacyGain() { return g_legacyGain.load(); }
-static std::atomic<int> vehicleChannels{1};
-static std::atomic<bool> vehicleRequireGrip{false};
-void SetVehicleAudioChannels(int mode) { vehicleChannels.store(std::clamp(mode,0,3)); }
-int VehicleAudioChannels() { return vehicleChannels.load(); }
-void SetVehicleAudioRequireGrip(bool value) { vehicleRequireGrip.store(value); }
-bool VehicleAudioRequireGrip() { return vehicleRequireGrip.load(); }
-void SetVehicleGain(float gain) { g_vehicleGain.store(SafeGain(gain)); }
-float VehicleGain() { return g_vehicleGain.load(); }
-
-void Pulse(int hand, float amplitude, int durationMs) {
-    if (hand < 0 || hand > 1 || !CyberpunkVR_Haptics) return;
-    std::lock_guard lock(g_lock);
-    g_pulse[hand].Merge(amplitude, durationMs, GetTickCount64());
-}
-
-void SetVehicleHaptics(float left, float right) {
-    std::lock_guard lock(g_lock);
-    g_vehicle[0] = std::isfinite(left) ? std::clamp(left, 0.0f, 1.0f) : 0;
-    g_vehicle[1] = std::isfinite(right) ? std::clamp(right, 0.0f, 1.0f) : 0;
-    g_vehicleMs = GetTickCount64();
-}
-
-void Clear() {
-    std::lock_guard lock(g_lock);
-    for (int hand = 0; hand < 2; ++hand) { g_hand[hand] = {}; g_pulse[hand] = {}; g_vehicle[hand] = 0; }
-    g_vehicleMs = 0;
-}
-
-void ShotForHand(int hand, float kick, bool supportHandOnGun) {
-    if (HapticRoute().Toolkit() || hand < 0 || hand > 1) return;
+void Shot(int weaponClass, bool supportHandOnGun, int hand) {
+    if (weaponClass < 1 || weaponClass > 4) return;   // melee and "unknown" fire no rounds of their own
     ++CyberpunkVR_HapticStats[6];
-    const auto shot = LegacyShot(kick);
-    Pulse(hand, shot.amplitude, shot.durationMs);
-    if (supportHandOnGun) Pulse(1-hand, shot.amplitude * .55f, shot.durationMs);
-}
-
-void Shot(int weaponClass, bool supportHandOnGun, int hand, float kick, bool dual) {
-    if (weaponClass < 1 || weaponClass > 4 || hand < 0 || hand > 1) return;
-    if (!(kick > 0.0f)) kick = CyberpunkVR_WeaponKickDeg;
-    if (HapticRoute().Toolkit()) {
-        // EDS owns single-gun recoil. Actual per-hand shots own dual-wield grip
-        // impacts, independently of adaptive-trigger profile selection/timers.
-        if (dual && CyberpunkVR_Haptics && OpenXRManager::Get().IsSessionRunning()) {
-            const auto pulse = DualToolkitShot(kick);
-            const float amp = std::min(1.0f, pulse.amplitude * SafeGain(CyberpunkVR_HapticScale));
-            if (amp > 0) cvr::psvr2::Haptics().Pulse(hand, amp, pulse.durationMs);
-        }
-        return;
+    const int row = weaponClass - 1;
+    const int trigger = (hand == 0) ? kLeft : kRight;
+    Queue(row, trigger, 1.0f);
+    if (supportHandOnGun) {
+        Queue(row, (trigger == kLeft) ? kRight : kLeft, std::clamp(CyberpunkVR_HapticSupportMul, 0.0f, 1.0f));
     }
-    ShotForHand(hand, kick, !dual && supportHandOnGun);
 }
 
 void Play(int event, int handMask) {
@@ -221,63 +148,24 @@ void Play(int event, int handMask) {
 }
 
 void Tick() {
-    if (!CyberpunkVR_Haptics || SafeGain(CyberpunkVR_HapticScale) <= 0) { Clear(); return; }
     struct Due { float amp; float sec; };
     Due due[2] = {};
     {
         std::lock_guard lock(g_lock);
         const int64_t now = Qpc();
-        const uint64_t nowMs = GetTickCount64();
-        const float gain = LegacyGain() * SafeGain(CyberpunkVR_HapticScale);
         for (int h = 0; h < 2; ++h) {
             Envelope& e = g_hand[h];
-            const auto pulse = g_pulse[h];
-            g_pulse[h] = {};
-            // A block/parry takes precedence. Merge simultaneous swings/impacts,
-            // and keep their lifetime intact instead of overwriting with engine rumble.
-            if (pulse.Fresh(nowMs) && gain > 0 && !(now < e.done && e.priority > 2)) {
-                e = {};
-                e.amp[0] = std::min(1.0f, pulse.amplitude * gain);
-                e.start[0] = now;
-                e.end[0] = now + MsToQpc(static_cast<float>(pulse.durationMs));
-                e.start[1] = e.end[1] = e.start[2] = e.end[2] = e.end[0];
-                e.next = 0; e.priority = 2; e.done = e.end[0];
-                ++CyberpunkVR_HapticStats[0];
-            }
             int started = -1;
             while (e.next < kSegs && e.start[e.next] <= now) started = e.next++;
-            if (started >= 0 && e.amp[started] > 0) {
-                const double left = static_cast<double>(e.end[started] - now) / static_cast<double>(QpcFreq());
-                if (left > 0.003) due[h] = { e.amp[started], static_cast<float>(left) };
-            }
-            if (now >= e.done && VehicleGain() > 0 &&
-                VehicleFresh(g_isDriving.load(std::memory_order_relaxed), nowMs, g_vehicleMs)) {
-                const bool held = (h == 0 ? cvr::anim::g_wheelBlendLeft.load() : cvr::anim::g_wheelBlendRight.load()) > .01f;
-                float audio = g_vehicle[h];
-                const int channels = VehicleAudioChannels();
-                if (channels == 1) audio = std::max(g_vehicle[0], g_vehicle[1]);
-                else if (channels == 2) audio = g_vehicle[0];
-                else if (channels == 3) audio = g_vehicle[1];
-                const float amplitude = VehicleAudioRequireGrip() && !held ? 0.0f : std::min(1.0f, audio * gain);
-                // The bridge v1 mailbox delivers one hand per frame. Cover two
-                // frames even at 30 FPS rather than alternating silent gaps.
-                if (amplitude > .01f) due[h] = {amplitude, HapticRoute().Toolkit() ? .090f : .045f};
-            }
+            if (started < 0 || e.amp[started] <= 0.0f) continue;
+            const double left = static_cast<double>(e.end[started] - now) / static_cast<double>(QpcFreq());
+            if (left > 0.003) due[h] = { e.amp[started], static_cast<float>(left) };
         }
     }
-    // Use the selected actuator owner, including OpenXR fallback on PSVR2.
-    const bool psvr2 = HapticRoute().Toolkit();
+    // The device call (src/Runtimes/HapticsDevice.cpp): OpenXR, or the PSVR2 bridge's own channel.
     for (int h = 0; h < 2; ++h) {
         if (due[h].amp <= 0.0f) continue;
-        if (psvr2) {
-            cvr::psvr2::Haptics().Pulse(h, due[h].amp, std::clamp(static_cast<int>(due[h].sec * 1000.0f + 0.5f), 1, 1000));
-            ++CyberpunkVR_HapticStats[h == 0 ? 1 : 2];
-            continue;
-        }
-        const int r = OpenXRManager::Get().ApplyHaptic(h, due[h].amp, due[h].sec);
-        CyberpunkVR_HapticStats[3] = r;
-        if (r == 0) ++CyberpunkVR_HapticStats[h == 0 ? 1 : 2];
-        else ++CyberpunkVR_HapticStats[5];
+        cvr_cpp_haptics_play(h, due[h].amp, due[h].sec);
     }
 }
 

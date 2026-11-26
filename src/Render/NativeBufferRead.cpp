@@ -10,6 +10,30 @@
 #include <mutex>
 #include <vector>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE PROOFS ARE RUST'S (rust/crates/cvr-render/src/buffer_read.rs): this face calls the copy windows' observers first,
+// as the former code did, and hands Rust the engine's current upload context and the copy windows' unavailability.
+namespace cvr::stereo::buffer_read::rust_face {
+struct Lease {ID3D12Resource* resource;uint64_t gpu,bytes;uint32_t heapType,flags;geometry::NativeBuffer native;};
+static_assert(sizeof(Lease)==80 && sizeof(Proof)==96 && sizeof(geometry::NativeBuffer)==48 && sizeof(camera_upload::Context)==24,
+    "mirrored by rust/crates/cvr-render/src/buffer_read.rs");
+inline Lease Raw(const geometry::BufferLease& s){return {s.resource.Get(),s.gpu,s.bytes,s.heapType,s.flags,s.native};}
+struct Attach {void (*currentContext)(uint64_t,camera_upload::Context*);void (*copyUnavailable)();};
+}
+extern "C" {
+void cvr_buffer_read_attach(const cvr::stereo::buffer_read::rust_face::Attach*);
+}
+namespace cvr::stereo::buffer_read {
+namespace {
+void CurrentContextForRust(uint64_t game,camera_upload::Context* out){*out=camera_upload::CurrentContext(uintptr_t(game));}
+void CopyUnavailableForRust(){copy_windows::Unavailable();}
+const rust_face::Attach kAttach{&CurrentContextForRust,&CopyUnavailableForRust};
+[[maybe_unused]] const bool kAttached=(cvr_buffer_read_attach(&kAttach),true);
+}
+}
+#endif
+#else
 namespace cvr::stereo::buffer_read {
 namespace {
 thread_local uint32_t failure{},poolFailure{};
@@ -406,3 +430,4 @@ bool Capture(ID3D12GraphicsCommandList* list,const geometry::BufferLease& source
     return CaptureRange(list,source,source.native.gpu-source.gpu,292,out);
 }
 }
+#endif

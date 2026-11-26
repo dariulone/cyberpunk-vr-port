@@ -13,6 +13,14 @@ inline constexpr uint32_t InstanceStride(uint32_t contract){return contract==1?4
 // Unused native NORMAL/TANGENT/COLOR/TEXCOORD1 attributes are not read proofs.
 // Contract 2 composes the skinned VS contract with this same exact alpha PS.
 // This does not admit rendering or certify resource contents, stride or bounds.
+#if CVR_RUST_VRIK
+// The rule: rust/crates/cvr-render/src/skinning_read_plan.rs (tools/single_pass_tests/alpha_depth_contract_test runs its
+// cases against it in its Rust variant).
+extern "C" uint32_t cvr_sk_alpha_contract(const char*,size_t,const char*,size_t,const D3D12_INPUT_LAYOUT_DESC*);
+inline uint32_t Contract(std::string_view vertex,std::string_view pixel,const D3D12_INPUT_LAYOUT_DESC& layout){
+    return cvr_sk_alpha_contract(vertex.data(),vertex.size(),pixel.data(),pixel.size(),&layout);
+}
+#else
 inline uint32_t Contract(std::string_view vertex,std::string_view pixel,const D3D12_INPUT_LAYOUT_DESC& layout){
     if(pixel!=PixelShader)return 0;
     if(vertex==SkinnedVertexShader)return skinning::DepthContract(vertex,layout)==2?2u:0u;
@@ -39,4 +47,5 @@ inline uint32_t Contract(std::string_view vertex,std::string_view pixel,const D3
     }
     return 1;
 }
+#endif
 }

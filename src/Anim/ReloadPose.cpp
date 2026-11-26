@@ -29,22 +29,22 @@
 // claw is either a pose that never latched (caps == 0: the hands were never both empty and still) or a
 // pose that latched the wrong moment (caps > 0, and the fix is to stand still with empty hands once
 // more). Without these the two are the same picture.
-extern "C" __declspec(dllexport) int                CyberpunkVR_DebugRestFingerHave = 0;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugRestFingerCaps = 0;
-extern "C" __declspec(dllexport) int                CyberpunkVR_DebugRestFingerRefused = 0;
-extern "C" __declspec(dllexport) int                CyberpunkVR_DebugRestFingerSaved = 0;
-extern "C" __declspec(dllexport) int                CyberpunkVR_DebugRestFingerLoadTried = 0;
-extern "C" __declspec(dllexport) int                CyberpunkVR_DebugRestFingerLoaded = 0;
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_DebugRestFingerHave;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugRestFingerCaps;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_DebugRestFingerRefused;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_DebugRestFingerSaved;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_DebugRestFingerLoadTried;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_DebugRestFingerLoaded;   // src/Anim/CharacterRigState.cpp
 // Raised by the overlay button (or a probe write); cleared by the pose path once it has the frame.
-extern "C" __declspec(dllexport) int                CyberpunkVR_RestFingerCaptureReq = 0;
-extern "C" __declspec(dllexport) int                CyberpunkVR_RestFingerSaveReq = 0;
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_RestFingerCaptureReq;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_RestFingerSaveReq;   // src/Anim/CharacterRigState.cpp
 // The apply half, measured the same way: how many passes wrote the pose, how many bones the last one
 // touched, and the gate that decides. Plus a force switch, so the write path can be proven with empty
 // hands instead of waiting to find out whether the weapon flag is the problem.
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugRestApplyCalls = 0;
-extern "C" __declspec(dllexport) int                CyberpunkVR_DebugRestBones = 0;
-extern "C" __declspec(dllexport) int                CyberpunkVR_DebugRestGate = 0;
-extern "C" __declspec(dllexport) int                CyberpunkVR_RestFingerForce = 0;
+extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugRestApplyCalls;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_DebugRestBones;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_DebugRestGate;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int                CyberpunkVR_RestFingerForce;   // src/Anim/CharacterRigState.cpp
 // Held up by the reload mod while the game reports a gun in each hand (src/Hooks/XInput.cpp).
 extern "C" volatile uint64_t CyberpunkVR_DualWieldUntil;
 
@@ -274,17 +274,17 @@ void VrikReloadFingerPose(uint8_t* boneBuf) {
 // ================================================================================================
 static const char* kRestGripIniR = "CyberpunkVR_RestGrip_Right.ini";
 
-extern "C" __declspec(dllexport) int CyberpunkVR_RestFingerCaptureReqR = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_RestFingerSaveReqR    = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_RestFingerApplyR      = 1;
-extern "C" __declspec(dllexport) int CyberpunkVR_RestFingerForceR      = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerHaveR  = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerSavedR = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerRefusedR = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerCapsR  = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestBonesR       = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestGateR        = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerLoadTriedR = 0;
+extern "C" __declspec(dllexport) extern int CyberpunkVR_RestFingerCaptureReqR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_RestFingerSaveReqR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_RestFingerApplyR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_RestFingerForceR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestFingerHaveR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestFingerSavedR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestFingerRefusedR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestFingerCapsR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestBonesR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestGateR;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestFingerLoadTriedR;   // src/Anim/CharacterRigState.cpp
 
 // Raised by the weapon module while the weapon is carried in the left hand.
 extern "C" __declspec(dllexport) extern int CyberpunkVR_CarryLeft;
@@ -441,10 +441,10 @@ void RestFingerRightTick() {
 // spring in TwoHandGrip.cpp raises as the hand comes back inside the carry radius. Fingers only, never
 // the wrist -- the rule every preview in this port follows.
 // ================================================================================================
-extern "C" __declspec(dllexport) int CyberpunkVR_CarryGripApply      = 1;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugCarryGripHave  = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugCarryGripSnaps = 0;
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugCarryGripBones = 0;
+extern "C" __declspec(dllexport) extern int CyberpunkVR_CarryGripApply;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugCarryGripHave;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugCarryGripSnaps;   // src/Anim/CharacterRigState.cpp
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugCarryGripBones;   // src/Anim/CharacterRigState.cpp
 
 // Published by the carry: the reach spring's weight, and whether the weapon is in the left hand.
 extern "C" __declspec(dllexport) extern float CyberpunkVR_CarryGripBlend;

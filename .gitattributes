@@ -5,3 +5,18 @@
 *.dtex      binary
 *.ent       binary
 *.dxil      binary
+
+# Patches for the RED4ext SDK (cargo xtask sdk applies them with git am): byte for byte as format-patch wrote them --
+# a CRLF checkout would make every context line miss its LF source line.
+externals/patches/** -text
+
+# The package's text data, copied byte for byte by cargo xtask dist: LF in every checkout, whatever core.autocrlf
+# says -- a CRLF checkout made a package whose files differed from the commit (B642).
+mods/config/*.ini text eol=lf
+mods/config/*.json text eol=lf
+mods/config/input/*.xml text eol=lf
+mods/tweaks/** text eol=lf
+mods/archive/*.xl text eol=lf
+mods/cet/CyberpunkVRPort_Stereo/vrcam.json text eol=lf
+# The shaders' manifest, compared as text by cargo xtask shaders --check
+rust/crates/cvr-gpu/shaders/*.txt text eol=lf

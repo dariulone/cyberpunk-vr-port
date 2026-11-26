@@ -29,6 +29,39 @@ public abstract class VRDualWieldTriggers {
   public static func Right() -> Bool {
     return (Cast<Int32>(GetVRSharedSlot(165)) / 4) % 2 == 1;
   }
+
+  public static func Hurricane() -> Bool {
+    return (Cast<Int32>(GetVRSharedSlot(165)) / 8) % 2 == 1;
+  }
+}
+
+// Heywood Hurricane is ValentinosFrenzy in the game's state machine. A rapid
+// pair of squeezes on EACH trigger requests it; all perk, reload, safe-state,
+// ammo and equipment checks remain the game's own CanStartValentinosFrenzy.
+// Listen for the merged fire action as well as the native QuickMelee binding.
+@wrapMethod(ValentinosFrenzyInitDecisions)
+protected final func OnAttach(const stateContext: ref<StateContext>, const scriptInterface: ref<StateGameScriptInterface>) -> Void {
+  wrappedMethod(stateContext, scriptInterface);
+  scriptInterface.executionOwner.RegisterInputListener(this, n"RangedAttack");
+}
+
+@wrapMethod(ValentinosFrenzyInitDecisions)
+protected cb func OnAction(action: ListenerAction, consumer: ListenerActionConsumer) -> Bool {
+  wrappedMethod(action, consumer);
+  // A deliberate squeeze can follow a full release of both hands. In that
+  // case the previous release was evaluated before the cadence request existed;
+  // waiting for this squeeze's release would miss a held last trigger entirely.
+  if VRDualWieldTriggers.Active() && Equals(ListenerAction.GetName(action), n"RangedAttack")
+      && ListenerAction.IsButtonJustPressed(action) {
+    this.EnableOnEnterCondition(true);
+  };
+}
+
+@wrapMethod(ValentinosFrenzyInitDecisions)
+protected final const func EnterCondition(const stateContext: ref<StateContext>, const scriptInterface: ref<StateGameScriptInterface>) -> Bool {
+  let nativeRequest: Bool = wrappedMethod(stateContext, scriptInterface);
+  return nativeRequest || (VRDualWieldTriggers.Active() && VRDualWieldTriggers.Hurricane()
+    && this.CanStartValentinosFrenzy(stateContext, scriptInterface));
 }
 
 // The right gun hands the shot to the left one when only the left trigger is squeezed -- or when both

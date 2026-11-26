@@ -7,6 +7,23 @@ target_compile_features(sharpen_tests PRIVATE cxx_std_20)
 target_compile_definitions(sharpen_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(sharpen_tests PRIVATE d3d12 dxgi d3dcompiler)
 add_test(NAME cas_sharpening_gpu COMMAND sharpen_tests)
+
+# The same program against the Rust pass and tracker (rust/crates/cvr-gpu through cvr_rust.lib), and both traces
+# compared bit for bit.
+option(CVR_SHARPEN_TESTS_RUST "Also run the test against the Rust pass" ON)
+if(CVR_SHARPEN_TESTS_RUST)
+    include(../../cmake/RustStaticlib.cmake)
+    add_executable(sharpen_tests_rust main.cpp)
+    target_include_directories(sharpen_tests_rust PRIVATE ../../include)
+    target_compile_features(sharpen_tests_rust PRIVATE cxx_std_20)
+    target_compile_definitions(sharpen_tests_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    target_link_libraries(sharpen_tests_rust PRIVATE d3d12 dxgi d3dcompiler)
+    cvr_link_rust(sharpen_tests_rust)
+    add_test(NAME cas_sharpening_gpu_rust COMMAND sharpen_tests_rust)
+    add_test(NAME cas_sharpening_parity
+             COMMAND ${CMAKE_COMMAND} -DCPP=$<TARGET_FILE:sharpen_tests> -DRUST=$<TARGET_FILE:sharpen_tests_rust>
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/ParityTrace.cmake)
+endif()
 add_executable(sharpen_policy policy.cpp)
 target_include_directories(sharpen_policy PRIVATE ../../include)
 target_compile_features(sharpen_policy PRIVATE cxx_std_20)

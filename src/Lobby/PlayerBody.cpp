@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // WHICH BODY THE PLAYER SPAWNS IN. Verified against game 2.5 with IDA headless and live (2026-11-02).
 //
 // `Character.Player_Puppet_Base.genders` holds one entity per gender (inline0 the woman's, inline1 the man's), one of
@@ -19,13 +20,28 @@
 //  - a load asks for the man's when the save's character is a man's and its persistent state has no gender: a new
 //    game started on 0.2.0. The write puts the gender there, and the next save carries it.
 // Everything else goes as the game has it. Checked live: both main menu spawns (boot, back from a game) and a load.
+//
+// The Rust build's spawn and VRLobbyResolveAs are rust/crates/cvr-rig/src/vrik/player_body.rs; this file keeps the
+// detour's registration, its trampoline slot and the counters.
 #include "Stereo/DetourRegistry.hpp"
+#include "Natives/NativeFunctions.hpp"  // the natives defined here, with C linkage in the Rust build
 #include "Stereo/StereoInternal.hpp"
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Utils.hpp>
 #include <atomic>
 #include <cstdint>
 
+// Spawns seen: [0] the main menu's, given the man's body; [1] a man's save repaired; [2] every other.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) volatile uint64_t CyberpunkVR_DebugPlayerSpawns[3] = {};
+#endif
+
+#if CVR_RUST_VRIK
+// The Rust build's detour, its original and its registration are Rust's (rust/crates/cvr-rig/src/vrik/player_body.rs,
+// rust/crates/cvr-render/src/engine_detours.rs).
+#else
 namespace RED4ext::ent { struct Entity; }
 RED4ext::ent::Entity* FindPlayerEntity();  // Natives/NativeHelpers.hpp
 extern void Log(const char*, ...);
@@ -75,8 +91,10 @@ int64_t __fastcall Detour_PlayerSpawn(int64_t spawner, uint64_t* job, int64_t re
     const int bodyMale = CharacterBodyMale();
     const bool mainMenu = asked == kDefault && bodyMale < 0;
     g_mainMenuBody.store(mainMenu, std::memory_order_relaxed);
+    int counter = 2;
     if (mainMenu) {
         gender = kMale;
+        counter = 0;
     } else if (!asked && bodyMale == 1) {
         uint64_t resolved = 0;
         reinterpret_cast<ResolvedGenderFn>(Base() + kResolvedGenderRva)(&resolved, *reinterpret_cast<int64_t*>(spawner + kSystems),
@@ -84,8 +102,10 @@ int64_t __fastcall Detour_PlayerSpawn(int64_t spawner, uint64_t* job, int64_t re
         if (resolved == kFemale) {
             Log("[body] a man's save with no gender in its persistent state (a new game on 0.2.0): repaired\n");
             gender = kMale;
+            counter = 1;
         }
     }
+    CyberpunkVR_DebugPlayerSpawns[counter] = CyberpunkVR_DebugPlayerSpawns[counter] + 1;
     const int64_t result = g_origPlayerSpawn(spawner, job, request, context);
     gender = asked;  // the request is the game's, and it is read here alone
     return result;
@@ -111,3 +131,5 @@ void VRLobbyResolveAs(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*,
 }
 
 CVR_DETOUR("[body] player spawn sub_1409CE8FC", kPlayerSpawnRva, Detour_PlayerSpawn, g_origPlayerSpawn)
+#endif
+#endif

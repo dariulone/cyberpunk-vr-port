@@ -1,0 +1,10 @@
+# THE LOBBY'S FIGURE: the new game's player stand-in in the lobby (rust/crates/cvr-ffi/src/mechanics/lobby_creation.rs)
+# is the photo mode's puppet spawned as a record of its own per body. The lobby cloned Character.Player_Puppet_Photomode
+# at run time with TweakDB:CloneRecord; as data they exist from the TweakDB load. The template (the base game's or the
+# expansion's photo-mode entity) is set at run time, by whether Phantom Liberty is enabled.
+
+Character.VRPort_FigureMale:
+  $base: Character.Player_Puppet_Photomode
+
+Character.VRPort_FigureFemale:
+  $base: Character.Player_Puppet_Photomode

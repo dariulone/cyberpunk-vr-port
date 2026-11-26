@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // THE LAUNCHER'S READY STATE, IN THE LEFT-HAND CYBERWARE STATE MACHINE'S DEFINITION.
 //
 // The arm launcher waits in a state of the port's own, vrLauncherReady (VrLauncherReadyDecisions / VrLauncherReadyEvents
@@ -10,6 +11,9 @@
 //
 // This ran as a TweakXL scriptable tweak; it is a native tweak of the plugin now (Core/TweakRecords.hpp), at the same
 // moment, with the same result.
+//
+// The C++ build's; with CVR_RUST_VRIK it is rust/crates/cvr-ffi/src/native_tweaks.rs.
+#if !CVR_RUST_VRIK
 #include "Core/TweakRecords.hpp"
 
 #include <RED4ext/RED4ext.hpp>
@@ -114,3 +118,5 @@ void AddLauncherReadyState(RED4ext::TweakDB* db) {
 const bool kRegistered = (cvr::tweak_records::AddNativeTweak(&AddLauncherReadyState), true);
 
 }  // namespace
+#endif
+#endif

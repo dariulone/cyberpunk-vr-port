@@ -1,4 +1,7 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // ViewTwinIr -- see include/Render/ViewTwinIr.hpp.
+#if !CVR_RUST_VRIK
+// The C++ build's rewrite; the Rust build's is rust/crates/cvr-render/src/view_twin_ir.rs (the header calls it).
 #include "Render/ViewTwinIr.hpp"
 #include <algorithm>
 #include <cctype>
@@ -470,3 +473,5 @@ IrTwin RewriteForViews(const std::string& text,const std::string* vertex) {
     return out;
 }
 }
+#endif
+#endif

@@ -1,8 +1,18 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Overlay/OverlayInternal.hpp"
 #include "Overlay/VrOverlay.hpp"
 #include "Overlay/VrWidgets.hpp"
 #include "Overlay/UiRec.hpp"
 
+// Tools: the VR shell's tab to select on its next frame, then -1 (Overlay/ImGuiOverlay.cpp's draw-data dump).
+#if !CVR_RUST_VRIK
+extern "C" int32_t CyberpunkVR_VrShellTab;
+#endif
+
+#if CVR_RUST_VRIK
+// THE VR SHELL AND ITS STYLE ARE RUST'S (rust/crates/cvr-render/src/vr_style.rs), ImGui reached through
+// Overlay/ImGuiAbi.cpp.
+#else
 namespace overlay {
 namespace {
 const ImVec4 Red{1.0f,.28f,.29f,1}, Yellow{.98f,.94f,.06f,1}, Cyan{.30f,.88f,.94f,1};
@@ -73,6 +83,7 @@ void ApplyVrStyle(){
 bool DrawVrShell(LiveControlsUiState& state,bool& foveatedEditing){
     using namespace cvr::vrui;
     static int selected=6;
+    if(CyberpunkVR_VrShellTab>=0 && CyberpunkVR_VrShellTab<7){selected=CyberpunkVR_VrShellTab;CyberpunkVR_VrShellTab=-1;}
     const char* tabs[]={"GENERAL","FRAMEGEN","HUD","CONTROLS","STEREO","AVATAR","OVERLAY"};
     ImGui::SetNextWindowPos({0,0});ImGui::SetNextWindowSize({CanvasWidth,CanvasHeight});
     ImGui::Begin("##VR controls",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoSavedSettings);
@@ -131,3 +142,5 @@ bool DrawVrShell(LiveControlsUiState& state,bool& foveatedEditing){
     return changed;
 }
 }
+#endif
+#endif

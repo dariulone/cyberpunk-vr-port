@@ -42,7 +42,6 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path[:0] = [str(ROOT / 'tools/vr_lobby_assets'), str(ROOT / 'tools/ent')]
-import gltf  # noqa: E402
 import make_lobby_scene as S  # noqa: E402
 import make_construct as C  # noqa: E402
 import add_hold_components as H  # noqa: E402
@@ -194,12 +193,13 @@ def lua_block(text, name):
 def bolt_guns():
     """The reload configs whose slide the hand pulls: {name, mag (the magazine mesh, the gun's key in the list),
     folder (the gun's), bone (the pulled part's on the gun's rig), riders (the rig bones that go with it as one
-    piece: ratio 1, no delay)}."""
+    piece: ratio 1, no delay), optional glowBone (a smaller grab cue)}."""
     out = []
     for f in sorted(CONFIGS.glob('*.lua')):
         t = f.read_text(encoding='utf-8')
         slide, mag = lua_block(t, 'slide'), lua_block(t, 'mag')
         bone = slide and re.search(r"\bbone\s*=\s*(\d+)", slide)
+        glow_bone = slide and re.search(r"\bglowBone\s*=\s*(\d+)", slide)
         mesh = mag and re.search(r"mesh\s*=\s*'([^']+\.mesh)'", mag)
         if not (bone and mesh):
             continue
@@ -207,7 +207,7 @@ def bolt_guns():
                   if abs(float(r) - 1.0) <= RIGID and 'delay' not in x]
         path = mesh.group(1).replace('\\\\', '\\')
         out.append({'name': f.stem, 'mag': path, 'folder': path.split('\\entities\\')[0], 'bone': int(bone.group(1)),
-                    'riders': riders})
+                    'riders': riders, 'glowBone': int(glow_bone.group(1)) if glow_bone else None})
     return out
 
 
@@ -215,6 +215,8 @@ def extract_guns(guns):
     """The guns' meshes and rigs from the game, and their appearances -- the game's, with the pack's own over them
     (the pack's carry the vrp_<bone> slots) -- serialized under BOLTS_WORK/json."""
     if BOLTS_WORK.exists():
+        if not BOLTS_WORK.resolve().is_relative_to(ROOT.resolve()) or BOLTS_WORK.resolve().name != 'bolts':
+            raise SystemExit('unexpected bolt extraction directory')
         shutil.rmtree(BOLTS_WORK)
     (BOLTS_WORK / 'json').mkdir(parents=True)
     (BOLTS_WORK / 'files').mkdir()
@@ -239,95 +241,7 @@ def names(lst):
     return [n['$value'] if isinstance(n, dict) else n for n in lst or []]
 
 
-def at(ci, e):
-    """(stream, offset in the vertex, stride of the stream) of a vertex element of a chunk."""
-    els = [x for x in ci['chunkVertices']['vertexLayout']['elements']['Elements'] if x['type'] != 'PT_Invalid']
-    s = e['streamIndex']
-    return (s, sum(SIZES[x['type']] for x in els[:els.index(e)] if x['streamIndex'] == s),
-            sum(SIZES[x['type']] for x in els if x['streamIndex'] == s))
-
-
-def chunk_geometry(header, buf, ci, bones):
-    """A chunk's positions and normals (model space), its triangles, and each vertex's weight on `bones` (mesh bone
-    indices) together."""
-    n = ci['numVertices']
-    starts = ci['chunkVertices']['byteOffsets']['Elements']
-    q, o = header['quantizationScale'], header['quantizationOffset']
-    ps, poff, pstride, pkind = element(ci, 'PS_Position')
-    ns, noff, nstride, nkind = element(ci, 'PS_Normal')
-    assert pkind == 'PT_Short4N' and nkind == 'PT_Dec4', (pkind, nkind)
-    raw = np.frombuffer(buf, np.uint8, pstride * n, starts[ps]).reshape(n, pstride)[:, poff:poff + 8]
-    pos = raw.copy().view('<i2').reshape(n, 4)[:, :3] / 32767.0 * np.array([q['X'], q['Y'], q['Z']]) + \
-        np.array([o['X'], o['Y'], o['Z']])
-    packed = np.frombuffer(buf, np.uint8, nstride * n, starts[ns]).reshape(n, nstride)[:, noff:noff + 4]
-    packed = packed.copy().view('<u4').reshape(n)
-    nrm = np.stack([((packed >> (10 * i)) & 0x3FF) / 1023.0 * 2.0 - 1.0 for i in range(3)], 1)
-    els = [e for e in ci['chunkVertices']['vertexLayout']['elements']['Elements'] if e['type'] != 'PT_Invalid']
-    w = np.zeros(n)
-    for e in els:
-        if e['usage'] != 'PS_SkinIndices':
-            continue
-        we = next(x for x in els if x['usage'] == 'PS_SkinWeights' and x.get('usageIndex', 0) == e.get('usageIndex', 0))
-        (si, so, sst), (wi, wo, wst) = at(ci, e), at(ci, we)
-        idx = np.frombuffer(buf, np.uint8, sst * n, starts[si]).reshape(n, sst)[:, so:so + 4]
-        wgt = np.frombuffer(buf, np.uint8, wst * n, starts[wi]).reshape(n, wst)[:, wo:wo + 4] / 255.0
-        w += (wgt * np.isin(idx, bones)).sum(1)
-    wide = ci['chunkIndices']['pe'] != 'IBCT_IndexUShort'
-    start = header['indexBufferOffset'] + ci['chunkIndices']['teOffset']
-    tri = np.frombuffer(buf, '<u4' if wide else '<u2', ci['numIndices'], start).astype(np.int64).reshape(-1, 3)
-    return pos, nrm, tri, w
-
-
-def bolt_shape(meshes, frame_bone, bones):
-    """The pulled part of a gun: the LOD 0 triangles of its meshes whose corners are all on `bones` (names), in the
-    frame of `frame_bone` -- what the weapon's vrp_<bone> slot reports. Positions pushed out by INFLATE, normals
-    there, triangles counter-clockwise seen from outside. None when no mesh has the part."""
-    frame = None
-    for root in meshes:
-        bn = names(root.get('boneNames'))
-        if frame_bone in bn:
-            m = root['boneRigMatrices'][bn.index(frame_bone)]
-            # Rows X Y Z the axes, W the translation, a point a row vector: model space -> the bone's (measured: a
-            # part's vertices land round the origin this way, and well off it the other).
-            frame = np.array([[m[r]['X'], m[r]['Y'], m[r]['Z'], m[r]['W']] for r in 'XYZW'])
-            break
-    if frame is None:
-        return None
-    P, N, T = [], [], []
-    count = 0
-    for root in meshes:
-        bn = names(root.get('boneNames'))
-        on = [bn.index(b) for b in bones if b in bn]
-        if not on:
-            continue
-        blob = root['renderResourceBlob']['Data']
-        buf = base64.b64decode(blob['renderBuffer']['Bytes'])
-        for ci in blob['header']['renderChunkInfos']:
-            if not ci.get('lodMask', 1) & 1:
-                continue
-            pos, nrm, tri, w = chunk_geometry(blob['header'], buf, ci, on)
-            keep = tri[(w[tri] > BOUND).all(1)]
-            if not len(keep):
-                continue
-            used, local = np.unique(keep, return_inverse=True)
-            P.append(pos[used])
-            N.append(nrm[used])
-            T.append(local.reshape(-1, 3) + count)
-            count += len(used)
-    if not P:
-        return None
-    pos, nrm, tri = np.concatenate(P), np.concatenate(N), np.concatenate(T)
-    pos = np.c_[pos, np.ones(len(pos))] @ frame[:, :3]
-    nrm = nrm @ frame[:3, :3]
-    nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-9)
-    # The game's winding is whichever its meshes have; written counter-clockwise, the way glTF has them.
-    face = np.cross(pos[tri[:, 1]] - pos[tri[:, 0]], pos[tri[:, 2]] - pos[tri[:, 0]])
-    if (np.einsum('ij,ij->i', face, nrm[tri].sum(1)) < 0).sum() > len(tri) / 2:
-        tri = tri[:, [0, 2, 1]]
-    return pushed(pos, nrm), nrm, tri
-
-
-def gun_meshes(gun, rig_name):
+def gun_mesh_files(gun, rig_name):
     """The meshes of the gun's own body, as its appearances wear them: every appearance file's first appearance, the
     skinned meshes named after the gun's rig (attachments and the receivers of other variants are not the gun's
     body), shadows and decals left out."""
@@ -342,7 +256,7 @@ def gun_meshes(gun, rig_name):
             name = str(m['DepotPath']['$value']).rsplit('\\', 1)[-1]
             if name.startswith(rig_name) and 'shadow' not in name and 'decal' not in name:
                 wanted.add(name)
-    return [read_json(p) for p in in_folder(gun, 'mesh') if p.name[:-5] in wanted]
+    return [p for p in in_folder(gun, 'mesh') if p.name[:-5] in wanted]
 
 
 def has_slot(gun, slot):
@@ -354,10 +268,17 @@ def bolts():
     """The pulled parts' glow copies, imported onto copies of the lobby's plane mesh: {magazine mesh: (depot path of
     the copy, the slot it is drawn on, its document)}."""
     guns = bolt_guns()
+    generator_build = ROOT / 'build/reload-glow/part-generator'
+    if not (generator_build / 'CMakeCache.txt').exists():
+        S.run('cmake', '-S', HERE, '-B', generator_build, '-A', 'x64')
+    S.run('cmake', '--build', generator_build, '--config', 'Release', '--target', 'reload_glow_part')
+    generator = generator_build / 'Release/reload_glow_part.exe'
     if '--reuse' not in sys.argv:
         extract_guns(guns)
     imports = BOLTS_WORK / 'import'
     if imports.exists():
+        if imports.resolve().parent != BOLTS_WORK.resolve() or not imports.resolve().is_relative_to(ROOT.resolve()):
+            raise SystemExit('unexpected glow import directory')
         shutil.rmtree(imports)
     imports.mkdir()
     planned = {}
@@ -369,32 +290,28 @@ def bolts():
             print('  %-26s no rig of its own: the brackets' % gun['name'])
             continue
         rig = names(read_json(rigs[0])['boneNames'])
-        pulled = rig[gun['bone']]
+        selected_bone = gun['glowBone'] if gun['glowBone'] is not None else gun['bone']
+        pulled = rig[selected_bone]
         slot = 'vrp_' + pulled
         if not has_slot(gun, slot):
             print('  %-26s no %s slot: the brackets' % (gun['name'], slot))
             continue
-        shape = bolt_shape(gun_meshes(gun, rigs[0].name[:-len('.rig.json')]), pulled,
-                           [pulled] + [rig[b] for b in gun['riders'] if b < len(rig)])
-        if shape is None:
+        bones = [pulled] if gun['glowBone'] is not None else [pulled] + [rig[b] for b in gun['riders'] if b < len(rig)]
+        name = 'bolt_' + gun['name']
+        plan, report = imports / (name + '.plan.json'), imports / (name + '.report.json')
+        plan.write_text(json.dumps({'frame': pulled, 'bones': bones, 'name': name, 'inflate': INFLATE,
+            'meshes': [str(p.resolve()) for p in gun_mesh_files(gun, rigs[0].name[:-len('.rig.json')])]}), encoding='utf-8')
+        result = subprocess.run([str(generator), str(plan), str(imports / (name + '.glb')), str(report)], capture_output=True, text=True)
+        if result.returncode == 3:
             print('  %-26s no mesh has %s: the brackets' % (gun['name'], pulled))
             continue
-        pos, nrm, tri = shape
-        name = 'bolt_' + gun['name']
-        b = gltf.Builder()
-        g = b.group('glow')
-        # Any tangent across the normal: the shader's normal map is flat.
-        tan = np.cross(nrm, np.where(np.abs(nrm[:, 2:3]) < 0.9, [[0, 0, 1]], [[1, 0, 0]]))
-        tan /= np.maximum(np.linalg.norm(tan, axis=1, keepdims=True), 1e-9)
-        g['pos'] = [tuple(map(float, p)) for p in pos]
-        g['nrm'] = [tuple(map(float, n)) for n in nrm]
-        g['tan'] = [tuple(map(float, t)) for t in tan]
-        g['uv'] = [(0.0, 0.0)] * len(pos)
-        g['idx'] = [int(i) for i in tri.reshape(-1)]
-        b.write(str(imports / (name + '.glb')), name)
+        if result.returncode:
+            print(result.stdout, result.stderr)
+            result.check_returncode()
+        generated = json.loads(report.read_text(encoding='utf-8'))
         shutil.copyfile(S.TEMPLATE_MESH, imports / (name + '.mesh'))
         planned[gun['mag']] = (name, slot)
-        print('  %-26s %s on %s: %d triangles' % (gun['name'], pulled, slot, len(tri)))
+        print('  %-26s %s on %s: %d triangles' % (gun['name'], pulled, slot, generated['triangles']))
     # The importer exits non-zero over its garment-support warning even when the files went in: its own count says.
     r = subprocess.run([str(S.CLI), 'import', str(imports), '-o', str(imports), '-k'], capture_output=True, text=True)
     if 'Imported %d/%d file(s)' % (len(planned), len(planned)) not in r.stdout:

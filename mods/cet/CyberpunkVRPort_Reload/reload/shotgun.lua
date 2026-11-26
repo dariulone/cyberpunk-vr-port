@@ -297,6 +297,7 @@ local function bodyClear(H)
     for i = 1, #bodies do bodyDespawn(H, bodies[i]) end
     bodies = {}
 end
+M.clearLooseRounds = bodyClear
 
 -- F is the shell's frame in the WORLD at release, v its velocity, w (rad/s) about axis wa.
 local function bodySpawn(H, ent, bind, bq, len, F, vx, vy, vz, w, wa)
@@ -326,6 +327,21 @@ local function bodySpawn(H, ent, bind, bq, len, F, vx, vy, vz, w, wa)
 end
 
 local BODY = { radius = 0.012, bounce = 0.28, friction = 0.55, restV = 0.35, settle = 0.20 }
+
+-- Manual pistol extraction uses the port's intact cartridge. Its mesh bind is the
+-- inverse of meshRot in the Overture profile; the loose-body solver follows the rim.
+local ROUND_BIND = { 0, 0, 0.0134 }
+local ROUND_ROT = { -math.sqrt(0.5), 0, 0, math.sqrt(0.5) }
+function M.ejectPistolRound(H, weapon, slots, slideSlot)
+    local frame = slotWorld(slots, 'fx_ejection_port') or slotWorld(slots, 'vrp_chamber') or slotWorld(slots, slideSlot)
+    local gun = weaponWorld(weapon)
+    if not (frame and gun) then return false end
+    frame[4], frame[5], frame[6], frame[7] = qmul(gun[4], gun[5], gun[6], gun[7], ROUND_ROT[1], 0, 0, ROUND_ROT[4])
+    local vx, vy, vz = qrot(gun[4], gun[5], gun[6], gun[7], 1.1, -0.5, 1.9)
+    local spinAxis = { qrot(gun[4], gun[5], gun[6], gun[7], 1, 0, 0) }
+    return bodySpawn(H, [[base\vrport\vrp_round_overture.ent]], ROUND_BIND, ROUND_ROT, 0.045,
+                     frame, vx, vy, vz, 14, spinAxis) ~= nil
+end
 
 local function bodyPlace(b)
     local e = Game.FindEntityByID(b.id)
@@ -1859,10 +1875,8 @@ local function previewTick(H, dt)
     finTick(H, dt, 0.15)
 end
 
-function M.tick(H, dt)
-    bodyTick(H, dt or 0.016)
-    previewTick(H, dt or 0.016)
-end
+M.tickBodies = bodyTick
+M.tickPreview = previewTick
 
 function M.active()
     if S.kind == 'break' then

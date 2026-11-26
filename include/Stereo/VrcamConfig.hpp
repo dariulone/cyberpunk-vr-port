@@ -26,6 +26,41 @@ namespace cvr {
 
 // The engine's CName hash. Used to turn a virtualCameraName into the value the render
 // pipeline compares against at view-ctx+0x28.
+#if CVR_RUST_VRIK
+// The scanners: rust/crates/cvr-render/src/vrcam_config.rs through vrcam_config_abi.rs (tools/single_pass_tests'
+// vrcam_config_parity checks them against the reference ones). File and bridge I/O stay here.
+extern "C" {
+uint64_t cvr_vrcam_cname_hash(const char*);
+bool cvr_vrcam_string_span(const char*,size_t,const char*,size_t*,size_t*);
+intptr_t cvr_vrcam_string_array(const char*,size_t,const char*,size_t*,size_t);
+bool cvr_vrcam_derive_camera(const char*,char*,size_t);
+int cvr_vrcam_enable_value(const char*);
+bool cvr_vrcam_parse_resolution(const char*,int*,int*);
+}
+inline uint64_t cname_hash(const char* s){return cvr_vrcam_cname_hash(s);}
+// Pull the string value of "key" out of a flat JSON object, returning the span so callers can also rewrite it in
+// place: a scanner, not a parser; a ':' is required between the key and its value.
+inline bool json_find_string_span(const std::string& text, const char* key,
+                                  size_t* value_pos, size_t* value_len) {
+    return cvr_vrcam_string_span(text.data(),text.size(),key,value_pos,value_len);
+}
+inline bool json_find_string(const std::string& text, const char* key, std::string* out) {
+    size_t pos = 0, len = 0;
+    if (!json_find_string_span(text, key, &pos, &len) || len == 0) return false;
+    out->assign(text, pos, len);
+    return true;
+}
+// Collect the strings of a `"key": [ "a", "b" ]` array.
+inline bool json_find_string_array(const std::string& text, const char* key,
+                                   std::vector<std::string>* out) {
+    const auto count = cvr_vrcam_string_array(text.data(), text.size(), key, nullptr, 0);
+    if (count < 0) return false;
+    std::vector<size_t> spans(2*size_t(count));
+    if (count) cvr_vrcam_string_array(text.data(), text.size(), key, spans.data(), size_t(count));
+    for (size_t i = 0; i < spans.size(); i += 2) out->emplace_back(text, spans[i], spans[i + 1]);
+    return true;
+}
+#else
 inline uint64_t cname_hash(const char* s) {
     uint64_t h = 0xCBF29CE484222325ULL;              // FNV-1a 64 offset basis
     for (; s && *s; ++s) {
@@ -107,6 +142,7 @@ inline bool json_find_string_array(const std::string& text, const char* key,
     }
     return false;
 }
+#endif
 
 // The Stereo mod's copy, the one vrcam_select.lua reads. Reported even when it does not exist yet, so callers
 // can create or log it.
@@ -137,12 +173,18 @@ inline bool vrcam_config_read(std::string* text, char* path_out, size_t path_siz
 }
 
 // Derive vrcam_feed_<suffix> from vrcam_<suffix> — the authored naming convention.
+#if CVR_RUST_VRIK
+inline bool vrcam_derive_camera(const char* component, char* out, size_t out_size) {
+    return cvr_vrcam_derive_camera(component, out, out_size);
+}
+#else
 inline bool vrcam_derive_camera(const char* component, char* out, size_t out_size) {
     static const char kPrefix[] = "vrcam_";
     const size_t plen = sizeof(kPrefix) - 1;
     if (!component || strncmp(component, kPrefix, plen) != 0) return false;
     return _snprintf_s(out, out_size, _TRUNCATE, "vrcam_feed_%s", component + plen) > 0;
 }
+#endif
 
 // Replace the "component" value, leaving comments, formatting and the authored list untouched
 // (rewriting the whole file would throw away the hand-written notes in _comment).
@@ -197,12 +239,16 @@ inline bool vrcam_bridge_path(const char* name, char* out, size_t out_size) {
 // The CET mod asks VRVrcamEnableRequest() for it instead of opening the file twice a second on the game
 // thread (a sandboxed CET file open costs 0.3-1.2 ms); the file stays, so a request survives a restart.
 inline std::atomic<int> g_vrcamEnableRequest{-2};
+#if CVR_RUST_VRIK
+inline int vrcam_enable_value(const char* body){return cvr_vrcam_enable_value(body);}
+#else
 inline int vrcam_enable_value(const char* body) {
     if (!body) return -1;
     if (strchr(body, '0')) return 0;
     if (strchr(body, '1')) return 1;
     return -1;
 }
+#endif
 
 inline bool vrcam_bridge_write(const char* name, const char* body) {
     char path[MAX_PATH] = {};
@@ -250,6 +296,9 @@ inline int vrcam_enable_request() {
 
 // Parse the "<W>x<H>" tail of a component name. Returns false for names that do not carry one,
 // which is how the launcher tells a resolution component from anything else.
+#if CVR_RUST_VRIK
+inline bool vrcam_parse_resolution(const char* component, int* w, int* h){return cvr_vrcam_parse_resolution(component, w, h);}
+#else
 inline bool vrcam_parse_resolution(const char* component, int* w, int* h) {
     const char* underscore = component ? strrchr(component, '_') : nullptr;
     if (!underscore) return false;
@@ -260,5 +309,6 @@ inline bool vrcam_parse_resolution(const char* component, int* w, int* h) {
     *w = a; *h = b;
     return true;
 }
+#endif
 
 } // namespace cvr

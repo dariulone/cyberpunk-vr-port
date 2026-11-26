@@ -7,11 +7,11 @@
 #include <type_traits>
 using namespace cvr::stereo;
 namespace {
-std::array<uint8_t,0xC7FC0> memory{};unsigned created{},initialized{},destroyed{};const void* camera{};const void* flags{};
+std::array<uint8_t,0xE2880> memory{};unsigned created{},initialized{},destroyed{};const void* camera{};const void* flags{};
 void* Create(void** out){++created;*out=memory.data();return out;}
 void* Destroy(void* owner,uint32_t release){if(owner!=memory.data() || release!=1)throw std::runtime_error("wrong native destructor");++destroyed;return nullptr;}
 uintptr_t Init(void* storage,void*,uint8_t mode,const void* cam,void*,void* metadata,const void* options){
-    if(storage!=memory.data()+0xC0 || metadata!=memory.data()+0xC5D00 || mode!=3)throw std::runtime_error("wrong native collector shape");
+    if(storage!=memory.data()+0xC0 || metadata!=memory.data()+0xE05C0 || mode!=3)throw std::runtime_error("wrong native collector shape");
     ++initialized;camera=cam;flags=options;return 99;
 }
 void Require(bool value){if(!value)throw std::runtime_error("CPU collector ownership failed");}

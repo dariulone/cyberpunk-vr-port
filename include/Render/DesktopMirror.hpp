@@ -26,6 +26,31 @@ struct DesktopCoverTransform {
     UINT destinationHeight = 0;
 };
 
+static_assert(sizeof(DesktopCoverTransform) == 40, "mirrored by rust/crates/cvr-gpu/src/desktop_mirror.rs");
+
+#if CVR_RUST_VRIK
+// The mirror: rust/crates/cvr-gpu/src/desktop_mirror.rs (the C++ build's declarations below describe each call).
+extern "C" {
+bool cvr_desktop_cover_transform(UINT sw, UINT sh, UINT dw, UINT dh, DesktopCoverTransform* out);
+bool cvr_desktop_physical_client_rect(HWND hwnd, RECT* clientRect, POINT* clientOrigin);
+bool cvr_desktop_monitor_window_rect(HWND hwnd, RECT* windowRect, RECT* monitorRect, RECT* targetClientRect);
+void cvr_desktop_mirror_set_device_and_queue(ID3D12Device* device, ID3D12CommandQueue* queue);
+void cvr_desktop_mirror_render(IDXGISwapChain* swapChain, HWND hwnd);
+void cvr_desktop_mirror_invalidate();
+}
+inline bool ComputeDesktopCoverTransform(UINT sw, UINT sh, UINT dw, UINT dh, DesktopCoverTransform& out) {
+    return cvr_desktop_cover_transform(sw, sh, dw, dh, &out);
+}
+inline bool GetDesktopPhysicalClientRect(HWND hwnd, RECT& clientRect, POINT& clientOrigin) {
+    return cvr_desktop_physical_client_rect(hwnd, &clientRect, &clientOrigin);
+}
+inline bool GetDesktopMonitorWindowRect(HWND hwnd, RECT& windowRect, RECT* monitorRect = nullptr, RECT* targetClientRect = nullptr) {
+    return cvr_desktop_monitor_window_rect(hwnd, &windowRect, monitorRect, targetClientRect);
+}
+inline void DesktopMirrorSetDeviceAndQueue(ID3D12Device* device, ID3D12CommandQueue* queue) { cvr_desktop_mirror_set_device_and_queue(device, queue); }
+inline void DesktopMirrorRender(IDXGISwapChain* swapChain, HWND hwnd) { if (swapChain && hwnd) cvr_desktop_mirror_render(swapChain, hwnd); }
+inline void DesktopMirrorInvalidate() { cvr_desktop_mirror_invalidate(); }
+#else
 // Centre crop of a source to the destination's aspect ("cover"). False on a zero size.
 bool ComputeDesktopCoverTransform(
     UINT sourceWidth, UINT sourceHeight,
@@ -44,3 +69,4 @@ bool GetDesktopMonitorWindowRect(
 void DesktopMirrorSetDeviceAndQueue(ID3D12Device* device, ID3D12CommandQueue* queue);
 void DesktopMirrorRender(IDXGISwapChain* swapChain, HWND hwnd);
 void DesktopMirrorInvalidate();
+#endif

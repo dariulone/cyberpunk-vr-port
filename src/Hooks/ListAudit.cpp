@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // ListAudit -- see include/Hooks/ListAudit.hpp. Diagnostic only: nothing here runs unless CVR_GPU_DIAG asks
 // for "lists", and then every call goes through one mutex.
 #include "Hooks/ListAudit.hpp"
@@ -11,6 +12,9 @@
 #include <mutex>
 #include <unordered_map>
 
+#if CVR_RUST_VRIK
+// The audit is rust/crates/cvr-gpu/src/gpu_diag.rs.
+#else
 extern void Log(const char* fmt, ...);
 
 namespace cvr::list_audit {
@@ -162,3 +166,5 @@ void Execute(ID3D12CommandQueue* queue, UINT count, ID3D12CommandList* const* su
     }
 }
 }  // namespace cvr::list_audit
+#endif
+#endif

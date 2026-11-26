@@ -5,6 +5,7 @@
 #include <map>
 #include <set>
 
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it (prepared_pair_native.rs builds the banks); the Rust test variants do
 namespace cvr::stereo::prepared_membership {
 struct Bank::Data {
     MultilayerMembershipSource source;Summary summary;
@@ -108,3 +109,4 @@ bool Build(const prepared_pair::Source& source,Bank& output,Failure& failure)try
     output.data_=std::move(next);failure=Failure::None;return true;
 }catch(...){output={};failure=Failure::Exception;return false;}
 }
+#endif

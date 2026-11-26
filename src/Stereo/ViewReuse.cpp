@@ -46,6 +46,7 @@
 namespace cvr {
 namespace detail {
 
+#if !CVR_RUST_VRIK  // the Rust build's detours: view_reuse.rs
 static bool shared_world_view(uint64_t key) {
     return (key && key==g_vrcam_ctx_key) || key==cvr::cname_hash("vr_optics_feed");
 }
@@ -56,7 +57,9 @@ static bool optics_work(void* work) {
         return ctx && *reinterpret_cast<const uint64_t*>(ctx+0x28)==cvr::cname_hash("vr_optics_feed");
     } __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
 }
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 void __fastcall Detour_SkyWork(void* a1, void* a2) {
     bool vrcam = false;
     if (a2) {
@@ -78,15 +81,25 @@ void __fastcall Detour_SkyWork(void* a1, void* a2) {
     }
     g_orig_sky_work(a1, a2);
 }
+#endif
 
+#if !CVR_RUST_VRIK
 using DistantWorkFn = void(__fastcall*)(void*, void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static DistantWorkFn g_orig_distant_render  = nullptr;
 static DistantWorkFn g_orig_distant_prepare = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugDistantSkipHits = 0;
+#endif
 
 // SEH-only helper (no C++ objects)  view ctx = *(a2+0x18), key @ctx+0x28.
 // Only skip when distant-reuse mode is active (1); mode 0 leaves distant to the
 // engine's own bit-11-clear no-op so the A/B baseline is the vanilla path.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static bool distant_is_vrcam(void* a2) {
     if (CyberpunkVR_DistantReuseMode != 1 || !a2) return false;
     __try {
@@ -104,6 +117,7 @@ static void __fastcall Detour_DistantPrepare(void* a1, void* a2, void* a3) {
     if (distant_is_vrcam(a2)) { CVR_DIAGNOSTIC(++CyberpunkVR_DebugDistantSkipHits); return; }
     g_orig_distant_prepare(a1, a2, a3);
 }
+#endif
 
 // --- Volumetric clouds: hand VRCAM MAIN's cloud constants ----------------------------
 // MEASURED live in both views (x64dbg, breakpoint inside CRenderNode_RenderVolumetricClouds
@@ -132,28 +146,43 @@ static void __fastcall Detour_DistantPrepare(void* a1, void* a2, void* a3) {
 // Blast radius is clouds and nothing else: sub_1407F825C's only caller in the 169-node graph
 // is the volumetric-clouds node, and viewData+0x430/+0x550 are read by no other node either.
 // Size is exact, not assumed -- the caller follows the fill with sub_14041A780(0xC0, Src).
+#if !CVR_RUST_VRIK
 constexpr size_t    CLOUD_CB_BYTES    = 192;        // 0xC0, per the upload right after it
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 using CloudCbFn = __int64(__fastcall*)(__int64, __int64, __int64, __int64, __int64,
                                        int*, int, int);
+#endif
+#if !CVR_RUST_VRIK
 static CloudCbFn g_orig_cloud_cb = nullptr;
+#endif
 // 3 = mirror ONLY the three noise-layer offsets -- the measured difference  [default, proven]
 // 0 = off (engine's own per-view constants, i.e. the broken-stereo baseline)
 // 1 = mirror MAIN's buffer, keep VRCAM's own view size + jitter   -- kills VRCAM's clouds
 // 2 = mirror MAIN's buffer verbatim                               -- kills VRCAM's clouds
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CloudCbMode = 3;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCloudCbMain  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCloudCbVrcam = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static std::mutex g_cloud_cb_mtx;
 static uint8_t    g_cloud_cb_main[CLOUD_CB_BYTES];
 static std::atomic<bool> g_cloud_cb_have{false};
+#endif
 
 // SEH-only helpers below: they touch engine-owned memory on job threads, and __try cannot
 // share a function with C++ object unwinding (C2712), so the locking stays out of them.
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 bool cloud_cb_raw_copy(void* dst, const void* src, size_t n) {
     __try { memcpy(dst, src, n); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // AS MUCH AS IS ACTUALLY THERE. The viewData capture was all-or-nothing on 0xFF0 bytes and it
 // never landed -- no [viewData] line has ever been logged, while the graph-context diff beside
 // it reports fine. 0xFF0 came from the HUD reversing and evidently overruns the object on this
@@ -196,6 +225,7 @@ static void cloud_cb_capture_main(__int64 cb) {
     g_cloud_cb_have.store(true, std::memory_order_release);
     CVR_DIAGNOSTIC(InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugCloudCbMain)));
 }
+#endif
 
 // ONLY 0x40. The buffer's other differing fields are per-view by construction and the mode-1
 // path below already says so: +152 is this view's width/height and +168 its jitter, both
@@ -208,9 +238,14 @@ static void cloud_cb_capture_main(__int64 cb) {
 //          five rounds on viewData. The raymarch reads _40_m0[4].w -- byte 0x4C -- as the
 //          light-intensity multiplier: `_412 = _40_m0[4].w * _30_m0[6].x` for each channel,
 //          i.e. a flat scale on the cloud colour. That is the shape of "always lighter".
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CloudCbExtra = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCloudCbExtra = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // Report-only diff of the whole 192 bytes, taken BEFORE anything is written -- which is why 0x50
 // reads as a hole here: the wind mirror fills it a few lines further down.
 static void block_diff_log(const char* tag, const uint8_t* refb, const uint8_t* curb,
@@ -265,6 +300,7 @@ static void cloud_cb_apply_vrcam(__int64 cb) {
         CVR_DIAGNOSTIC(InterlockedIncrement64(
             reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugCloudCbVrcam)));
 }
+#endif
 
 // --- what ELSE of the view block does the RTT view not get? --------------------------------
 // The cloud wind offsets turned out to be one instance of a pattern: sub-blocks of viewData
@@ -287,17 +323,28 @@ static void cloud_cb_apply_vrcam(__int64 cb) {
 // switched off again straight after.
 //   1 = the holes only (MAIN has a value, the second view has zero)
 //   2 = every differing run, including the ones where both views hold their own value
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ViewDataDiff = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 constexpr size_t VIEWDATA_BYTES = 0x1000;      // the view object's size, from the HUD reversing
 static uint8_t g_vd_main[VIEWDATA_BYTES];
 static std::atomic<bool> g_vd_have{false};
 // Bumped under g_cloud_cb_mtx with every write of g_vd_main, so a reader holding the value it saw
 // under that mutex knows whether its own copy is still MAIN's current one.
 static std::atomic<uint64_t> g_vd_gen{0};
+#endif
 // Bumped after every engine copy of a parameter struct into a view block (Detour_ViewDataCopy),
 // so a fill gated on "nothing has changed since" also re-runs when the engine rewrote a block.
+#if CVR_RUST_VRIK
+// Rust's own (view_reuse.rs's VD_WRITE_EPOCH).
+#else
 static std::atomic<uint64_t> g_vd_write_epoch{0};
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // The MAIN-set / VRCAM-zero ranges the diff reported live, with what the static reverse says
 // reads them (traced by following sub_14033C248's result through every decompiled node body):
 //   0x150, 0x350        -> ScreenSpaceRain's block (base 0x334 / 0x4C)
@@ -521,6 +568,7 @@ static void viewdata_diff_vrcam(__int64 vd) {
     }
     log("[vdiff] MAIN's values in the holes: %s", vals);
 }
+#endif
 
 // --- LET THE ENGINE COMPUTE IT, instead of copying MAIN's bytes ---------------------------------
 //
@@ -559,11 +607,15 @@ static void viewdata_diff_vrcam(__int64 vd) {
 //
 // This is the same shape as every fix in this port that worked: run the mechanism the working view
 // uses, rather than transcribing its results.
+#if !CVR_RUST_VRIK
 using ViewParamsApplyFn = void (__fastcall*)(uintptr_t, __int64);
 using ViewParamsEntryFn = char (__fastcall*)(__int64, __int64, __int64);
+#endif
+#if !CVR_RUST_VRIK
 static ViewParamsEntryFn g_view_params_entry = nullptr;
 static ViewParamsApplyFn g_orig_view_params = nullptr;
 static std::atomic<uintptr_t> g_view_params{0};
+#endif
 // DEFAULT 1 ON 2026-08-29, ON THE PICTURE. Reported the first time it was switched on:
 // the scanner's green tint is back in the second eye. That isolates a finding this repository had
 // only ever recorded collectively -- the tint was first attributed to lending root parameter 5 of the
@@ -580,7 +632,14 @@ static std::atomic<uintptr_t> g_view_params{0};
 // thing -- the scanner's tint was measured with mode 1 and mode 2 applies the identical per-entry
 // function -- with the erase gone. Shipping the mode with a named hazard as the default would be
 // choosing the worse of two that do the same job.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_RunViewParams = 2;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewParamsRuns = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewParamsSeen = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewParamsEntries = 0;
@@ -594,7 +653,18 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewParamsBusy = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewParamsWalked   = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewParamsSkipNoObj = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewParamsSkipErase = 0;
+#endif
 
+#if !CVR_RUST_VRIK
+using ViewDataCopyFn = __int64 (__fastcall*)(__int64, __int64);
+#endif
+#if !CVR_RUST_VRIK
+static ViewDataCopyFn g_orig_vd_copy = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// THE VIEW PARAMETERS ARE RUST'S (rust/crates/cvr-render/src/view_reuse.rs): MAIN's override stack kept, the
+// overrides run for our own source without the erase, the report; registered at the end of this file.
+#else
 static void __fastcall Detour_ViewParamsApply(uintptr_t a1, __int64 a2) {
     if (!g_view_params_entry && g_exe_base)
         g_view_params_entry = reinterpret_cast<ViewParamsEntryFn>(
@@ -704,8 +774,6 @@ static void vd_run_params_for_source(__int64 src) {
 
 // The copy that carries a freshly produced parameter struct into a view's block. Our own preparer's
 // scope is the only thing that opens this, so no other view can be touched by construction.
-using ViewDataCopyFn = __int64 (__fastcall*)(__int64, __int64);
-static ViewDataCopyFn g_orig_vd_copy = nullptr;
 
 static __int64 __fastcall Detour_ViewDataCopy(__int64 dst, __int64 src) {
     if (src && t_rtt_prepare_ours) vd_run_params_for_source(src);
@@ -737,6 +805,7 @@ void view_params_report() {
         (unsigned long long)CyberpunkVR_DebugViewParamsSeen);
 }
 
+#endif
 // --- filling the holes ---------------------------------------------------------------------
 // The ranges the diff above reports as MAIN-set / VRCAM-zero, measured live. Copying MAIN's
 // bytes into them cannot destroy per-view data by construction: VRCAM has nothing there.
@@ -749,9 +818,16 @@ void view_params_report() {
 // like a far distance -- but of the 68 callers of the viewData getter sub_14033C248, NOT ONE
 // reads +0x4A0. Nothing consumes the field, so filling it is a no-op, which is what the live
 // test showed. Kept in the table as a named negative so it is not rediscovered.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ViewDataFixMask = (1u << 0) | (1u << 5) | (1u << 7);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewDataFixes = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // A hole we have not identified may hold a pointer, and MAIN's pointer in VRCAM's slot is a
 // crash waiting for a dereference. Refuse anything that looks like a user-space address.
 // One qword, not a range. The env mirror below copies eight bytes at a time so that a range which
@@ -770,6 +846,7 @@ static bool viewdata_looks_like_pointer(const uint8_t* p, size_t len) {
     }
     return false;
 }
+#endif
 
 // Applied before every VRCAM node consumer; only the selected ranges below are
 // written into that view. The staging snapshot itself stays in our own storage.
@@ -800,15 +877,25 @@ static bool viewdata_looks_like_pointer(const uint8_t* p, size_t len) {
 //   bit 1   0x918, 0x91C     the scale pair
 //   bit 2   0x8C0 .. 0x8D7   the parameter block
 // Live: 7 = all, 1 = switch only, 0 = untouched.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_FogMirrorMask = 7;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFogMirrors = 0;
+#endif
 // WIDENED after the first attempt left the night still wrong. Six floats was not the block:
 // MAIN's own branch in sub_1407F3C20 does `sub_140201A58(v19 + 35, ...)` with
 // v19 = (float*)(viewData + 0x8C0), so the parameter array is 36 floats -- 0x8C0 .. 0x94F --
 // and 0x910/0x914 are read by the other branch beside 0x918/0x91C/0x920. Bit 2 now covers all
 // of it, which makes bits 0 and 1 subsets kept only for bisecting.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 struct FogRange { uint16_t off, len; };
 static const FogRange kFogMirror[3] = { { 0x930, 4 }, { 0x920, 0x14 }, { 0x8D0, 0x90 } };
+#endif
 
 // ---- the atmosphere block, mirrored in bisectable pieces -----------------------------------
 //
@@ -868,12 +955,21 @@ static const FogRange kFogMirror[3] = { { 0x930, 4 }, { 0x920, 0x14 }, { 0x8D0, 
 // The guard makes each of them incapable of carrying an address, which is what it was for; it cannot
 // make an integer meaningful in a structure that counts with it. That is the distinction this
 // retreat is drawing, and it is the reason these are separate bits rather than one.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_EnvMirrorMask = 0xFFFF;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEnvMirrors = 0;
 // Every eight bytes the guard refused because one side held an address. Not an error: it is how
 // a range is allowed to span a pointer at all. A number that climbs with the frame rate means a
 // range is mostly pointers and was chosen badly.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEnvMirrorPtrSkips = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // EXTENDED once the mirror shortened the list from 68 runs to 43 and the printer stopped
 // truncating. Two things showed up. Three fields sat just past a boundary -- 0x5D0, 0x634,
 // 0x700 -- and a whole second block lives beyond 0x700 that had never been visible:
@@ -1146,10 +1242,16 @@ static const uint32_t kEnvBit[] = { 0, 1, 2, 3, 4, 4, 5, 6, 6, 7, 7, 8, 9, 10,
 static const uint32_t kEnvCount = sizeof(kEnvMirror) / sizeof(kEnvMirror[0]);
 static_assert(sizeof(kEnvBit) / sizeof(kEnvBit[0]) == sizeof(kEnvMirror) / sizeof(kEnvMirror[0]),
               "kEnvBit and kEnvMirror must stay the same length");
+#endif
 
 // Internal A/B switch: both paths apply the same ranges and pointer filters.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ViewDataBatchSnapshot = 1;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // verify = compare only: count the chunks where the view differs from what a fill would write,
 // and write nothing. Returns that count (or, when filling, the number of chunks written).
 static uint32_t viewdata_fill_holes(__int64 vd,bool environmentOnly=false,bool verify=false) {
@@ -1287,6 +1389,7 @@ static uint32_t viewdata_fill_holes(__int64 vd,bool environmentOnly=false,bool v
 
 // Defined further down, beside the composition-state detour that learns the set pointer.
 static void vd_lend_composition(uintptr_t vd);
+#endif
 
 // THE SCOPE VIEW'S FILL, ONCE PER CHANGE INSTEAD OF ONCE PER NODE. The scope view dispatches about
 // 600 nodes a frame and every one ran the whole fill (read-compare ~30 environment ranges, write the
@@ -1296,11 +1399,16 @@ static void vd_lend_composition(uintptr_t vd);
 // when that triple changes and is skipped otherwise. Every 64th skipped call compares the block with
 // what a fill would write; a difference (CyberpunkVR_OpticsVdStale) re-fills at once, so a writer we
 // have not named costs at most 64 nodes and is counted rather than hidden. 0 = fill on every node.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_OpticsVdFillGate = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsVdFills = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsVdSkips = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsVdVerifies = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsVdStale = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static std::atomic<uint64_t> g_scope_fill_key{0};
 
 // true = this call needs no further fill (skipped, verified, or filled here).
@@ -1378,6 +1486,7 @@ static __int64 __fastcall Detour_CloudCbFill(__int64 a1, __int64 a2, __int64 a3,
     }
     return r;
 }
+#endif
 
 // --- Local-shadow VSM reuse for VRCAM ------------------------------------
 // Current default: native updates (0). In PID10760 on 2026-09-23, switching
@@ -1398,8 +1507,12 @@ static __int64 __fastcall Detour_CloudCbFill(__int64 a1, __int64 a2, __int64 a3,
 // the shared manager; vrcam lighting samples MAIN's atlas via the shared manager. Same ABI
 // as distant: a2=rdx, view ctx = *(a2+0x18), key @ ctx+0x28. If vrcam loses local shadows
 // after test, the fallback is to skip only the render sub_140153260 (keep node's fg decls).
+#if !CVR_RUST_VRIK
 using LocalShadowFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static LocalShadowFn g_orig_local_shadow = nullptr;
+#endif
 // Historical A/B on 2026-07-29. The per-node dispatch census leaves exactly one lighting-
 // relevant node that never dispatches for VRCAM, and it is this one, skipped by us. It fits
 // the symptom better than anything else measured: some lights work for VRCAM (near stalls)
@@ -1437,9 +1550,18 @@ static LocalShadowFn g_orig_local_shadow = nullptr;
 // per-light and world-space, and the light->slice mapping was verified live identical. That only proves
 // index compatibility. If the interior mismatch does follow this knob, the mechanism is something else
 // and has to be found rather than assumed.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_LocalShadowReuseMode = 0;   // 0=native updates, 1=experimental VRCAM skip
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLocalShadowSkipHits = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static bool local_shadow_is_vrcam(void* a2) {
     if (CyberpunkVR_LocalShadowReuseMode != 1 || !a2) return false;
     __try {
@@ -1448,6 +1570,7 @@ static bool local_shadow_is_vrcam(void* a2) {
         return ctx && shared_world_view(*reinterpret_cast<uint64_t*>(ctx + 0x28));
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+#endif
 // --- THE FOUR RESOURCE POINTERS THE ATMOSPHERE MIRROR LEAVES ALONE -------
 //
 // Where this lands after three disproven guesses. The sky node's gates were measured and all three pass for
@@ -1471,8 +1594,13 @@ static bool local_shadow_is_vrcam(void* a2) {
 // READ ONLY. Four pointers per view, printed side by side, so the next step is chosen from what is in them
 // rather than from a fourth guess. Nothing is copied: a resource pointer mirrored blind is how a view ends up
 // sampling a texture that has been freed.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_EnvPtrProbe = 1;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 namespace {
 // Its own pointer to the viewData getter: the cascade code declares one too, but that lives further down
 // the file and a probe should not depend on declaration order.
@@ -1499,6 +1627,7 @@ void envptr_report() {
         (g_envptr_have[0] && g_envptr_have[1]) ? "" : " (one side not seen yet)");
 }
 }  // namespace
+#endif
 
 // --- THE EMPTY-RECT GATE, read where the engine reads it -----------------
 //
@@ -1524,9 +1653,18 @@ void envptr_report() {
 //
 // This is a PROBE and nothing else: it reads sixteen bytes and prints them per view. Fixing the rect before
 // knowing what is in it would be the guess this project keeps paying for.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_ViewRectProbe = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewRectReads = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 namespace {
 // ALL THREE CONDITIONS, not one. The rect was measured first and came back innocent -- (0,0)..(2560,2560)
 // and non-empty for BOTH views, with the node running 8747 times -- so the second view reaches this node and
@@ -1558,10 +1696,16 @@ void viewrect_report() {
         (m.have && v.have) ? "" : "  (one side not seen yet)");
 }
 }  // namespace
+#endif
 
+#if !CVR_RUST_VRIK
 using SkyScatterFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static SkyScatterFn g_orig_sky_scatter = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static __int64 __fastcall Detour_SkyScattering(void* a1, void* a2) {
     if (CyberpunkVR_ViewRectProbe && a2) {
         __try {
@@ -1613,6 +1757,7 @@ static __int64 __fastcall Detour_SkyScattering(void* a1, void* a2) {
     }
     return g_orig_sky_scatter(a1, a2);
 }
+#endif
 
 // --- Reflection-probe atlas reuse for VRCAM -----------------------------
 // THE ONE SHARED CACHE THIS PORT NEVER GUARDED. The reuse table had GI, distant shadows, local shadow maps
@@ -1660,12 +1805,25 @@ static __int64 __fastcall Detour_SkyScattering(void* a1, void* a2) {
 // not on the path at all; entries climbing with match=0 means the ABI assumption is wrong and the view
 // context is not at *(a2+0x18). The view KEY itself is known good -- the sky-node probe below reads
 // *(ctx+0x28) the same way and separates the views correctly thousands of times a run.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ProbeReuseMode = 0;   // 1=skip vrcam's rebuild, 0=off
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugProbeSkipHits = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 using ReflectionProbesFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static ReflectionProbesFn g_orig_reflection_probes = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static bool probes_is_vrcam(void* a2) {
     if (CyberpunkVR_ProbeReuseMode != 1 || !a2) return false;
     __try {
@@ -1674,9 +1832,15 @@ static bool probes_is_vrcam(void* a2) {
         return ctx && shared_world_view(*reinterpret_cast<uint64_t*>(ctx + 0x28));
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugProbeNodeEntries = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static __int64 __fastcall Detour_ReflectionProbes(void* a1, void* a2) {
     CVR_DIAGNOSTIC(InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugProbeNodeEntries)));
     // One line the first time through, whatever the launcher's DEBUG box says: a skip counter stuck at zero has
@@ -1743,6 +1907,7 @@ static char __fastcall Detour_GiNode(void* a1, void* a2) {
         return 0;   // safe: skip GI this frame for vrcam rather than crash
     }
 }
+#endif
 
 // ================================================================================================
 // THE FOLIAGE WIND IMPULSE -- one write, and the measurement behind it.
@@ -1803,13 +1968,22 @@ static char __fastcall Detour_GiNode(void* a1, void* a2) {
 //
 // `CyberpunkVR_FoliageWindMode`: 1 = this, 0 = the engine's own behaviour. Live-flippable, which is how
 // all of the above was walked.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_FoliageWindMode = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugWindClaimMain = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugWindDenyVrcam = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 using WindNodeFn = char(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static WindNodeFn g_orig_wind_node = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static char __fastcall Detour_WindImpulseNode(void* a1, void* a2) {
     if (CyberpunkVR_FoliageWindMode != 1 || !a2 || !g_exe_base) return g_orig_wind_node(a1, a2);
     uint8_t* wc = reinterpret_cast<uint8_t*>(a2);
@@ -1832,6 +2006,7 @@ static char __fastcall Detour_WindImpulseNode(void* a1, void* a2) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { }
     return g_orig_wind_node(a1, a2);
 }
+#endif
 
 
 // ================================================================================================
@@ -1904,14 +2079,23 @@ static char __fastcall Detour_WindImpulseNode(void* a1, void* a2) {
 //
 // Default 0 deliberately: mode 2 is the candidate and it is switched on live, one variable at a time,
 // because testing it together with the block change above would be two changes and no measurement.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_SpeedTreeWindMode = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugStWindFirst = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugStWindExtraMain = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugStWindExtraVrcam = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 using SpeedTreeWindFn = int64_t(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static SpeedTreeWindFn g_orig_st_wind = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static int64_t __fastcall Detour_SpeedTreeWind(void* a1, void* a2) {
     if (CyberpunkVR_SpeedTreeWindMode == 0 || !a2 || !g_exe_base) return g_orig_st_wind(a1, a2);
     uint8_t* wc = reinterpret_cast<uint8_t*>(a2);
@@ -1957,6 +2141,7 @@ static int64_t __fastcall Detour_SpeedTreeWind(void* a1, void* a2) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { }
     return g_orig_st_wind(a1, a2);
 }
+#endif
 
 // ================================================================================================
 // THE CASCADE'S OWN MATRIX, keyed by cascade index -- the last unverified assumption.
@@ -1999,6 +2184,9 @@ static int64_t __fastcall Detour_SpeedTreeWind(void* a1, void* a2) {
 // MAIN, and the engine recomputes it next frame.
 // Stays ON: it only publishes the cascade index in a thread-local, which costs one store per cascade
 // node and is what any further work on this will need to key by.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascadeIdxProbe = 1;
 // The per-index dispatch count. Default 0 now that it has answered; see the note at its call site.
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascCountProbe = 0;
@@ -2006,7 +2194,10 @@ extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascCountProbe = 0;
 // nothing. Kept only so the measurement can be repeated.
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascadeBiasLend = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascBiasLends = 0;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local int32_t t_cascade_idx = -1;
+#endif
 
 // ---- THE CASCADE RECORD, and which of its fields split the eyes ----------------------------------
 //
@@ -2067,9 +2258,38 @@ thread_local int32_t t_cascade_idx = -1;
 // it lives in the 928-byte CSConstants block the frame graph uploads at PrepareSceneRendering.
 // CyberpunkVR_CascSampleLend in Grading.cpp lends it in the same direction as this one. The two belong
 // together -- lending either alone leaves one view rasterising and sampling on different grids.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascRecLend = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascRecLends = 0;
+#endif
 
+// ---- HOW FAR APART THE TWO VIEWS FIT THE CASCADE, in world units ---------------------------------
+//
+// The observation in the headset is what this exists for, and it is the sharpest evidence of the day: with the reuse
+// armed, the shadows are CORRECT while the head is still and wrong the moment the head TURNS. Translation
+// does not do it; rotation does. A sun cascade is fitted to the viewer -- centre roughly position plus
+// forward times half the range -- so orientation moves the centre by metres where position moves it by
+// centimetres. Cascade 0's extent is +-18 world units, a 36 m box over maybe 2048 texels, i.e. ~1.8 cm per
+// texel: a couple of degrees of head turn is hundreds of texels.
+//
+// So the two views do NOT fit the same cascade whenever the head is moving, and reuse fails for that reason
+// alone -- no barrier, no ordering, no second texture required to explain it.
+//
+// AND THE EARLIER "0 differing dwords" HAS TO BE RE-READ IN THAT LIGHT. It was a yes/no over the record
+// bytes, taken while standing still, and it answered "are they ever different" with the head not moving.
+// This reports the MAGNITUDE instead, and its maximum over the interval, so head motion cannot hide inside a
+// boolean. If the centres separate by centimetres or more while turning, the same mechanism is a candidate
+// for the ORIGINAL defect too: two eyes whose shadow maps are fitted to poses sampled a few milliseconds
+// apart would disagree exactly where the shadow is a texel or two wide.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_CascFitProbe = 1;
+#endif
+
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 namespace {
 constexpr uintptr_t kCascRecBase = 801616;       // scene_mgr + 801616 + 1104 * idx
 constexpr uintptr_t kCascRecStride = 1104;
@@ -2091,25 +2311,6 @@ bool  g_casc_bias_have[8] = {};
 using CascViewDataFn = uintptr_t (__fastcall*)(void*);
 CascViewDataFn g_casc_viewdata = nullptr;
 
-// ---- HOW FAR APART THE TWO VIEWS FIT THE CASCADE, in world units ---------------------------------
-//
-// The observation in the headset is what this exists for, and it is the sharpest evidence of the day: with the reuse
-// armed, the shadows are CORRECT while the head is still and wrong the moment the head TURNS. Translation
-// does not do it; rotation does. A sun cascade is fitted to the viewer -- centre roughly position plus
-// forward times half the range -- so orientation moves the centre by metres where position moves it by
-// centimetres. Cascade 0's extent is +-18 world units, a 36 m box over maybe 2048 texels, i.e. ~1.8 cm per
-// texel: a couple of degrees of head turn is hundreds of texels.
-//
-// So the two views do NOT fit the same cascade whenever the head is moving, and reuse fails for that reason
-// alone -- no barrier, no ordering, no second texture required to explain it.
-//
-// AND THE EARLIER "0 differing dwords" HAS TO BE RE-READ IN THAT LIGHT. It was a yes/no over the record
-// bytes, taken while standing still, and it answered "are they ever different" with the head not moving.
-// This reports the MAGNITUDE instead, and its maximum over the interval, so head motion cannot hide inside a
-// boolean. If the centres separate by centimetres or more while turning, the same mechanism is a candidate
-// for the ORIGINAL defect too: two eyes whose shadow maps are fitted to poses sampled a few milliseconds
-// apart would disagree exactly where the shadow is a texel or two wide.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_CascFitProbe = 1;
 namespace {
 struct CascFit {
     float centre[3];
@@ -2258,6 +2459,7 @@ void casc_bias_report(int32_t idx, float m, float v) {
         (unsigned long long)CyberpunkVR_DebugCascBiasLends);
 }
 }  // namespace
+#endif
 
 // ---- CASCADE REUSE, POINTED THE RIGHT WAY --------------------------------------------------------
 //
@@ -2282,12 +2484,17 @@ void casc_bias_report(int32_t idx, float m, float v) {
 // identical, and that is the foliage mismatch. If nothing changes, the atlases agree and the mismatch is
 // downstream, in the half-resolution interleaved mask -- and this stays on anyway, because it takes a whole
 // cascade rasterisation per frame off the GPU.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascadeSkipMain = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascadeMainSkips = 0;
+#endif
 
 // Both views retain native cascade clears and draws. Sampling and raster-camera
 // synchronization above align their shadow maps at every quality setting.
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // True when this node's work context belongs to the second view. Separate from the probe paths because the
 // skip must not depend on a diagnostic flag being on.
 static bool casc_ctx_is_vrcam(void* a2, bool* known) {
@@ -2318,6 +2525,7 @@ static bool casc_skip_for_main(void* a2) {
     CVR_DIAGNOSTIC(InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugCascadeMainSkips)));
     return true;
 }
+#endif
 
 // ---- FINDING THE COMMAND LIST THE ENGINE HOLDS ---------------------------------------------------
 //
@@ -2334,9 +2542,18 @@ static bool casc_skip_for_main(void* a2) {
 // Every dereference is guarded by VirtualQuery rather than by __try, deliberately: this project has already
 // established that the engine's own VEH swallows SEH first, so a bad read crashes the game even inside a
 // __try. Asking the OS whether a page is committed and readable is the only guard that actually holds.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CmdListHunt = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugCmdListOffset = 0xFFFFFFFFu;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 namespace {
 bool cvr_readable(const void* p, size_t n) {
     if (!p) return false;
@@ -2399,13 +2616,23 @@ void cmdlist_hunt(const void* obj, const char* what, uint32_t bytes) {
         what, hits, hits ? line : "(none)");
 }
 }  // namespace
+#endif
 
+#if !CVR_RUST_VRIK
 using CascadeNodeFn = int64_t(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static CascadeNodeFn g_orig_cascade_node = nullptr;
 static CascadeNodeFn g_orig_cascade_clear = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsCascadeDraws=0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsCascadeClears=0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // Preserve the native clear node and its resource transitions. The separate
 // node-cut diagnostic remains off by default; command-level clears always run.
 static int64_t __fastcall Detour_CascadeClear(void* a1, void* a2) {
@@ -2539,8 +2766,10 @@ static int64_t __fastcall Detour_CascadeNode(void* a1, void* a2) {
     t_cascade_idx = prev;      // restored, or a nested node would leave the wrong index behind
     return r;
 }
+#endif
 
 // ---- registered where they are defined ---------------------------------------------------------
+#if !CVR_RUST_VRIK
 CVR_DETOUR("[cascade] shadow-cascade node sub_1404EDFE0", CASCADE_NODE_RVA, Detour_CascadeNode, g_orig_cascade_node)
 CVR_DETOUR("[foliage] speedtree wind sub_140D60084", SPEEDTREE_WIND_RVA, Detour_SpeedTreeWind, g_orig_st_wind)
 CVR_DETOUR("[foliage] wind-impulse node sub_1407F2BF0", WIND_IMPULSE_NODE_RVA, Detour_WindImpulseNode, g_orig_wind_node)
@@ -2551,6 +2780,7 @@ CVR_DETOUR("[gi] GI-node sub_1407F4130", GI_NODE_RVA, Detour_GiNode, g_orig_gi_n
 CVR_DETOUR("[localshadow] local-shadow sub_140B7CF7C", LOCAL_SHADOW_RVA, Detour_LocalShadowMaps, g_orig_local_shadow)
 CVR_DETOUR("[probes] reflection-probe atlas sub_140DAC960", REFLECTION_PROBES_RVA, Detour_ReflectionProbes, g_orig_reflection_probes)
 CVR_DETOUR("[viewrect] sky-scattering node sub_1407F86CC", SKY_SCATTERING_RVA, Detour_SkyScattering, g_orig_sky_scatter)
+#endif
 
 // ================================================================================================
 // MORE OF THE SAME FAMILY, moved out of the monolith: the amortised sky, the GI reuse mode, and the
@@ -2599,11 +2829,23 @@ CVR_DETOUR("[viewrect] sky-scattering node sub_1407F86CC", SKY_SCATTERING_RVA, D
 // only VRCAM's duplicate producer is skipped. Cloud rendering remains enabled.
 // 1 = MAIN owns the shared sky build [default].
 // 0 = both views build it, retained for a bounded diagnostic A/B.
+#if !CVR_RUST_VRIK
 using SkyWorkFn = void(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 SkyWorkFn g_orig_sky_work = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_SkyReuseMode = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSkySkipHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSkyMainHits = 0;
+#endif
 
 // Sky, clouds and shadow reuse moved to src/Stereo/ViewReuse.cpp.
 
@@ -2670,8 +2912,16 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSkyMainHits = 0;
 // So the different compute shaders in this node (VRCAM cs 1911/2574/2058 against MAIN cs 2058/2058/1174)
 // are a real pipeline difference and still NOT the interior defect. Back at 1, and do not spend another
 // round here.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_GiReuseMode = 1;   // 0=vrcam builds its own GI, 1=reuse main's (A/B)
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGiSkipHits = 0;
+#endif
 
 // GI reuse moved to src/Stereo/ViewReuse.cpp.
 
@@ -2687,8 +2937,12 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGiSkipHits = 0;
 // vrcam conservatively). If vrcam goes empty -> visible set is per-view-indexed -> redirect
 // explicitly. Toggle LIVE via x64dbg (default OFF); watch fps + vrcam image. a2=view arg,
 // ctx=*(a2+0x18), key@ctx+0x28 (same ABI as the other reuse skips).
+#if !CVR_RUST_VRIK
 using DoCullingFn = char(__fastcall*)(void*, void*, void*);
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's is cull_visibility.rs's cvr_cull_stage_originals[0]
 DoCullingFn g_orig_doculling = nullptr;
+#endif
 
 // ---- lend MAIN's draw-block list to the light-volume pass -----------------------------------
 // The indirect census settles what was missing: RenderLightBuffers (0x411B94) issues an indirect
@@ -2702,17 +2956,26 @@ DoCullingFn g_orig_doculling = nullptr;
 // view MAIN's block list for the duration of ONE call and put its own pointer back in a
 // __finally. Nothing is fabricated -- this is MAIN's live pointer, and it is never left in place,
 // which is what separates this from the two crashes that came of faking viewData+0x168.
+#if !CVR_RUST_VRIK
 using LightBufFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static LightBufFn g_orig_lightbuffers = nullptr;
+#endif
 // DEFAULT 0 -- this CRASHES: EXCEPTION_ACCESS_VIOLATION reading 0x10, i.e. a null deref one
 // level inside the borrowed list. Lending MAIN's real pointer scoped to a single call is
 // safe at DrawComposition (CullReuseMode 5) but NOT here: RenderLightBuffers walks further
 // into the block list and reaches per-view resources the RTT view does not own. That makes
 // three separate crashes from writing viewData+0x168 -- treat the field as unusable and fix
 // the RTT view's own block collection instead.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_LightBlockLend = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLightBlockLends = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 using ViewDataGetterFn = __int64(__fastcall*)(void*);
 static ViewDataGetterFn g_viewdata_get = nullptr;   // lazy init to sub_14033C248
 static __int64 __fastcall Detour_LightBuffers(void* a1, void* a2) {
@@ -2743,6 +3006,7 @@ static __int64 __fastcall Detour_LightBuffers(void* a1, void* a2) {
     }
     return r;
 }
+#endif
 
 // ---- THE COMPOSITION STATE, LENT FOR ONE NODE CALL AND NO MORE --------------------------------
 //
@@ -2829,14 +3093,28 @@ static __int64 __fastcall Detour_LightBuffers(void* a1, void* a2) {
 // measurement.
 //
 // Start at 3 -- the composition node and the declarations that feed it. Ships off.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CompLendScoped = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCompScopedSet = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCompScopedLends = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCompScopedSkips = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 using CompAssignFn = __int64 (__fastcall*)(__int64, __int64);
+#endif
+#if !CVR_RUST_VRIK
 static CompAssignFn g_orig_comp_assign = nullptr;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static std::atomic<uintptr_t> g_comp_set{0};
+#endif
 
 // THE LENT OBJECT IS THE ONE THE ENGINE GAVE MAIN, AND THE PORT HOLDS A COUNT ON IT (2026-10-17).
 // The lend used to read the set's live handle (holder at set+176, pair at +600) on every dispatch of
@@ -2856,6 +3134,9 @@ static std::atomic<uintptr_t> g_comp_set{0};
 // object (one eye's HUD layer a black rectangle). The second view lends the held object instead of the
 // set's. 0 = read the set as before.
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CompLendSet;   // defined below
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CompLendFrameHold = 1;
 // [0] assigns held, [1] lends written from the held object, [2] of those, lends where the set's live
 // object was a different one (what the old read would have lent), [3] holds from the game frame,
@@ -2863,18 +3144,26 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CompLendFrameHold = 1;
 // [6] lends into an empty block (a frame's first), [7] later assigns of the frame the block kept
 // (CyberpunkVR_CompLendFrameLatch), [8] lends that replaced an object no longer held
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_CompLendFrameStats[9] = {};
+#endif
 // ONE COMPOSITION PER FRAME OF THE SECOND VIEW. The lend runs on every node the view dispatches and
 // read the newest object each time; the game thread assigns the next frame's while this frame's render
 // is still running (measured: about two lend writes per frame), so the view switched objects midway
 // and, when the switch landed before its composition node, drew the next frame's HUD over this frame's
 // scene -- a quest marker jumping 2.4 px ahead of its scene for one frame in a head turn, the second
 // view only. 1 = the block keeps the object its first node received while that object is still held.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 using HandleCopyFn = __int64* (__fastcall*)(__int64*, __int64*);
 static __int64 g_comp_hold[2][2] = {};       // {object, count}, under g_comp_hold_lock: the two
 static SRWLOCK g_comp_hold_lock = SRWLOCK_INIT; // assign places need not run on the same thread
 static std::atomic<uint64_t> g_comp_frame{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CompLendFrameLatch = 1;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // Whether an object is one of the two the port holds a count on, i.e. still alive.
 static bool comp_held(uint64_t value) {
     if (!value) return false;
@@ -2928,6 +3217,7 @@ static __int64 __fastcall Detour_CompAssign(__int64 setObj, __int64 src) {
 // composition object every frame for no consumer (Stereo/EngineStereo.hpp SecondViewWanted).
 CVR_DETOUR_IF("[complend] composition state assign sub_140545714", COMP_ASSIGN_RVA,
            Detour_CompAssign, g_orig_comp_assign, cvr::engine_stereo::SecondViewWanted)
+#endif
 
 // ==== RESTORED FROM THE 0.1.6 RENDER (7dd29c36), which 747a9983 took back to 0.1.5 ========
 // The set pointer, the assign detour and its globals already survive further down this file with the
@@ -2973,10 +3263,20 @@ CVR_DETOUR_IF("[complend] composition state assign sub_140545714", COMP_ASSIGN_R
 // 0x68 of a null object in the first lend attempt.
 
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CompLendSet;
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CompLendSet = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCompLendWrites = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCompLendSkips = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 // Whether a composition object carries the full pass size: more than half the selected VRCAM
 // resolution in both axes. Was a fixed 2048 from the 3072x3072 era, which rejected EVERY object at the
 // lower ladder entries and left the second eye without its HUD (TofuExpress fork, 2026-10-16). No
@@ -3090,6 +3390,7 @@ void comp_lend_restore(uintptr_t vd, const uint64_t saved[2]) {
     if (!vd) return;
     cloud_cb_raw_copy(reinterpret_cast<uint8_t*>(vd) + 0x168, saved, 16);
 }
+#endif
 
 // THE DrawComposition DETOUR IS GONE, NOT MERELY GATED.
 //
@@ -3137,11 +3438,20 @@ void comp_lend_restore(uintptr_t vd, const uint64_t saved[2]) {
 // for an element the view has no owner for -- it could not have been drawn correctly anyway. It is the
 // list-is-MAIN's problem solved as a FILTER at consumption rather than by rebuilding the list, which is
 // the only other route this branch's own record allowed.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCompElemSkips = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 using CompElemKeysFn = __int64 (__fastcall*)(__int64, void*, unsigned int, __int64, __int64);
+#endif
+#if !CVR_RUST_VRIK
 static CompElemKeysFn g_orig_comp_elem_keys = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static __int64 __fastcall Detour_CompElemKeys(__int64 a1, void* a2, unsigned int a3,
                                              __int64 a4, __int64 a5) {
     if (!a4 && CyberpunkVR_CompLendSet) {
@@ -3153,6 +3463,7 @@ static __int64 __fastcall Detour_CompElemKeys(__int64 a1, void* a2, unsigned int
 }
 CVR_DETOUR_IF("[complend] composition element draw keys sub_1402ABA18", COMP_ELEM_KEYS_RVA,
            Detour_CompElemKeys, g_orig_comp_elem_keys, cvr::engine_stereo::SecondViewWanted)
+#endif
 
 // THE COMPOSITION LEND'S ONE NULL, ANSWERED THE WAY THE FUNCTION ITSELF ANSWERS IT.
 //
@@ -3179,11 +3490,20 @@ CVR_DETOUR_IF("[complend] composition element draw keys sub_1402ABA18", COMP_ELE
 // Gated on our own switch, per this project's rule for hooks on a shared leaf: seven callers across the
 // image reach this function, and none of them can be affected, because with the lend off the guard
 // never runs at all. The counter increments only when it fires, so it costs nothing when it does not.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCompElemNulls = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 using CompElemRectFn = __int64 (__fastcall*)(__int64, __int64, unsigned short*);
+#endif
+#if !CVR_RUST_VRIK
 static CompElemRectFn g_orig_comp_elem_rect = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 static __int64 __fastcall Detour_CompElemRect(__int64 a1, __int64 a2, unsigned short* a3) {
     if (!a1 && CyberpunkVR_CompLendSet) {
         if (a2) {
@@ -3199,11 +3519,13 @@ static __int64 __fastcall Detour_CompElemRect(__int64 a1, __int64 a2, unsigned s
 }
 CVR_DETOUR_IF("[complend] composition element rect sub_1402AC150", COMP_ELEM_RECT_RVA,
            Detour_CompElemRect, g_orig_comp_elem_rect, cvr::engine_stereo::SecondViewWanted)
+#endif
 
 // One line every five seconds while the lend is armed, so the two guards can be told apart without a
 // debugger: skips are elements filtered at the subtree entry, nulls are the leaf guard catching one
 // that arrived by some other route. Off with the lend, and it is a throttled log rather than a probe on
 // a hot path.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 void complend_report() {
     if(!cvr::RuntimeDiagnosticsEnabled())return;
     static uint64_t s_last = 0;
@@ -3217,10 +3539,25 @@ void complend_report() {
         (unsigned long long)CyberpunkVR_DebugCompElemSkips,
         (unsigned long long)CyberpunkVR_DebugCompElemNulls);
 }
+#endif
 
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/view_reuse.rs
 CVR_DETOUR_IF("[light] RenderLightBuffers sub_140411B94 (block-list lend)", LIGHTBUFFERS_RVA, Detour_LightBuffers, g_orig_lightbuffers,
               cvr::engine_stereo::SecondViewWanted)
+#endif
 
 }  // namespace detail
 }  // namespace cvr
+
+#if CVR_RUST_VRIK
+// THE PRODUCER-SKIP DETOURS ARE RUST'S (rust/crates/cvr-render/src/view_reuse.rs): the sky work (installed by
+// SyncStereo.cpp), the distant shadows, the reflection probes, the local shadow maps, GI, the foliage wind, the view
+// parameters, the shadow-cascade nodes, the sky-scattering probes, the cloud constants with the view-data mirror
+// (viewdata_fill_from_wc forwards to it) and the composition and light-volume lends (comp_lend_install/restore and
+// complend_report forward to it), registered here with this file's trampolines; Rust is handed them, the
+// cascade index and view side thread-locals and the stereo log.
+// Its table is built in Rust (view_reuse.rs, from stereo_shared.rs's objects).
+// The composition lend serves VRCAM's HUD layers alone: not installed in engine stereo.
+// The GI node registers from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#endif

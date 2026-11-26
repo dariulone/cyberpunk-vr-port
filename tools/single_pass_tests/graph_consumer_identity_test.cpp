@@ -81,17 +81,17 @@ void Lifecycle(){
             ticket.FrameOwner()==Frame && ticket.SourceGraphAddress()==Graph && ticket.GraphAddress()==Graph && !ticket.Redirected() && ticket.Group()==Group,"Identity dereference or frozen labels differ");
         Require(ownerRefs==2 && groupRefs==2 && completeCalls==0,"Identity did not hold both distinct references");
         Require(!ticket.MatchQueued(Payload,Graph,Base+QueueReturn,Read),"Unverified construction matched queue");
-        for(const uint32_t caller:{0x14B1E0u,0x14324Cu})
+        for(const uint32_t caller:{0x26E110u,0x2735E3u})
             Require(!ticket.MatchExecutionCallback(Payload,Graph,Base+caller,Read),"Unverified construction matched callback");
         NativeConstruct();Require(ticket.VerifyConstruct(Destination,Read) && ticket.ConstructVerified(),"Native ownership transfer rejected");
         Require(!ticket.VerifyConstruct(Destination,Read),"Construction checked more than once");
         NativeQueued();forbidSourceReads=true;
         for(uint64_t address:{OwnerAddress,GraphAddress,CompletionAddress})for(size_t i=0;i<8;++i)memory.erase(address+i);
         Require(ticket.MatchQueued(Payload,Graph,Base+QueueReturn,Read),"Late queue identity depends on expired root stack");
-        for(const uint32_t caller:{0x14B1E0u,0x14324Cu})
+        for(const uint32_t caller:{0x26E110u,0x2735E3u})
             Require(ticket.MatchExecutionCallback(Payload,Graph,Base+caller,Read),"Execution callback depends on expired root stack");
         Require(!ticket.MatchExecutionCallback(Payload,Graph,Base+QueueReturn,Read),"Queue caller was accepted as scheduler callback");
-        Require(!ticket.MatchExecutionCallback(Payload,Graph+8,Base+0x14B1E0,Read),"Different callback graph was accepted");
+        Require(!ticket.MatchExecutionCallback(Payload,Graph+8,Base+0x26E110,Read),"Different callback graph was accepted");
         uint64_t currentEpoch=Epoch+1,currentGeneration=Generation+1;
         Require(currentEpoch!=ticket.Epoch() && currentGeneration!=ticket.Generation() &&
             ticket.MatchQueued(Payload,Graph,Base+QueueReturn,Read),"Unrelated current epochs invalidated native consumer accounting");
@@ -187,7 +187,7 @@ void ConstructAndQueueFailures(){
         Require(!ticket.VerifyConstruct(Destination,Read) && ticket.Rejection()==IdentityFailure::SourceNotConsumed,"Consumed source handle changed between reads");}Balanced();
 }
 void ExecutionCallbackFailures(){
-    for(const uint32_t caller:{0x14B1E0u,0x14324Cu}){
+    for(const uint32_t caller:{0x26E110u,0x2735E3u}){
         Reset();{NativeRootTicket ticket;Require(Capture(ticket),"Callback fixture capture failed");NativeConstruct();
             Require(ticket.VerifyConstruct(Destination,Read),"Callback construction verification failed");NativeQueued();forbidSourceReads=true;
             Require(!ticket.MatchExecutionCallback(Payload,Graph,Base+caller-1,Read) &&
@@ -225,9 +225,9 @@ void SeparateSourceAndExecution(){
         Require(ticket.VerifyConstruct(Destination,Read),"Redirected constructor payload rejected");
         NativeQueued();Put(Payload+8,execution);forbidSourceReads=true;
         Require(ticket.MatchQueued(Payload,execution,Base+QueueReturn,Read) &&
-            ticket.MatchExecutionCallback(Payload,execution,Base+0x14324C,Read),"Owned execution lost immutable native identity");
+            ticket.MatchExecutionCallback(Payload,execution,Base+0x2735E3,Read),"Owned execution lost immutable native identity");
         Require(!ticket.MatchQueued(Payload,Graph,Base+QueueReturn,Read) &&
-            !ticket.MatchExecutionCallback(Payload,Graph,Base+0x14B1E0,Read),"Source graph masqueraded as redirected execution");
+            !ticket.MatchExecutionCallback(Payload,Graph,Base+0x26E110,Read),"Source graph masqueraded as redirected execution");
     }Balanced();
     Reset();{NativeRootTicket ticket;
         Require(ticket.CaptureBeforeConstruct(OwnerAddress,GraphAddress,CompletionAddress,Base+ConstructReturn,Base,

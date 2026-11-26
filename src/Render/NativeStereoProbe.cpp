@@ -28,6 +28,159 @@
 #include <algorithm>
 #include <cstring>
 using Microsoft::WRL::ComPtr;
+#if CVR_RUST_VRIK
+extern "C" {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+__declspec(dllexport) uint32_t CyberpunkVR_NativeStereoPipelineBytes=sizeof(cvr::stereo::native_probe::PipelineRecord),CyberpunkVR_NativeStereoDrawBytes=sizeof(cvr::stereo::native_probe::DrawRecord);
+#endif
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+__declspec(dllexport) extern std::atomic<uint32_t> CyberpunkVR_NativeStereoStaticAssetStatus;
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+__declspec(dllexport) cvr::stereo::native_probe::PipelineRecord CyberpunkVR_NativeStereoPipelines[cvr::stereo::native_probe::PipelineCapacity]{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+__declspec(dllexport) cvr::stereo::native_probe::DrawRecord CyberpunkVR_NativeStereoDraws[cvr::stereo::native_probe::DrawCapacity]{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+__declspec(dllexport) uint32_t CyberpunkVR_NativeStereoTargetRecordBytes=sizeof(cvr::stereo::pass_targets::Record);
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+__declspec(dllexport) cvr::stereo::pass_targets::Record CyberpunkVR_NativeStereoTargets[cvr::stereo::native_probe::DrawCapacity]{};
+#endif
+}
+// The pipeline selection: rust/crates/cvr-render/src/stereo_probe_pipelines.rs; the pipelines' and roots' observation and
+// the variants' creation: stereo_probe_creation.rs (the plugin's hooks call it).
+extern "C" bool cvr_nspc_enabled();
+extern "C" void cvr_nspc_root_created(ID3D12RootSignature*,const void*,size_t);
+extern "C" void cvr_nspc_graphics_created(ID3D12Device*,const D3D12_GRAPHICS_PIPELINE_STATE_DESC*,ID3D12PipelineState*);
+extern "C" void cvr_nspc_stream_created(ID3D12Device*,const D3D12_PIPELINE_STATE_STREAM_DESC*,ID3D12PipelineState*);
+// NativeInstanceResource: unwound through cvr-engine.
+extern "C" void cvr_nsps_attach(const void*);
+extern "C" void cvr_ncc2_snapshot_draw(const void*);
+extern "C" void cvr_gl_begin_all(bool);
+extern "C" void cvr_gl_probe_snapshot(void*,void*,const void*,const uint8_t*,size_t);
+extern "C" void cvr_nsps_list(uint32_t,void*,uint32_t,uint32_t,void*,bool,bool,uint64_t);
+extern "C" bool cvr_nsps_draw(void*,void*,uint32_t,int32_t,uint32_t,uint32_t,uint32_t,int32_t,uint32_t,bool*);
+extern "C" void cvr_nsps_frame_boundary(bool);
+extern "C" bool cvr_nsps_current(void*,void*);
+namespace cvr::stereo::native_probe {
+namespace {
+// The pipeline registry, the per-list state and the draw capture: rust/crates/cvr-render/src/stereo_probe_state.rs.
+// The instance buffers' leases (geometry's own type) stay here, changed only under the Rust state's lock.
+}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's callers ask rust/crates/cvr-render/src/stereo_probe*.rs themselves
+bool Enabled(){return cvr_nspc_enabled();}
+#endif
+// The switch: rust/crates/cvr-render/src/stereo_probe.rs.
+extern "C" bool cvr_observe_bindings();
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
+bool ObserveBindings(){return cvr_observe_bindings();}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's hooks call rust/crates/cvr-render/src/stereo_probe_creation.rs directly
+void RootCreated(ID3D12RootSignature* root,const void* data,size_t bytes){cvr_nspc_root_created(root,data,bytes);}
+void GraphicsCreated(ID3D12Device* device,const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source,ID3D12PipelineState* original){
+    cvr_nspc_graphics_created(device,&source,original);
+}
+void StreamCreated(ID3D12Device* device,const D3D12_PIPELINE_STATE_STREAM_DESC& source,ID3D12PipelineState* original){
+    cvr_nspc_stream_created(device,&source,original);
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's runtime is stereo_probe_state.rs' (mod plugin)
+namespace {
+void* Arg(const void* value){return const_cast<void*>(value);}
+ID3D12GraphicsCommandList* AsList(void* list){return static_cast<ID3D12GraphicsCommandList*>(list);}
+static_assert(sizeof(preparation::DrawTag)==24 && offsetof(pass_targets::Record,views)==32,"mirrored by stereo_probe_state.rs");
+struct CvrNativeProbeRuntime {
+    const std::atomic<uint32_t>* exports[17];
+    PipelineRecord* pipelines;DrawRecord* draws;pass_targets::Record* targets;
+    void(*framePolls)();void(*capture)(uint32_t,bool);void(*root)(void*,void*);
+    void(*snapshotGeometry)(void*,void*,DrawRecord*,const uint8_t*,size_t);
+    const uint8_t*(*copyDefault)(DrawRecord*,bool,size_t*);bool(*instanceRange)(const DrawRecord*,bool,uint64_t*,size_t*);
+};
+static_assert(sizeof(CvrNativeProbeRuntime)==26*8,"mirrored by stereo_probe_state.rs");
+const CvrNativeProbeRuntime kNativeProbeRuntime{
+    {&CyberpunkVR_NativeStereoProbeState,&CyberpunkVR_NativeStereoProbeRequest,&CyberpunkVR_NativeStereoLiveBindings,
+     &CyberpunkVR_NativeStereoLiveFailure,&CyberpunkVR_NativeStereoProbeSeq,&CyberpunkVR_NativeStereoDrawCount,
+     &CyberpunkVR_NativeStereoPipelineCount,&CyberpunkVR_NativeStereoAllDraws,&CyberpunkVR_StereoGpuProbeSceneDepth,
+     &CyberpunkVR_StereoGpuProbeState,&CyberpunkVR_StereoGpuProbeRequest,&CyberpunkVR_StereoGpuProbeNativeReference,
+     &CyberpunkVR_StereoGpuProbeDepthPrepass,&CyberpunkVR_ConstantCaptureEnable,&CyberpunkVR_RetainedSourceStreamEnable,
+     &CyberpunkVR_EarlyDepthState,&CyberpunkVR_PreparationAllStages},
+    CyberpunkVR_NativeStereoPipelines,CyberpunkVR_NativeStereoDraws,CyberpunkVR_NativeStereoTargets,
+    []{upload_reservation::PollInstallation();preparation::PollGraphJobs();paired_geometry::FrameBoundary();
+        retained_geometry::FrameBoundary();geometry_snapshots::Poll();constants::Poll();},
+    [](uint32_t which,bool argument){   // the geometry leases' bindings and the scene's capture reset are stereo_probe_state.rs'
+        switch(which){
+        case 3:constants::End();break;
+        case 6:constants::Begin();break;
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
+        default:geometry::Begin(argument);break;
+#else
+        default:cvr_gl_begin_all(argument);break;   // geometry_leases.rs' natives (the freeze begins with them)
+#endif
+        }},
+    [](void* list,void* root){families::RootBound(AsList(list),static_cast<ID3D12RootSignature*>(root));},
+    [](void* list,void* pso,DrawRecord* record,const uint8_t* batch,size_t bytes){
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
+        const auto family=CyberpunkVR_ConstantCaptureEnable.load(std::memory_order_relaxed)?families::Bound(AsList(list)):nullptr;
+        if(family)cvr_ncc2_snapshot_draw(record);   // constant_capture_state.rs (the registry's family)
+        scene_state::DrawState drawState;
+        if(CyberpunkVR_ConstantCaptureEnable.load(std::memory_order_relaxed) &&
+            scene_state::CaptureDrawState(AsList(list),static_cast<ID3D12PipelineState*>(pso),drawState))
+            scene_state::CaptureTargets(*record,drawState.targets);
+        const bool freeze=family && family->instanceRebaseSafe && !family->pass.pixelShader && !record->rtCount &&
+            std::all_of(family->uses.begin(),family->uses.end(),[](const auto& use){return use.type==D3D12_DESCRIPTOR_RANGE_TYPE_CBV;});
+        geometry::Snapshot(*record,{batch,bytes},&drawState,freeze);
+#else
+        cvr_gl_probe_snapshot(list,pso,record,batch,bytes);   // geometry_leases.rs' natives
+#endif
+        },
+    [](DrawRecord* record,bool batch,size_t* bytes)->const uint8_t*{
+        thread_local std::vector<uint8_t> buffer;buffer.clear();
+        try{instance_data::CopyObservedDefault(*record,batch?&buffer:nullptr,packets::upload_shadow::Read);}
+        catch(const std::bad_alloc&){buffer.clear();}
+        *bytes=buffer.size();return buffer.data();},
+    [](const DrawRecord* record,bool batch,uint64_t* offset,size_t* bytes){return instance_data::Range(*record,*offset,*bytes,batch);}};
+const bool kNativeProbeAttached=(cvr_nsps_attach(&kNativeProbeRuntime),true);
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void FrameBoundary(bool liveBindings){cvr_nsps_frame_boundary(liveBindings);}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void Reset(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso,bool rateKnown,bool newRecording){
+    cvr_nsps_list(0,list,0,0,pso,rateKnown,newRecording,0);
+}
+void Heaps(ID3D12GraphicsCommandList* list,UINT count,ID3D12DescriptorHeap* const* heaps){cvr_nsps_list(1,list,0,count,Arg(heaps),false,false,0);}
+void Pipeline(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso){cvr_nsps_list(2,list,0,0,pso,false,false,0);}
+void VertexBuffers(ID3D12GraphicsCommandList* list,UINT start,UINT count,const D3D12_VERTEX_BUFFER_VIEW* views){
+    cvr_nsps_list(3,list,start,count,Arg(views),false,false,0);
+}
+#endif
+// The instance leases are rust/crates/cvr-render/src/stereo_probe_state.rs' (a reference taken for the copy).
+extern "C" void cvr_nsp2_instance_lease(ID3D12GraphicsCommandList*,geometry::BufferLease*);
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void IndexBuffer(ID3D12GraphicsCommandList* list,const D3D12_INDEX_BUFFER_VIEW* view){cvr_nsps_list(4,list,0,0,Arg(view),false,false,0);}
+void RootSignature(ID3D12GraphicsCommandList* list,ID3D12RootSignature* root){cvr_nsps_list(5,list,0,0,root,false,false,0);}
+void RootTable(ID3D12GraphicsCommandList* list,UINT index,D3D12_GPU_DESCRIPTOR_HANDLE h){cvr_nsps_list(6,list,index,0,nullptr,false,false,h.ptr);}
+void RootCbv(ID3D12GraphicsCommandList* list,UINT index,D3D12_GPU_VIRTUAL_ADDRESS a){cvr_nsps_list(7,list,index,0,nullptr,false,false,a);}
+void Predication(ID3D12GraphicsCommandList* list,ID3D12Resource* buffer){cvr_nsps_list(8,list,0,0,buffer,false,false,0);}
+void Targets(ID3D12GraphicsCommandList* list,UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE* handles,BOOL contiguous,const D3D12_CPU_DESCRIPTOR_HANDLE* depth) {
+    static_assert(sizeof(D3D12_CPU_DESCRIPTOR_HANDLE)==sizeof(uint64_t),"a handle is its address");
+    cvr_nsps_list(9,list,0,count,Arg(handles),contiguous!=FALSE,false,reinterpret_cast<uintptr_t>(depth));
+}
+void Viewports(ID3D12GraphicsCommandList* list,UINT count,const D3D12_VIEWPORT* values){cvr_nsps_list(10,list,0,count,Arg(values),false,false,0);}
+void Scissors(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RECT* values){cvr_nsps_list(11,list,0,count,Arg(values),false,false,0);}
+bool Draw(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso,uint32_t node,int side,UINT indices,UINT instances,UINT first,INT base,UINT start,bool* retainedObserved) {
+    return cvr_nsps_draw(list,pso,node,side,indices,instances,first,base,start,retainedObserved);
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool CurrentState(ID3D12GraphicsCommandList* list,DrawRecord& result){return cvr_nsps_current(list,&result);}
+#endif
+}
+#else
 extern "C" {
 __declspec(dllexport) uint32_t CyberpunkVR_NativeStereoPipelineBytes=sizeof(cvr::stereo::native_probe::PipelineRecord),CyberpunkVR_NativeStereoDrawBytes=sizeof(cvr::stereo::native_probe::DrawRecord);
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_NativeStereoPipelineCount{0};
@@ -431,3 +584,4 @@ bool CurrentState(ID3D12GraphicsCommandList* list,DrawRecord& result){
     return true;
 }
 }
+#endif

@@ -18,6 +18,21 @@ struct Options {
 };
 static_assert(sizeof(Options)==48 && offsetof(Options,mode)==32 &&
               offsetof(Options,frameLimitUs)==36 && offsetof(Options,idThread)==44);
+#if CVR_RUST_VRIK
+}
+// The policy: rust/crates/cvr-rig/src/reflex.rs.
+extern "C" {
+bool cvr_reflex_known_options(const cvr::reflex::Options*);
+int cvr_reflex_normalize_mode(int);
+bool cvr_reflex_override_options(const cvr::reflex::Options*,int mode,bool active,cvr::reflex::Options* result);
+}
+namespace cvr::reflex {
+inline bool KnownOptions(const Options& value) {return cvr_reflex_known_options(&value);}
+inline int NormalizeMode(int mode) {return cvr_reflex_normalize_mode(mode);}
+inline bool OverrideOptions(const Options& source,int mode,bool active,Options& result) {
+    return cvr_reflex_override_options(&source,mode,active,&result);
+}
+#else
 inline bool KnownOptions(const Options& value) {
     return value.version==1 && value.type[0]==0x49026d0bf03af81aULL &&
            value.type[1]==0x3454215e96c451a6ULL;
@@ -29,4 +44,5 @@ inline bool OverrideOptions(const Options& source,int mode,bool active,Options& 
     result.mode=mode;
     return true;
 }
+#endif
 }

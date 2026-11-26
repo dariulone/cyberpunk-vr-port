@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // LeftHandedAnimation -- the weapon alone in the LEFT hand animates as the game's single wield, on the other side
 // (xr_left_handed; which hand holds what is mods/redscript/CyberpunkVRPort_LeftHanded).
 //
@@ -16,98 +17,65 @@
 // the reload -- the game's single wield, on the left hand. The redscript turns both on and off together, at each
 // draw (VRLeftHandedAnimations).
 #include "Core/VrCoreShared.hpp"
-#include "Hooks/Hook.hpp"
+#include "Natives/NativeFunctions.hpp"  // the natives defined here, with C linkage in the Rust build
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/entEntity.hpp>
 #include <RED4ext/Scripting/Natives/Generated/anim/AnimFeature_EquipUnequipItem.hpp>
 #include <RED4ext/Scripting/Natives/Generated/anim/AnimGraph.hpp>
 #include <RED4ext/Scripting/Natives/Generated/ent/AnimGraphResourceContainer.hpp>
-#include <MinHook.h>
 #include <atomic>
 #include <cstdio>
 #include <iterator>
 
-// The last names mirrored, as received (diagnostics): name hash, then kind (1 feature, 2 event) | mirrored << 8 |
-// an item handling's itemState << 16 | its itemType << 24 (0xFFFF << 16 when not one).
-struct LeftHandedNameRecord {
-    uint64_t name;
-    uint32_t info;
-    uint32_t pad;
-};
+#if !CVR_RUST_VRIK
 extern "C" {
-// Names mirrored so far (diagnostics).
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_LeftHandedNamesMirrored{};
-// The controller whose names are mirrored, 0 while none is.
-__declspec(dllexport) std::atomic<uintptr_t> CyberpunkVR_LeftHandedController{};
-__declspec(dllexport) LeftHandedNameRecord CyberpunkVR_LeftHandedNameLog[64]{};
-__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_LeftHandedNameLogCount{};
+#endif
 // Single-wield graphs attached for the left hand (diagnostics).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_LeftHandedGraphsAttached{};
+#endif
+// The controller whose names are mirrored (src/Hooks/LeftHandedMirror.cpp), and the original ApplyFeature.
+#if !CVR_RUST_VRIK
+extern std::atomic<uintptr_t> CyberpunkVR_LeftHandedController;
+#endif
+#if !CVR_RUST_VRIK
+uint64_t cvr_left_handed_apply_feature(uintptr_t controller, uint64_t name, void* feature);
+bool cvr_left_handed_installed();
+#endif
+#if !CVR_RUST_VRIK
 }
-
+#endif
+// The doors ask whether a mirrored feature is an item handling, and its state and type.
+#if !CVR_RUST_VRIK   // the Rust build's: cvr-rig's vrik/left_handed_animation.rs, the C name cvr-render's cpp_services.rs
+extern "C" uint32_t cvr_cpp_item_handling_bits(const void* feature) {
+    if (!feature) return 0xFFFF;
+    // an item handling's state and type: AnimFeature_EquipUnequipItem itemState +44, itemType +48
+    const auto* instance = *reinterpret_cast<RED4ext::ISerializable* const*>(feature);
+    static RED4ext::CClass* equip = RED4ext::CRTTISystem::Get()->GetClass(
+        RED4ext::anim::AnimFeature_EquipUnequipItem::NAME);
+    if (instance && equip && const_cast<RED4ext::ISerializable*>(instance)->GetType() == equip) {
+        const auto* item = reinterpret_cast<const RED4ext::anim::AnimFeature_EquipUnequipItem*>(instance);
+        return (static_cast<uint32_t>(item->itemState) & 0xFF) | (static_cast<uint32_t>(item->itemType) & 0xFF) << 8;
+    }
+    return 0xFFFF;
+}
 namespace {
-using ApplyFeatureFn = uint64_t(__fastcall*)(uintptr_t controller, uint64_t name, void* feature);
-using PushEventFn = uint64_t(__fastcall*)(uintptr_t controller, uint64_t name);
-// An animation controller's graph slots: a graph attached to / detached from a slot on behalf of a source.
-using SlotGraphFn = uint64_t(__fastcall*)(uintptr_t controller, RED4ext::CName slot,
-                                          RED4ext::Handle<RED4ext::anim::AnimGraph>* graph, RED4ext::CName source);
-ApplyFeatureFn s_applyFeature{};
-PushEventFn s_pushEvent{};
-SlotGraphFn s_attachGraph{};
-SlotGraphFn s_detachGraph{};
-
-// Every name of the ranged graph that has a twin on the other branch.
-constexpr const char* kTwins[][2] = {
-    {"RightWeaponData", "LeftWeaponData"},       {"rightHandItemHandling", "leftHandItemHandling"},
-    {"RightReloadData", "LeftReloadData"},       {"WeaponEquipType", "LeftWeaponEquipType"},
-    {"RightReload", "LeftReload"},               {"RightShoot", "LeftShoot"},
-    {"RightReloadLoop", "LeftReloadLoop"},       {"EndRightReload", "EndLeftReload"},
-    {"RightCycleRound", "LeftCycleRound"},
-};
-uint64_t s_twins[std::size(kTwins)][2]{};
-
 uint64_t NameHash(const char* s) {
     uint64_t h = 0xCBF29CE484222325ull;  // CName: FNV-1a, 64 bits
     for (; *s; ++s) h = (h ^ static_cast<uint8_t>(*s)) * 0x100000001B3ull;
     return h;
 }
-
-void Note(uint64_t name, uint32_t kind, const void* feature) {
-    uint32_t handling = 0xFFFF;
-    if (feature) {
-        // an item handling's state and type: AnimFeature_EquipUnequipItem itemState +44, itemType +48
-        const auto* instance = *reinterpret_cast<RED4ext::ISerializable* const*>(feature);
-        static RED4ext::CClass* equip = RED4ext::CRTTISystem::Get()->GetClass(
-            RED4ext::anim::AnimFeature_EquipUnequipItem::NAME);
-        if (instance && equip && const_cast<RED4ext::ISerializable*>(instance)->GetType() == equip) {
-            const auto* item = reinterpret_cast<const RED4ext::anim::AnimFeature_EquipUnequipItem*>(instance);
-            handling = (static_cast<uint32_t>(item->itemState) & 0xFF) | (static_cast<uint32_t>(item->itemType) & 0xFF) << 8;
-        }
-    }
-    const uint32_t at = CyberpunkVR_LeftHandedNameLogCount.fetch_add(1, std::memory_order_relaxed);
-    CyberpunkVR_LeftHandedNameLog[at % std::size(CyberpunkVR_LeftHandedNameLog)] = {name, kind | 1u << 8 | handling << 16, 0};
-}
-
-uint64_t Mirrored(uintptr_t controller, uint64_t name, uint32_t kind, const void* feature) {
-    if (!controller || controller != CyberpunkVR_LeftHandedController.load(std::memory_order_relaxed)) return name;
-    for (const auto& twin : s_twins) {
-        if (name == twin[0] || name == twin[1]) {
-            CyberpunkVR_LeftHandedNamesMirrored.fetch_add(1, std::memory_order_relaxed);
-            Note(name, kind, feature);
-            return name == twin[0] ? twin[1] : twin[0];
-        }
-    }
-    return name;
-}
-
-uint64_t __fastcall ApplyFeature(uintptr_t controller, uint64_t name, void* feature) {
-    return s_applyFeature(controller, Mirrored(controller, name, 1, feature), feature);
-}
-
-uint64_t __fastcall PushEvent(uintptr_t controller, uint64_t name) {
-    return s_pushEvent(controller, Mirrored(controller, name, 2, nullptr));
-}
-
+// An animation controller's graph slots: a graph attached to / detached from a slot on behalf of a source.
+using SlotGraphFn = uint64_t(__fastcall*)(uintptr_t controller, RED4ext::CName slot,
+                                          RED4ext::Handle<RED4ext::anim::AnimGraph>* graph, RED4ext::CName source);
+// Graph slots: attach 0xD61900, detach 0xD617E8 -- what a player state machine's start calls for the graph its
+// definition names (0x9069D8, 0x906B88). Resolved at the first draw, against the bytes the port was written for.
+constexpr uintptr_t kAttachGraph = 0xD61900;
+constexpr uintptr_t kDetachGraph = 0xD617E8;
+SlotGraphFn s_attachGraph{};
+SlotGraphFn s_detachGraph{};
 bool Matches(uintptr_t base, uintptr_t rva, const char* hex) {
     for (size_t i = 0; hex[2 * i]; ++i) {
         unsigned byte{};
@@ -116,53 +84,20 @@ bool Matches(uintptr_t base, uintptr_t rva, const char* hex) {
     }
     return true;
 }
-
-constexpr uintptr_t kApplyFeature = 0x53DC14;
-constexpr uintptr_t kPushEvent = 0x824614;
-// Graph slots: attach 0xD61900, detach 0xD617E8 -- what a player state machine's start calls for the graph its
-// definition names (0x9069D8, 0x906B88).
-constexpr uintptr_t kAttachGraph = 0xD61900;
-constexpr uintptr_t kDetachGraph = 0xD617E8;
-
-bool Install() {
-    const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-    if (!base || !Matches(base, kApplyFeature, "488bc4488958084889681048897018") ||
-        !Matches(base, kPushEvent, "48895c24084889742410574883ec70")) {
-        Log("LeftHandedAnimation: native ABI mismatch; hooks not installed.\n");
-        return false;
-    }
-    if (Matches(base, kAttachGraph, "488bc448895808488968104889701848") &&
-        Matches(base, kDetachGraph, "488bc448895808488968104889701848")) {
-        s_attachGraph = reinterpret_cast<SlotGraphFn>(base + kAttachGraph);
-        s_detachGraph = reinterpret_cast<SlotGraphFn>(base + kDetachGraph);
-    } else {
+void ResolveGraphSlots() {
+    static const bool resolved = [] {
+        const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        if (base && Matches(base, kAttachGraph, "488bc448895808488968104889701848") &&
+            Matches(base, kDetachGraph, "488bc448895808488968104889701848")) {
+            s_attachGraph = reinterpret_cast<SlotGraphFn>(base + kAttachGraph);
+            s_detachGraph = reinterpret_cast<SlotGraphFn>(base + kDetachGraph);
+            return true;
+        }
         Log("LeftHandedAnimation: graph slot natives mismatch; the left hand's single wield cannot attach its graph.\n");
-    }
-    for (size_t i = 0; i < std::size(kTwins); ++i) {
-        s_twins[i][0] = NameHash(kTwins[i][0]);
-        s_twins[i][1] = NameHash(kTwins[i][1]);
-    }
-    const auto init = MH_Initialize();
-    if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) return false;
-    auto* apply = reinterpret_cast<void*>(base + kApplyFeature);
-    auto* push = reinterpret_cast<void*>(base + kPushEvent);
-    if (MH_CreateHook(apply, reinterpret_cast<void*>(&ApplyFeature), reinterpret_cast<void**>(&s_applyFeature)) != MH_OK)
         return false;
-    if (MH_CreateHook(push, reinterpret_cast<void*>(&PushEvent), reinterpret_cast<void**>(&s_pushEvent)) != MH_OK) {
-        MH_RemoveHook(apply);
-        return false;
-    }
-    if (MH_EnableHook(apply) != MH_OK || MH_EnableHook(push) != MH_OK) {
-        MH_DisableHook(apply);
-        MH_DisableHook(push);
-        MH_RemoveHook(apply);
-        MH_RemoveHook(push);
-        return false;
-    }
-    Log("LeftHandedAnimation: animation controller ApplyFeature/PushEvent installed (2.5).\n");
-    return true;
+    }();
+    (void)resolved;
 }
-CVR_HOOK("LeftHandedAnimation", ::cvr::hooks::Stage::Boot, 91, Install);
 }  // namespace
 
 namespace {
@@ -175,12 +110,12 @@ namespace {
 void EmptyHandlings(uintptr_t controller) {
     auto* rtti = RED4ext::CRTTISystem::Get();
     auto* cls = rtti ? rtti->GetClass(RED4ext::anim::AnimFeature_EquipUnequipItem::NAME) : nullptr;
-    if (!controller || !cls || !s_applyFeature) return;
+    if (!controller || !cls || !cvr_left_handed_installed()) return;
     for (const char* name : {"rightHandItemHandling", "leftHandItemHandling"}) {
         auto* feature = reinterpret_cast<RED4ext::anim::AnimFeature*>(cls->CreateInstance(true));
         if (!feature) return;
         RED4ext::Handle<RED4ext::anim::AnimFeature> handle(feature);
-        s_applyFeature(controller, NameHash(name), &handle);
+        cvr_left_handed_apply_feature(controller, NameHash(name), &handle);
     }
 }
 
@@ -196,6 +131,7 @@ void EmptyHandlings(uintptr_t controller) {
 // component looks up by that name, detached and attached again on behalf of the same source ("State machine"),
 // so either hand's start replaces the other's.
 void AttachSingleWieldGraph(uintptr_t controller, RED4ext::CName graphName, RED4ext::CName slot) {
+    ResolveGraphSlots();
     if (!s_attachGraph || !s_detachGraph || !graphName || !slot) return;
     auto* rtti = RED4ext::CRTTISystem::Get();
     static RED4ext::CClass* containerType =
@@ -242,3 +178,5 @@ void VRLeftHandedAnimations(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, 
     if (component && (on ? previous != component : previous != 0)) EmptyHandlings(component);
     if (component && on) AttachSingleWieldGraph(component, graph, slot);
 }
+#endif
+#endif

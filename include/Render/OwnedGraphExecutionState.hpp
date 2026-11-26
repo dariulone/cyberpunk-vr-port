@@ -39,6 +39,100 @@ enum class Failure:uint32_t {
 class Ledger;
 // The caller serializes every method and supplies audited facts. This object
 // neither owns a native lease nor reads, writes, waits, or proves native ownership.
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/owned_graph_execution.rs (tools/single_pass_tests/owned_graph_execution_state_test
+// runs its cases against them in its Rust variant). The members stay here (the ledger's map owns them), mirrored there.
+namespace detail {
+extern "C" {
+uint64_t cvr_oge_state(void*,uint32_t,const Identity*,uint32_t,uint64_t,bool,bool);
+bool cvr_oge_begin_admission(const Identity*,uint64_t,uint64_t,Failure*,uint64_t*);
+bool cvr_oge_verified_bindings(const OwnerGenerationBinding*,size_t);
+}
+}
+class State {
+public:
+    State(const State&)=delete;
+    State& operator=(const State&)=delete;
+    State(State&&)=delete;
+    State& operator=(State&&)=delete;
+
+    const Identity& FrozenIdentity()const noexcept{return identity_;}
+    std::span<const OwnerGenerationBinding> OwnerBindings()const noexcept{return {bindings_.data(),bindingCount_};}
+    Phase CurrentPhase()const noexcept{return phase_;}
+    Failure Rejection()const noexcept{return failure_;}
+    bool Selected()const noexcept{return selected_;}
+    bool Escaped()const noexcept{return escaped_;}
+    bool ProducerOpen()const noexcept{return producerOpen_;}
+    bool ConstructVerified()const noexcept{return constructVerified_;}
+    bool Quarantined()const noexcept{return phase_==Phase::Quarantined;}
+
+    // Only the same producer may access the slot before invoking originalConstruct.
+    // Clear the address before that call; callbacks and polling get zero thereafter.
+    uint64_t PreconstructGraphSlot(uint64_t producerScope)const noexcept{return Get(0,nullptr,0,producerScope);}
+    bool CanRollback(const Identity& proof,uint64_t producerScope)const noexcept{return Get(1,&proof,0,producerScope)!=0;}
+
+    // Record every publication attempt immediately, including uncertain writes.
+    // A failed readback still requires verified rollback before fallback or release.
+    bool RecordPublication(const Identity& proof,uint64_t producerScope,bool ownedSlotVerified)noexcept{
+        return Call(10,&proof,0,producerScope,ownedSlotVerified);
+    }
+    bool RecordRollback(const Identity& proof,uint64_t producerScope,bool originalSlotVerified)noexcept{
+        return Call(11,&proof,0,producerScope,originalSlotVerified);
+    }
+    // Call immediately before originalConstruct. Partial construction or an
+    // exception cannot undo escape, even if post-call payload verification fails.
+    bool MarkConstructInvoked(const Identity& proof,uint64_t producerScope)noexcept{return Call(12,&proof,0,producerScope);}
+    bool RecordConstruct(const Identity& proof,bool payloadMatched,bool prerequisiteConsumed)noexcept{
+        return Call(13,&proof,0,0,payloadMatched,prerequisiteConsumed);
+    }
+
+    // One event per aggregate path, published before its callbacks can enter.
+    // The pinned group must cover every native descendant of this path.
+    bool RecordQueued(Path path,const Identity& proof,uint64_t terminalGroup,bool terminalPinned)noexcept{
+        return Call(14,&proof,uint32_t(path),terminalGroup,terminalPinned);
+    }
+    bool RecordOriginalReturned(Path path,const Identity& proof,uint64_t terminalGroup)noexcept{
+        return Call(15,&proof,uint32_t(path),terminalGroup);
+    }
+    // A zero pending observation is insufficient before enqueue, producer close,
+    // and original return. Pending work is a normal incomplete probe, not failure.
+    bool ObserveCompletion(Path path,const Identity& proof,uint64_t terminalGroup,bool pinnedGroupComplete)noexcept{
+        return Call(16,&proof,uint32_t(path),terminalGroup,pinnedGroupComplete);
+    }
+    bool RecordProducerClosed(const Identity& proof,uint64_t producerScope)noexcept{return Call(17,&proof,0,producerScope);}
+    void CancelSelection()noexcept{Call(18);}
+    void ReportFailure(Failure reason)noexcept{Call(19,nullptr,uint32_t(reason));}
+    bool Queued(Path path)const noexcept{return Get(2,nullptr,uint32_t(path))!=0;}
+    bool OriginalReturned(Path path)const noexcept{return Get(3,nullptr,uint32_t(path))!=0;}
+    bool Complete(Path path)const noexcept{return Get(4,nullptr,uint32_t(path))!=0;}
+    uint64_t TerminalGroup(Path path)const noexcept{return Get(5,nullptr,uint32_t(path));}
+    bool CanReleaseOwnedStorage()const noexcept{return Get(6)!=0;}
+private:
+    friend class Ledger;
+    struct Reader {uint64_t group{};bool queued{},originalReturned{},complete{};};
+    State(const Identity& identity,std::span<const OwnerGenerationBinding> bindings,uint64_t scope,uint64_t slot)noexcept:
+        identity_(identity),bindingCount_(bindings.size()),producerScope_(scope),graphSlot_(slot){
+        std::copy(bindings.begin(),bindings.end(),bindings_.begin());
+    }
+    // Used by the typed expansion admission, which stays here.
+    static bool Pointer(uint64_t address,uint64_t bytes)noexcept{return address && !(address&7) && address<=UINT64_MAX-bytes;}
+    uint64_t Get(uint32_t which,const Identity* proof=nullptr,uint32_t path=0,uint64_t scope=0)const noexcept{
+        return detail::cvr_oge_state(const_cast<State*>(this),which,proof,path,scope,false,false);
+    }
+    bool Call(uint32_t which,const Identity* proof=nullptr,uint32_t path=0,uint64_t scope=0,bool flag=false,bool flag2=false)noexcept{
+        return detail::cvr_oge_state(this,which,proof,path,scope,flag,flag2)!=0;
+    }
+    const Identity identity_;
+    std::array<OwnerGenerationBinding,MaxOwnerBindings> bindings_{};
+    size_t bindingCount_{};
+    uint64_t producerScope_{},graphSlot_{};
+    std::array<Reader,2> paths_{};
+    Phase phase_=Phase::Prepared;
+    Failure failure_=Failure::None;
+    bool selected_=true,escaped_{},producerOpen_=true,constructVerified_{};
+};
+static_assert(sizeof(Identity)==56 && sizeof(OwnerGenerationBinding)==32 && sizeof(State)==4224,"mirrored by owned_graph_execution.rs");
+#else
 class State {
 public:
     State(const State&)=delete;
@@ -198,6 +292,7 @@ private:
     Failure failure_=Failure::None;
     bool selected_=true,escaped_{},producerOpen_=true,constructVerified_{};
 };
+#endif
 
 // This bounded registry owns only state records. Destroying it is not authority
 // to destroy graph storage or native leases; the runtime must honor each state.
@@ -297,6 +392,23 @@ public:
     uint64_t SelectedId()const noexcept{return selectedId_;}
     Failure Rejection()const noexcept{return failure_;}
 private:
+#if CVR_RUST_VRIK
+    // The consumer id is consumed even when the rest is refused (Rust's rule).
+    bool BeginAdmission(const Identity& identity,uint64_t producerScope,uint64_t graphSlot)noexcept{
+        return detail::cvr_oge_begin_admission(&identity,producerScope,graphSlot,&failure_,&lastConsumerId_);
+    }
+    // Only the corresponding reference or typed expansion proof reaches here.
+    State* AdmitVerified(const Identity& identity,std::span<const OwnerGenerationBinding> bindings,
+                         uint64_t producerScope,uint64_t graphSlot){
+        failure_=Failure::Bindings;
+        if(!detail::cvr_oge_verified_bindings(bindings.data(),bindings.size()))return nullptr;
+        failure_=Failure::Capacity;if(states_.size()>=MaxConsumers)return nullptr;
+        auto state=std::unique_ptr<State>(new State(identity,bindings,producerScope,graphSlot));auto* value=state.get();
+        states_.emplace(identity.consumerId,std::move(state));
+        if(auto* previous=Find(selectedId_))previous->CancelSelection();
+        selectedId_=identity.consumerId;failure_=Failure::None;return value;
+    }
+#else
     bool BeginAdmission(const Identity& identity,uint64_t producerScope,uint64_t graphSlot)noexcept{
         failure_=Failure::Sequence;
         if(!identity.consumerId || identity.consumerId<=lastConsumerId_)return false;
@@ -322,6 +434,7 @@ private:
         if(auto* previous=Find(selectedId_))previous->CancelSelection();
         selectedId_=identity.consumerId;failure_=Failure::None;return value;
     }
+#endif
     std::map<uint64_t,std::unique_ptr<State>> states_;
     uint64_t lastConsumerId_{},selectedId_{};
     Failure failure_=Failure::None;

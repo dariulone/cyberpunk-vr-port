@@ -47,6 +47,7 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_slide' },
 
     slide = {
+        ejectLiveRound = true,
         slot       = 'vrp_slide',
         which      = 1, bone = 5,
         -- MEASURED, agreed by both channels: the bone's local Z (45.9 -> 85.9) and the slide slot's distance to the

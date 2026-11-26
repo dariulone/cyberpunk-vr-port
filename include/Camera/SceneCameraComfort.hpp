@@ -11,7 +11,7 @@ namespace cvr::camera {
 // flat screen a slow pan, a handheld sway or a push-in tilt is framing. In the headset it turns the world
 // round a player who is not turning, and that is what makes them sick. The post-prologue montage
 // (q000_08_half_year_montage.scene) is 23 camera animations with a cut every 0.5-1.7 s, every shot moving.
-// 2026-11-06: "smoothing up to 30 degrees for the scene camera when it drives the camera, it makes me sick".
+// User, 2026-11-06: "smoothing up to 30 degrees for the scene camera when it drives the camera, it makes me sick".
 //
 // So the view holds its orientation while the scene camera turns within deadDeg of it. Past that, the view
 // eases after the scene camera at catchUpSec, and the gap never grows past deadDeg + maxExtraDeg, so a whip

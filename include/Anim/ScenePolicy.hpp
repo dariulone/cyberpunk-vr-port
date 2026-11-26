@@ -1,12 +1,40 @@
 #pragma once
 #include <cstdint>
 #include <RED4ext/Scripting/Natives/Generated/GameplayTier.hpp>
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::anim {
 inline bool IsControllerVrikEnabled(int bindingMode,bool headAimActive) {
     return bindingMode==4 && !headAimActive;
 }
 
+#if CVR_RUST_ROOM
+// rust/crates/cvr-body/src/policy.rs
+inline bool ShouldSuspendVrik(int engineTier,int configuredTier) { return cvr_should_suspend_vrik(engineTier,configuredTier); }
+inline bool ShouldSuspendVrik(int engineTier,bool inVehicle,int onFootTier,int vehicleTier) {
+    return ShouldSuspendVrik(engineTier,inVehicle ? vehicleTier : onFootTier);
+}
+inline bool ShouldSuspendVrikForTakedown(int takedownState,int enabled) {
+    return cvr_should_suspend_vrik_for_takedown(takedownState,enabled);
+}
+inline bool ShouldSuspendVrikForBodyCarry(int bodyCarryingState,int bodyDisposalState,int locomotionState,int enabled) {
+    return cvr_should_suspend_vrik_for_body_carry(bodyCarryingState,bodyDisposalState,locomotionState,enabled);
+}
+inline bool ShouldSuspendVrikForFinisher(int finisherActive,uint64_t ageMs,int enabled) {
+    return cvr_should_suspend_vrik_for_finisher(finisherActive,ageMs,enabled);
+}
+inline bool ShouldHandLeftArmToBodyCarry(int bodyCarryingState,int enabled) {
+    return enabled!=0 && (bodyCarryingState==2 || bodyCarryingState==5);
+}
+inline bool ShouldHandRightArmToBodyCarry(int bodyCarryingState,int bothHands,int enabled) {
+    return cvr_should_hand_right_arm_to_body_carry(bodyCarryingState,bothHands,enabled);
+}
+inline int ResolveVehicleVrikSuspendTier(int onFootTier,int vehicleTier,bool explicitlyConfigured) {
+    return cvr_resolve_vehicle_vrik_suspend_tier(onFootTier,vehicleTier,explicitlyConfigured);
+}
+#else
 // Keep the stored UI values: -1/0 disable, 1..4 select Tier2..Tier5.
 // The engine enum is one-based and must not be compared to the UI index.
 inline bool ShouldSuspendVrik(int engineTier,int configuredTier) {
@@ -55,4 +83,5 @@ inline int ResolveVehicleVrikSuspendTier(int onFootTier,int vehicleTier,bool exp
     const int tier=explicitlyConfigured ? vehicleTier : onFootTier;
     return tier < -1 ? -1 : (tier > 4 ? 4 : tier);
 }
+#endif
 }

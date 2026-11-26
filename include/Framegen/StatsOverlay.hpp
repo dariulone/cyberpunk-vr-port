@@ -8,6 +8,24 @@
 #include "Runtimes/HudFollow.hpp"
 
 namespace cvr::framegen {
+#if CVR_RUST_VRIK
+// The Rust build's panel is rust/crates/cvr-xr/src/framegen_overlay.rs (drawn by rust/crates/cvr-gpu/src/
+// framegen_overlay.rs); this class keeps the name the frame loop holds.
+class StatsOverlay {
+public:
+    StatsOverlay();
+    ~StatsOverlay();
+    StatsOverlay(const StatsOverlay&) = delete;
+    StatsOverlay& operator=(const StatsOverlay&) = delete;
+    const XrCompositionLayerBaseHeader* Prepare(XrSession,XrSpace,ID3D12Device*,ID3D12CommandQueue*,
+        XrSpace local=XR_NULL_HANDLE,const XrPosef* head=nullptr,uint64_t origin=0,XrTime displayTime=0);
+    void Shutdown(bool wait=false);
+    // The Rust panel, for rust/crates/cvr-render/src/xr_cycle_end.rs.
+    void* Raw() const { return rust_; }
+private:
+    void* rust_;
+};
+#else
 // A small persistent bitmap, refreshed four times a second. Submission only
 // reuses its XR quad; no ImGui context, font atlas or per-frame texture raster.
 class StatsOverlay {
@@ -33,4 +51,5 @@ private:
     uint64_t originSerial{};
     int followMode=-1;
 };
+#endif
 }

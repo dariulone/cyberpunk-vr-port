@@ -45,9 +45,12 @@ def case(hz, action, motion_dir=(0, 0, -1), gaze=None, gaze_in_stroke=None):
         return m.update(1/hz, g.player, g.weapon)
 
     if action == 'already_held': g.grip = 1
-    for _ in range(3): tick()
+    for _ in range(3):
+        assert not tick(), 'aiming before a fresh grip suppressed melee contact'
     g.grip = 1
-    for _ in range(3): tick()
+    for _ in range(3):
+        reserved=tick()
+        assert bool(reserved)==(action!='already_held'), 'throw reservation did not follow the grip edge'
     if action == 'yaw': g.c, g.s = 0, 1
     if gaze_in_stroke: g.gaze = g.v(*gaze_in_stroke)  # the head follows the arm during the stroke
     for _ in range(round(.12*hz)): tick(0 if action == 'gentle' else 4)

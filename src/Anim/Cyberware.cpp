@@ -318,7 +318,7 @@ static void ApplyMantisPose(uint8_t* buffer) {
 
 static void ApplyMuscles(uint8_t* buffer) {
     using namespace cvr::cyberware;
-    const uint64_t now=GetTickCount64();
+    const uint64_t now=VRIK_ClockMs();
     for(size_t i=0;i<std::size(MuscleCurves);++i) {
         const auto& curve=MuscleCurves[i];const int bone=muscleIndices[i],side=curve.name[0]=='r';
         if(curve.family!=g_VRCyberwareFamily || !Valid(bone))continue;
@@ -373,7 +373,7 @@ void VRIK_ApplyCyberwarePose(uint8_t* buffer,float* tracks,uint32_t trackCount) 
     float worldPos[3],worldRot[4],trackingYaw{};
     if(!VRIK_ReadCurrentBodyFrame(worldPos,worldRot,&trackingYaw))return;
     const Vec3 origin{worldPos[0],worldPos[1],worldPos[2]};float inverse[4];VRIK_QuatConj(worldRot,inverse);
-    const uint64_t now=GetTickCount64();const uint32_t epoch=g_VrikFrameEpoch.load(std::memory_order_relaxed);
+    const uint64_t now=VRIK_ClockMs();const uint32_t epoch=g_VrikFrameEpoch.load(std::memory_order_relaxed);
     const bool advance=epoch!=wireEpoch;
     const float dt=wireStamp && now>=wireStamp ? float(now-wireStamp)*.001f:0.f;
     // Locomotion carries the wire instead of dragging it: only the arm's own motion swings it.
@@ -490,7 +490,7 @@ void VRIK_ApplyCyberwarePose(uint8_t* buffer,float* tracks,uint32_t trackCount) 
 }
 
 bool cvr::cyberware::ReadFrame(Frame& out) {
-    std::lock_guard lock(frameMutex);const uint64_t now=GetTickCount64();
+    std::lock_guard lock(frameMutex);const uint64_t now=VRIK_ClockMs();
     if(g_VRBind!=4 || !frame.family || frame.family!=g_VRCyberwareFamily || now<frame.stamp || now-frame.stamp>150)return false;
     out=frame;return true;
 }
@@ -514,19 +514,19 @@ void cvr::cyberware::SetWirePlanes(int side,uint32_t epoch,const std::array<Plan
     if(side<0||side>1)return;
     std::lock_guard lock(frameMutex);
     if(frame.family!=3 || static_cast<uint32_t>(frame.epoch-epoch)>8u)return;
-    collisionPlanes[side]=planes;collisionStamp[side]=GetTickCount64();
+    collisionPlanes[side]=planes;collisionStamp[side]=VRIK_ClockMs();
 }
 void cvr::cyberware::MusclePulse(int side,float duration) {
     if(side<0||side>1||!std::isfinite(duration))return;
     const auto milliseconds=static_cast<uint64_t>(std::clamp(duration,0.f,1.5f)*1000);
-    musclePulse[side].store((GetTickCount64()<<16)|milliseconds,std::memory_order_release);
+    musclePulse[side].store((VRIK_ClockMs()<<16)|milliseconds,std::memory_order_release);
 }
 void cvr::cyberware::Select(int kind) {
     selectedKind.store(kind>=0&&kind<=5?kind:0,std::memory_order_relaxed);
-    selectedStamp.store(GetTickCount64(),std::memory_order_release);
+    selectedStamp.store(VRIK_ClockMs(),std::memory_order_release);
 }
 int cvr::cyberware::SelectedKind() {
-    const auto stamp=selectedStamp.load(std::memory_order_acquire),now=GetTickCount64();
+    const auto stamp=selectedStamp.load(std::memory_order_acquire),now=VRIK_ClockMs();
     return g_VRBind==4 && now>=stamp && now-stamp<250 ? selectedKind.load(std::memory_order_relaxed):0;
 }
 void cvr::cyberware::PublishGrips(bool left,bool right) {
@@ -536,6 +536,6 @@ void cvr::cyberware::CollisionInfo(float* values) {
     std::lock_guard lock(frameMutex);values[0]=values[1]=0;
     for(int side=0;side<2;++side)for(const auto& plane:collisionPlanes[side])if(plane.valid)values[side]+=1;
     const auto stamp=std::max(collisionStamp[0],collisionStamp[1]);
-    values[2]=stamp?float(GetTickCount64()-stamp):-1.f;
+    values[2]=stamp?float(VRIK_ClockMs()-stamp):-1.f;
     values[3]=float((Grip(0)?1:0)|(Grip(1)?2:0));
 }

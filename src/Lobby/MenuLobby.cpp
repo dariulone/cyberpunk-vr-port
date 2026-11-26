@@ -13,13 +13,22 @@
 #include <atomic>
 #include <cstring>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
+#endif
 // The ink system's layer of a native type; null when it has none. Main thread (Natives/EngineObjects.cpp).
 RED4ext::ink::Layer* FindInkLayer(RED4ext::CName type);
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 struct LobbyInput {uint32_t logical, physical, format, width, height, frame;};
+#endif
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // xr_lobby (Core/LiveControlsPoll.cpp).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_Lobby = 1;
 // 0 = the composition block is left as the game wrote it (the backdrop stays), the world still renders behind it.
 __declspec(dllexport) int32_t CyberpunkVR_LobbyCompose = 1;
@@ -44,10 +53,29 @@ __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_LobbyStats[12]{};
 // The node the composition block is uploaded under (RVA of its work function), and the resources that node resolved
 // in the last frame it ran: the menu panel's UI is one of them.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_LobbyCompositeNode{0};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/lobby_tables.rs
 __declspec(dllexport) LobbyInput CyberpunkVR_LobbyInputs[16]{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_LobbyInputCount{0};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's lobby is rust/crates/cvr-render/src/menu_lobby.rs: the world behind the menu and its composition,
+// the world layer, the player's input, the menu layer's input, the held music, the curtain and the loading screens.
+// Its table -- the exports above, the main menu's state, the ink system's layer and the game systems' lookup -- is
+// built in rust/crates/cvr-render/src/lobby_tables.rs.
+
+
+// The detours and their originals register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
+// The C++ build's lobby; the Rust build's is rust/crates/cvr-render/src/menu_lobby.rs.
 namespace cvr::lobby {
 namespace {
 constexpr uintptr_t kRuntimeUiVtable = 0x361FC10;  // worlduiRuntimeSystemUI
@@ -424,15 +452,21 @@ void Tick() {
 
 // fxCompositionShaderParams, 432 bytes (main menu, menuRender.rdc event 7261, its b6):
 //   row 1 = uiFactor, uiPassthroughFactor, mainRenderFactor, blurredRenderFactor; row 2.x = backgroundTextureFactor;
-//   rows 4-8 = the grading the HUD composite also carries (Stereo/Grading.cpp), repeated in rows 22-26 but for
-//   26.zw: the block's last 8 bytes are padding the engine never writes (stack left-overs, see CompositionBlock);
-//   rows 10, 15, 17 and 21 hold integers; row 16.zw = the target's width and height.
+//   rows 4-8 = the grading the HUD composite also carries (Stereo/Grading.cpp); rows 10, 15, 17 and 21 hold
+//   integers; row 16.zw = the target's width and height.
+// THE BLOCK IS THE COMPOSITION NODE'S LOCALS (IDA 2.5, 2026-11-09). sub_14033E388 builds it in its own stack frame --
+// rows 0-9 by sub_1422AE510/sub_140B52AB0, rows 10-21 field by field -- and uploads 0x1B0 bytes from there
+// (sub_14041A780). Rows 22-26 are written only with render feature 30 (lights for the UI), never in the main menu: they
+// are whatever the stack held. The test used to call them a repeat of rows 4-8, and they were, by the stack's chance
+// alone: the Rust build's frames left other words there and every main-menu block was turned away (the backdrop stayed,
+// the world never shown). So the block is the composition's when it is uploaded under that node.
 // Other 432-byte blocks go through the same upload. A weight read from an integer is a denormal and passes a plain
 // 0..1 test, and 1.0 written over an index sends a shader to a descriptor that does not exist (three GPU page faults
 // in three different shaders under the main menu, 2026-10-27). So every word the test reads has to be what this
-// block holds: real weights, a whole-pixel target and the repeated grading.
-// 0 = a composition block, else what it failed: 2 weights, 3 target size, 4 repeated grading, 5 grading values
+// block holds: real weights, a whole-pixel target, the composition node and real grading.
+// 0 = a composition block, else what it failed: 2 weights, 3 target size, 4 not the composition node, 5 grading values
 // (CyberpunkVR_LobbyComposeStats indices).
+constexpr uintptr_t kCompositionNode = 0x33E388;  // sub_14033E388
 static int CompositionBlock(const float* b) {
     const auto weight = [](float v) { return v == 0.0f || (v >= 1e-3f && v <= 1.0f); };
     for (const int i : {1 * 4 + 0, 1 * 4 + 1, 1 * 4 + 2, 1 * 4 + 3, 2 * 4 + 0})
@@ -440,11 +474,7 @@ static int CompositionBlock(const float* b) {
     const float w = b[16 * 4 + 2], h = b[16 * 4 + 3];
     if (!(w >= 64.0f && w <= 16384.0f && h >= 64.0f && h <= 16384.0f) || w != float(int(w)) || h != float(int(h)))
         return 3;
-    // Rows 22-25 and 26.xy: 26.zw is padding with whatever the stack held. With frame generation on it held a pointer
-    // (0x00007FFE65594504) and, compared with it, 62 of 66 main-menu blocks a second were turned away: the backdrop
-    // came back in those frames and the menu blinked, on the monitor too, and the frames counted as a menu went to
-    // the headset as a flat panel (2026-11-04). Without it the stack happened to hold the grading's own words.
-    if (std::memcmp(b + 4 * 4, b + 22 * 4, 4 * 16 + 8) != 0) return 4;
+    if (!Base() || cvr::detail::t_current_node_work != Base() + kCompositionNode) return 4;
     // The grading is real: saturation set, aberration tiny.
     const float sat = b[6 * 4 + 2], ab = b[6 * 4 + 3];
     return sat >= 1e-3f && sat <= 4.0f && ab >= 0.0f && ab < 0.01f ? 0 : 5;
@@ -490,3 +520,4 @@ void ObserveResolve(uint32_t logical, uint32_t physical) {
     CyberpunkVR_LobbyStats[4].fetch_add(1, std::memory_order_relaxed);
 }
 }  // namespace cvr::lobby
+#endif  // CVR_RUST_VRIK

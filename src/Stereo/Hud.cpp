@@ -52,9 +52,14 @@
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
 
+#if CVR_RUST_VRIK
+// THE HUD PATH IS RUST'S (rust/crates/cvr-render/src/hud.rs): this file keeps the exports, the composite parameters and
+// the globals Capture.cpp and CommandListCensus.cpp read, and forwards its C++ names.
+#endif
 namespace cvr {
 namespace detail {
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/hud.rs
 static bool hud_rt_signature(const D3D12_RESOURCE_DESC& d) {
     if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D) return false;
     if (d.MipLevels <= 1 || d.DepthOrArraySize != 1 || d.SampleDesc.Count != 1) return false;
@@ -64,6 +69,7 @@ static bool hud_rt_signature(const D3D12_RESOURCE_DESC& d) {
            d.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
            d.Format == DXGI_FORMAT_R8G8B8A8_TYPELESS;
 }
+#endif
 
 // ONE current HUD surface, held by reference, with the handful of mip-0 RTV handles that point
 // at it. Deliberately not a growing handle->resource table: the engine recreates the HUD surface
@@ -72,16 +78,30 @@ static bool hud_rt_signature(const D3D12_RESOURCE_DESC& d) {
 // bind through a recycled descriptor slot as "the HUD is finished" and assert RENDER_TARGET on a
 // resource that is nothing of the kind. Registering a new HUD surface therefore RETIRES the old
 // one outright, and the resource is AddRef'd for as long as we can name it.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/hud.rs
 static std::mutex g_hud_rtv_mtx;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 ID3D12Resource* g_hud_res = nullptr;          // AddRef'd
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/hud.rs
 static std::array<SIZE_T, 8> g_hud_handles{};
 static std::atomic<uint32_t> g_hud_handle_count{0};
+#endif
 // Subresource index of the HUD's last mip -- the snapshot waits for it, because the composite's
 // glow samples mips 1, 2 and 4.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_hud_last_mip{0};
+#endif
 // One-shot: dump the contents of the barrier batch that retires the HUD, so the two
 // textures we need are identified from what is actually there rather than guessed.
+#if CVR_RUST_VRIK
+#else
 bool g_hud_batch_listed = false;
+#endif
 
 // The descriptor signature above is NOT unique, and a log taken in the inventory proves it:
 //
@@ -112,12 +132,25 @@ bool g_hud_batch_listed = false;
 // Note what is ABSENT from that table: the inventory's portrait. It is created as an RTV -- which
 // is why the descriptor test saw it -- but never bound through this path, so keying on the node
 // excludes it by construction rather than by another shape rule.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_HudNodeRva  = 0x3E1B20;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_HudNodeRva2 = 0x33D0AC;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_HudByNode = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudNodeNames = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/hud.rs
 static std::atomic<bool> g_hud_node_named{false};
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudRearms = 0;
 
 // OFF. It was a bad trade and the log says so.
@@ -133,6 +166,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudRearms = 0;
 // is worse. Stable-and-wrong beats unstable-and-wrong until the actual cause is found, so this
 // defaults off and stays switchable for the next attempt at it.
 extern "C" __declspec(dllexport) int CyberpunkVR_HudRearmOnGraphChange = 0;
+#endif
 
 // Called from fg_observe when a FULL frame-graph build shows up under a key never seen before --
 // a map or inventory open, and the return from one. Everything the HUD path latched belongs to
@@ -148,6 +182,7 @@ extern "C" __declspec(dllexport) int CyberpunkVR_HudRearmOnGraphChange = 0;
 //
 // Deliberately NOT cleared: g_hud_cb_from_ring and our own constants copy. The copy is still
 // valid memory and still ours; the re-scan refreshes what is in it.
+#if !CVR_RUST_VRIK
  void hud_rearm_for_new_graph(uint64_t key) {
     if (!CyberpunkVR_HudRearmOnGraphChange) return;
     const bool wasNamed = g_hud_node_named.exchange(false, std::memory_order_acq_rel);
@@ -182,13 +217,20 @@ extern "C" __declspec(dllexport) int CyberpunkVR_HudRearmOnGraphChange = 0;
         "(was %s, surface %s)", (unsigned long long)key,
         wasNamed ? "node-named" : "unnamed", dropped ? "dropped" : "none held");
 }
+#endif
 
 // The node named in the render-mask table (0x33E388) never bound a target through this hook --
 // zero [hud] surface named by DrawHUD lines in a whole session -- so that rva is the function
 // that TESTS the HUD capability, not the node body that binds. Rather than try another guess,
 // record which node binds each HUD-shaped target and read the answer off the log.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_HudNodeProbe = 1;   // answered; the two
+#endif
 // binding nodes are hardcoded above. Set to 1 to re-run the survey after an engine update.
+#if CVR_RUST_VRIK
+#else
 struct HudNodeCand { uint32_t rva, w, h, mips, fmt; uint64_t hits[2]; };
 static std::array<HudNodeCand, 24> g_hudnode{};
 static uint32_t g_hudnode_n = 0;
@@ -259,6 +301,7 @@ void hud_node_note(ID3D12Resource* res, bool vrcam) {
             CyberpunkVR_HudNodeRva);
     CVR_DIAGNOSTIC(++CyberpunkVR_DebugHudNodeNames);
 }
+#endif
 
 // How long a producing surface is protected from being replaced by a descriptor match. The
 // descriptor test cannot tell the HUD from the inventory's character portrait -- both are
@@ -266,9 +309,15 @@ void hud_node_note(ID3D12Resource* res, bool vrcam) {
 // yielding snapshots. A newcomer only takes over once the incumbent has gone quiet, which is
 // exactly what a genuine graph rebuild or resolution change looks like. Self-correcting too: if
 // the wrong surface ever gets in, it produces nothing, the hold lapses and the right one wins.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_HudHoldMs = 1500;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudHolds = 0;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 void hud_register_rtv(ID3D12Resource* res,
         const D3D12_RENDER_TARGET_VIEW_DESC* vd, D3D12_CPU_DESCRIPTOR_HANDLE h) {
     if (!res || !h.ptr) return;
@@ -320,6 +369,7 @@ void hud_register_rtv(ID3D12Resource* res,
     g_hud_handles[n] = h.ptr;
     g_hud_handle_count.store(n + 1, std::memory_order_release);
 }
+#endif
 
 
 // The engine's own blurred-HUD pyramid (half resolution, 4 mips). The composite adds it at lod
@@ -327,6 +377,8 @@ void hud_register_rtv(ID3D12Resource* res,
 // tracked quest, and it also feeds the shadow term. It is HUD, not scene bloom: the shadow lerps
 // ITS alpha against the HUD's, and scene colour has no meaningful alpha. Reproducing it with our
 // own mip chain was close but not equal, so we take the engine's.
+#if CVR_RUST_VRIK
+#else
 bool hud_blur_signature(const D3D12_RESOURCE_DESC& d, uint64_t hudWidth) {
     if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D) return false;
     if (d.MipLevels != 4 || d.DepthOrArraySize != 1 || d.SampleDesc.Count != 1) return false;
@@ -338,14 +390,33 @@ bool hud_blur_signature(const D3D12_RESOURCE_DESC& d, uint64_t hudWidth) {
     const uint64_t half = hudWidth / 2;
     return d.Width + 1 >= half && d.Width <= half + 1;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::mutex g_hud_snap_mtx;
+#endif
 // A frame that takes longer than this -- a load spike, a heavy menu -- would blink the HUD off,
 // so the window is generous: it only has to be shorter than a menu, not shorter than a hitch.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_HudMaxAgeMs = 1000;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/hud.rs
 static ID3D12Resource* g_hud_snap = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 D3D12_RESOURCE_DESC g_hud_snap_desc{};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool> g_hud_snap_fresh{false};
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/hud.rs
 static ID3D12Resource* g_hud_blur_snap = nullptr;
 static D3D12_RESOURCE_DESC g_hud_blur_desc{};
 static std::atomic<bool> g_hud_blur_fresh{false};
@@ -363,20 +434,30 @@ static std::atomic<bool> g_main_out_fresh{false};
 static ID3D12Resource* g_main_scene_snap = nullptr;
 static D3D12_RESOURCE_DESC g_main_scene_desc{};
 static std::atomic<bool> g_main_scene_fresh{false};
+#endif
 // The scanner's object outline, as the SECOND eye draws it. Not copied from MAIN: the outline
 // traces on-screen silhouettes, so MAIN's would sit at MAIN's parallax and read as double
 // vision. VRCAM renders its own -- Resource_83328 at 2444x2560 in EventList_SCANERELEMENTS,
 // against MAIN's Resource_85164 -- it is simply never composited, because the chain that turns
 // it into a visible outline (PS587 -> PS1047 -> PS1290 -> the PS1216 composite) is MAIN-only,
 // behind the same viewData+0x168 gate as the HUD.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_VisionSnap       = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisionSnaps = 0;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/hud.rs
 static ID3D12Resource* g_vision_snap = nullptr;
 static D3D12_RESOURCE_DESC g_vision_desc{};
 static std::atomic<bool> g_vision_fresh{false};
+#endif
 // When the node stops running (view torn down, scanner gone) the last snapshot would otherwise
 // keep painting an outline over the second eye for ever. Time-stamped, so it simply expires.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_vision_tick{0};
+#endif
 // HOW LONG THE LAST OUTLINE STAYS USABLE, and it is the HUD's number and the HUD's escape hatch
 // rather than a constant, because the two are the same problem. It was hardcoded at 250 ms, and
 // that is what made the outline leave the second eye a moment after each scan: MAIN composites
@@ -384,20 +465,32 @@ std::atomic<uint64_t> g_vision_tick{0};
 // the second eye works from a snapshot and the pass only runs while something needs redrawing.
 // A quarter of a second after the scan settled, our copy aged out and MAIN's did not.
 // 0 = no limit.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VisionMaxAgeMs = 1000;
+#endif
 // Demand, recorded by the consumer, for the same reason the HUD records it: so that the producer
 // can key on it without the two latching each other off. See the note in CyberpunkVR_GetHudTexture.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_vision_consumed_tick{0};
+#endif
 // Demand-driven: the copy is ~35 MB a frame at 2560x2560x5mips, so it must not run when nothing
 // consumes it. Measured with the headset off, it ran every single frame for nothing. The eye-1
 // path stamps this each time it takes the texture; one bootstrap copy is allowed so the very
 // first consumer has something to ask for, and after that the copy follows demand.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_hud_consumed_tick{0};
+#endif
 // Which list has the HUD target bound, on this recording thread. Both are needed: the resource
 // says WHAT to copy, the list says the pending bind still belongs to the list we are in, so a
 // list abandoned mid-HUD can never make us barrier a resource that is no longer a render target.
+#if !CVR_RUST_VRIK   // unused by the Rust build
 thread_local ID3D12Resource* t_hud_rt_bound = nullptr;
 thread_local ID3D12GraphicsCommandList* t_hud_rt_list = nullptr;
+#endif
 
 // Append, to the engine's OWN list, a copy of the finished HUD surface into a committed texture
 // of ours. Recorded at the unbind, so in queue order it lands after the last HUD draw and before
@@ -406,6 +499,8 @@ thread_local ID3D12GraphicsCommandList* t_hud_rt_list = nullptr;
 // enum HudSnapSlot now lives in Stereo/StereoInternal.hpp: the capture path files a bind
 // under a slot, this file composites from them.
 
+#if CVR_RUST_VRIK
+#else
 void hud_snapshot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* src,
                               int which, D3D12_RESOURCE_STATES rest) {
     if (!g_game_device || !list || !src) return;
@@ -507,11 +602,21 @@ void hud_snapshot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* src,
     if (which == kSnapHud) g_hud_snap_tick.store(GetTickCount64(), std::memory_order_release);
     CVR_DIAGNOSTIC(InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugHudSnaps)));
 }
+#endif
 
 // ---- the engine's HUD composite constants ----------------------------------------------------
 // Read out of the game's own b6 buffer at the composite dispatch (PipelineState_576), so these
 // are the engine's live values, not a fit by eye. Exported so they can be tuned without a
 // rebuild if a graphics setting turns out to move them.
+#if CVR_RUST_VRIK
+// The composite constants are Rust's (rust/crates/cvr-render/src/hud_composite.rs); the engine's own bend stays here.
+// The engine's own bend as it was before the in-eye composite's was zeroed (Grading.cpp, FlattenHudComposite); 0,0 until then.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) float CyberpunkVR_HudEngineCurvature[2] = {0.0f, 0.0f};
+#endif
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_HudCurvatureX   = 0.009017f;
 extern "C" __declspec(dllexport) float CyberpunkVR_HudCurvatureY   = 0.084242f;
 // The engine's own bend as it was before the in-eye composite's was zeroed (Grading.cpp,
@@ -532,7 +637,10 @@ extern "C" __declspec(dllexport) float CyberpunkVR_HudDebugMode    = 0.0f;
 // cosmetic: the flicker term gates the glow, and its mean is about 0.66 -- forcing it to 1 made
 // the halo half again too strong and visibly softened the text.
 extern "C" __declspec(dllexport) float CyberpunkVR_HudFlicker      = 1.0f;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 ColorBlit::HudParams hud_composite_params() {
     ColorBlit::HudParams p{};              // defaults are the captured values
     p.curvature[0]   = CyberpunkVR_HudCurvatureX;
@@ -549,12 +657,15 @@ ColorBlit::HudParams hud_composite_params() {
     p.time           = (float)(GetTickCount64() % 100000ull) * 0.001f;
     return p;
 }
+#endif
 
 // The finished HUD, premultiplied-alpha, in the game's output resolution. Null until the first
 // frame that actually drew a HUD (loading screens, photo mode with HUD off, and so on).
 // Taking it counts as demand -- see g_hud_consumed_tick.
 // The second eye's own outline layer, premultiplied like the HUD surface. Null until a frame
 // has actually drawn one (i.e. until something is being scanned).
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetVisionTexture() {
     if (!CyberpunkVR_VisionSnap) return nullptr;
     // Shaped like CyberpunkVR_GetHudTexture below, line for line, because that path already solved
@@ -611,16 +722,29 @@ extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetMainSceneTexture
     std::lock_guard<std::mutex> lk(g_hud_snap_mtx);
     return g_main_scene_snap;
 }
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetHudExposureBuffer() {
     // MAIN's accumulator: the composite we are reproducing is MAIN's, so the HUD must be scaled
     // by the same exposure in both eyes or they would not match. Rests shader-readable.
     return g_expo_main.load(std::memory_order_acquire);
 }
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetFrameConstantBuffer() {
     return g_frame_cb.load(std::memory_order_acquire);
 }
+#endif
 // Sweep the mapped upload rings for the composite's constants and take a private copy, so what
 // gets bound is ours and cannot be recycled under us by the engine's ring allocator.
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
+extern "C" __declspec(dllexport) void CyberpunkVR_NoteHudCompositeInputs(
+        const void* hud, const void* blur, const void* expo, const void* frameCb, const void* hudCb) {
+    cvr_hud_note_composite_inputs(hud, blur, expo, frameCb, hudCb);
+}
+#endif
+#else
 void hud_cb_rescan() {
     if (!g_game_device) return;
     const uint64_t now = GetTickCount64();
@@ -756,6 +880,7 @@ extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetHudConstantBuffe
     hud_cb_rescan();
     return g_hud_cb.load(std::memory_order_acquire);
 }
+#endif
 
 // ================================================================================================
 // THE CAPABILITY GRANT, moved here from the monolith.
@@ -769,12 +894,17 @@ extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetHudConstantBuffe
 // anything.
 // ================================================================================================
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_HudCapWord   = 11;      // qword index
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_HudCapBits   = 0x80;    // bit 7 (=711)
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudCapGrants = 0;
+#endif
 
 // Idempotent OR into the view's own capability mask. Deliberately NOT saved/restored: a
 // capability that only exists while one node runs is exactly the half-measure that crashed.
+#if !CVR_RUST_VRIK
 void hud_grant_capability(uintptr_t ctx) {
     if (!CyberpunkVR_HudGrantCap || !ctx) return;
     const uint32_t w = CyberpunkVR_HudCapWord;
@@ -836,6 +966,13 @@ void hud_dump_capability_mask(uint8_t* work_context, bool vrcam) {
             layerTag);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
+#endif
 
+#if CVR_RUST_VRIK
+namespace {
+static_assert(sizeof(MappedUpload) == 32, "the MappedUpload rust/crates/cvr-render/src/hud.rs mirrors");
+// Its table is built in Rust (hud.rs, from stereo_shared.rs's objects).
+}  // namespace
+#endif
 }  // namespace detail
 }  // namespace cvr

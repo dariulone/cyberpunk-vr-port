@@ -12,11 +12,65 @@ struct Mapping {
     bool operator==(const Mapping&)const=default;
 };
 enum class Failure:uint32_t {None,Source,Identity,Definitions,Capacity,Topology,Compile,Contraction,Allocation};
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/scene_expansion.rs (tools/single_pass_tests/scene_prefix_order_plan_test and
+// context_order_test run their cases against them in their Rust variants). The plan's members stay here.
+namespace detail {
+struct RustGraph {const graph_snapshot::Node* nodes;size_t nodeCount;const graph_snapshot::Edge* edges;size_t edgeCount;uint32_t failure;};
+struct RustExpansion {
+    RustGraph expanded;const Mapping* mappings;size_t mappingCount;const std::array<uint32_t,2>* edges[2];size_t edgeCounts[2];
+    uint32_t tail,failure;
+};
+struct RustHeld;
+static_assert(sizeof(Definition)==40 && sizeof(Mapping)==12 && sizeof(RustGraph)==40 && sizeof(RustExpansion)==96,
+    "mirrored by scene_expansion.rs");
+extern "C" {
+RustHeld* cvr_sx_build(const RustGraph*,uint64_t,uint32_t,const std::array<Definition,2>*,RustExpansion*);
+void cvr_sx_free(RustHeld*);
+bool cvr_sx_matches_declaration(const RustGraph*,const RustGraph*,const Mapping*,size_t,const std::array<Definition,2>*,uint32_t,uint64_t,
+    const RustGraph*,const RustGraph*,uint64_t);
+}
+inline RustGraph Lend(const graph_snapshot::Snapshot& graph){
+    return {graph.nodes.data(),graph.nodes.size(),graph.edges.data(),graph.edges.size(),graph.failure};
+}
+// A plan's frozen members and its tail, lent (BothEyesPlan's rules).
+struct RustFrozen {
+    RustGraph source,expanded;const Mapping* mappings;size_t mappingCount;const std::array<Definition,2>* definitions;
+    uint32_t selected,tail;uint64_t base;bool ready;
+};
+struct RustMappings;
+static_assert(sizeof(RustFrozen)==128,"mirrored by scene_expansion.rs");
+extern "C" {
+uint32_t cvr_sxb_select(const RustGraph*,uint64_t,const std::array<std::array<Definition,2>,2>*,std::array<graph_snapshot::Node,2>*);
+uint32_t cvr_sxb_compose(const RustGraph*,const std::array<graph_snapshot::Node,2>*,const RustFrozen*,const RustFrozen*,
+    const std::array<uint32_t,2>*,size_t,const std::array<uint32_t,2>*,size_t,RustMappings**,const Mapping**,size_t*);
+void cvr_sxb_free(RustMappings*);
+bool cvr_sxb_matches_declaration(const RustFrozen*,const RustFrozen*,uint64_t,const RustGraph*,const RustGraph*,uint64_t);
+}
+}
+#endif
 
 // Exact graph topology expansion only. The caller separately owns both section
 // definitions and proves their child coverage, native consumers and lifetimes.
 class Plan {
 public:
+#if CVR_RUST_VRIK
+    bool Build(const graph_snapshot::Snapshot& source,uint64_t base,uint32_t selectedHandle,
+               const std::array<Definition,2>& definitions)try{
+        *this={};const auto lent=detail::Lend(source);detail::RustExpansion out{};
+        const auto held=detail::cvr_sx_build(&lent,base,selectedHandle,&definitions,&out);
+        failure_=Failure(out.failure);if(!held)return false;
+        struct Release{detail::RustHeld* held;~Release(){detail::cvr_sx_free(held);}}release{held};
+        graph_snapshot::Snapshot expanded;expanded.failure=out.expanded.failure;
+        expanded.nodes.assign(out.expanded.nodes,out.expanded.nodes+out.expanded.nodeCount);
+        expanded.edges.assign(out.expanded.edges,out.expanded.edges+out.expanded.edgeCount);
+        std::array<paired_frontier::Edges,2> expandedEdges;
+        for(uint32_t phase=0;phase<2;++phase)expandedEdges[phase]=paired_frontier::detail::Unflat({out.edges[phase],out.edgeCounts[phase]});
+        source_=source;expanded_=std::move(expanded);mappings_.assign(out.mappings,out.mappings+out.mappingCount);
+        edges_=std::move(expandedEdges);definitions_=definitions;selected_=selectedHandle;tail_=out.tail;
+        base_=base;ready_=true;failure_=Failure::None;return true;
+    }catch(...){*this={};failure_=Failure::Allocation;return false;}
+#else
     bool Build(const graph_snapshot::Snapshot& source,uint64_t base,uint32_t selectedHandle,
                const std::array<Definition,2>& definitions)try{
         *this={};failure_=Failure::Source;
@@ -82,12 +136,22 @@ public:
         edges_=std::move(expandedEdges);definitions_=definitions;selected_=selectedHandle;tail_=tailHandle;
         base_=base;ready_=true;failure_=Failure::None;return true;
     }catch(...){*this={};failure_=Failure::Allocation;return false;}
+#endif
     bool MatchesSource(const graph_snapshot::Snapshot& source,uint64_t base)const{
         return ready_ && base==base_ && source.failure==source_.failure && source.nodes==source_.nodes && source.edges==source_.edges;
     }
     bool MatchesCompiled(const graph_snapshot::Snapshot& actual)const{
         return ready_ && !actual.failure && actual.nodes==expanded_.nodes && actual.edges==expanded_.edges;
     }
+#if CVR_RUST_VRIK
+    bool MatchesDeclaration(const graph_snapshot::Snapshot& source,const graph_snapshot::Snapshot& expanded,uint64_t base)const{
+        if(!ready_)return false;
+        const auto frozenSource=detail::Lend(source_),frozenExpanded=detail::Lend(expanded_),current=detail::Lend(source),
+            compiled=detail::Lend(expanded);
+        return detail::cvr_sx_matches_declaration(&frozenSource,&frozenExpanded,mappings_.data(),mappings_.size(),&definitions_,selected_,
+            base_,&current,&compiled,base);
+    }
+#else
     bool MatchesDeclaration(const graph_snapshot::Snapshot& source,const graph_snapshot::Snapshot& expanded,uint64_t base)const{
         if(!ready_ || base!=base_ || source.failure || expanded.failure || source.nodes.size()!=source_.nodes.size() ||
             expanded.nodes.size()!=expanded_.nodes.size() || source.edges!=source_.edges || expanded.edges!=expanded_.edges ||
@@ -118,6 +182,7 @@ public:
         }
         return true;
     }
+#endif
     bool Ready()const{return ready_;}
     Failure Rejection()const{return failure_;}
     const graph_snapshot::Snapshot& Source()const{return source_;}
@@ -128,7 +193,13 @@ public:
     uint32_t PrefixHandle()const{return selected_;}
     uint32_t TailHandle()const{return tail_;}
     bool ExecutionPermitted()const{return false;}
+#if CVR_RUST_VRIK
+    detail::RustFrozen Frozen()const{
+        return {detail::Lend(source_),detail::Lend(expanded_),mappings_.data(),mappings_.size(),&definitions_,selected_,tail_,base_,ready_};
+    }
+#endif
 private:
+#if !CVR_RUST_VRIK
     static bool SameNodeStructure(const graph_snapshot::Node& current,const graph_snapshot::Node& frozen){
         return current.handle==frozen.handle && current.order==frozen.order && current.bytes==frozen.bytes &&
             current.vtable==frozen.vtable && current.work==frozen.work &&
@@ -174,6 +245,7 @@ private:
             if(visited[2*phase]!=visited[2*phase+1] || visited[2*phase].size()!=edges[phase].size())return false;
         return true;
     }
+#endif
     bool ready_{};Failure failure_=Failure::None;uint64_t base_{};
     uint32_t selected_{},tail_{};
     graph_snapshot::Snapshot source_,expanded_;

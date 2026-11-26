@@ -1,6 +1,37 @@
 #include "Render/NativeBreadcrumbWrite.hpp"
 #include "Render/NativeTextureRead.hpp"
 #include <windows.h>
+#if CVR_RUST_VRIK
+// The capture and the description: rust/crates/cvr-render/src/breadcrumb_capture.rs; the lease holds the Rust state.
+namespace cvr::stereo::breadcrumb_write {
+static_assert(sizeof(constants::ResourceCreationInfo)==48 && sizeof(Snapshot)==176 && offsetof(Snapshot,heapDesc)==104 &&
+    offsetof(Snapshot,destination)==152,"mirrored by breadcrumb_capture.rs");
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's immediate writes call breadcrumb_capture.rs themselves
+extern "C" {
+void* cvr_bcw_capture(ID3D12GraphicsCommandList2*,uint32_t,uint64_t,uint64_t,uint64_t);
+void cvr_bcw_release(void*);
+bool cvr_bcw_describe(const void*,Snapshot*);
+uint32_t cvr_bcw_last_failure();
+}
+struct Lease::Data {
+    void* rust{};
+    explicit Data(void* value):rust(value){}
+    ~Data(){cvr_bcw_release(rust);}
+    Data(const Data&)=delete;Data& operator=(const Data&)=delete;
+};
+bool Capture(ID3D12GraphicsCommandList2* list,UINT count,const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER* parameters,
+             const D3D12_WRITEBUFFERIMMEDIATE_MODE* modes,uintptr_t caller,Lease& output){
+    output={};
+    void* made=cvr_bcw_capture(list,count,reinterpret_cast<uintptr_t>(parameters),reinterpret_cast<uintptr_t>(modes),caller);
+    if(!made)return false;
+    try{output.data_=std::make_shared<const Lease::Data>(made);}catch(...){cvr_bcw_release(made);return false;}
+    return true;
+}
+bool Describe(const Lease& lease,Snapshot& output){output={};return cvr_bcw_describe(lease.data_?lease.data_->rust:nullptr,&output);}
+uint32_t LastFailure(){return cvr_bcw_last_failure();}
+#endif
+}  // namespace cvr::stereo::breadcrumb_write
+#else
 
 namespace cvr::stereo::breadcrumb_write {
 struct Lease::Data {Snapshot captured;detail::Observation native;};
@@ -134,3 +165,4 @@ bool Describe(const Lease& lease,Snapshot& output)try{
 uint32_t LastFailure(){return failure;}
 std::array<uint64_t,12> LastDetails(){return details;}
 }
+#endif

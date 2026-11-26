@@ -5,8 +5,11 @@
 // Split verbatim from openxr_manager.cpp (OpenXRManager methods). Shared module
 // state/helpers via openxr_internal.h (inline).
 #include <atomic>
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_BindPoseToImage;
+#endif
 #include "Runtimes/OpenXRManager.hpp"
+#include "Runtimes/XrCaptureState.hpp"
 #include "Camera/ImagePoseIdentity.hpp"
 #include "Camera/ImagePoseMath.hpp"
 #include "Camera/CameraState.hpp"
@@ -27,9 +30,6 @@ extern "C" int CyberpunkVR_BindPoseToImage;
 #include <utility>
 #include <chrono>
 #include <thread>
-#include <condition_variable>
-#include <deque>
-#include <array>
 #include <memory>
 #include <algorithm>
 #include <dxgi1_4.h>
@@ -39,16 +39,21 @@ extern "C" int CyberpunkVR_BindPoseToImage;
 
 // Right eye source, from the stereo module. "Fresh" returns null once the VRCAM view stops
 // updating, which is what makes the fallback to mono automatic.
+#if !CVR_RUST_VRIK
 extern "C" ID3D12Resource* CyberpunkVR_GetVrcamEyeTextureFresh();
+#endif
 // The finished HUD surface, snapshotted by sync_stereo, plus the engine's own composite
 // constants read out of its b6 buffer.
+#if !CVR_RUST_VRIK
 extern "C" ID3D12Resource* CyberpunkVR_GetHudTexture();
+#endif
 // The scanner's object outline. The second eye renders its OWN -- the writer is
 // CRenderNode_RenderVisionElements, which dispatches for both views (it never showed up in the
 // draw census because it does not draw). What VRCAM never gets is the chain that composites the
 // layer, so sync_stereo snapshots it and it is blended in here. Copying MAIN's would be wrong on
 // principle: an outline traces on-screen silhouettes, so MAIN's would sit at MAIN's parallax and
 // read as double vision.
+#if !CVR_RUST_VRIK
 extern "C" ID3D12Resource* CyberpunkVR_GetVisionTexture();
 extern "C" int CyberpunkVR_VisionToSecondEye;
 extern "C" int CyberpunkVR_VisionDebug;         // 0 blend, 1 opaque replace, 2 additive
@@ -56,9 +61,11 @@ extern "C" int CyberpunkVR_VisionFit;           // 1 = pixel-exact rather than s
 extern "C" float CyberpunkVR_VisionOffX;
 extern "C" float CyberpunkVR_VisionOffY;
 extern "C" unsigned long long CyberpunkVR_DebugVisionOverlays;
+#endif
 // The barrel dot, published by the ImGui overlay (imgui_overlay.cpp) in NDC after its own zoom
 // compensation. Taking the finished number rather than re-projecting keeps the two eyes' dots
 // identical by construction.
+#if !CVR_RUST_VRIK
 extern "C" float    CyberpunkVR_BarrelDotNdcX;
 extern "C" float    CyberpunkVR_BarrelDotNdcX2;   // the second eye's own value
 extern "C" float    CyberpunkVR_BarrelDotNdcY;
@@ -70,14 +77,19 @@ extern "C" ID3D12Resource* CyberpunkVR_GetHudBlurTexture();
 extern "C" ID3D12Resource* CyberpunkVR_GetHudExposureBuffer();
 extern "C" ID3D12Resource* CyberpunkVR_GetFrameConstantBuffer();
 extern "C" ID3D12Resource* CyberpunkVR_GetHudConstantBuffer();
+#endif
 extern "C" void CyberpunkVR_NoteHudCompositeInputs(const void* hud, const void* blur,
                                                    const void* expo, const void* frameCb,
                                                    const void* hudCb);
+#if !CVR_RUST_VRIK
 extern "C" ID3D12Resource* CyberpunkVR_GetMainOutTexture();
 extern "C" ID3D12Resource* CyberpunkVR_GetMainSceneTexture();
+#endif
 // Not extern "C" (it returns a C++ struct), so it keeps sync_stereo's namespace.
 namespace cvr { ColorBlit::HudParams CyberpunkVR_GetHudParams(); }
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_StereoSubmit;
+#endif
 // How far away the composited HUD should sit, in metres. 0 = leave it at infinity, which is what
 // pasting it at the same pixel in both eyes amounts to. Live-tunable rather than a vrport.ini
 // setting because the comfortable value is personal and worth sweeping in the headset.
@@ -95,6 +107,9 @@ extern "C" int CyberpunkVR_StereoSubmit;
 // So this is a per-headset preference with two defensible settings, not a bug with a fix. Set it to
 // 1.8 (or sweep it) to get the finite-distance HUD back; leave it at 0 for identical placement in both
 // eyes. The shift code below reads it every frame, so it can be moved live from the debugger.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_HudDistanceM = 0.0f;
 // THE SECOND EYE WITHOUT A COMPOSITE IS A COPY. When no HUD is composited into eye 1, ColorBlit's
 // plain blit samples the _UNORM_SRGB snapshot (decoded to linear) into a _UNORM_SRGB target
@@ -103,7 +118,13 @@ extern "C" __declspec(dllexport) float CyberpunkVR_HudDistanceM = 0.0f;
 // same way). The GPU stage profile measured that pass at 134 us per frame against 34 us for
 // eye 0's copy (run 834). 1 = CopyResource when size and the 8-bit RGBA family match, 0 = blit.
 extern "C" __declspec(dllexport) int CyberpunkVR_SecondEyeCopy = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugSecondEyeCopies{0};
+#endif
+#if !CVR_RUST_VRIK  // the C++ capture's eye copies; the Rust build's are xr_capture.rs's
 namespace {
 int CopyFamily(DXGI_FORMAT f) {
     switch (f) {
@@ -187,6 +208,9 @@ bool OpenXRManager::EnsureVrcamEyeTexture(uint32_t width, uint32_t height, DXGI_
 
 // The whole window for a menu under engine stereo, and the blit that squeezes it into one eye's snapshot (the
 // snapshot has the backbuffer's own format, which is the blit's target view). Rests in COPY_DEST.
+#endif
+#if !CVR_RUST_VRIK
+// The Rust build's is rust/crates/cvr-render/src/xr_capture_state.rs menu_window.
 bool OpenXRManager::EnsureMenuWindow(const D3D12_RESOURCE_DESC& backBufferDesc) {
     if (!m_d3dDevice || backBufferDesc.Width < 2 || !backBufferDesc.Height) return false;
     const D3D12_RESOURCE_DESC have = m_menuWindow ? m_menuWindow->GetDesc() : D3D12_RESOURCE_DESC{};
@@ -219,7 +243,9 @@ bool OpenXRManager::EnsureMenuWindow(const D3D12_RESOURCE_DESC& backBufferDesc) 
     return m_menuBlit->EnsureInitialized(m_d3dDevice, backBufferDesc.Format,
                                          static_cast<uint32_t>(backBufferDesc.Width / 2), backBufferDesc.Height);
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceDesc) {
     if (!m_d3dDevice || !m_d3dQueue) {
         return false;
@@ -232,6 +258,11 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
         return false;
     }
 
+#if CVR_RUST_VRIK
+    // The capture's ring (rust/crates/cvr-render/src/xr_capture_state.rs): each part made when its slot is empty.
+    if (!cvr_xr_capture_ensure_ring(m_d3dDevice, m_captureCmdAllocators, m_captureCmdLists, &m_captureFence, &m_captureFenceEvent))
+        return false;
+#else
     if (!m_captureCmdAllocators[0]) {
         for (int i = 0; i < 3; ++i) {
             if (FAILED(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_captureCmdAllocators[i])))) {
@@ -265,7 +296,12 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
             return false;
         }
     }
+#endif
 
+#if CVR_RUST_VRIK
+    // The snapshot pool is Rust's (rust/crates/cvr-render/src/xr_capture_state.rs).
+    return cvr_xr_capture_ensure_pool(m_d3dDevice, &sourceDesc);
+#else
     {
         std::lock_guard<std::mutex> lock(m_presentMutex);
         if (m_monoPool[0] &&
@@ -277,7 +313,7 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
 
         // The pool owns the references now; m_monoCapturedFrame.texture just points at
         // whichever pool entry currently holds the newest frame.
-        for (int i = 0; i < kMonoSlots; ++i) {
+        for (int i = 0; i < 3; ++i) {
             if (m_monoPool[i]) { m_monoPool[i]->Release(); m_monoPool[i] = nullptr; }
         }
         m_monoCapturedFrame.texture = nullptr;
@@ -287,15 +323,14 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
         m_monoCapturedFrame.serial = 0;
         m_monoCapturedFrame.hasView[0] = false;
         m_monoCapturedFrame.hasView[1] = false;
-        m_monoPreviousFrame = CapturedMonoFrame{};
     }
 
     D3D12_HEAP_PROPERTIES heapProps{};
     heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-    ID3D12Resource* created[kMonoSlots] = {};
+    ID3D12Resource* created[3] = {};
     auto captureDesc = sourceDesc;
     captureDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    for (int i = 0; i < kMonoSlots; ++i) {
+    for (int i = 0; i < 3; ++i) {
         if (FAILED(m_d3dDevice->CreateCommittedResource(
                 &heapProps,
                 D3D12_HEAP_FLAG_NONE,
@@ -312,7 +347,7 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
 
     {
         std::lock_guard<std::mutex> lock(m_presentMutex);
-        for (int i = 0; i < kMonoSlots; ++i) m_monoPool[i] = created[i];
+        for (int i = 0; i < 3; ++i) m_monoPool[i] = created[i];
         m_monoPoolSlot = 0;
         m_monoCapturedFrame.texture = m_monoPool[0];
         m_monoCapturedFrame.width = width;
@@ -325,17 +360,22 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
 
     Log("OpenXRManager: Mono snapshot resource ready. size=%ux%u format=%u\n", width, height, format);
     return true;
+#endif
 }
+#endif
 
 // [DEPTH] Accessors implemented in swapchain_hooks.cpp — the game's pinned
 // scene depth resource and its CURRENT (observed) D3D12 resource state.
+#if !CVR_RUST_VRIK
 extern "C" ID3D12Resource* OmoAcquireSceneDepthResource(); // returns one owned reference
 extern "C" unsigned int OmoGetSceneDepthState();
 extern "C" unsigned int OmoGetSceneDepthWidth();
 extern "C" unsigned int OmoGetSceneDepthHeight();
 extern "C" unsigned int OmoGetSceneDepthFormat();
 extern "C" ID3D12CommandQueue* OmoGetSceneDepthWriterQueue(); // game's depth-writer queue (safe mono depth capture)
+#endif
 
+#if !CVR_RUST_VRIK  // rust/crates/cvr-render/src/depth_layer.rs Layer::ensure
 bool OpenXRManager::EnsureStereoDepthSwapchains(const cvr::depth::Plan& plan) {
     if(!m_depthLayerSupported || !m_session || m_eyeSwapchains.size()!=2)return false;
     if(!m_depthSwapchainFormat) {
@@ -385,7 +425,9 @@ bool OpenXRManager::EnsureStereoDepthSwapchains(const cvr::depth::Plan& plan) {
     }
     return true;
 }
+#endif
 
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot: never read since depth_layer.rs replaced it
 bool OpenXRManager::EnsureDepthSnapshot(ID3D12Resource* gameDepth) {
     std::lock_guard<std::mutex> snapshotLock(m_presentMutex);
     if (!gameDepth || !m_d3dDevice) {
@@ -726,7 +768,10 @@ bool OpenXRManager::RecordDepthCapture(ID3D12GraphicsCommandList* cmdList,
     cmdList->ResourceBarrier(postCount, post);
     return ok;
 }
+#endif
 
+#if !CVR_RUST_VRIK
+// Not called in the Rust build (the depth goes through CaptureSceneDepthInline).
 bool OpenXRManager::CaptureMonoDepthOnWriterQueue(uint64_t serial) {
     if (GetMonoDepthCapture() == 0) return false;
     Microsoft::WRL::ComPtr<ID3D12Resource> depthLease;
@@ -775,9 +820,13 @@ bool OpenXRManager::CaptureMonoDepthOnWriterQueue(uint64_t serial) {
     m_depthSnapshotWriterFence = fv;  // submit path waits on this before reading m_depthSnapshot
     return true;
 }
+#endif
 
 // 1 = while a menu is open, both eyes get the backbuffer (the menu) instead of pairing it with
 // VRCAM_s stale view of the world. 0 = the previous behaviour, for A/B.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_MonoMenu = 1;
 
 
@@ -799,11 +848,17 @@ extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_Deb
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapSkipNoSlot   = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapSkipFence    = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapSkipReset    = 0;
+#endif
 // Defined in the stereo module (src/Stereo/Capture.cpp): the second-eye content age it already
 // computes for its own staleness gate. Sampled below rather than recomputed.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_DebugVrcamEyeAgeMs;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_DebugVrcamEyeAgeUs;
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapOk           = 0;
 // The second eye's CONTENT age -- see the sampling site for why this is not the same thing as [xreye].
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugEyeAgeCount     = 0;
@@ -815,63 +870,10 @@ extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_Deb
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapFenceWaits   = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapFenceUsSum   = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapFenceUsMax   = 0;
-// WHEN EACH CAPTURE IS DONE ON THE GPU (RuntimeDiagnostics only): serial, capture ms, GPU-complete ms, fence value.
-// One watcher thread waits on the capture fence in submission order; with the XR cycle trace it tells a frame the
-// game delivered late from one the GPU finished late from one the XR thread did not take.
-extern "C" __declspec(dllexport) double CyberpunkVR_CaptureDoneTrace[4096][4] = {};
-extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_CaptureDoneCount = 0;
-namespace {
-struct CaptureWatch {
-    struct Item {
-        Microsoft::WRL::ComPtr<ID3D12Fence> fence;   // held: a session restart may release the port's own reference
-        std::array<double, 4> row{};
-    };
-    std::mutex mutex;
-    std::condition_variable wake;
-    std::deque<Item> pending;
-    HANDLE event = nullptr;
-    bool started = false;
-};
-CaptureWatch g_captureWatch;
-void WatchCapture(ID3D12Fence* fence, uint64_t serial, double captureMs, uint64_t value) {
-    if (!cvr::RuntimeDiagnosticsEnabled() || !fence) return;
-    std::lock_guard lock(g_captureWatch.mutex);
-    if (!g_captureWatch.started) {
-        g_captureWatch.event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!g_captureWatch.event) return;
-        g_captureWatch.started = true;
-        std::thread([] {
-            for (;;) {
-                CaptureWatch::Item item;
-                {
-                    std::unique_lock wait(g_captureWatch.mutex);
-                    g_captureWatch.wake.wait(wait, [] { return !g_captureWatch.pending.empty(); });
-                    item = std::move(g_captureWatch.pending.front());
-                    g_captureWatch.pending.pop_front();
-                }
-                const auto value = static_cast<uint64_t>(item.row[3]);
-                bool done = false;
-                for (int tries = 0; tries < 10 && !done; ++tries) {
-                    const auto completed = item.fence->GetCompletedValue();
-                    if (completed == UINT64_MAX) break;   // device removed
-                    done = completed >= value;
-                    if (!done && SUCCEEDED(item.fence->SetEventOnCompletion(value, g_captureWatch.event)))
-                        WaitForSingleObject(g_captureWatch.event, 100);
-                }
-                if (!done) continue;
-                item.row[2] = XrDiagNowMs();
-                const auto n = CyberpunkVR_CaptureDoneCount.load(std::memory_order_relaxed);
-                std::memcpy(CyberpunkVR_CaptureDoneTrace[n % 4096], item.row.data(), sizeof(item.row));
-                CyberpunkVR_CaptureDoneCount.store(n + 1, std::memory_order_release);
-            }
-        }).detach();
-    }
-    if (g_captureWatch.pending.size() < 64)
-        g_captureWatch.pending.push_back({fence, {static_cast<double>(serial), captureMs, 0.0, static_cast<double>(value)}});
-    g_captureWatch.wake.notify_one();
-}
-}
+#endif
 
+#if !CVR_RUST_VRIK
+// The Rust build's is rust/crates/cvr-render/src/xr_capture_state.rs cvr_xr_capture_take.
 ID3D12Resource* OpenXRManager::AcquireCapturedVrcamLocked(uint64_t serial,uint32_t maxReuse,
         XrPosef* pose,XrFovf* fov,uint64_t* poseId,bool* reused) {
     int best=-1;
@@ -892,7 +894,9 @@ ID3D12Resource* OpenXRManager::AcquireCapturedVrcamLocked(uint64_t serial,uint32
     *pose=label.pose;*fov=label.fov;*poseId=label.poseId;*reused=bestSerial!=serial;
     return resource;
 }
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build: rust/crates/cvr-render/src/xr_cycle_end.rs release_captured_read
 void OpenXRManager::ReleaseCapturedRead(ID3D12Resource* resource,uint64_t fence) {
     if(!resource)return;
     std::vector<ID3D12Resource*> release;
@@ -909,7 +913,9 @@ void OpenXRManager::ReleaseCapturedRead(ID3D12Resource* resource,uint64_t fence)
     }
     for(auto* item:release)item->Release();
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const D3D12_RESOURCE_DESC& sourceDesc, uint64_t serial,
     const XrPosef poses[2], const XrFovf fovs[2], const bool hasView[2],const XrPosef headCenters[2]) {
     if (!backBuffer || !hasView[0] || !hasView[1]) {
@@ -917,6 +923,73 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         return false;
     }
 
+#if CVR_RUST_VRIK
+    // THE CAPTURE IS RUST'S (rust/crates/cvr-render/src/xr_capture.rs cvr_xr_capture_frame): the frame's shape, the
+    // snapshot slot, the ring's allocator and list, the lobby's curtain and intro, MAIN's picture and the second eye's,
+    // the CAS, the submission and the publication. What is still C++ -- the capture's resources, the loading screen (its
+    // placement and caption), the legacy mono depth, the HUD parameters, the eye's FOV and windows -- comes in through
+    // the callbacks.
+    std::lock_guard<std::mutex> captureLock(m_captureMutex);
+    uintptr_t writeResources[2]{};
+    cvr::capture::RustWriteRelease releaseWrites(writeResources);
+    struct FrameContext {
+        OpenXRManager* self;
+    } frameContext{this};
+    CvrXrCaptureFrameIn frameIn{};
+    frameIn.backBuffer = backBuffer;
+    frameIn.sourceDesc = &sourceDesc;
+    frameIn.writes = writeResources;
+    frameIn.ctx = &frameContext;
+    frameIn.serial = serial;
+    for (uint32_t eye = 0; eye < 2; ++eye) {
+        frameIn.poses[eye] = poses[eye];
+        frameIn.headCenters[eye] = headCenters[eye];
+        frameIn.fovs[eye] = fovs[eye];
+        frameIn.hasView[eye] = hasView[eye];
+    }
+    frameIn.ensureResources = [](void* ctx, const D3D12_RESOURCE_DESC* eye) {
+        return static_cast<FrameContext*>(ctx)->self->EnsureMonoCaptureResource(*eye);
+    };
+    frameIn.loadingEnd = [](void* ctx) { static_cast<FrameContext*>(ctx)->self->m_loadingScreen.End(); };
+    frameIn.loadingBegin = [](void* ctx, bool notice, float opacity, bool hold, const XrPosef* head) {
+        auto* self = static_cast<FrameContext*>(ctx)->self;
+        if (notice) {
+            static const cvr::loading::Placement kNotice{cvr::lobby::intro::kNoticeDistance, 0.0f,
+                                                         cvr::lobby::intro::kNoticeWidth, 0.8f,
+                                                         &cvr::lobby::notice::Word(),
+                                                         &cvr::lobby::intro::Heading()};
+            self->m_loadingScreen.Begin(*head, kNotice, opacity);
+        } else {
+            self->m_loadingScreen.Begin(*head);
+        }
+        if (hold) self->m_loadingScreen.Hold();
+    };
+    frameIn.loadingRecord = [](void* ctx, void* target, int32_t view, const D3D12_RECT* rect, const XrPosef* pose,
+                               const XrFovf* fov, void* window, int32_t windowView, const float* uv, float aspect) {
+        auto* self = static_cast<FrameContext*>(ctx)->self;
+        return self->m_loadingScreen.Record(self->m_d3dDevice, self->m_captureCmdLists[self->m_captureAllocatorIndex],
+            static_cast<ID3D12Resource*>(target), static_cast<DXGI_FORMAT>(view), *rect, *pose, *fov,
+            static_cast<ID3D12Resource*>(window), static_cast<DXGI_FORMAT>(windowView), uv, aspect);
+    };
+    frameIn.hudParams = [](void*, float* out) {
+        const ColorBlit::HudParams params = cvr::CyberpunkVR_GetHudParams();
+        std::memcpy(out, &params, sizeof(params));
+    };
+    frameIn.eye1Fov = [](void* ctx, XrFovf* out) { return static_cast<FrameContext*>(ctx)->self->GetCurrentEyeFov(1, out); };
+    frameIn.asymWindows = [](void* ctx, cvr::projection::EyeWindow* out) {
+        AsymEyeWindows asym{};
+        if (!static_cast<FrameContext*>(ctx)->self->GetAsymmetricEyeWindows(&asym)) return false;
+        out[0] = asym.eye[0];
+        out[1] = asym.eye[1];
+        return true;
+    };
+    if (!cvr_xr_capture_frame(&frameIn)) return false;
+    if (g_verboseLog && (serial % 300) == 1) {
+        Log("OpenXRManager: Mono frame captured. serial=%llu\n",
+            static_cast<unsigned long long>(serial));
+    }
+    return true;
+#else
     std::lock_guard<std::mutex> captureLock(m_captureMutex);
     uintptr_t writeResources[2]{};
     cvr::capture::WriteRelease releaseWrites(m_captureLeases,m_presentMutex,writeResources);
@@ -1001,17 +1074,12 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     uint64_t previousSerial = 0;
     {
         std::lock_guard<std::mutex> lock(m_presentMutex);
-        // On the runtime's own queue the frame before the newest is kept too (m_monoPreviousFrame): written over only
-        // when no other slot is free, and then given up.
-        for(int pass=m_xrQueue?0:1;pass<2 && !snapshot;++pass)
-        for(uint32_t step=1;step<=uint32_t(kMonoSlots);++step) {
-            const auto slot=(m_monoPoolSlot+step)%kMonoSlots;
+        for(uint32_t step=1;step<=3;++step) {
+            const auto slot=(m_monoPoolSlot+step)%3;
             auto* candidate=m_monoPool[slot];
             if(candidate==m_monoCapturedFrame.texture)continue;
-            if(pass==0 && candidate==m_monoPreviousFrame.texture)continue;
             if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
                 m_monoPoolSlot=slot;snapshot=candidate;
-                if(candidate==m_monoPreviousFrame.texture)m_monoPreviousFrame=CapturedMonoFrame{};
                 writeResources[0]=reinterpret_cast<uintptr_t>(candidate);break;
             }
         }
@@ -1216,11 +1284,9 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // just published does not pair with. Null when every one is in use.
     const auto takeEyeSlot = [&]() -> ID3D12Resource* {
         std::lock_guard<std::mutex> lock(m_presentMutex);
-        for(int pass=m_xrQueue?0:1;pass<2;++pass)
         for(int step=1;step<=kVrcamEyeSlots;++step) {
             const auto slot=(m_vrcamEyeSlot+step)%kVrcamEyeSlots;
             if(m_vrcamEyePoolSerial[slot]==m_monoCapturedFrame.serial && m_monoCapturedFrame.serial)continue;
-            if(pass==0 && m_monoPreviousFrame.serial && m_vrcamEyePoolSerial[slot]==m_monoPreviousFrame.serial)continue;
             auto* candidate=m_vrcamEyePool[slot];
             if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
                 m_vrcamEyeSlot=slot;writeResources[1]=reinterpret_cast<uintptr_t>(candidate);
@@ -1740,6 +1806,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         }
     }
 
+    // The Rust build's CAS is in rust/crates/cvr-render/src/xr_capture.rs cvr_xr_capture_submit.
     // Filter each owned real capture once. Framegen and every later repeat see
     // the same filtered endpoint; generated images never run through CAS again.
     const float casAmount = GetVrSharpmix();
@@ -1797,19 +1864,6 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
                 CVR_DIAGNOSTIC(CyberpunkVR_PoseIdImageGeneration[eye].store(0,std::memory_order_relaxed));
             }
         }
-        // The runtime's queue may still be reading what this capture writes (an image whose read is retired but not
-        // finished, m_retiredCaptureReads): the game's queue waits for those reads on the GPU. They are short copies
-        // submitted a display period or more ago, so this rarely waits at all.
-        if (m_xrQueue && m_fence) {
-            uint64_t pending = 0;
-            {
-                std::lock_guard<std::mutex> lock(m_presentMutex);
-                for (const auto& read : m_retiredCaptureReads)
-                    for (const auto written : writeResources)
-                        if (written && written == reinterpret_cast<uintptr_t>(read.resource) && read.fence > pending) pending = read.fence;
-            }
-            if (pending && m_fence->GetCompletedValue() < pending) m_d3dQueue->Wait(m_fence, pending);
-        }
         m_d3dQueue->ExecuteCommandLists(1,cmdLists);
         ++m_captureFenceValue;
         m_captureAllocatorFence[m_captureAllocatorIndex] = m_captureFenceValue;
@@ -1822,14 +1876,10 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         // Publish the buffer we just filled as the current frame. This is the hand-off:
         // everything the consumer needs -- image, poses, fovs, serial -- becomes visible in
         // one locked step, and the buffer it was reading before stays untouched.
-        if (m_xrQueue && m_monoCapturedFrame.texture && m_monoCapturedFrame.texture != snapshot && m_monoCapturedFrame.serial)
-            m_monoPreviousFrame = m_monoCapturedFrame;
         m_monoCapturedFrame.texture = snapshot;
         if (m_monoCapturedFrame.texture == snapshot) {
             m_monoCapturedFrame.serial = serial;
             m_monoCapturedFrame.captureMs = XrDiagNowMs();
-            m_monoCapturedFrame.captureFence = m_captureFenceValue;
-            WatchCapture(m_captureFence, serial, m_monoCapturedFrame.captureMs, m_captureFenceValue);
             // A frame hung with a screen in the dark is dark already, with the screen in it.
             m_monoCapturedFrame.dark = loadingDark && !loadingWindow;
             // The boot's notice in the dark: both eyes are submitted with the turn it was drawn for.
@@ -1866,6 +1916,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
             resource=0;
         }
     }
+    // The Rust build's event and metric are set by cvr_xr_capture_submit.
     if (m_monoPresentEvent) {
         SetEvent(m_monoPresentEvent);
     }
@@ -1878,9 +1929,23 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
             static_cast<unsigned long long>(serial));
     }
     return true;
+#endif
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The submit's resources: rust/crates/cvr-render/src/xr_submit.rs.
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 bool OpenXRManager::EnsureMonoSubmitResources() {
+#if CVR_RUST_VRIK
+    // ALL RUST'S (rust/crates/cvr-render/src/xr_submit.rs cvr_xr_ensure_mono_submit): the early outs -- the mono
+    // submission off, no device, queue or session, no presented size yet --, the runtime's formats and the one picked
+    // for the game's, the view records (rust/crates/cvr-xr/src/view_configs.rs and the located views' list), and the eye
+    // swapchains, RTVs, sRGB decode and submit ring recreated when the game's size changes. The test marker is read once
+    // per process.
+    return cvr_xr_ensure_mono_submit();
+#else
     if (!m_monoSubmitEnabled.load(std::memory_order_relaxed)) {
         return false;
     }
@@ -2138,4 +2203,10 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
         viewCount != 0 ? m_viewConfigViews[0].recommendedImageRectHeight : 0,
         format);
     return true;
+#endif
 }
+#endif
+#if CVR_RUST_VRIK
+// The loading screen's part of the capture (rust/crates/cvr-render/src/xr_present_host.rs captures the frame).
+// The loading screen the capture shows: rust/crates/cvr-render/src/loading_host.rs.
+#endif

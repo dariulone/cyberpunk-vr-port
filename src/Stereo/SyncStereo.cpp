@@ -32,11 +32,16 @@
 
 // Storage for the switch declared in logger.h. On by default: when stereo fails to come up,
 // the install sequence is the first thing worth reading.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_StereoLog = 1;
+#endif
 
 // The barrel dot, published by the ImGui overlay (imgui_overlay.cpp) in NDC after its own zoom
 // compensation. Taking the finished number rather than re-projecting keeps the two eyes' dots
 // identical by construction.
+#if !CVR_RUST_VRIK
 extern "C" float    CyberpunkVR_BarrelDotNdcX;
 extern "C" float    CyberpunkVR_BarrelDotNdcX2;   // the second eye's own value
 extern "C" float    CyberpunkVR_BarrelDotNdcY;
@@ -44,6 +49,7 @@ extern "C" float    CyberpunkVR_BarrelDotRadiusPx;
 extern "C" unsigned long long CyberpunkVR_BarrelDotTick;
 extern "C" int      CyberpunkVR_BarrelDotSecondEye;
 extern "C" unsigned long long CyberpunkVR_DebugBarrelDotDraws;
+#endif
 
 
 #include "Stereo/StereoInternal.hpp"
@@ -51,50 +57,99 @@ extern "C" unsigned long long CyberpunkVR_DebugBarrelDotDraws;
 #include "Stereo/DetourRegistry.hpp"
 #include "Lobby/MenuLobby.hpp"
 
+#if !CVR_RUST_VRIK
 extern "C" float CyberpunkVR_HudEngineCurvature[2];   // Stereo/Hud.cpp
+#endif
 // GPU diagnostics on request (CVR_GPU_DIAG, Hooks/Dred.cpp): DRED and the debug layer have to be on before the
 // device exists, and the removal watch needs the device -- both from Hook_D3D12CreateDevice.
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVRPort_GpuDiagBeforeDevice();
 extern "C" void CyberpunkVRPort_GpuDiagDevice(ID3D12Device* device);
+#endif
 
 namespace cvr {
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugSecondaryManager = 0;
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugSecondaryActive = 0;
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugSecondaryBinding = 0;
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugLastBatchManager = 0;
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugLastWorkContext = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainNodeCalls = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSecondaryNodeCalls = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainNodeUnique = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugSecondaryNodeUnique = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugMainNodeWorks[256] = {};
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugSecondaryNodeWorks[256] = {};
+#endif
 // WORK-verification: per-node (index parallel to *NodeWorks) accumulated rdtsc
 // cycles + call counts inside the work_fn, per view. A node that DISPATCHES but
 // internally SKIPS (early-out) shows near-zero avg cycles for that view -> lets
 // us prove WORK (not just dispatch) and compare vrcam vs main per node.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainNodeCycles[256] = {};
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSecondaryNodeCycles[256] = {};
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainNodeCallN[256] = {};
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugSecondaryNodeCallN[256] = {};
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorCopyArms = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorGameCopies = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugEyeItem = 0;
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugEyeBuildMgr = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t  CyberpunkVR_DebugEyeBuildMode = 0xFFFFFFFF;
 extern "C" __declspec(dllexport) uint64_t  CyberpunkVR_DebugEyeBuildHits = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugEyeFa0 = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t  CyberpunkVR_DebugMainFgHits = 0;
 extern "C" __declspec(dllexport) uint32_t  CyberpunkVR_DebugMainBuildMode = 0xFFFFFFFF;
 // eye-X manager state (view/context count @+0x54, view array @+0x48, queued
 // request slot @+296)  determines whether we can queue a context request.
 extern "C" __declspec(dllexport) uint32_t  CyberpunkVR_DebugEyeMgrCount = 0xFFFFFFFF;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugEyeMgrArray = 0;
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugEyeMgrQueued = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t  CyberpunkVR_DebugMainMgrCount = 0xFFFFFFFF;
+#endif
 // main view context-create identity (captured by the ctx-capture probe below).
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 extern "C" __declspec(dllexport) void*    CyberpunkVR_DebugMainManager = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainCtxKey = 0;
 extern "C" __declspec(dllexport) int      CyberpunkVR_DebugMainCtxA5 = -1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCtxCreateCalls = 0;
@@ -103,10 +158,19 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCtxCreateCalls = 0;
 // shader-visible CBV_SRV_UAV heap than the engine's 1,000,000 request).
 extern "C" __declspec(dllexport) uint64_t  CyberpunkVR_DebugDescHeapCreates = 0;
 extern "C" __declspec(dllexport) uint32_t  CyberpunkVR_DebugDescHeapSVNum = 0;    // last shader-visible CBV_SRV_UAV NumDescriptors requested
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugDescHeapSVRetRva = 0; // caller RVA that requested it
 extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_DebugDescHeapSVRetAbs = 0; // absolute caller return address
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t  CyberpunkVR_DebugDescHeapSVFlags = 0;
 extern "C" __declspec(dllexport) uint64_t  CyberpunkVR_DebugDescHeapEnlarged = 0;
+#endif
 
 // ONE NAMED NAMESPACE WHERE THERE WAS AN ANONYMOUS ONE, and this is the change that unlocks the
 // rest of the split.
@@ -146,11 +210,16 @@ namespace detail {
 // Defaults are the LEGACY single-component names, so deleting vrcam.json returns the mod to
 // exactly the pre-per-resolution behaviour. That is the escape hatch if the expanded entity has
 // not been imported yet: a stale selection would otherwise mean "no view recognised at all".
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/moved_globals.rs
 char     g_vrcam_component[96] = "vrcam";
 char     g_vrcam_camera[96]    = "vrcam_feed";
+#endif
 // Atomic: the watcher thread below can replace it once CET reports the component's real
 // virtualCameraName, while the render hooks compare against it every dispatch.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_vrcam_ctx_key{0x8D23967F656EA945ULL};  // cname_hash("vrcam_feed")
+#endif
 
 // ---- MAIN gameplay view identity --------------------------------------------------------
 // Aspect ratio cannot answer this: in VR MAIN renders square, exactly like VRCAM, so the old
@@ -165,16 +234,34 @@ std::atomic<uint64_t> g_vrcam_ctx_key{0x8D23967F656EA945ULL};  // cname_hash("vr
 //      pins the matching ctx.
 // MAIN_PRESENT_WORK_RVA moved to Stereo/StereoInternal.hpp.
 // MAIN_STARTRENDER_WORK_RVA moved to Stereo/StereoInternal.hpp.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uintptr_t> g_main_view_obj{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uintptr_t> g_main_view_ctx{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainObjBinds = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainCtxBinds = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainCtx = 0;
+#endif
 uintptr_t sl_view_obj(void* work_context);   // defined with the camera writer below
+#if CVR_RUST_VRIK
+}  // namespace detail
+}  // namespace cvr
+namespace cvr {
+namespace detail {
+#endif
 
 // True for MAIN's view ctx. The aspect test survives only as a bootstrap for the first frames,
 // before the cache is warm; once it is, it is never consulted again -- which is what keeps
 // this correct when MAIN goes square.
+#if CVR_RUST_VRIK
+#else
 bool is_main_view(const void* view) {
     if (!view) return false;
     const auto* p = reinterpret_cast<const uint8_t*>(view);
@@ -187,14 +274,23 @@ bool is_main_view(const void* view) {
     if (cached) return reinterpret_cast<uintptr_t>(view) == cached;
     return *reinterpret_cast<const float*>(p + 0x98) > 1.3f;
 }
+#endif
 // Render resolution of the selected component, parsed from its <W>x<H> name suffix. The
 // mirror's RTV filter needs it to recognise the VRCAM target among every render target the
 // game creates, and it must NOT be a literal -- it changes with the pick.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_vrcam_sel_w{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_vrcam_sel_h{0};
+#endif
 // The resolution the launcher pick resolves to, parsed from the component name. The
 // resolution override uses this as its fallback source, so MAIN still follows the pick
 // even when vrport-launcher.ini was not written (dialog dismissed, file not writable).
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_GetSelectedResolution(uint32_t* w, uint32_t* h) {
     const uint32_t sw = g_vrcam_sel_w.load(std::memory_order_relaxed);
     const uint32_t sh = g_vrcam_sel_h.load(std::memory_order_relaxed);
@@ -203,7 +299,10 @@ extern "C" __declspec(dllexport) int CyberpunkVR_GetSelectedResolution(uint32_t*
     if (h) *h = sh;
     return 1;
 }
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) const char* CyberpunkVR_VrcamComponentName() { return g_vrcam_component; }
+#endif
 // CName of the VRCAM camera COMPONENT (the "vrcam_<W>x<H>" object), not of its feed.
 //
 // This is how MAIN and VRCAM are told apart at the camera writer. The camera object is an
@@ -212,9 +311,11 @@ extern "C" __declspec(dllexport) const char* CyberpunkVR_VrcamComponentName() { 
 // which is exactly cname_hash("camera"). So the field is a per-instance identity that
 // costs one load -- no view plumbing, no first/last/most-frequent guessing, and it keeps
 // working across launches because it is a name hash, not an address.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_VrcamCamNameHash() {
     return cname_hash(g_vrcam_component);
 }
+#endif
 
 // ...AND ITS BRAINDANCE TWIN. A braindance swaps the player for braindance_replacer.ent, which carries
 // the same components under vrcam_braindance_<W>x<H> (see tools/gen_vrcam_assets.py); the selector
@@ -225,6 +326,8 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_VrcamCamNameHash() {
 //
 // Kept across the rollback of the render side to 0.1.5: this is a NAME, not a render mechanism, and
 // the braindance camera writer in VrCore.cpp is its only caller.
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_VrcamBdCamNameHash() {
     const char* sel = g_vrcam_component;                 // "vrcam_<W>x<H>"
     if (!sel || !*sel) return 0;
@@ -236,23 +339,49 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_VrcamBdCamNameHash() {
     if (n <= 0 || static_cast<size_t>(n) >= sizeof(name)) return 0;
     return cname_hash(name);
 }
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) const char* CyberpunkVR_VrcamCameraName()    { return g_vrcam_camera; }
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) uint64_t    CyberpunkVR_VrcamCtxKey()        { return g_vrcam_ctx_key.load(); }
+#endif
 // 1 when the key came from the file, 0 when the built-in default is in use.
+#if CVR_RUST_VRIK
+// Defined by Rust (rust/crates/cvr-render/src/stereo_exports.rs); exported through the declaration in StereoInternal.hpp.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamConfigLoaded = 0;
+#endif
 
 // Enable/disable the VRCAM component at runtime. The component's isEnabled lives behind the
 // game's RTTI, which only Lua can reach, so this writes a request into the CET mod's bridge
 // folder and modules/vrcam_select.lua acts on it. 1 = the selected component on (default),
 // 0 = every vrcam component off, i.e. the engine stops rendering the second view entirely.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamEnabled = 1;
+#endif
 // Mirror/stereo chain diagnostics, always on (the comparisons they count already happen):
 //   NodeHits    - node dispatches for a view matching our key   (0 => wrong key / not enabled)
 //   CopyNodeHits- that view's RenderFinal2D node                (0 => VRCAM has no final blit)
 //   RtvHits     - its render target captured                    (0 => OMSetRenderTargets missed)
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamNodeHits = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorCopyNodeHits = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorRtvHits = 0;
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) void CyberpunkVR_SetVrcamEnabled(uint32_t on) {
     CyberpunkVR_VrcamEnabled = on ? 1u : 0u;
     if (vrcam_bridge_write("vrcam_enable.txt", on ? "1" : "0"))
@@ -261,6 +390,7 @@ extern "C" __declspec(dllexport) void CyberpunkVR_SetVrcamEnabled(uint32_t on) {
         cvr::log("[vrcam] FAILED to write bridge/vrcam_enable.txt (request %s ignored)",
                 on ? "ENABLE" : "DISABLE");
 }
+#endif
 
 // ---- ONE place that changes the VRCAM selection ------------------------------------------
 //
@@ -269,21 +399,34 @@ extern "C" __declspec(dllexport) void CyberpunkVR_SetVrcamEnabled(uint32_t on) {
 // matches on. Updating a subset is not a small bug -- a key that names no live view means no
 // second eye and no mirror window, while every log line still prints the component you
 // expected. That is exactly how the last one hid.
+#if CVR_RUST_VRIK
+#else
 bool g_vrcam_pick_authoritative = false;   // the launcher resolution decided it
+#endif
 
 // The VRCAM selection subsystem moved to src/Stereo/VrcamSelection.cpp.
 
 // The CPU profiler moved to src/Stereo/Profiler.cpp.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool t_mirror_copy_node_active = false;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local ID3D12Resource* t_mirror_copy_rtv = nullptr;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local DXGI_FORMAT t_mirror_copy_rtv_format = DXGI_FORMAT_UNKNOWN;
+#endif
 // Command list the vrcam RenderFinal2D node records into (stashed at RTV capture) and
 // the engine's LAST transition StateAfter for the captured resource within the node
 // (activation pattern is ALIASING + transition->RENDER_TARGET + Discard, so RT unless
 // the node retransitions it later; tracked in hk_ResourceBarrier on the same thread).
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local ID3D12GraphicsCommandList* t_mirror_copy_list = nullptr;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local uint32_t t_mirror_src_state =
     (uint32_t)D3D12_RESOURCE_STATE_RENDER_TARGET;
+#endif
 // AND WHETHER THAT NUMBER WAS EVER OBSERVED FOR THIS RESOURCE.
 //
 // The value above is a SEED, not a measurement: the engine is known to activate the target
@@ -300,14 +443,22 @@ thread_local uint32_t t_mirror_src_state =
 //
 // So: false until hk_ResourceBarrier has actually seen a transition of THIS resource on THIS
 // thread. When it is false the copy is skipped rather than issued on an assumption.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool t_mirror_src_state_seen = false;
+#endif
 // Work fn of the node currently recording on this thread (set at dispatch; nested
 // dispatches clobber it -- acceptable for attribution probes).
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local uintptr_t t_current_node_work = 0;
+#endif
 // The view (work context +0x18) of that node, 0 for a node without one. Set and restored with it.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local uintptr_t t_current_node_view = 0;
+#endif
 // True while ANY vrcam-ctx node records on this thread (view attribution for hooks).
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool t_vrcam_node_active = false;
+#endif
 
 // View attribution for the ENGINE camera hooks (LocateCamera / PatchCamera /
 // FinalCamera / NormalFov / Unifix / ProjStage in vr_core.cpp).
@@ -323,9 +474,11 @@ thread_local bool t_vrcam_node_active = false;
 // the judder that appears only with the component enabled.
 //
 // The dispatcher already tags the executing view, so the hooks can simply ask.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) int CyberpunkVR_IsVrcamViewActive() {
     return t_vrcam_node_active ? 1 : 0;
 }
+#endif
 
 // EXACT view identity, because "not VRCAM" is not the same as "is MAIN".
 //
@@ -337,19 +490,27 @@ extern "C" __declspec(dllexport) int CyberpunkVR_IsVrcamViewActive() {
 // That matters for the camera hooks: forcing the head camera onto one of those views
 // leaves its content composited against a camera it was not rendered with, so it stops
 // being world-locked and slides with the head instead of staying put.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local uint64_t t_active_view_key   = 0;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool     t_active_view_known = false;
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) int CyberpunkVR_IsMainViewActive() {
     return (t_active_view_known && t_active_view_key == 0) ? 1 : 0;
 }
+#endif
 // Returns 0 when the caller is not inside a view-carrying node dispatch (the view is then
 // genuinely unknown, not "MAIN"). Callers decide what to do with that.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) int CyberpunkVR_GetActiveViewKey(unsigned long long* out) {
     if (!t_active_view_known) return 0;
     if (out) *out = t_active_view_key;
     return 1;
 }
+#endif
 
 // ---- WHICH VIEW OWNS A CAMERA OBJECT ------------------------------------------------
 // LocateCamera runs outside the render-graph dispatch (measured: its vrcam gate never
@@ -364,15 +525,22 @@ extern "C" __declspec(dllexport) int CyberpunkVR_GetActiveViewKey(unsigned long 
 // view ctx (key: MAIN = 0, VRCAM = g_vrcam_ctx_key) and the view's own object at the same
 // moment. Finding the camera through that ctx binds object -> view exactly, with no
 // first/last/most-frequent guessing.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 static std::atomic<uintptr_t> g_cam_obj_main{0};
 static std::atomic<uintptr_t> g_cam_obj_vrcam{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamObjMain    = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamObjVrcam   = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamBindMain   = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamBindVrcam  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCamScanFails  = 0;
+#endif
 
 // 0 = this object is not (yet) bound to any view, 1 = MAIN, 2 = VRCAM.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) int CyberpunkVR_ClassifyCamera(const void* obj) {
     const uintptr_t v = reinterpret_cast<uintptr_t>(obj);
     if (!v) return 0;
@@ -380,31 +548,46 @@ extern "C" __declspec(dllexport) int CyberpunkVR_ClassifyCamera(const void* obj)
     if (v == g_cam_obj_vrcam.load(std::memory_order_acquire)) return 2;
     return 0;
 }
+#endif
 // Dispatch nesting depth: frame-level totals are taken at depth 0 only, per-node rows at
 // every depth (SceneDrv re-enters the dispatcher once per scene pass).
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local int t_prof_disp_depth = 0;
+#endif
 // Inclusive time of the child nodes dispatched by the node currently on this thread's
 // stack; lets each node report self = inclusive - children. Only touched when profiling.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local int64_t t_prof_child_ticks = 0;
+#endif
 // Tonemap OUTPUT capture (crash-safe fix): the tonemap 2-MRT pass writes RT0 = the
 // tonemapped (dark/correct) post color. We snapshot RT0 into our committed g_stable_tex
 // in the valid window (tonemap node epilogue) and the mirror/eye reads OUR buffer,
 // bypassing Final2D's flapping version selection entirely. Pure copy of an engine-valid
 // RT => no index/resolver/generation manipulation => cannot crash (unlike all the
 // resolver-layer attempts). Set in the OM hook when the identified tonemap 2-MRT binds.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local ID3D12Resource* t_tm_rt0 = nullptr;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local ID3D12GraphicsCommandList* t_tm_rt0_list = nullptr;
+#endif
 // consumed flag: set false when the OM hook captures RT0; the FIRST node-dispatch
 // epilogue after that consumes it once (= the tonemap node's own epilogue, its list
 // still open). Avoids fragile per-dispatch reset / t_current_node_work checks that
 // nested sub-node dispatches broke (DebugTonemapSnaps stayed 0).
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool t_tm_consumed = true;
+#endif
 // RT0's real state, tracked in hk_ResourceBarrier during the tonemap node (RT0 is NOT
 // necessarily RENDER_TARGET at the node epilogue -> the wrong barrier StateBefore made
 // the engine's Close/submit stall = the freeze). Init to RENDER_TARGET at capture.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local uint32_t t_tm_rt0_state = (uint32_t)D3D12_RESOURCE_STATE_RENDER_TARGET;
+#endif
 // Same rule as t_mirror_src_state_seen above: the initialiser is a seed, not an observation.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool t_tm_rt0_state_seen = false;
+#endif
 // The finished-frame slot, per thread for the reason recorded beside CyberpunkVR_FinalGrab: the
 // engine records nodes on several threads at once, so a global handed the epilogue a command list
 // belonging to ANOTHER thread, or one from the previous frame, by then closed and recycled.
@@ -412,32 +595,68 @@ thread_local bool t_tm_rt0_state_seen = false;
 // t_final_writes is carried for fidelity with the mechanism as authored and stays 0 in this branch:
 // the two sites that incremented it hang off vrcam_list_note, which is 0.1.6-only, and the copy gate
 // never consulted it there either.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool t_tm_from_final = false;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local ID3D12Resource*            t_final_res = nullptr;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local uint32_t                   t_final_state = 0;
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local ID3D12GraphicsCommandList* t_final_list = nullptr;
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 thread_local uint32_t                   t_final_writes = 0;
+#endif
 // True once the tonemap RT0 source is available (DLSS path). When set, the Final2D
 // copy is skipped (tonemap source wins); when NOT set (no DLSS), the Final2D copy runs
 // as fallback -> fixes the "washed out without DLSS" regression.
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool> g_have_tonemap_source{false};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_StableFromTonemap = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTonemapSnaps = 0;
+#endif
 // Adapted-exposure accumulators (28-byte UAV buffers, one per view; identified in the
 // EXPOSURE capture: vrcam=23828, main=5712). Captured live by barrier signature:
 // BUFFER W=28 transitioning UNORDERED_ACCESS -> PS|NPS right after the 1x1x1
 // adaptation dispatch, attributed by t_vrcam_node_active.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<ID3D12Resource*> g_expo_vrcam{nullptr};
 std::atomic<ID3D12Resource*> g_expo_main{nullptr};
+#endif
 // The engine's per-frame constants (b0 in the composite): 30 float4, first float is the time the
 // HUD flicker runs on. Captured in hk_CopyBufferRegion by its unique 480-byte upload.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<ID3D12Resource*> g_frame_cb{nullptr};
+#endif
 // The composite's own constants (b6): curvature, glow weights, aberration, halo.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<ID3D12Resource*> g_hud_cb{nullptr};
+#endif
 // True once g_hud_cb points at OUR OWN copy taken from the ring. From then on the copy-path
 // capture must keep its hands off: it releases whatever it displaces, and displacing our buffer
 // would free it while g_hud_cb_copy_ptr still points into it.
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool> g_hud_cb_from_ring{false};
+#endif
 
 // Persistent CPU view of an engine UPLOAD heap, so a constant upload can be identified by its
 // contents as it goes past. Mapping an upload resource is refcounted and read-only here; the
@@ -451,12 +670,16 @@ std::atomic<bool> g_hud_cb_from_ring{false};
 // "found in the upload ring", and the only capture came from the weaker content test below,
 // thousands of frames in. The refusal memo is a pure optimisation, so it gets its own ring that
 // may be overwritten; a re-probe costs one GetHeapProperties.
+#if CVR_RUST_VRIK
+// The table is Rust's (rust/crates/cvr-render/src/upload_maps.rs).
+#else
 std::array<MappedUpload, 64> g_upload_maps{};
 uint32_t g_upload_map_n = 0;
 static std::array<ID3D12Resource*, 64> g_upload_refused{};
 static uint32_t g_upload_refused_w = 0;
 static bool g_upload_map_full_logged = false;
 std::mutex g_upload_map_mtx;
+#endif
 
 // ---- finding the composite's constants where they actually live -----------------------------
 //
@@ -472,10 +695,20 @@ std::mutex g_upload_map_mtx;
 //
 // The values are graphics settings, so they change only when the player changes one: found once and
 // re-checked every few seconds, at a cost of a few milliseconds on the present thread.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 ID3D12Resource* g_hud_cb_copy = nullptr;   // our own 512-byte upload CB
 uint8_t* g_hud_cb_copy_ptr = nullptr;
+#endif
+#if CVR_RUST_VRIK
+#else
 uint64_t g_hud_cb_scan_tick = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// The fingerprint is rust/crates/cvr-render/src/block_rewrites.rs.
+#else
 bool hud_cb_block_plausible(const uint8_t* p, float w, float h) {
     __try {
         const float* r = reinterpret_cast<const float*>(p);
@@ -499,6 +732,7 @@ bool hud_cb_block_plausible(const uint8_t* p, float w, float h) {
         return false;
     }
 }
+#endif
 
 // The same test, applied to an upload as it is copied rather than to a block sitting in the ring.
 //
@@ -509,6 +743,7 @@ bool hud_cb_block_plausible(const uint8_t* p, float w, float h) {
 // unambiguous. Two capture paths for one buffer had two different ideas of "valid", and the
 // permissive one always won, because it ran on every copy while the strict one only stored when
 // nothing had been found yet.
+#if !CVR_RUST_VRIK
 bool hud_cb_content_matches(const uint8_t* base, UINT64 off, float w, float h,
                                    float* curvature_out) {
     if (!base) return false;
@@ -522,8 +757,13 @@ bool hud_cb_content_matches(const uint8_t* base, UINT64 off, float w, float h,
         return false;
     }
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 const uint8_t* upload_map_read(ID3D12Resource* res) {
+#if CVR_RUST_VRIK
+    return cvr_upload_map_read(res);
+#else
     if (!res) return nullptr;
     std::lock_guard<std::mutex> lk(g_upload_map_mtx);
     for (uint32_t i = 0; i < g_upload_map_n; ++i)
@@ -559,9 +799,18 @@ const uint8_t* upload_map_read(ID3D12Resource* res) {
     g_upload_maps[g_upload_map_n++] = { res, static_cast<uint8_t*>(ptr), ud.Width,
                                        res->GetGPUVirtualAddress() };
     return static_cast<const uint8_t*>(ptr);
+#endif
 }
+#endif
+#if CVR_RUST_VRIK
+// The Rust censuses (rust/crates/cvr-render/src/census_probes.rs) call the Rust reader (upload_maps.rs) themselves.
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExpoVrcam = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExpoMain = 0;
+#endif
 // Tonemap-INPUT probe: exposure is proven stable, so the flap is in one of the
 // tonemap's texture inputs (constant transform x two static inputs = two bit-exact
 // output states). Capture every >=1000px texture transitioned to PS-readable while
@@ -574,18 +823,41 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExpoMain = 0;
 // transitioned to a read state during ANY vrcam node, tagged with the capturing
 // node's work RVA. Entries persist across frames (session resources are stable;
 // dedupe keeps the set converged) -- stale entries sample stable content = innocent.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 TmInCap                  g_tm_in[24];
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t>    g_tm_in_n{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t>    g_tm_in_rva[24] = {};    // capturing node work RVA
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/moved_globals.rs
 ID3D12Resource*          g_ti_rb[4] = {};         // 64KB readback per slot
 uint8_t*                 g_ti_map[4] = {};
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t                 g_ti_count[4] = {};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/moved_globals.rs
 ID3D12Resource*          g_ti_src[4][24] = {};
 uint32_t                 g_ti_fmt[4][24] = {};
 uint32_t                 g_ti_tag[4][24] = {};    // node work RVA
+#endif
+#if CVR_RUST_VRIK
+#else
 bool                     g_ti_valid[4] = {};
+#endif
 // Dedupe-append (POD-only, no locks: worst case a rare duplicate, harmless).
 // Keeps the FIRST capturing node's RVA (where the texture first became readable).
+#if CVR_RUST_VRIK
+// Rust's: rust/crates/cvr-render/src/stereo_shared.rs (the capture hooks' table holds it).
+#else
 void tm_set_push(ID3D12Resource* res, uint32_t state, uint32_t fmt,
         uint32_t rva) {
     if (!res) return;
@@ -607,15 +879,22 @@ void tm_set_push(ID3D12Resource* res, uint32_t state, uint32_t fmt,
         g_tm_in_n.store(n + 1, std::memory_order_release);
     }
 }
+#endif
 // Tonemap node (work RVA 0x557204) resolves its frame-graph resources with IDs
 // ((work_context+0x34)<<24) XOR const -- +0x34 is the per-view graph-instance salt.
 // If vrcam's tonemap salt flaps between its own and main's value, it resolves MAIN's
 // adapted-exposure buffer on those frames => the two bit-exact luma states. Log salt
 // TRANSITIONS for both views + export last values for x64dbg polling.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugTmSaltVrcam = 0xFFFFFFFF;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugTmSaltMain = 0xFFFFFFFF;
+#endif
+#if !CVR_RUST_VRIK
 static std::atomic<uint32_t> g_tmsalt_last_vrcam{0xFFFFFFFF};
 static std::atomic<uint32_t> g_tmsalt_last_main{0xFFFFFFFF};
+#endif
 // THE FLAP SELECTOR (decompiled from the RenderFinal2D node, sub_140209FF8):
 //   salt = (ctx[0x30] & 1) ? 0 : ctx[0x34];   // bit0 => "borrow MAIN's instance"
 //   source_id = (salt<<24) ^ 0x3D7E6258;
@@ -624,19 +903,33 @@ static std::atomic<uint32_t> g_tmsalt_last_main{0xFFFFFFFF};
 // vrcam's own (normal): two stable sources = two bit-exact luma states. The vrcam
 // post chain provably runs every frame (histogram 6/frame, tonemap each frame), so
 // borrowing is always wrong here: force bit0=0 for vrcam-ctx nodes.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_ForceOwnPost = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOwnPostFixes = 0;
+#endif
+#if !CVR_RUST_VRIK
 static std::atomic<uint32_t> g_ctx30_last_vrcam{0xFFFFFFFF};
 static std::atomic<uint32_t> g_ctx30_last_main{0xFFFFFFFF};
+#endif
 // Resolver probe: sub_140334810 = frame-graph "declared ID -> physical index" query
 // used by every node right before writing descriptors. Gated to the vrcam
 // RenderFinal2D / tonemap recording threads it shows, PER FRAME, which salted ID the
 // pass asked for and which physical index came back -> the selection flap becomes
 // directly visible at the consumer (no more stage guessing).
+#if !CVR_RUST_VRIK   // the Rust build's detour is resolve_post_color.rs's, registered from engine_detours.rs
 using Resolve3D20Fn = __int64(__fastcall*)(__int64, uint32_t*, uint32_t*, __int64);
 static Resolve3D20Fn g_orig_resolve3d20 = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 extern uint8_t* g_exe_base;     // defined below with the other engine globals
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugResolveHits = 0;
+#endif
 // ROOT CAUSE / ARCHITECTURAL FIX (layer 2 = deterministic version binding).
 // The frame graph versions each logical resource; a consumer resolves "the current
 // generation" of a logical id via the per-view declare counter v7 = *(a1+24064*salt+64)
@@ -652,55 +945,95 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugResolveHits = 0;
 // with the MAXIMUM generation (= what the last writer produced). Recency window guards
 // epoch changes. Post-color id = (salt<<24)^0x3D7E6258; salt only alters the top byte,
 // so low 3 bytes 0x7E6258 match post-color for ANY view -> generalizes to both eyes.
+#if !CVR_RUST_VRIK
 constexpr uint32_t POSTCOLOR_LOW = 0x007E6258u;
+#endif
 // SAFETY DEFAULT 0: physical indices are PER-FRAME transient (proven: [pv] shows fin
 // idx changing every frame at a FIXED gen=2), so substituting any remembered index =
 // freed slot next frame = null deref (crashes 180201/180846). Override stays off until
 // we identify a PERSISTENT correct index via the safe luma<->finidx correlation below.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_FixPostVersion = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPinApplied = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugFinNatural = 0;   // last natural fin idx
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugFinPinned  = 0;   // last pinned fin idx
+#endif
 // Tonemap (producer) OUTPUT: the index it resolves at the MAX generation this frame
 // (= post-tonemap write, the dark/correct version). Captured read-only; consumed by
 // Final2D by INDEX substitution -- which is crash-safe (match-tm ran stably for minutes,
 // only bright because it used tonemap's LAST resolve = an input read, not the output).
+#if CVR_RUST_VRIK
+#else
 static std::atomic<uint32_t> g_tm_post_idx{0};
 static std::atomic<uint32_t> g_tm_post_gen{0};
 static std::atomic<uint32_t> g_tm_post_seq{0};
 static std::atomic<uint32_t> g_pv_seq{1};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugTmPostIdx = 0;
+#endif
 // STAGE PROBE (path-A, 17): the vrcam post-color id 0x3C7E6258 is resolved at MANY
 // pipeline STAGES (the resolver's a4/r9 salt = a stage index 36..71, live-confirmed).
 // This maps every stage's resolved physical index per frame and dumps the whole map at
 // the fin (mirror-blit) resolve, so we can diff DLSS on/off and see which stage's physical
 // the fin consumer should read. Read-only; gated by CyberpunkVR_StageProbe (default 0).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_StageProbe = 1;
+#endif
+#if CVR_RUST_VRIK
+#else
 static uint32_t g_stage_idx[128] = {0};   // salt(stage) -> last resolved physical index (vrcam 0x3C)
 static uint32_t g_stage_idx_main[128] = {0}; // salt(stage) -> physical (MAIN 0x3D) for aliasing test
 static uint32_t g_stage_v7 [128] = {0};   // salt(stage) -> gen counter at resolve
 static std::atomic<uint32_t> g_stage_frame{0};
+#endif
 // WRITE-ORDER PROBE (root-cause): capture, per frame, the ORDER of vrcam post-color
 // type-4 (WRITE) declares at salt70 with their generation + caller, then dump at the fin
 // resolve tagged with fin's resolved index (bright/dark). Reveals whether the DLSS-raw
 // write vs the composition/tonemap write lands LAST (highest gen) before Final2D reads,
 // and whether that order races across bright/dark frames = the true root. Reliable C++
 // gens (no x64dbg hex bug). Gated by CyberpunkVR_StageProbe. Declare hook on sub_140334A34.
+#if !CVR_RUST_VRIK
 using DeclareFn = char(__fastcall*)(__int64, __int64, unsigned __int8, __int64);
+#endif
+#if !CVR_RUST_VRIK
 static DeclareFn g_orig_declare = nullptr;
+#endif
+#if CVR_RUST_VRIK
+#else
 struct S70Write { uint32_t gen; uint32_t caller_rva; uint8_t type; };
 static S70Write g_s70w[24] = {};
 static volatile long g_s70w_n = 0;
 struct S70Res { uint32_t caller_rva; uint32_t phys; };
 static S70Res g_s70res[20] = {};
 static volatile long g_s70res_n = 0;
+#endif
 
 
 // Legacy export compatibility only. TE6 separates the graph cache by view;
 // it removes this post-color handle substitution. A resolve-count window did
 // not prove resource lifetime and must not override the newly isolated graph.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_DealiasPostColor = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugDealiasHits = 0;
+#endif
+#if !CVR_RUST_VRIK
 static __int64 __fastcall Detour_Resolve3D20(__int64 reg, uint32_t* out,
         uint32_t* idp, __int64 r9) {
     const void* ra = _ReturnAddress();
@@ -799,6 +1132,7 @@ static __int64 __fastcall Detour_Resolve3D20(__int64 reg, uint32_t* out,
           log("[pv] %s id=%08X idx=%u v7=%u", in_fin ? "fin" : "tm ", id, *out, v7); }
     return r;
 }
+#endif
 // Stable committed snapshot of the vrcam final. Filled INLINE inside the engine's own
 // command list at the END of the vrcam RenderFinal2D node: after the composite draw is
 // recorded and BEFORE any later pass records the ALIASING barrier that hands the
@@ -808,36 +1142,69 @@ static __int64 __fastcall Detour_Resolve3D20(__int64 reg, uint32_t* out,
 // main's content on some frames. Committed => never aliased; rests in COMMON between
 // frames; only the game queue touches it => no cross-queue hazard. The deferred mirror
 // hop reads THIS instead of the transient. Later this is the OpenXR eye-submit surface.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 ID3D12Resource*     g_stable_tex = nullptr;
 D3D12_RESOURCE_DESC g_stable_desc{};
 std::mutex          g_stable_mtx;
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool>   g_stable_fresh{false};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_StableCopy = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugStableCopies = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugStableSkips = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugStableSrcState = 0;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_MirrorOutput;  // defined below
+#endif
 
 // ---- who wants the VRCAM colour snapshot -----------------------------------------------
 // The snapshot used to exist purely for the desktop mirror, so its capture was gated on
 // MirrorOutput. The OpenXR submit now reads the SAME resource for the right eye, and it must
 // be able to do so with the mirror window closed -- that window is a capture convenience,
 // not a prerequisite for stereo.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_StereoEyeCapture = 1;
+#endif
+#if !CVR_RUST_VRIK
 bool stereo_eye_capture_wanted() {
     return CyberpunkVR_MirrorOutput != 0 || CyberpunkVR_StereoEyeCapture != 0;
 }
+#endif
 // When the last snapshot was taken. The submit needs LIVENESS, not existence: g_stable_fresh
 // latches true on the first copy and never clears, so on its own it would keep handing the
 // right eye a frozen image after the second view stops (menu, component off) -- one eye
 // live and one eye stuck is far worse than plain mono.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_stable_tick{0};
+#endif
 // The same instant on a QPC clock, in MICROSECONDS. g_stable_tick above is milliseconds from
 // GetTickCount64 and three readers compare it that way; this one exists only so the reported age can
 // resolve a frame, because 15.6 ms of granularity cannot.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_stable_tick_us{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_StereoEyeMaxAgeMs = 250;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamEyeAgeMs = 0xFFFFFFFFu;
+#endif
 // THE FOUR PRECONDITIONS OF THE SECOND EYE, COUNTED SEPARATELY.
 //
 // g_stable_tick above is the clock the submit reads: older than StereoEyeMaxAgeMs and
@@ -849,17 +1216,36 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamEyeAgeMs = 0xFFF
 // invisible from in there.
 //
 // So each step gets its own counter and the report is printed where the decision is actually made.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_eye_node_hits{0};   // the vrcam CopyToTexture node ran
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_eye_no_rtv{0};      // ...but no output RTV was latched in it
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_eye_no_list{0};     // ...RTV yes, but no command list to record on
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_eye_copy_calls{0};  // the snapshot copy was actually attempted
+#endif
 // Luma oscilloscope: turn the bright/normal alternation into NUMBERS. Each vrcam frame
 // the deferred hop also copies an 8x8 center block of the stable snapshot into a
 // readback slot (ringed with the existing copy fence); when a slot is reused its
 // completed block is decoded (R11G11B10F) and average luma is accumulated (a) by frame
 // parity and (b) as mean |dL| between CONSECUTIVE frames (parity-proof oscillation
 // amplitude). One log line per ~120 vrcam frames -> fixes get A/B'd by numbers.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_LumaProbe = 1;   // diagnostics OFF (flicker RE done) -> no readbacks / [luma][cbflap][chain]... log spam
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugLumaEvenMilli = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugLumaOddMilli = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugLumaDeltaMilli = 0;
@@ -868,51 +1254,106 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugLumaDeltaMilli = 0;
 // multi-frame sawtooth/pulse = exposure-adaptation feedback limit cycle). Decrements
 // per line; re-arm live by writing a new count via x64dbg.
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_LumaWave = 300;
+#endif
 // CB-flap probe: the vrcam tonemap pass (the [2rt] bind) gets an 848-byte constant
 // buffer uploaded right after its bind. Capture that CB resource+offset, read it back
 // every frame alongside the luma sample, and auto-detect dwords that take EXACTLY two
 // values and flip in sync with the bright/normal luma state -> that dword IS the raced
 // exposure input, and its two bit-patterns identify the source variable in memory.
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool t_in_vrcam_2rt = false;   // between vrcam 2-RT bind and next OMSet
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local bool t_2rt_cb_armed = false;   // capture only the FIRST 848B upload
+#endif
 // There are SEVERAL vrcam 2-RT passes per frame; only the TONEMAP's RT1 descriptor
 // ping-pongs across frames (persistent history pair), the others rebind the same RT1
 // handle every frame. Identify the tonemap by observing an RT1 change for a given RT0
 // (lock-free: hk_OM contains __try => no C++ destructors allowed => no mutexes here).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<SIZE_T> g_2rt_seen_h0[4] = {};
 std::atomic<SIZE_T> g_2rt_seen_h1[4] = {};
 std::atomic<SIZE_T> g_tonemap_h0{0};
 std::atomic<ID3D12Resource*> g_cb_res{nullptr};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t>        g_cb_off{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<ID3D12Resource*> g_cb_last_res{nullptr};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool>            g_cb_reset_pending{false};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/moved_globals.rs
 ID3D12Resource* g_cb_rb[4] = {};     // READBACK, persistently mapped
 uint8_t*        g_cb_map[4] = {};
+#endif
+#if CVR_RUST_VRIK
+#else
 bool            g_cb_valid[4] = {};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCbCaptures = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFrameCb = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudCb = 0;
+#endif
 // Set by the composite's own validity check: the engine's b6 was bound and its target size
 // matched ours, so every constant came from the engine rather than from the capture.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudCbUsed = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_Debug2RtBinds = 0;
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/moved_globals.rs
 ID3D12Resource* g_luma_rb[4] = {};      // READBACK heap, persistently mapped
 uint8_t*        g_luma_map[4] = {};
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t        g_luma_parity[4] = {};
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t        g_luma_frame[4] = {};
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t        g_luma_finidx[4] = {};   // fin natural index at capture (safe correlation)
+#endif
+#if CVR_RUST_VRIK
+#else
 bool            g_luma_valid[4] = {};
+#endif
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugFinNatural;  // set in resolver
+#endif
 // mirror_stable_inline_copy is declared in Stereo/StereoInternal.hpp; its definition moved to another file.
 // mirror_publish_output is declared in Stereo/StereoInternal.hpp; its definition moved to another file.
 // Master gate for the OLD eye-X build path (Path 1a: own empty manager -> FinalOnly
 // -> OOM). Disabled so `sync_typea_on` runs ONLY the new option-B context-inject
 // (2nd context in main's manager) in isolation for testing.
+#if CVR_RUST_VRIK
+#else
 bool g_enable_eye_x_build = false;
+#endif
 #ifdef TESTBED_EARLY_REG_PROBE
 bool g_enable_native_registration_probe = true;
 #else
+#if CVR_RUST_VRIK
+extern bool g_enable_native_registration_probe;   // defined in Rust: rust/crates/cvr-render/src/moved_globals.rs
+#else
 bool g_enable_native_registration_probe = false;
+#endif
 #endif
 
 // CALLER1 prologue, 22 fixed bytes (extracted from the live exe):
@@ -921,28 +1362,37 @@ bool g_enable_native_registration_probe = false;
 // The chkstk call displacement that follows the trailing E8 is position-
 // dependent, so the pattern STOPS at the E8 opcode  everything before is
 // invariant for this function.
+#if !CVR_RUST_VRIK
 const uint8_t kCaller1Pat[] = {
     0x48,0x89,0x5C,0x24,0x10, 0x55,0x56,0x57, 0x48,0x8D,0xAC,0x24,0x50,0xE9,0xFF,0xFF,
     0xB8,0xB0,0x17,0x00,0x00, 0xE8
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kFlushRenderScenePat[] = {
     0x48,0x89,0x5C,0x24,0x20, 0x55,0x56,0x57, 0x48,0x8B,0xEC,
     0x48,0x81,0xEC,0x80,0x00,0x00,0x00, 0x48,0x8B,0xFA,
     0x48,0x8B,0xD9, 0xB2,0x01, 0x48,0x8D,0x4D,0xC8,
     0x45,0x33,0xC0, 0xE8
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kCameraWritePat[] = {
     0x48,0x8B,0xC4, 0x48,0x89,0x58,0x08, 0x48,0x89,0x70,0x10,
     0x48,0x89,0x78,0x18, 0x4C,0x89,0x70,0x20, 0x55,
     0x48,0x8D,0xA8,0xE8,0xF4,0xFF,0xFF, 0x48,0x81,0xEC,0x10,0x0C
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kFrameGatePat[] = {
     0x48,0x8B,0x49,0x20, 0xE9,0x7B,0x02,0x00,0x00
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kFgBuildPat[] = {
     0x48,0x89,0x5C,0x24,0x08, 0x57,
     0x48,0x81,0xEC,0x80,0x00,0x00,0x00,
@@ -950,65 +1400,88 @@ const uint8_t kFgBuildPat[] = {
     0xBF,0x9A,0x01,0x00,0x00, 0x4D,0x85,0xC9,
     0x74,0x17, 0x65,0x48
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kRunRenderNodesPat[] = {
     0x48,0x89,0x54,0x24,0x10, 0x48,0x89,0x4C,0x24,0x08,
     0x55,0x53,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kRunNodeBatchSubmitPat[] = {
     0x48,0x8B,0xC4, 0x48,0x89,0x58,0x08, 0x48,0x89,0x70,0x10,
     0x57, 0x48,0x83,0xEC,0x50, 0x83,0x60,0xF0,0x00
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kRunNodeBatchWorkPat[] = {
     0x48,0x89,0x5C,0x24,0x08, 0x48,0x89,0x74,0x24,0x10,
     0x48,0x89,0x7C,0x24,0x18, 0x41,0x56, 0x48,0x81,0xEC,0x80,0x00,0x00,0x00
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kGraphRequestBuildPat[] = {
     0x48,0x83,0xEC,0x58, 0x48,0x8B,0x51,0x28,
     0x4C,0x8D,0x89,0xD0,0x03,0x00,0x00,
     0x4C,0x8D,0x41,0x30, 0x0F,0x57,0xC0, 0x48,0x8B,0x49,0x20
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kGraphContextPreparePat[] = {
     0x48,0x89,0x5C,0x24,0x18, 0x48,0x89,0x54,0x24,0x10,
     0x55,0x56,0x57, 0x41,0x54, 0x41,0x55, 0x41,0x56, 0x41,0x57,
     0x48,0x8D,0xAC,0x24,0x30,0xFC,0xFF,0xFF,
     0x48,0x81,0xEC,0xD0,0x04,0x00,0x00
 };
+#endif
 
+#if !CVR_RUST_VRIK
 const uint8_t kGraphRequestRegisterPat[] = {
     0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x6C,0x24,0x18,
     0x56,0x57,0x41,0x56, 0x48,0x83,0xEC,0x30,
     0x48,0x8D,0x99,0x20,0x01,0x00,0x00,
     0x48,0x8B,0xEA, 0x4C,0x8D,0xB1,0x28
 };
+#endif
 
 
 // CALLER1 ABI (from SYNC_SEQUENTIAL_PROVEN): rcx=mgr, xmm1=float, then ptrs.
 // LIGHT (sub_1403D5F88) uses the identical ABI per Q1 of the round-6 audit.
+#if !CVR_RUST_VRIK
 using NodeDispatchFn = uint8_t (__fastcall *)(uintptr_t* node, uint8_t* work_context, void* args);
+#endif
 
 // Camera-writer sub_1407EE0BC (RVA 0x7EE0BC): writes view/proj into the
 // view-state. Prologue 32 fixed bytes (no relative calls). Returns bool in al.
+#if !CVR_RUST_VRIK
 const uint8_t kCamwPat[] = {
     0x48,0x8B,0xC4, 0x48,0x89,0x58,0x08, 0x48,0x89,0x70,0x10, 0x48,0x89,0x78,0x18,
     0x4C,0x89,0x70,0x20, 0x55, 0x48,0x8D,0xA8,0xE8,0xF4,0xFF,0xFF, 0x48,0x81,0xEC,0x10,0x0C
 };
+#endif
+#if !CVR_RUST_VRIK
 using CamwFn = uint8_t (*)(void* rcx, void* rdx, void* r8, void* r9);
+#endif
 
 // View translation X lives at view-state +0x150 (camera space). Patching it
 // laterally shifts the rendered image  the IPD lever (single float).
+#if !CVR_RUST_VRIK
 constexpr uintptr_t OFF_VIEW_TX = 0x150;
+#endif
 
 // mgr scalar offsets (round-6 SUBMIT mutation surface). +0x118 is the frame
 // call counter; SUBMIT-fn (called by BOTH full and light) increments it.
+#if !CVR_RUST_VRIK
 constexpr uintptr_t OFF_FRAME_CTR = 0x118;  // dword
 constexpr uintptr_t OFF_S_15C     = 0x15C;  // dword
 constexpr uintptr_t OFF_S_188     = 0x188;  // dword
 constexpr uintptr_t OFF_S_18C     = 0x18C;  // dword
+#endif
 // The node dispatcher and its observers moved to src/Stereo/NodeDispatch.cpp.
 
 
@@ -1018,17 +1491,33 @@ using PFN_D3D12CreateDevice = HRESULT (WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL,
 using PFN_CreateDescriptorHeap = HRESULT (STDMETHODCALLTYPE*)(
     ID3D12Device*, const D3D12_DESCRIPTOR_HEAP_DESC*, REFIID, void**);
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_start.rs
 PFN_D3D12CreateDevice     g_orig_D3D12CreateDevice = nullptr;
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
 PFN_CreateDescriptorHeap  g_orig_CreateDescriptorHeap = nullptr;
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool>         g_desc_probe_installed{false};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool>         g_desc_vtable_patched{false};
+#endif
 // Enlarge the shader-visible CBV_SRV_UAV heap so two full views fit. RTX Tier 3
 // allows >1,000,000 (bounded by VRAM). Kept modest; only applied to the big
 // shader-visible heap. NOTE: on its own this only grows the real heap; the
 // engine's internal budget still needs the matching site patch  this build is
 // primarily to LOG the exact requesting site (caller RVA).
+#if CVR_RUST_VRIK
+#else
 bool     g_enable_desc_heap_enlarge = false;
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t g_desc_heap_target = 2000000u;
+#endif
 
 // Boot-time engine constant patch: sub_14091D604 builds the shader-visible
 // CBV_SRV_UAV heap size as `0xDC240 - v4` (sub-allocator budget = heap+0x10) and
@@ -1043,13 +1532,24 @@ uint32_t g_desc_heap_target = 2000000u;
 // rejected by the D3D12 runtime/driver (CreateDescriptorHeap returns null ->
 // engine null-derefs at boot). Confirmed live: num=2,048,576 crashed. The 1M
 // shader-visible cap is hard here; enlargement is not viable. Keep OFF.
+#if CVR_RUST_VRIK
+#else
 bool     g_enable_desc_heap_resize = false;
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool>   g_desc_heap_resized{false};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugDescHeapResized = 0;
+#endif
 
 
 // The device, queue, command-list and pipeline hooks moved to src/Stereo/DeviceHooks.cpp.
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_start.rs
 static HRESULT WINAPI Hook_D3D12CreateDevice(
         IUnknown* adapter, D3D_FEATURE_LEVEL fl, REFIID riid, void** out) {
     if (out) CyberpunkVRPort_GpuDiagBeforeDevice();
@@ -1071,6 +1571,7 @@ static HRESULT WINAPI Hook_D3D12CreateDevice(
 }
 
 static bool g_desc_ring_probe_installed = false;
+#endif
 
 // Inject a 2nd (eye) context into a RENDER manager's map, called from the
 // GraphContextPrepare hook (its `manager` arg is a real render manager). We clone
@@ -1089,22 +1590,47 @@ static bool g_desc_ring_probe_installed = false;
 // dynamic resolution just before the engine reads them => the engine creates a FULLY-registered
 // view at OUR resolution (no cascade crashes). Component identified by render-host vtable RVA
 // 0x36116E8 + the VRCAM's baked 1600x900.
+#if !CVR_RUST_VRIK
 using RttViewCreateFn = char (__fastcall*)(__int64, __int64);
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's is frame_graph.rs's cvr_fg_rtt_view_create_original
 RttViewCreateFn g_orig_rtt_viewcreate = nullptr;
+#endif
 // OFF by default: the VRCAM asset texture is now authored at the target
 // resolution (e.g. 2444x2444), and the RT-activation derives the view dims
 // from the output texture. Forcing 1222 here SHRANK the render and meant no
 // 2444^2 resource ever existed => dump_rt found nothing. Leave the hook
 // installed (so we can flip it live via IPC) but pass-through by default.
+#if CVR_RUST_VRIK
+#else
 bool g_rtt_res_override = false;
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t g_rtt_w = 1222;   // only used when g_rtt_res_override is toggled on
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t g_rtt_h = 1222;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRttHits = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRttComp = 0;
+#endif
 // Extra debug exports so x64dbg can read the live RTT component + the dims the
 // view-create actually receives, regardless of the (default-off) override.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugRttW = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugRttH = 0;
+#endif
 
 // --- Dynamic RTT resize via engine ResizeDynamicTexture (match MAIN, no assets) ---
 // The vrcam RENDER size = the OUTPUT DynamicTexture size (*(comp+0x1E8) ->
@@ -1115,23 +1641,45 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugRttH = 0;
 //   char f(rcx=texMgr, rdx=&dtexPtr, r8d=w, r9d=h, [rsp20]=flag).
 // Target = explicit CyberpunkVR_RttResizeW/H, else MAIN's render dims (g_main_ctx
 // +0x44 W / +0x4C H). Default OFF (enable live via x64dbg to verify no crash).
+#if !CVR_RUST_VRIK
 using ResizeDynTexFn = char (__fastcall*)(void*, void**, uint32_t, uint32_t, int);
+#endif
+#if !CVR_RUST_VRIK
 ResizeDynTexFn g_resize_dyntex = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_RttResizeMatchMain = 0; // 1=resize dtex -> target
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_RttResizeW = 0;         // explicit W (0=use main)
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_RttResizeH = 0;         // explicit H (0=use main)
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRttResizeHits = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugRttDtexW = 0;      // current dtex W (live)
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugRttDtexH = 0;
+#endif
 // The bound VRCAM component. Resolved ONCE (by the selected resolution) and then reused, so
 // the per-frame writes never have to re-decide which component they are talking to.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uintptr_t> g_vrcam_comp{0};
+#endif
 // Its AUTHORED fov, captured at bind before anything of ours writes to it.
+#if CVR_RUST_VRIK
+#else
 float g_vrcam_base_fov = 0.f;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float    CyberpunkVR_DebugVrcamBaseFov = 0.f;
+#endif
 // Components skipped because their dims are not the selected resolution. Non-zero here is
 // normal: it counts the ones we correctly refused to point the fov writes at.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRttCompRejects = 0;
+#endif
 
 // The frame-graph observation and the RTT view moved to src/Stereo/FrameGraph.cpp.
 
@@ -1154,8 +1702,12 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRttCompRejects = 0;
 
 // Colour grading and tonemapping moved to src/Stereo/Grading.cpp.
 
+#if !CVR_RUST_VRIK
 using GiNodeFn = char(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's is view_reuse.rs's cvr_gi_node_original
 GiNodeFn g_orig_gi_node = nullptr;
+#endif
 // Moved to src/Stereo/ViewReuse.cpp: the GI reuse mode.
 // Moved to src/Stereo/CullVisibility.cpp: cull reuse, the gather context, and the LOD sweep.
 
@@ -1169,10 +1721,22 @@ GiNodeFn g_orig_gi_node = nullptr;
 // if v5 is empty or VRCAM-like, temporarily replace viewData+0x168 with cached MAIN v5,
 // call original DrawComposition, then restore. Frame order is VRCAM-first, so this uses
 // MAIN's PREVIOUS-FRAME v5.
+#if !CVR_RUST_VRIK
 using DrawCompFn = char(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 DrawCompFn g_orig_drawcomp = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBlockV5ReuseHits = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 void* g_main_block_v5 = nullptr;
+#endif
 
 // Moved to src/Stereo/ViewReuse.cpp: lending MAIN's draw-block list.
 
@@ -1192,20 +1756,36 @@ void* g_main_block_v5 = nullptr;
 // node runs for BOTH views each frame; we observe main's mode (key==0) and apply
 // it to vrcam. Frame order is VRCAM-first so vrcam uses last frame's main mode
 // (mode changes rarely). Default 0 (TAA) until main is first observed.
+#if !CVR_RUST_VRIK
 using SlConstFn = __int64(__fastcall*)(void*, void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 SlConstFn g_orig_sl_const = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_StreamlineHistoryFix = 1;   // default ON
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSlHistoryHits = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainAaMode = 0;   // observed main AA mode  *(view+0xF94)
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamAaMode = 0;   // vrcam AA mode (pre-fix) *(view+0xF94)
+#endif
 // The framegraph builder-selection in sub_140409DD4 dispatches on the view's
 // BUILD-mode = *(view+0xF90) (v93): <2 -> full gameplay (sub_141D43040, emits
 // StartRender/ExtractionFinalColor/ClearFinalColorTarget/Present), ==2 HitProxy,
 // ==4 -> sub_141D47FF0 (full scene, NO final-color/present), etc. This is the
 // field that actually gates the "main-only" output nodes -- NOT the AA mode we
 // already mirror (0xF94). Capture both live in the always-running SL hook.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainBuildModeF90  = 0xFFFFFFFF; // main  *(view+0xF90)
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamBuildModeF90 = 0xFFFFFFFF; // vrcam *(view+0xF90)
+#endif
 
 // Moved to src/Stereo/Dlss.cpp: the vrcam Streamline viewport knobs.
 // POST-DLSS CROP FIX phase flag: 0 = vrcam SCENE phase (render-res 1418, DLSS input),
@@ -1241,11 +1821,25 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamBuildModeF90 = 0
 // without stalling the game: if a slot's copy is still in flight, skip this mirror
 // frame instead of waiting. Uses raw vtable barrier/copy to avoid re-entering the
 // hooked ResourceBarrier, and g_orig_ExecuteCommandLists to bypass our own hook.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 ID3D12CommandAllocator*    g_d12_copy_alloc[4] = {};
 ID3D12GraphicsCommandList* g_d12_copy_list = nullptr;
+#endif
+#if CVR_RUST_VRIK
+#else
 uint64_t                   g_d12_copy_slot_fence[4] = {};
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t                   g_d12_copy_frame = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::mutex                 g_d12_copy_mtx;
+#endif
 
 // The luma / constant / tonemap-input probes moved to src/Stereo/LumaProbe.cpp.
 
@@ -1258,11 +1852,15 @@ std::mutex                 g_d12_copy_mtx;
 // it mixed every buffer the two nodes touch and produced a meaningless 0.86 ratio. A HISTOGRAM
 // of upload sizes separates them: the light array is one distinctive size, and if VRCAM's copy
 // of that size is smaller, or missing, that is the answer.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_LightCensus = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLightBytesMain    = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLightBytesVrcam   = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLightUploadsMain  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLightUploadsVrcam = 0;
+#endif
 
 // The histogram found it: an 848-byte constant upload into a 1024-byte buffer, MAIN 1500 times
 // and VRCAM never, while every real light array is uploaded equally by both. The question that
@@ -1270,8 +1868,13 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugLightUploadsVrcam = 0
 // is a red herring) or owns an instance nothing ever fills (then it reads zeros). So record the
 // destination resources each view touches, not just the sizes.
 // struct LightDst now lives in Stereo/StereoInternal.hpp: the census indexes the array below.
+#if !CVR_RUST_VRIK   // unused by the Rust build
 std::array<LightDst, 24> g_light_dsts{};
+#endif
+#if CVR_RUST_VRIK
+#else
 uint32_t g_light_dst_n = 0;
+#endif
 
 // The command-list census and the probes it feeds moved to src/Stereo/CommandListCensus.cpp.
 
@@ -1281,6 +1884,7 @@ uint32_t g_light_dst_n = 0;
 
 // Resolve the view-output ctx from the node arg via the engine's own vcall
 // (obj = ([[a2]] vtable[+0x20])()), returning &obj[0xF94] (AA/upscaler mode).
+#if !CVR_RUST_VRIK   // unused by the Rust build
  uintptr_t sl_view_obj(void* a2) {
     uintptr_t X = *reinterpret_cast<uintptr_t*>(a2);            // *(a2)
     if (!X) return 0;
@@ -1289,8 +1893,10 @@ uint32_t g_light_dst_n = 0;
     GetViewFn getv = *reinterpret_cast<GetViewFn*>(vt + 0x20);
     return getv(X);                                            // view-state object
 }
+#endif
 
 // The DLSS / Streamline detours moved to src/Stereo/Dlss.cpp.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_start.rs
 static void install_desc_ring_probe() {
     if (g_desc_ring_probe_installed) return;
     if (!g_exe_base) sync_stereo_init();
@@ -1311,6 +1917,10 @@ static void install_desc_ring_probe() {
     // DLSS-for-vrcam group force + crop fix (view+0x17D0).
     // flag-compute and rect-compute: registered, as above.
     // VRCAM reuse optimizations (distant shadows / local shadows / GI).
+#if CVR_RUST_VRIK
+    // The clouds node, the sky work, the node dispatcher and the view capability test: rust/crates/cvr-render/src/engine_hooks.rs.
+    cvr_install_engine_hooks(reinterpret_cast<uintptr_t>(g_exe_base));
+#else
     {
         void* cnd = reinterpret_cast<void*>(g_exe_base + CLOUDS_NODE_RVA);
         if (MH_CreateHook(cnd, (void*)&Detour_CloudsNode, (void**)&g_orig_clouds_node) == MH_OK &&
@@ -1321,7 +1931,11 @@ static void install_desc_ring_probe() {
     }
     {
         void* skw = reinterpret_cast<void*>(g_exe_base + SKY_WORK_RVA);
+#if CVR_RUST_VRIK  // the sky work detour is rust/crates/cvr-render/src/view_reuse.rs
+        if (MH_CreateHook(skw, (void*)&cvr_reuse_sky_work, (void**)&g_orig_sky_work) == MH_OK &&
+#else
         if (MH_CreateHook(skw, (void*)&Detour_SkyWork, (void**)&g_orig_sky_work) == MH_OK &&
+#endif
             MH_EnableHook(skw) == MH_OK)
             log("[sky] sky work sub_1407F8714 hooked @%p (SkyReuseMode=%u)",
                 skw, CyberpunkVR_SkyReuseMode);
@@ -1399,12 +2013,14 @@ static void install_desc_ring_probe() {
                 "keeps the engine's HUD refusal", vf, (int)st);
         }
     }
+#endif
     // RTT view-create (mirror serial + RTT res) and post-color de-alias (flicker fix).
     // Detour_RTTViewCreate -> registered at the bottom of this file.
     // Detour_Resolve3D20 -> registered at the bottom of this file.
     g_desc_ring_probe_installed = true;
     log("[install] engine hooks installed");
 }
+#endif
 
 // prof_log_config moved to src/Stereo/Profiler.cpp, where the configuration it prints lives.
 
@@ -1413,8 +2029,11 @@ using namespace detail;
 
 // The engine's HUD composite constants, for the eye path in openxr_capture.cpp. Defined out here
 // because everything above lives in an anonymous namespace and so has internal linkage.
+#if !CVR_RUST_VRIK
 ColorBlit::HudParams CyberpunkVR_GetHudParams() { return hud_composite_params(); }
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_start.rs
 void sync_stereo_ensure_descriptor_probe() {
     patch_descriptor_heap_size();
     bool expected = false;
@@ -1470,11 +2089,16 @@ void sync_stereo_install_early_hooks() {
     // swapchain because a red4ext plugin cannot see Present any other way. The proxy hooks
     // Present directly and draws the panel itself (overlay/imgui_overlay.cpp, Stereo tab).
 }
+#endif
 
 
 } // namespace cvr
+#if !CVR_RUST_VRIK
 namespace cvr {
+#endif
+#if !CVR_RUST_VRIK
 namespace detail {
+#endif
 
 // ---- the first four detours to declare themselves ---------------------------------------------
 //
@@ -1488,7 +2112,13 @@ namespace detail {
 // or compute their target differently, and each needs a CVR_DETOUR_IF or a decision of its own --
 // converting them by pattern would have dropped the condition, which is the mistake this
 // restructure has already made once with PatchBuffer and does not intend to repeat.
+#if !CVR_RUST_VRIK   // the Rust build registers resolve_post_color.rs's from engine_detours.rs
 CVR_DETOUR("[flicker] post-color de-alias sub_140334810", RESOLVE_QUERY_RVA, Detour_Resolve3D20, g_orig_resolve3d20)
+#endif
 
+#if !CVR_RUST_VRIK
 }  // namespace detail
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace cvr
+#endif

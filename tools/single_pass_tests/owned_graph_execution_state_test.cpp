@@ -218,7 +218,7 @@ Fixture Make(bool bind=true){
         const uint64_t child=Children+uint64_t(slot)*0x100,control=Controls+uint64_t(slot)*0x100,vtable=Base+profile.vtable;
         Put(vtable,Base+profile.destructor);Put(vtable+8,Base+profile.work);
         if(slot==2 || slot==8){const bool late=slot==8;const uint64_t data=late?Late:Early;const uint32_t count=late?4:2;
-            stage::Header render{};Field(render,0,vtable);Field(render,24,Base+(late?0x1134C40:0x1D41BE0));
+            stage::Header render{};Field(render,0,vtable);Field(render,24,Base+(late?0x22749E0:0x2274AE0));
             Field(render,48,data);Field(render,56,count);Field(render,60,count);Put(child,render);
             for(uint32_t i=0;i<count;++i){stage::Stage row{};Field(row,8,i%2?17u:33u);row[12]=uint8_t(i%2?1:0);
                 Field(row,16,late?(i<2?9u:8u):7u);row[20]=uint8_t(i%2?0:2);Field(row,36,UINT32_MAX);Put(data+48*i,row);}

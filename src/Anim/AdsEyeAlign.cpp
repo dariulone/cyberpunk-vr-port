@@ -66,7 +66,7 @@
 #include <cmath>
 #include <cstdint>
 
-extern float* g_pSharedHands;
+extern "C" float* g_pSharedHands;   // Anim/VrikState.hpp: C linkage
 
 namespace cvr::anim {
 

@@ -34,8 +34,18 @@
 #include "Utils/LogThrottle.hpp"
 #include "Stereo/StereoInternal.hpp"
 
+#if !CVR_RUST_VRIK
 extern "C" int GetLaunchEyeSize(int* width, int* height);   // Core/VrCore.cpp
+#endif
 
+#if CVR_RUST_VRIK
+// THE SELECTION AND ITS WATCHER ARE RUST'S (rust/crates/cvr-render/src/vrcam_selection.rs); the globals they resolve
+// stay in src/Stereo/SyncStereo.cpp, and the init's two calls forward here.
+extern "C" {
+// The header's request cache, which the CET mod reads, after Rust wrote bridge/vrcam_enable.txt.
+// The VRCAM enable request: rust/crates/cvr-render/src/vrcam_selection.rs.
+}
+#else
 namespace cvr {
 namespace detail {
 
@@ -318,3 +328,4 @@ void vrcam_active_watcher() {
 
 }  // namespace detail
 }  // namespace cvr
+#endif

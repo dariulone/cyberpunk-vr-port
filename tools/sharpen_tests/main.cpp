@@ -1,3 +1,7 @@
+// CAS sharpening (include/Render/SharpenPass.hpp) on a WARP device with the debug layer: 30 draws recorded before any
+// execution (typeless/sRGB targets, in place and into another target, resized), checked against a scalar CAS reference.
+// "trace" prints a hash of every output byte instead, so the C++ build and the Rust build can be compared bit for bit
+// (cmake/ParityTrace.cmake).
 #include "Render/SharpenPass.hpp"
 #include "Render/CommandResources.hpp"
 #include <d3d12sdklayers.h>
@@ -13,7 +17,8 @@
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
-void Log(const char* fmt, ...) { va_list args; va_start(args, fmt); vprintf(fmt, args); va_end(args); }
+static bool g_trace = false;   // the trace prints only its hash (the Rust pass logs elsewhere)
+void Log(const char* fmt, ...) { if (g_trace) return; va_list args; va_start(args, fmt); vprintf(fmt, args); va_end(args); }
 void Check(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
 void Hr(HRESULT result) { Check(SUCCEEDED(result), "D3D12 call failed"); }
 void Transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
@@ -55,13 +60,17 @@ uint8_t Reference(const Image& image, int x, int y, int channel) {
     return uint8_t(std::lround(255 * std::clamp(center + 4 * image.amount * (cas - center), 0.0f, 1.0f)));
 }
 
-int main() try {
+int main(int argc, char** argv) try {
+    g_trace = argc > 1 && std::strcmp(argv[1], "trace") == 0;
+    // The debug layer (Windows' optional "Graphics Tools") validates every call when installed; without it the pixels
+    // are still checked.
     ComPtr<ID3D12Debug> debug;
-    Hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))); debug->EnableDebugLayer();
+    const bool validated = SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));
+    if (validated) debug->EnableDebugLayer();
     ComPtr<IDXGIFactory4> factory; Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
     ComPtr<IDXGIAdapter> adapter; Hr(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)));
     ComPtr<ID3D12Device> device; Hr(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
-    ComPtr<ID3D12InfoQueue> info; Hr(device.As(&info));
+    ComPtr<ID3D12InfoQueue> info; if (validated) Hr(device.As(&info));
     D3D12_COMMAND_QUEUE_DESC qdesc{}; qdesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     ComPtr<ID3D12CommandQueue> queue; Hr(device->CreateCommandQueue(&qdesc, IID_PPV_ARGS(&queue)));
     ComPtr<ID3D12Fence> fence; Hr(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
@@ -134,10 +143,12 @@ int main() try {
     const auto completed = WaitForSingleObject(event, 10000); CloseHandle(event); Check(completed == WAIT_OBJECT_0, "GPU timeout");
 
     unsigned changed = 0; int worstError = 0;
+    uint64_t hash = 1469598103934665603ull;
     for (const auto& image : images) {
         void* mapped{}; Hr(image.readback->Map(0, nullptr, &mapped));
         for (unsigned y = 0; y < image.height; ++y) for (unsigned x = 0; x < image.width; ++x) {
             const auto* pixel = static_cast<uint8_t*>(mapped) + y * image.footprint.Footprint.RowPitch + x * 4;
+            for (int k = 0; k < 4; ++k) { hash ^= pixel[k]; hash *= 1099511628211ull; }
             for (int channel = 0; channel < 3; ++channel) {
                 const auto expected = Reference(image, x, y, channel);
                 const int error = std::abs(int(pixel[channel]) - expected); worstError = std::max(worstError, error);
@@ -149,7 +160,7 @@ int main() try {
         image.readback->Unmap(0, nullptr);
     }
     Check(changed > 0, "CAS sharpening did not affect pixels");
-    for (UINT64 i = 0; i < info->GetNumStoredMessagesAllowedByRetrievalFilter(); ++i) {
+    for (UINT64 i = 0; info && i < info->GetNumStoredMessagesAllowedByRetrievalFilter(); ++i) {
         SIZE_T bytes{}; info->GetMessage(i, nullptr, &bytes); std::vector<uint8_t> storage(bytes);
         auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data()); Hr(info->GetMessage(i, message, &bytes));
         if (message->Severity <= D3D12_MESSAGE_SEVERITY_WARNING) {
@@ -157,6 +168,8 @@ int main() try {
         }
     }
     list.Reset(); cvr::gpu::CollectCommandResources();
-    std::cout << "PASS 30 queued draws, per-eye inputs/constants, resize/shutdown lifetime, typeless/sRGB views, CAS Sharpening 0/0.5/1, max byte error " << worstError << '\n';
+    if (g_trace) { std::printf("sharpen trace %016llx\n", static_cast<unsigned long long>(hash)); return 0; }
+    std::cout << "PASS 30 queued draws, per-eye inputs/constants, resize/shutdown lifetime, typeless/sRGB views, CAS Sharpening 0/0.5/1, max byte error " << worstError
+              << (validated ? ", debug layer clean" : ", no debug layer installed (not validated)") << '\n';
     return 0;
 } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

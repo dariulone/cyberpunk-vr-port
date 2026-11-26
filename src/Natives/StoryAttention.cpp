@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's natives; the Rust build's are in rust/crates/cvr-rig/src/vrik/story_attention.rs.
 #include "Natives/NativeFunctions.hpp"
 #include "Quest/StoryAttention.hpp"
 #include "Core/VrCoreShared.hpp"
@@ -28,3 +30,4 @@ void VRManualClueUpdate(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32_
     RED4ext::GetParameter(frame,&player);RED4ext::GetParameter(frame,&clue);frame->code++;
     const bool pressed=cvr::quest::UpdateManualClue(Key(player),Key(clue));if(out)*out=pressed ? 1:0;
 }
+#endif

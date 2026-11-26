@@ -15,6 +15,23 @@ struct CpuSlot {
     uint32_t parameter{},index{};
     bool operator==(const CpuSlot&)const=default;
 };
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/camera_binding.rs (tools/single_pass_tests/camera_binding_state_test runs its
+// cases against them in its Rust variant; the tracker's and scope's records stay here, mirrored there).
+struct BindingScope;
+using RestoreBinding=bool(*)(void*,Context,uint32_t,uint32_t);
+extern "C" {
+bool cvr_cb_resolve(ReadState,uint64_t,uint32_t,CpuSlot*,bool);
+bool cvr_cb_restore(ReadState,const Context*,BindingScope*,RestoreBinding,void*);
+bool cvr_cb_tracker(void*,uint32_t,ReadState,const Context*,uint32_t,uint32_t,BindingScope*);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool ResolveCameraSlotOnce(ReadState read,uint64_t state,uint32_t stage,CpuSlot& out){
+    static_assert(sizeof(Context)==24 && sizeof(CpuSlot)==40,"mirrored by camera_binding.rs");
+    return cvr_cb_resolve(read,state,stage,&out,false);
+}
+#else
 inline bool ResolveCameraSlotOnce(ReadState read,uint64_t state,uint32_t stage,CpuSlot& out){
     out={};
     if(!read || !state || state>UINT64_MAX-0x70 || stage>1 ||
@@ -30,13 +47,20 @@ inline bool ResolveCameraSlotOnce(ReadState read,uint64_t state,uint32_t stage,C
     out.address=out.table+uint64_t(out.index)*8;
     return read(out.address,&out.descriptor,8) && out.descriptor;
 }
+#endif
 // Layout is guarded by the complete native 0x336D3C code fingerprint. Re-read
 // the native shadow so a changed table/layout cannot supply a mixed snapshot.
+#if CVR_RUST_VRIK
+inline bool ResolveCameraSlot(ReadState read,uint64_t state,uint32_t stage,CpuSlot& out){
+    return cvr_cb_resolve(read,state,stage,&out,true);
+}
+#else
 inline bool ResolveCameraSlot(ReadState read,uint64_t state,uint32_t stage,CpuSlot& out){
     CpuSlot a,b;
     if(!ResolveCameraSlotOnce(read,state,stage,a) || !ResolveCameraSlotOnce(read,state,stage,b) || a!=b)return false;
     out=a;return true;
 }
+#endif
 struct Binding {
     uint32_t handle{};uint64_t serial{},descriptor{};
 };
@@ -47,6 +71,12 @@ struct BindingScope {
     uint32_t requested{},applied{},restored{},preserved{};
 };
 using RestoreBinding=bool(*)(void*,Context,uint32_t,uint32_t);
+#if CVR_RUST_VRIK
+inline bool RestoreScope(ReadState read,Context current,BindingScope& scope,RestoreBinding bind,void* user){
+    static_assert(sizeof(Binding)==24 && sizeof(BindingScope)==96,"mirrored by camera_binding.rs");
+    return cvr_cb_restore(read,&current,&scope,bind,user);
+}
+#else
 inline bool RestoreScope(ReadState read,Context current,BindingScope& scope,RestoreBinding bind,void* user){
     if(!scope.applied)return true;
     if(!current || current!=scope.context || !bind)return false;
@@ -62,11 +92,26 @@ inline bool RestoreScope(ReadState read,Context current,BindingScope& scope,Rest
     }
     return complete;
 }
+#endif
 class BindingTracker {
     Context context_;
     std::array<Binding,2> bindings_{};
     uint64_t serial_{};
 public:
+#if CVR_RUST_VRIK
+    // The members' layout is mirrored by camera_binding.rs (Tracker, 80 bytes).
+    void Clear(){cvr_cb_tracker(this,0,nullptr,nullptr,0,0,nullptr);}
+    void Observe(ReadState read,Context context,uint32_t handle,uint32_t stages){
+        static_assert(sizeof(Context)+sizeof(std::array<Binding,2>)+sizeof(uint64_t)==80,"mirrored by camera_binding.rs");
+        cvr_cb_tracker(this,1,read,&context,handle,stages,nullptr);
+    }
+    bool Capture(ReadState read,Context context,uint32_t stages,BindingScope& scope)const{
+        return cvr_cb_tracker(const_cast<BindingTracker*>(this),2,read,&context,0,stages,&scope);
+    }
+    bool Changed(const BindingScope& scope,uint32_t stage)const{
+        return cvr_cb_tracker(const_cast<BindingTracker*>(this),3,nullptr,nullptr,0,stage,const_cast<BindingScope*>(&scope));
+    }
+#else
     void Clear(){context_={};bindings_={};}
     void Observe(ReadState read,Context context,uint32_t handle,uint32_t stages){
         if(!(stages&3))return;
@@ -89,5 +134,6 @@ public:
     bool Changed(const BindingScope& scope,uint32_t stage)const{
         return stage>1 || context_!=scope.context || bindings_[stage].serial!=scope.original[stage].serial;
     }
+#endif
 };
 }

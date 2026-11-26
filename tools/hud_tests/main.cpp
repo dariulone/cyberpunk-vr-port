@@ -163,6 +163,32 @@ void GpuTest(bool leases, const std::string& quadCase = "") {
         snapshot->sprites.push_back(sprite);uploads.push_back(upload);
     }
     gpu.Submit();
+    if(quadCase=="gpu_idle_sources") {
+        for(unsigned mode=0;mode<3;++mode) {
+            const auto channel=cvr::hud::Channel::VehicleMinimap;
+            auto active=std::make_shared<cvr::hud::Snapshot>(*snapshot);
+            active->stamp=GetTickCount64();active->generation=mode+1;
+            std::weak_ptr<cvr::hud::Snapshot> sourceOwner=active;
+            ComPtr<ID3D12Fence> gate;Hr(gpu.device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)));
+            Hr(gpu.queue->Wait(gate.Get(),1));
+            cvr::hud::Publish(active,channel);cvr::hud::Capture(gpu.device.Get(),gpu.queue.Get(),channel);
+            const auto heldOutput=cvr::hud::Latest(channel);
+            auto inactive=mode==0 ? std::shared_ptr<cvr::hud::Snapshot>{} : std::make_shared<cvr::hud::Snapshot>();
+            if(inactive) {inactive->stamp=mode==1 ? GetTickCount64() : 0;inactive->emptyContent=mode==1;}
+            cvr::hud::Publish(inactive,channel);active.reset();
+            cvr::hud::Capture(gpu.device.Get(),gpu.queue.Get(),channel);
+            const bool keptWhilePending=!sourceOwner.expired();
+            // Unblock before assertions: a failed test must not leave GPU work waiting.
+            Hr(gate->Signal(1));gpu.Wait();
+            cvr::hud::Capture(gpu.device.Get(),gpu.queue.Get(),channel);
+            Check(keptWhilePending,"inactive channel released source textures before GPU completion");
+            Check(sourceOwner.expired(),"inactive channel retained completed native source textures until slot reuse");
+            Check(heldOutput && heldOutput->canvas && heldOutput->canvas->GetDesc().Width==128,
+                "source retirement revoked an XR consumer's output canvas");
+            cvr::hud::Shutdown(channel);
+        }
+        testHudConstants.Reset();testFrameConstants.Reset();return;
+    }
     std::vector<std::shared_ptr<cvr::hud::Frame>> held;
     for(unsigned pass=0;pass<(leases?5u:1u);++pass) {
         auto next=std::make_shared<cvr::hud::Snapshot>(*snapshot);next->stamp=GetTickCount64();next->generation=pass+1;
@@ -578,7 +604,7 @@ int main(int argc,char** argv) try {
         FILE* file=std::tmpfile();Check(file!=nullptr,"temp file");cvr::hud::SaveLayoutSettings(file,layout);rewind(file);
         cvr::hud::LayoutSettings restored{};char line[160];while(std::fgets(line,sizeof(line),file))cvr::hud::ParseLayoutSetting(line,restored);fclose(file);
         Check(restored[index].x==12 && restored[index].opacity==.4f,"layout save/reload lost values");
-    } else if(name=="gpu_style" || name=="gpu_completed_source" || name=="gpu_windshield") { GpuTest(false,name); }
+    } else if(name=="gpu_style" || name=="gpu_completed_source" || name=="gpu_windshield" || name=="gpu_idle_sources") { GpuTest(false,name); }
     else if(name.rfind("gpu_quad_",0)==0) { GpuTest(false,name); }
     else if(name=="gpu_sprites" || name=="gpu_leases") { GpuTest(name=="gpu_leases"); }
     else if(name=="delayed_catchup") {

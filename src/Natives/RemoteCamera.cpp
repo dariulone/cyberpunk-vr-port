@@ -26,14 +26,29 @@
 #include "Camera/CameraState.hpp"    // g_remoteCamOn, g_remoteCamPosFP
 #include "Core/VrCoreShared.hpp"      // Log
 
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int CyberpunkVR_BdFovWrite;
 extern "C" __declspec(dllexport) extern int CyberpunkVR_BdHeadWrite;
+#endif
 // DEFINED HERE, not merely declared. It used to live beside the second eye's HUD capture, which is
 // render code and has gone back to 0.1.5 with the rest of it. This is the only consumer left, and
 // the toggle belongs to the braindance camera rather than to the stereo path.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_HudInBraindance = 0;
+#endif
 #include "Natives/NativeFunctions.hpp"
 #include "Utils/LogThrottle.hpp"   // g_verboseLog: the launcher's DEBUG box
+
+#if CVR_RUST_VRIK
+// The natives and the braindance clock are rust/crates/cvr-rig/src/vrik/remote_camera.rs. The camera state stays here
+// (src/Core/VrCore.cpp): the gates of C++ linkage by address, the releases as C services, InBraindance forwarded.
+extern "C" {
+// cvr_cpp_remote_camera_state: rust/crates/cvr-render/src/xr_manager_services.rs.
+// The lens, braindance camera, fast patch and device camera releases: rust/crates/cvr-render/src/cpp_services.rs.
+}
+#else
 
 // WHERE THE LIVE PLAYER'S CAMERA IS. A braindance swaps the player for `braindance_replacer.ent`, a
 // PlayerPuppet carrying its own gameFPPCameraComponent named `camera`, so two live objects answer to the
@@ -370,3 +385,4 @@ void VRRemoteCamera(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
     if (g_lensComp.load(std::memory_order_relaxed) == 0) PatchFastDisarm();
     if (aOut) *aOut = 1;
 }
+#endif

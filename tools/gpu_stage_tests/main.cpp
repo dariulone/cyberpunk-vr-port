@@ -7,14 +7,41 @@
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 using Microsoft::WRL::ComPtr;
 using namespace cvr::gpu;
+#if CVR_RUST_VRIK
+// The plugin defines these exports in Rust and hands them to the profile as it loads
+// (rust/crates/cvr-render/src/export_attach.rs); the test stands in for both, with the C++ definitions' values.
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GpuStageRequest{0};
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GpuStageReportSeq{0};
+extern "C" __declspec(dllexport) char CyberpunkVR_GpuStageReport[2048] = "{\"status\":\"idle\"}";
+extern "C" void cvr_gpu_stage_attach(std::atomic<uint32_t>*, std::atomic<uint32_t>*, char*, size_t);
+#else
 extern "C" std::atomic<uint32_t> CyberpunkVR_GpuStageRequest;
 extern "C" char CyberpunkVR_GpuStageReport[2048];
+#endif
 void Check(bool value, const char* text) { if (!value) throw std::runtime_error(text); }
 void Hr(HRESULT value) { Check(SUCCEEDED(value), "D3D12 call failed"); }
-int main() try {
+// "trace": the report with its times blanked, so the C++ and the Rust build compare (cmake/ParityTrace.cmake).
+static std::string Untimed(const char* report) {
+    std::string out;
+    for (const char* p = report; *p;) {
+        const char* key = nullptr;
+        for (const char* k : {"\"mean_us\":", "\"max_us\":"}) if (!std::strncmp(p, k, std::strlen(k))) key = k;
+        if (!key) { out += *p++; continue; }
+        out += key; out += '#'; p += std::strlen(key);
+        while (*p && *p != ',' && *p != '}') ++p;
+    }
+    return out;
+}
+int main(int argc, char** argv) try {
+#if CVR_RUST_VRIK
+    cvr_gpu_stage_attach(&CyberpunkVR_GpuStageRequest, &CyberpunkVR_GpuStageReportSeq, CyberpunkVR_GpuStageReport,
+                         sizeof(CyberpunkVR_GpuStageReport));
+#endif
+    const bool trace = argc > 1 && std::strcmp(argv[1], "trace") == 0;
     Check(!profile::Begin(reinterpret_cast<ID3D12GraphicsCommandList*>(1)), "disabled path touched D3D");
     ComPtr<IDXGIFactory4> factory; Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
     ComPtr<IDXGIAdapter> adapter; Hr(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)));
@@ -59,6 +86,7 @@ int main() try {
     Check(std::strstr(CyberpunkVR_GpuStageReport,"\"name\":\"CaptureMain\",\"count\":1"),"main timing missing");
     Check(std::strstr(CyberpunkVR_GpuStageReport,"\"name\":\"CaptureSecond\",\"count\":1"),"second timing missing");
     Check(std::strstr(CyberpunkVR_GpuStageReport,"\"name\":\"SubmitColor\",\"count\":0"),"aborted query was counted");
+    if (trace) { std::cout<<"gpu_stage trace "<<Untimed(CyberpunkVR_GpuStageReport)<<'\n'; return 0; }
     std::cout<<"PASS disabled path, bounded capture, nonblocking poll, GPU-delayed reset, cancellation and destruction\n";
     return 0;
 } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}

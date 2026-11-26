@@ -1,42 +1,5 @@
-// CyberpunkVRPort — VR motion melee. Treat the weapon's blade as a real collider: a segment from
-// the grip to the tip, with a radius "hit zone" around it. Every frame the CET weapon mod passes the
-// current blade segment; we find NPCs whose body is within that radius of the segment and fire the
-// game's OWN native melee Attack_GameEffect precisely on the touched enemy — native hit REACTIONS,
-// material impact VFX (blood), SFX, impulse and native weapon damage. Enhanced
-// bonuses are separate multipliers on that native calculation.
-//
-// Called from CET each frame while swinging a melee weapon:
-//   Game.GetPlayer():VRMeleeBladeHit(weapon, bladeStart, bladeEnd, hitRadius, strong)
-
+// Controller melee samples the finite, world-space weapon segment.
 module CyberpunkVRPort.Melee
-
-// Distance from point p to segment [a,b] (component-wise; no Vector4-operator assumptions).
-func VRMeleeDistPointSeg(p: Vector4, a: Vector4, b: Vector4) -> Float {
-  let abx = b.X - a.X;  let aby = b.Y - a.Y;  let abz = b.Z - a.Z;
-  let apx = p.X - a.X;  let apy = p.Y - a.Y;  let apz = p.Z - a.Z;
-  let len2 = abx*abx + aby*aby + abz*abz;
-  let t = 0.0;
-  if len2 > 0.0001 { t = (apx*abx + apy*aby + apz*abz) / len2; };
-  if t < 0.0 { t = 0.0; };
-  if t > 1.0 { t = 1.0; };
-  let cx = a.X + abx*t;  let cy = a.Y + aby*t;  let cz = a.Z + abz*t;
-  let dx = p.X - cx;  let dy = p.Y - cy;  let dz = p.Z - cz;
-  return SqrtF(dx*dx + dy*dy + dz*dz);
-}
-
-// Min distance from the enemy body axis (sampled at 5 heights from feet to head) to the blade segment.
-// More samples = the blade isn't given a "free pass" through the gaps between samples on a tall body,
-// which matters when the hit radius is small (so the detection is precise: "blade actually crossed the
-// body silhouette", not "blade waved nearby").
-func VRMeleeEnemyDist(ent: wref<GameObject>, a: Vector4, b: Vector4) -> Float {
-  let base = ent.GetWorldPosition();
-  let d0 = VRMeleeDistPointSeg(Vector4(base.X, base.Y, base.Z + 0.25, 1.0), a, b);  // shin
-  let d1 = VRMeleeDistPointSeg(Vector4(base.X, base.Y, base.Z + 0.7,  1.0), a, b);  // hip
-  let d2 = VRMeleeDistPointSeg(Vector4(base.X, base.Y, base.Z + 1.05, 1.0), a, b);  // chest
-  let d3 = VRMeleeDistPointSeg(Vector4(base.X, base.Y, base.Z + 1.4,  1.0), a, b);  // neck
-  let d4 = VRMeleeDistPointSeg(Vector4(base.X, base.Y, base.Z + 1.65, 1.0), a, b);  // head
-  return MinF(MinF(d0, d1), MinF(d2, MinF(d3, d4)));
-}
 
 // Use a native melee record, never a ranged/quickhack effect from GetAttacks().
 @addMethod(WeaponObject)
@@ -55,15 +18,12 @@ public func VRGetMeleeAttack(opt strong: Bool) -> ref<Attack_GameEffect> {
   return null;
 }
 
-// The weapon's melee reach, straight from the game's attack record (TweakDB Range() — the same value
-// the flat game feeds the melee game-effect). No hardcoded blade length.
+// The Impact marker gives clubs and blades their physical reach. Fists
+// use the knuckle segment even when their attack record includes a lunge.
 @addMethod(WeaponObject)
 public func VRMeleeReach() -> Float {
-  let a = this.VRGetMeleeAttack();
-  if !IsDefined(a) { return 1.5; };
-  let r = a.GetRecord().Range();
-  if r < 0.3 { return 1.5; };
-  return r;
+  if WeaponObject.IsOfType(this.GetItemID(), gamedataItemType.Wea_Fists) { return 0.10; };
+  return Vector4.Length(this.VRBladeLocalEnd());
 }
 
 @addMethod(WeaponObject)
@@ -71,90 +31,16 @@ public func VRMeleeDirection() -> Vector4 {
   if WeaponObject.IsOfType(this.GetItemID(), gamedataItemType.Wea_Fists) {
     return this.GetWorldForward();
   };
-  // Native handheld melee assets extend along local +Z. For example katana's
-  // Impact/reflected slots are at Z=.75/.46/.25 and the bat's impact is Z=.5.
-  // Entity +Y is the firearm forward axis and can point below the visible blade.
-  return WorldTransform.GetUp(this.GetWorldTransform());
+  return Vector4.Normalize(Quaternion.Transform(this.GetWorldOrientation(), this.VRBladeLocalEnd()));
 }
 
 @addMethod(PlayerPuppet)
-public func VRMeleeBladeHit(weapon: wref<WeaponObject>, bladeStart: Vector4, bladeDir: Vector4, hitRadius: Float, strong: Bool, opt passive: Bool) -> Int32 {
-  if !IsDefined(weapon) { return 0; };
-  // Holster guard: while a melee holster was just requested, reaching the hand to the holster zone is
-  // motion that would trip the swing threshold and fire an attack — which leaves melee in an attack/busy
-  // state and makes the UnequipWeapon get dropped. Suppress swings for the holster window so the unequip
-  // lands. (This is why script-unequip "didn't work" for melee but the keyboard B does: B isn't a swing.)
-  if this.VRHolsterIntentActive(1.0) { return 0; };
-  let meleeAttack = weapon.VRGetMeleeAttack();
-  if !IsDefined(meleeAttack) { return 0; };
-
-  // blade segment = grip + direction * blade length. The game's attack Range() includes a lunge
-  // (2-3 m) which makes the segment long enough to clip NEIGHBOURING NPCs ("I cut one, another gets
-  // hit"); cap to ~physical blade length so only what the blade actually touches is hit.
-  let reach = weapon.VRMeleeReach();
-  if reach > 1.25 { reach = 1.25; };
-  let dir = Vector4.Normalize(bladeDir);
-  let bladeEnd = Vector4(bladeStart.X + dir.X*reach, bladeStart.Y + dir.Y*reach, bladeStart.Z + dir.Z*reach, 1.0);
-
-  return this.VRMeleeSweepHit(weapon, bladeStart, bladeEnd, bladeStart, bladeEnd, hitRadius, passive);
-}
-
-@addMethod(PlayerPuppet)
-public func VRMeleeSweepHit(weapon: wref<WeaponObject>, bladeStart: Vector4, bladeEnd: Vector4, previousStart: Vector4, previousEnd: Vector4, hitRadius: Float, passive: Bool) -> Int32 {
-  let steps: Int32;
-  let step: Int32;
-  let alpha: Float;
-  let a: Vector4;
-  let b: Vector4;
-  let closest: Vector4;
-  let contact: Vector4;
-  let base: Vector4;
-  let checked: array<EntityID>;
+public func VRMeleeSweepHit(weapon: wref<WeaponObject>, bladeStart: Vector4, bladeEnd: Vector4, previousStart: Vector4, previousEnd: Vector4, hitRadius: Float, passive: Bool, opt trackedMotion: Vector4, opt beginOnContact: Bool, opt strong: Bool, opt speed: Float) -> Int32 {
   if !IsDefined(weapon) || this.VRHolsterIntentActive(1.00) { return 0; };
-  steps = Clamp(CeilF(MaxF(Vector4.Distance(bladeStart, previousStart), Vector4.Distance(bladeEnd, previousEnd)) / 0.04), 1, 16);
-  // Candidates around the entire previous-to-current blade sweep.
-  let q: TargetSearchQuery;
-  q.testedSet = TargetingSet.Complete;
-  q.searchFilter = TSF_NPC();
-  q.maxDistance = MaxF(Vector4.Distance(this.GetWorldPosition(), bladeEnd), Vector4.Distance(this.GetWorldPosition(), previousEnd)) + hitRadius + 1.80;
-  q.filterObjectByDistance = true;
-  q.ignoreInstigator = true;
-  let parts: array<TS_TargetPartInfo>;
-  GameInstance.GetTargetingSystem(this.GetGame()).GetTargetParts(this, q, parts);
-
-  // closest enemy whose body is within hitRadius of the blade segment
-  let bestEnemy: wref<GameObject>;
-  let bestPos: Vector4;
-  let bestDist = 99999.0;
-  let i = 0;
-  while i < ArraySize(parts) {
-    let comp = TS_TargetPartInfo.GetComponent(parts[i]);
-    if IsDefined(comp) {
-      let ent = comp.GetEntity() as GameObject;
-      if IsDefined(ent) && !ent.IsDead() && !ArrayContains(checked, ent.GetEntityID()) {
-        ArrayPush(checked, ent.GetEntityID());
-        base = ent.GetWorldPosition();
-        step = 0;
-        while step <= steps {
-          alpha = Cast<Float>(step) / Cast<Float>(steps);
-          a = previousStart + (bladeStart - previousStart) * alpha;
-          b = previousEnd + (bladeEnd - previousEnd) * alpha;
-          // Continuous body axis avoids the gaps between five fixed heights.
-          closest = VrCyberwareContactMath.ClosestBody(a, b, base);
-          if closest.W <= hitRadius && closest.W < bestDist {
-            bestDist = closest.W;
-            bestEnemy = ent;
-            contact = closest; contact.W = 1.00;
-            bestPos = Vector4(base.X, base.Y, ClampF(closest.Z, base.Z + 0.25, base.Z + 1.65), 1.00);
-          };
-          step += 1;
-        };
-      }
-    }
-    i += 1;
-  }
-  // Deduplicate within a deliberate stroke; native damage/bonuses stay intact.
-  return this.VRCyberwareOrdinaryContact(weapon, bestEnemy, contact, bestPos, passive);
+  if weapon.VRBladeKind() > 0 {
+    return this.VRBladeSweep(weapon, previousStart, previousEnd, bladeStart, bladeEnd, passive,beginOnContact,trackedMotion,strong,speed);
+  };
+  return this.VRCyberwareContacts(weapon,1,[bladeStart,bladeEnd],[previousStart,previousEnd],hitRadius,passive,beginOnContact,strong,speed);
 }
 
 // SWING WHOOSH (VR). In the flat game the whoosh rides on the attack ANIMATION's audio events,

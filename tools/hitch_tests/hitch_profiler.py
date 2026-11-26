@@ -14,7 +14,6 @@ sys.path[:0] = [r'C:\Users\dariulone\Desktop\CyberpunkVRPort\tools\single_pass_t
 import thread_stack_sampler as ts
 from luajit_reader import Reader
 from thread_cpu_sample import threads, sample, measure
-from live_symbols import resolve
 
 GAME = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
 DLL = GAME / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll'
@@ -32,6 +31,7 @@ p.add_argument('--out', type=Path, required=True)
 p.add_argument('--gt-rate', type=float, default=100)
 p.add_argument('--worker-rate', type=float, default=150)
 p.add_argument('--cycle-ms', type=float, default=4)
+p.add_argument('--symbol-path', help='Additional directories containing exactly matching PDBs (semicolon-separated)')
 a = p.parse_args()
 
 print('pre-scan threads...', flush=True)
@@ -40,13 +40,11 @@ names = {r['tid']: r['name'] for r in scan['threads']}
 tracked = [r['tid'] for r in scan['threads'] if r['percentOfCore'] > 0.5 or r['name'] in ('GameThread',)]
 gt = next(t for t, n in names.items() if n == 'GameThread')
 workers = [t for t, n in names.items() if n.startswith('redDispatcher')]
-timing = int(resolve(a.pid, DLL, ['CyberpunkVR_PresentTiming'])['CyberpunkVR_PresentTiming'], 16)
-
 process = k.OpenProcess(0x0400 | 0x0010, False, a.pid)
-d.SymSetOptions(0x2 | 0x4 | 0x10)
-if not d.SymInitializeW(process, None, True):
-    raise c.WinError(c.get_last_error())
-mods = ts.modules(process)
+mods = ts.initialize_symbols(process, a.symbol_path)
+for warning in ts.initialize_symbols.state['provenanceWarnings']:
+    print('[symbols] ' + warning, file=sys.stderr, flush=True)
+timing = ts.resolve_named_symbol(process, DLL.name, 'CyberpunkVR_PresentTiming')
 # LuaJIT lives in CET and, for the port's own mods, in the plugin's Lua host
 lua_mods = [(m[0], m[1]) for m in mods if m[2].lower() in ('cyber_engine_tweaks.asi', 'cyberpunkvr_stereo.dll', 'cyberpunkvrport.dll')]
 lua_readers = {start: Reader(process) for start, _ in lua_mods}
@@ -169,6 +167,7 @@ raw = dict(pid=a.pid, seconds=a.seconds, freq=freq, perfT0=t0, frames=frames,
            gt=[(t, s, ch) for (t, _, ch), s in zip(gts, gt_named)],
            workers=[(t, tid, s) for (t, tid, _), s in zip(wks, wk_named)],
            tracked=[dict(tid=t, name=names.get(t, ''), start=starts.get(t, '')) for t in tracked],
-           cycles=cyc)
+           cycles=cyc, rawGt=gts, rawWorkers=wks, rawStartAddresses=start_addr,
+           modules=mods, modulePaths=ts.modules.paths, symbolSession=ts.initialize_symbols.state)
 a.out.write_text(json.dumps(raw), encoding='utf-8')
 print('frames %d  gt samples %d  worker samples %d  cycle snaps %d -> %s' % (len(frames), len(gts), len(wks), len(cyc), a.out))

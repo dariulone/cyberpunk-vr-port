@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#if CVR_RUST_BODY
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::body {
 // Prediction operates only on an already accepted three-device yaw. It never
@@ -14,6 +17,13 @@ class BodyYawPrediction {
     unsigned count{};
     static float Wrap(float a){return std::remainder(a,6.28318530718f);}
 public:
+#if CVR_RUST_BODY
+    // rust/crates/cvr-body/src/prediction.rs; this class's fields are its layout.
+    void Reset(float seed=0){cvr_body_yaw_prediction_reset(this,seed);}
+    void Suspend(){cvr_body_yaw_prediction_suspend(this);}
+    float Update(float measured,float dt,bool accepted){return cvr_body_yaw_prediction_update(this,measured,dt,accepted);}
+    float Sample(float ageSeconds) const {return cvr_body_yaw_prediction_sample(this,ageSeconds);}
+#else
     void Reset(float seed=0){*this={};previous=smooth=value=seed;}
     void Suspend(){initialized=false;rate=previousRate=interval=sinceChange=0;count=0;moving=false;smooth=value;}
     float Update(float measured,float dt,bool accepted){
@@ -84,7 +94,11 @@ public:
         const float horizon=std::min({ageSeconds,interval,.015f});
         return Wrap(value+std::clamp(rate*horizon,-.052359878f,.052359878f));
     }
+#endif
     float Value() const{return value;}
     float Rate() const{return rate;}
 };
+#if CVR_RUST_BODY
+static_assert(sizeof(BodyYawPrediction) == 84);
+#endif
 }

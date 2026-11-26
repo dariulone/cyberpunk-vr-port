@@ -20,13 +20,15 @@
 #include <chrono>
 #include <algorithm>
 
+#if CVR_RUST_VRIK
+#else
 void OpenXRManager::RotateBaseYaw(float radians) {
     // Rotate the recenter base about vertical (XR +Y) so the HMD's base-relative yaw
     // shifts by -radians. Called by the dxgi body-realign logic together with an equal
     // heading injection; the pair leaves the rendered view and the HMD-local hand
     // poses stationary while the body turns underneath.
     if (radians == 0.0f) return;
-    std::lock_guard<std::mutex> lock(m_renderPoseMutex);
+    std::lock_guard lock(m_renderPoseMutex);
     if (!m_basePoseSet) return;
     const float h = radians * 0.5f;
     const XrQuaternionf ry{0.0f, sinf(h), 0.0f, cosf(h)};
@@ -38,7 +40,11 @@ void OpenXRManager::RotateBaseYaw(float radians) {
     }
     m_basePose.orientation = q;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The recenter request and the external reset's gate: rust/crates/cvr-xr/src/tracking.rs and published.rs.
+#else
 void OpenXRManager::RequestRecenter() {
     m_recenterRequested.store(true, std::memory_order_relaxed);
 }
@@ -53,6 +59,7 @@ void OpenXRManager::EndExternalPoseReset() {
     m_externalPoseReset.End();
     Log("OpenXRManager: runtime Reset View completed; rebase before publishing another pose.\n");
 }
+#endif
 
 // ==== AUTO-CALIBRATION ====
 //
@@ -67,6 +74,13 @@ void OpenXRManager::EndExternalPoseReset() {
 //   * shoulder half-width  ~= 0.135 * armSpan  (from human anthropometry tables)
 //   * HMD -> shoulder backward depth ~= 0.04 * armSpan (eyes are ahead of neck)
 //   * arm length is measured directly from calibrated shoulder to controller/gizmo wrist
+#if CVR_RUST_VRIK
+// The T-pose, the height and the file: rust/crates/cvr-xr/src/calibration.rs.
+static_assert(offsetof(CvrXrCalibrationShared, stageSpace) == 144 && sizeof(CvrXrCalibrationShared) == 160,
+              "mirrored by CalibrationShared in rust/crates/cvr-xr/src/calibration.rs");
+extern "C" {
+}
+#else
 void OpenXRManager::StartAutoCalibration(float secs) {
     m_calibSeconds.store(secs, std::memory_order_relaxed);
     m_calibProgress.store(0.0f, std::memory_order_relaxed);
@@ -147,7 +161,7 @@ void OpenXRManager::TickAutoCalibration() {
 
     // Sample current frame (under hand-mutex for atomicity with the frame loop writer).
     {
-        std::lock_guard<std::mutex> lock(m_handMutex);
+        std::lock_guard lock(m_handMutex);
         if (m_hands[0].valid && m_hands[1].valid) {
             float dx = m_hands[1].posX - m_hands[0].posX;
             float dy = m_hands[1].posY - m_hands[0].posY;
@@ -313,11 +327,16 @@ void OpenXRManager::ApplyUserHeight(float meters) {
         height, arm, 2.0f * half, drop);
 }
 
+#endif
+
 // In the plugin's config folder (Core/Paths.hpp).
+#if !CVR_RUST_VRIK   // unused by the Rust build
 static void GetCalibFilePath(char* out, size_t outSize) {
     _snprintf_s(out, outSize, _TRUNCATE, "%s", cvr::paths::FileA(cvr::paths::Folder::Config, "vrik_calibration.ini").c_str());
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void OpenXRManager::GetCameraOffset(float* out) const {
     cvr::camera::AnchorVector mount{};
     cvr::camera::ReadNeckCameraMount(&mount);
@@ -325,7 +344,9 @@ void OpenXRManager::GetCameraOffset(float* out) const {
     out[1]=mount.y+m_camBakeOffset[1].load(std::memory_order_relaxed);
     out[2]=mount.z+m_camBakeOffset[2].load(std::memory_order_relaxed);
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void OpenXRManager::BakeCameraOffset() {
     // Reset to the rig's neutral neck mount, never sample an animated stance.
     ClearCameraOffset();
@@ -335,7 +356,10 @@ void OpenXRManager::BakeCameraOffset() {
     SaveCalibrationToFile();
     Log("Camera mount reset: neutral neck + 15cm forward, reference eyes + 10cm up.\n");
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 bool OpenXRManager::SaveCalibrationToFile() {
     char path[MAX_PATH];
     GetCalibFilePath(path, MAX_PATH);
@@ -486,3 +510,4 @@ bool OpenXRManager::LoadCalibrationFromFile() {
     Log("Calibration loaded <- %s\n", path);
     return true;
 }
+#endif

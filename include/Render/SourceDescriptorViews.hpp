@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include "Render/StereoDescriptorStore.hpp"
 #include <bit>
 #include <climits>
@@ -110,6 +111,25 @@ inline bool ComparisonWord(uint64_t value){
     return value<=mask;
 }
 }
+#if CVR_RUST_VRIK
+// The decoders: rust/crates/cvr-render/src/descriptor_views.rs (tools/single_pass_tests/source_descriptor_views_test
+// runs its cases against them in its Rust variant). Failure leaves output untouched.
+static_assert(sizeof(ResourceMetadata)==72 && sizeof(CbvResult)==32 && sizeof(SrvResult)==128 && offsetof(SrvResult,metadata)==56 &&
+    sizeof(UavResult)==64 && sizeof(SamplerResult)==52,"mirrored by descriptor_views.rs");
+extern "C" {
+bool cvr_dv_decode_cbv(const descriptors::Value*,CbvResult*);
+bool cvr_dv_decode_srv(const descriptors::Value*,SrvResult*,const uint64_t*);
+bool cvr_dv_decode_uav(const descriptors::Value*,UavResult*);
+bool cvr_dv_decode_sampler(const descriptors::Value*,SamplerResult*);
+}
+inline bool DecodeCbv(const descriptors::Value& value,CbvResult& output){return cvr_dv_decode_cbv(&value,&output);}
+inline bool DecodeSrv(const descriptors::Value& value,SrvResult& output,
+    const AccelerationStructureAddressCertificate* acceleration=nullptr){
+    return cvr_dv_decode_srv(&value,&output,acceleration?&acceleration->location:nullptr);
+}
+inline bool DecodeUav(const descriptors::Value& value,UavResult& output){return cvr_dv_decode_uav(&value,&output);}
+inline bool DecodeSampler(const descriptors::Value& value,SamplerResult& output){return cvr_dv_decode_sampler(&value,&output);}
+#else
 // A zero kind includes untracked/null CBV pDesc calls and is always unknown.
 // Failure leaves output untouched. These decoders make no runtime/API calls.
 inline bool DecodeCbv(const descriptors::Value& value,CbvResult& output){
@@ -222,4 +242,5 @@ inline bool DecodeSampler(const descriptors::Value& value,SamplerResult& output)
         for(const auto component:view.BorderColor)if(!(component>=0 && component<=1))return false;
     output=result;return true;
 }
+#endif
 }

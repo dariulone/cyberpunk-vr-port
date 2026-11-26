@@ -11,6 +11,16 @@ import statistics
 import sys
 import time
 
+
+def _port(game):
+    """The port's folder: CVR_PORT_DIR, at the game's root with its own loader, else RED4ext's plugin folder."""
+    import os
+    from pathlib import Path as _P
+    if os.environ.get('CVR_PORT_DIR'):
+        return _P(os.environ['CVR_PORT_DIR'])
+    root = _P(game) / 'cyberpunkvrport'
+    return root if (root / 'cyberpunkvrport.dll').exists() else _P(game) / 'red4ext/plugins/cyberpunkvrport'
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path[:0] = [str(ROOT / 'tools/quickboot_tests'), str(ROOT / 'tools/roomscale_tests'),
@@ -115,7 +125,7 @@ def main():
     reader = Reader(pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
     probe = cost.LiveProbe(reader, symbols, pid, check)
     original = probe.read32(args.control)
-    ini = game / 'red4ext/plugins/cyberpunkvrport/config/vrport.ini'
+    ini = _port(game)/'config/vrport.ini'
     original_ini = ini.read_bytes()
     overlay = next(line for line in original_ini.splitlines() if line.startswith(b'xr_framegen_overlay='))
     modified = original_ini.replace(overlay, b'xr_framegen_overlay=1', 1)

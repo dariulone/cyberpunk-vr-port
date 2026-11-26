@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's natives; the Rust build's are in rust/crates/cvr-rig/src/vrik/swimming_input.rs.
 #include "Natives/NativeFunctions.hpp"
 #include "Hooks/SwimmingInput.hpp"
 #include <RED4ext/RED4ext.hpp>
@@ -19,3 +21,4 @@ void GetVRSwimmingDebug(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,float*
     int32_t index=0;RED4ext::GetParameter(frame,&index);frame->code++;
     if(out)*out=cvr::swimming::DebugValue(index);
 }
+#endif

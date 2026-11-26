@@ -6,6 +6,34 @@
 #include <map>
 #include <set>
 
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's pass is rust/crates/cvr-render/src/constant_bank.rs'
+#if CVR_RUST_VRIK
+// The draw and root checks: rust/crates/cvr-render/src/geometry_pass_checks.rs (a ResourceUse is 24 bytes, a DrawRecord 1096).
+extern "C" bool cvr_sgp_target(const D3D12_RESOURCE_DESC*,int32_t,bool,UINT64*,UINT*);
+extern "C" bool cvr_sgp_view(const void*,UINT64,UINT);
+extern "C" bool cvr_sgp_locate(const D3D12_ROOT_SIGNATURE_DESC1*,UINT,const void*,UINT*,UINT*,const D3D12_DESCRIPTOR_RANGE1**);
+// The eye state comparison: rust/crates/cvr-render/src/geometry_pass_state.rs (a Rate is 32 bytes).
+extern "C" uint32_t cvr_sgp_state_differences(uint64_t,uint64_t,uint64_t,uint64_t,const void*,const void*,int32_t,int32_t,uint32_t,uint32_t,
+    const float*,const float*);
+// The draw admission bits: rust/crates/cvr-render/src/geometry_pass_admission.rs.
+struct RustGeometryAdmission {bool rebaseSafe,fixedRaster;uint32_t sampleCount,sampleQuality;int32_t topologyType;uint32_t renderTargets,colors;
+    bool hasDepth,depthFormat,originalMatches;int32_t topology;uint32_t differences;bool pixelShader;};
+static_assert(sizeof(RustGeometryAdmission)==40,"mirrored by geometry_pass_admission.rs");
+extern "C" uint32_t cvr_sgp_validation_bits(const RustGeometryAdmission*);
+// The source draw admission: rust/crates/cvr-render/src/geometry_pass_sources.rs.
+extern "C" bool cvr_sgp_source_admitted(const void*,const void*,int32_t,uint32_t,const float*,bool,uint32_t,uint32_t,int32_t,uint32_t);
+// The source scopes: rust/crates/cvr-render/src/geometry_pass_scope.rs (a Scope is 48 bytes).
+extern "C" bool cvr_sgp_scope(uint32_t,const void*,uint64_t,uint64_t,uint32_t);
+// The coverage: rust/crates/cvr-render/src/geometry_pass_coverage.rs (an input is 304 bytes).
+extern "C" bool cvr_sgp_coverage(const void*,bool*);
+// The pass's target views and recording state: rust/crates/cvr-render/src/geometry_pass_commands.rs (the rate mirrored).
+struct RustPassState {cvr::stereo::scene_state::Bindings::Rate rate;ID3D12Resource* image;bool setImage,setMask;int32_t topology;uint32_t stencil;
+    float blend[4];D3D12_VIEWPORT viewport;D3D12_RECT scissor;uint32_t mask;};
+static_assert(sizeof(RustPassState)==112,"mirrored by geometry_pass_commands.rs");
+extern "C" HRESULT cvr_sgpa_views(ID3D12Device*,ID3D12Resource* const*,const int32_t*,uint32_t,ID3D12Resource*,int32_t,void**,UINT*,void**);
+extern "C" void cvr_sgpa_begin(ID3D12GraphicsCommandList*,ID3D12GraphicsCommandList5*,ID3D12DescriptorHeap*,uint32_t,ID3D12DescriptorHeap*);
+extern "C" void cvr_sgpa_state(ID3D12GraphicsCommandList*,ID3D12GraphicsCommandList5*,ID3D12GraphicsCommandList1*,const RustPassState*);
+#endif
 namespace cvr::stereo {
 using Microsoft::WRL::ComPtr;
 struct StereoGeometryPass::Storage final: IUnknown {
@@ -32,29 +60,48 @@ bool SameDevice(ID3D12Device* device,ID3D12DeviceChild* child) {
     if(!child)return false;ComPtr<ID3D12Device> actual;return SUCCEEDED(child->GetDevice(IID_PPV_ARGS(&actual))) && actual.Get()==device;
 }
 UINT StateDifferences(const scene_state::DrawState& a,const scene_state::DrawState& b) {
+#if CVR_RUST_VRIK
+    return cvr_sgp_state_differences(reinterpret_cast<uintptr_t>(a.original.Get()),reinterpret_cast<uintptr_t>(b.original.Get()),
+        reinterpret_cast<uintptr_t>(a.rateImage.Get()),reinterpret_cast<uintptr_t>(b.rateImage.Get()),&a.rate,&b.rate,int32_t(a.topology),
+        int32_t(b.topology),a.stencil,b.stencil,a.blendFactor.data(),b.blendFactor.data());
+#else
     return (!a.original?1u:0u) | (a.original!=b.original?2u:0u) | (!a.topology || a.topology!=b.topology?4u:0u) |
         (a.stencil!=b.stencil?8u:0u) | (a.blendFactor!=b.blendFactor?16u:0u) | (!a.rate.known || !b.rate.known?32u:0u) |
         (a.rate.image || b.rate.image || a.rateImage || b.rateImage?64u:0u) | (a.rate.value!=b.rate.value || a.rate.combiners!=b.rate.combiners?128u:0u);
+#endif
 }
 bool Target(ID3D12Device* device,ID3D12Resource* resource,DXGI_FORMAT format,bool depth,UINT64& width,UINT& height) {
     if(!SameDevice(device,resource))return false;const auto d=resource->GetDesc();
+#if CVR_RUST_VRIK
+    return cvr_sgp_target(&d,int32_t(format),depth,&width,&height);
+#else
     const bool compatible=d.Format==format || (depth && ((d.Format==DXGI_FORMAT_R32G8X24_TYPELESS && format==DXGI_FORMAT_D32_FLOAT_S8X24_UINT) ||
         (d.Format==DXGI_FORMAT_R24G8_TYPELESS && format==DXGI_FORMAT_D24_UNORM_S8_UINT) ||
         (d.Format==DXGI_FORMAT_R32_TYPELESS && format==DXGI_FORMAT_D32_FLOAT) || (d.Format==DXGI_FORMAT_R16_TYPELESS && format==DXGI_FORMAT_D16_UNORM)));
     if(!compatible || d.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D || d.DepthOrArraySize!=2 || d.MipLevels!=1 ||
         d.SampleDesc.Count!=1 || d.SampleDesc.Quality || !(d.Flags&(depth?D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL:D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)))return false;
     if(width && (width!=d.Width || height!=d.Height))return false;width=d.Width;height=d.Height;return width && height;
+#endif
 }
+#if CVR_RUST_VRIK
+bool View(const native_probe::DrawRecord& draw,UINT64 width,UINT height) {
+    return cvr_sgp_view(&draw,width,height);
+#else
 bool View(const native_probe::DrawRecord& draw,UINT64 width,UINT height) {
     const auto& v=draw.viewport;const auto& s=draw.scissor;
     return std::isfinite(v.TopLeftX) && std::isfinite(v.TopLeftY) && std::isfinite(v.Width) && std::isfinite(v.Height) &&
         v.TopLeftX>=0 && v.TopLeftY>=0 && v.Width>0 && v.Height>0 && double(v.TopLeftX)+v.Width<=width && double(v.TopLeftY)+v.Height<=height &&
         v.MinDepth>=0 && v.MaxDepth<=1 && v.MinDepth<=v.MaxDepth && s.left>=0 && s.top>=0 && s.right>s.left && s.bottom>s.top &&
         UINT64(s.right)<=width && UINT(s.bottom)<=height;
+#endif
 }
 struct Location {UINT parameter{},offset{};const D3D12_DESCRIPTOR_RANGE1* range{};};
 bool Visibility(D3D12_SHADER_VISIBILITY root,UINT use){return root==D3D12_SHADER_VISIBILITY_ALL || UINT(root)==use;}
 bool Locate(const D3D12_ROOT_SIGNATURE_DESC1& root,UINT original,const families::ResourceUse& use,Location& output){
+#if CVR_RUST_VRIK
+    Location found{};if(!cvr_sgp_locate(&root,original,&use,&found.parameter,&found.offset,&found.range))return false;
+    output=found;return true;
+#else
     bool found{};
     for(UINT p=0;p<original;++p){const auto& parameter=root.pParameters[p];
         if(parameter.ParameterType!=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE || !Visibility(parameter.ShaderVisibility,use.visibility))continue;
@@ -68,18 +115,76 @@ bool Locate(const D3D12_ROOT_SIGNATURE_DESC1& root,UINT original,const families:
             if(found || offset+relative>UINT_MAX)return false;found=true;output={p,UINT(offset+relative),&range};
         }
     }return found;
+#endif
 }
+#if !CVR_RUST_VRIK  // the Rust build checks it in geometry_pass_checks.rs
 bool StaticSampler(const D3D12_ROOT_SIGNATURE_DESC1& root,const families::ResourceUse& use){
+#if CVR_RUST_VRIK
+    return cvr_sgp_static_sampler(&root,&use);
+#else
     if(use.type!=D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER || !use.count || use.count>2048 || uint64_t(use.shaderRegister)+use.count>uint64_t(UINT_MAX)+1)return false;
     for(UINT n=0;n<use.count;++n){UINT matches{};for(UINT s=0;s<root.NumStaticSamplers;++s){const auto& sampler=root.pStaticSamplers[s];
             matches+=sampler.RegisterSpace==use.space && sampler.ShaderRegister==use.shaderRegister+n && Visibility(sampler.ShaderVisibility,use.visibility);}
         if(matches!=1)return false;
     }return true;
+#endif
 }
+#endif
 bool Scope(const source_binding_assembly::Scope& scope,const families::Family& family,const geometry::DrawResources& geometry){
+#if CVR_RUST_VRIK
+    static_assert(sizeof(source_binding_assembly::Scope)==48,"mirrored by geometry_pass_scope.rs");
+    return cvr_sgp_scope(0,&scope,reinterpret_cast<uintptr_t>(family.sourceRoot.Get()),geometry.draw.root,geometry.draw.side);
+#else
     return scope.root==reinterpret_cast<uintptr_t>(family.sourceRoot.Get()) && scope.root==geometry.draw.root &&
         scope.list && scope.generation && scope.occurrence && scope.source && scope.eye==geometry.draw.side && scope.eye<2;
+#endif
 }
+#if CVR_RUST_VRIK
+// The coverage is Rust's (geometry_pass_coverage.rs): the family, the paired root's plan, the pairs, the shared tables and
+// both eyes' selector results are lent as flat views; Rust decodes the root and reads the tables' heap descriptions.
+struct CvrSgpStr {const char* data;size_t size;};
+struct CvrSgpPair {PairedBinding binding;uint64_t source[2],bytes[2];};
+struct CvrSgpShared {UINT parameter,offset,count,leased;uint64_t heap;};
+struct CvrSgpTable {CvrSgpStr root;uint32_t visibility,parameter,space,shaderRegisterBase,originalTableOffset,declaredExtent;
+    const uint32_t* offsets;size_t offsetCount;uint32_t count;const source_selectors::SlotInterval* uses;size_t useCount;};
+struct CvrSgpSelectors {CvrSgpStr family[3];uint32_t evaluatedSites,suppressed;bool complete,permission,permitted;
+    const source_selectors::SiteSelection* selections;size_t selectionCount;const CvrSgpTable* tables;size_t tableCount;};
+struct CvrSgpEye {source_binding_assembly::Scope scope;uint64_t root;uint32_t side;uint64_t owner;const CvrSgpSelectors* selectors;};
+struct CvrSgpCoverage {uint64_t sourceRoot;const families::ResourceUse* uses;size_t useCount;const PairedBindingLocation* bindings;
+    size_t bindingCount;const uint8_t* serialized;size_t serializedLength;const CvrSgpPair* pairs;size_t pairCount;const CvrSgpShared* shared;
+    size_t sharedCount;UINT originalParameters;CvrSgpStr family[3];CvrSgpEye eyes[2];};
+static_assert(sizeof(source_selectors::SlotInterval)==12 && sizeof(source_selectors::SiteSelection)==16 && sizeof(CvrSgpPair)==48 &&
+    sizeof(CvrSgpShared)==24 && sizeof(CvrSgpTable)==80 && sizeof(CvrSgpSelectors)==96 && sizeof(CvrSgpEye)==80 &&
+    sizeof(CvrSgpCoverage)==304 && sizeof(families::ResourceUse)==24,"mirrored by geometry_pass_coverage.rs");
+uint64_t Address(const void* value){return reinterpret_cast<uintptr_t>(value);}
+CvrSgpStr Lend(const std::string& text){return {text.data(),text.size()};}
+struct LentSelectors {std::vector<CvrSgpTable> tables;CvrSgpSelectors result{};};
+void Lend(const source_selectors::Result& r,LentSelectors& output){
+    output.tables.reserve(r.tables.size());
+    for(const auto& table:r.tables){const auto& key=table.key;
+        output.tables.push_back({Lend(key.rootSha256),key.visibility,key.parameter,key.space,key.shaderRegisterBase,key.originalTableOffset,
+            key.declaredExtent,table.offsets.data(),table.offsets.size(),table.count,table.uses.data(),table.uses.size()});}
+    output.result={{Lend(r.family.rootSha256),Lend(r.family.vertexSha256),Lend(r.family.pixelSha256)},r.evaluatedSites,r.nativeCommandsSuppressed,
+        r.selectorEvaluationComplete,r.nativeExecutionPermission,r.nativeExecutionPermitted,r.selections.data(),r.selections.size(),
+        output.tables.data(),output.tables.size()};
+}
+bool Coverage(const GeometryPassDraw& input,bool& needsContract){
+    const auto& family=*input.family;const auto& plan=family.pairedRoot->plan;
+    std::vector<CvrSgpPair> pairs;pairs.reserve(input.constants.size());
+    for(const auto& pair:input.constants)pairs.push_back({pair.binding,{Address(pair.eyes[0].source.Get()),Address(pair.eyes[1].source.Get())},
+        {pair.eyes[0].constants.size(),pair.eyes[1].constants.size()}});
+    std::vector<CvrSgpShared> shared;shared.reserve(input.shared.size());
+    for(const auto& table:input.shared)shared.push_back({table.parameter,table.offset,table.count,UINT(!table.leases.empty()),Address(table.cpuHeap.Get())});
+    std::array<LentSelectors,2> selectors;
+    CvrSgpCoverage lent{Address(family.sourceRoot.Get()),family.uses.data(),family.uses.size(),plan.bindings.data(),plan.bindings.size(),
+        plan.serialized.data(),plan.serialized.size(),pairs.data(),pairs.size(),shared.data(),shared.size(),plan.originalParameters,
+        {Lend(family.rootSha256),Lend(family.vertexSha256),Lend(family.pixelSha256)},{}};
+    for(UINT eye=0;eye<2;++eye){const auto& proof=input.sharedRead.eyes[eye];const auto& draw=input.geometry.eyes[eye].draw;
+        if(proof.selectors)Lend(*proof.selectors,selectors[eye]);
+        lent.eyes[eye]={proof.scope,draw.root,draw.side,Address(proof.gpuInputOwner.Get()),proof.selectors?&selectors[eye].result:nullptr};}
+    return cvr_sgp_coverage(&lent,&needsContract);
+}
+#else
 bool Selections(const source_selectors::Result& result,const source_selectors::FamilyKey& family,
     const families::ResourceUse& use,const Location& location,UINT extent,std::set<const source_selectors::TableSelection*>& consumed){
     if(!result.selectorEvaluationComplete || result.family!=family || result.tables.size()>64 || result.selections.size()>source_selectors::MaxTotalSites ||
@@ -166,6 +271,7 @@ bool Coverage(const GeometryPassDraw& input,bool& needsContract){
     }
     return true;
 }
+#endif
 bool ReadContract(ID3D12Device* device,const GeometrySharedReadContract& contract,const families::Family& family,
     std::span<const BankPair> pairs,std::span<const SharedBankTable> tables,ID3D12GraphicsCommandList* actual){
     constexpr UINT reads=D3D12_RESOURCE_STATE_GENERIC_READ,shader=D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE|D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
@@ -181,8 +287,12 @@ bool ReadContract(ID3D12Device* device,const GeometrySharedReadContract& contrac
             !(UINT(value.state)&shader) || (UINT(value.state)&~reads))return false;
     }
     for(UINT eye=0;eye<2;++eye){const auto& scope=contract.eyes[eye].scope;
+#if CVR_RUST_VRIK
+        if(!cvr_sgp_scope(1,&scope,reinterpret_cast<uintptr_t>(family.sourceRoot.Get()),0,eye) || !contract.eyes[eye].gpuInputOwner)return false;}
+#else
         if(!scope.root || scope.root!=reinterpret_cast<uintptr_t>(family.sourceRoot.Get()) || !scope.list || !scope.generation || !scope.occurrence || !scope.source ||
             scope.eye!=(eye?0u:1u) || !contract.eyes[eye].gpuInputOwner)return false;}
+#endif
     return contract.validate(contract,family,pairs,tables,actual);
 }
 }
@@ -198,12 +308,20 @@ HRESULT StereoGeometryPass::Create(ID3D12Device* device,std::span<const Geometry
             !SameDevice(device,input.family->sourceRoot.Get()) || !SameDevice(device,input.family->pairedRoot->root.Get()) || !input.viewMask || (input.viewMask&~3u))return E_INVALIDARG;
         const auto& family=*input.family;const auto& contract=family.pass;const auto& a=input.geometry.eyes[0];const auto& b=input.geometry.eyes[1];
         validationStage_=3;
+#if CVR_RUST_VRIK
+        const RustGeometryAdmission admission{family.instanceRebaseSafe,bool(contract.fixedRasterState),contract.samples.Count,contract.samples.Quality,
+            int32_t(contract.topology),contract.targets.NumRenderTargets,UINT(targets.colors.size()),bool(targets.depth),contract.depth!=DXGI_FORMAT_UNKNOWN,
+            reinterpret_cast<uintptr_t>(a.state.original.Get())==a.draw.pipeline && SameDevice(device,a.state.original.Get()),int32_t(a.state.topology),
+            StateDifferences(a.state,b.state),bool(contract.pixelShader)};
+        validationBits_=cvr_sgp_validation_bits(&admission);
+#else
         validationBits_=(!family.instanceRebaseSafe?1u:0u) | (!contract.fixedRasterState?2u:0u) | (contract.samples.Count!=1 || contract.samples.Quality?4u:0u) |
             (contract.topology!=D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE?8u:0u) | (contract.targets.NumRenderTargets!=targets.colors.size()?16u:0u) |
             (bool(targets.depth)!=(contract.depth!=DXGI_FORMAT_UNKNOWN)?32u:0u) |
             (reinterpret_cast<uintptr_t>(a.state.original.Get())!=a.draw.pipeline || !SameDevice(device,a.state.original.Get())?64u:0u) |
             (a.state.topology!=D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST && a.state.topology!=D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP?128u:0u) |
             ((StateDifferences(a.state,b.state)&(contract.pixelShader?UINT_MAX:~224u))<<8);
+#endif
         if(validationBits_)return E_INVALIDARG;
         validationStage_=4;
         bool needsContract{};if(!Coverage(input,needsContract))return E_INVALIDARG;
@@ -242,6 +360,14 @@ HRESULT StereoGeometryPass::Create(ID3D12Device* device,std::span<const Geometry
     validationStage_=8;auto hr=pending->bank.CreatePass(device,banks);if(FAILED(hr))return hr;
     validationStage_=9;
     hr=pending->geometry.Create(device,geometry);if(FAILED(hr))return hr;
+#if CVR_RUST_VRIK
+    validationStage_=10;probe::Scope internal;
+    std::array<ID3D12Resource*,8> colors{};std::array<int32_t,8> formats{};
+    for(UINT i=0;i<targets.colors.size();++i){colors[i]=targets.colors[i].Get();formats[i]=int32_t(first.targets.RTFormats[i]);}
+    hr=cvr_sgpa_views(device,colors.data(),formats.data(),UINT(targets.colors.size()),targets.depth.Get(),int32_t(first.depth),
+        reinterpret_cast<void**>(pending->rtvs.ReleaseAndGetAddressOf()),&pending->rtvStride,reinterpret_cast<void**>(pending->dsv.ReleaseAndGetAddressOf()));
+    if(FAILED(hr))return hr;
+#else
     validationStage_=10;probe::Scope internal;
     if(!targets.colors.empty()) {
         D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_RTV,UINT(targets.colors.size()),D3D12_DESCRIPTOR_HEAP_FLAG_NONE,0};
@@ -256,6 +382,7 @@ HRESULT StereoGeometryPass::Create(ID3D12Device* device,std::span<const Geometry
         D3D12_DEPTH_STENCIL_VIEW_DESC view{};view.Format=first.depth;view.ViewDimension=D3D12_DSV_DIMENSION_TEXTURE2DARRAY;view.Texture2DArray.ArraySize=2;
         device->CreateDepthStencilView(targets.depth.Get(),&view,pending->dsv->GetCPUDescriptorHandleForHeapStart());
     }
+#endif
     storage_=std::move(pending);validationStage_=validationDraw_=validationBits_=0;return S_OK;
 }catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
 bool StereoGeometryPass::Record(ID3D12GraphicsCommandList* list) {
@@ -271,6 +398,17 @@ bool StereoGeometryPass::Record(ID3D12GraphicsCommandList* list) {
     if(!gpu::KeepCommandResources(list,{storage_.Get()}))return false;
     storage_->recorded=true;probe::Scope internal;
     if(!storage_->bank.CaptureEye(list,0) || !storage_->bank.CaptureEye(list,1))return false;
+#if CVR_RUST_VRIK
+    cvr_sgpa_begin(list,rates.Get(),storage_->rtvs.Get(),UINT(storage_->targets.colors.size()),storage_->dsv.Get());
+    for(UINT i=0;i<storage_->draws.size();++i) {
+        const auto& draw=storage_->draws[i];list->SetPipelineState(draw.pipeline.Get());
+        if(!storage_->bank.Bind(list,i))return false;
+        const auto& b=draw.state.blendFactor;const RustPassState state{draw.state.rate,nullptr,false,true,int32_t(draw.state.topology),draw.state.stencil,
+            {b[0],b[1],b[2],b[3]},draw.viewport,draw.scissor,draw.mask};
+        cvr_sgpa_state(list,rates.Get(),views.Get(),&state);
+        if(!storage_->geometry.RecordGeometry(list,i))return false;
+    }
+#else
     const auto rtv=storage_->rtvs?storage_->rtvs->GetCPUDescriptorHandleForHeapStart():D3D12_CPU_DESCRIPTOR_HANDLE{};
     const auto dsv=storage_->dsv?storage_->dsv->GetCPUDescriptorHandleForHeapStart():D3D12_CPU_DESCRIPTOR_HANDLE{};
     list->SetPredication(nullptr,0,D3D12_PREDICATION_OP_EQUAL_ZERO);
@@ -284,9 +422,11 @@ bool StereoGeometryPass::Record(ID3D12GraphicsCommandList* list) {
         rates->RSSetShadingRate(draw.state.rate.value,draw.state.rate.combiners.data());views->SetViewInstanceMask(draw.mask);
         if(!storage_->geometry.RecordGeometry(list,i))return false;
     }
+#endif
     return true;
 }
 UINT StereoGeometryPass::DrawCount()const{return storage_?UINT(storage_->draws.size()):0;}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 UINT64 StereoGeometryPass::InstanceBytes()const{return storage_?storage_->geometry.InstanceBytes():0;}
 HRESULT StereoGeometryPass::CreateSources(ID3D12Device* device,std::span<const GeometrySourcePassDraw> inputs)try{
     validationStage_=11;validationDraw_=validationBits_=0;
@@ -297,6 +437,13 @@ HRESULT StereoGeometryPass::CreateSources(ID3D12Device* device,std::span<const G
     for(const auto& input:inputs){
         validationDraw_=UINT(banks.size());validationStage_=12;
         const auto& source=input.geometry.geometry;const auto& draw=source.draw;const auto& state=source.state;const auto& contract=input.contract;
+#if CVR_RUST_VRIK
+        if(!SameDevice(device,state.original.Get()) || draw.pipeline!=reinterpret_cast<uintptr_t>(state.original.Get()) ||
+            draw.root!=reinterpret_cast<uintptr_t>(input.binding.root.Get()) || !SameDevice(device,input.binding.root.Get()) ||
+            state.rate.image!=state.rateImage.Get() || (state.rateImage && !SameDevice(device,state.rateImage.Get())) ||
+            !cvr_sgp_source_admitted(&draw,&state.rate,int32_t(state.topology),state.stencil,state.blendFactor.data(),bool(contract.fixedRasterState),
+                contract.samples.Count,contract.samples.Quality,int32_t(contract.topology),contract.targets.NumRenderTargets))return E_INVALIDARG;
+#else
         if(!SameDevice(device,state.original.Get()) || draw.pipeline!=reinterpret_cast<uintptr_t>(state.original.Get()) ||
             draw.root!=reinterpret_cast<uintptr_t>(input.binding.root.Get()) || !SameDevice(device,input.binding.root.Get()) ||
             (draw.flags&48)!=48 || (draw.flags&64) || !state.rate.known ||
@@ -314,6 +461,7 @@ HRESULT StereoGeometryPass::CreateSources(ID3D12Device* device,std::span<const G
         if(rate!=D3D12_SHADING_RATE_1X1 && rate!=D3D12_SHADING_RATE_1X2 && rate!=D3D12_SHADING_RATE_2X1 &&
             rate!=D3D12_SHADING_RATE_2X2 && rate!=D3D12_SHADING_RATE_2X4 && rate!=D3D12_SHADING_RATE_4X2 && rate!=D3D12_SHADING_RATE_4X4)return E_INVALIDARG;
         for(const auto combiner:state.rate.combiners)if(combiner<D3D12_SHADING_RATE_COMBINER_PASSTHROUGH || combiner>D3D12_SHADING_RATE_COMBINER_SUM)return E_INVALIDARG;
+#endif
         banks.push_back(input.binding);geometry.push_back(input.geometry);
         pending->draws.push_back({state.original,state,draw.viewport,draw.scissor,0});
     }
@@ -341,4 +489,6 @@ bool StereoGeometryPass::RecordSource(ID3D12GraphicsCommandList* list,UINT index
 }
 UINT StereoGeometryPass::SourceCount()const{return storage_ && storage_->sourceOnly?UINT(storage_->draws.size()):0;}
 UINT StereoGeometryPass::SourceRecordedCount()const{return storage_ && storage_->sourceOnly?storage_->sourceNext:0;}
+#endif
 }
+#endif

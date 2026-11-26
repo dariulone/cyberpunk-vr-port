@@ -34,7 +34,7 @@ function Ensure-Parent([string]$path) {
 function Hash([string]$path) { return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
 function Set-Ini([string]$path, [string]$key, [string]$value) {
     $text = if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { '' }
-    $pattern = '(?m)^' + [regex]::Escape($key) + '\s*=.*$'
+    $pattern = '(?m)^' + [regex]::Escape($key) + '\s*=[^\r\n]*'
     if ([regex]::IsMatch($text, $pattern)) { $text = [regex]::Replace($text, $pattern, "$key=$value") }
     else { $text = $text.TrimEnd() + "`r`n$key=$value`r`n" }
     Ensure-Parent $path
@@ -48,8 +48,16 @@ $retiredScripts = @('r6\scripts\CyberpunkVRPort_LootUi\vrport_loot_ui.reds',
     'r6\scripts\CyberpunkVRPort_SettingsGuard\vrport_settings_guard.reds',
     'r6\scripts\CyberpunkVRPort_Cyberware\vrport_launcher_tweak.reds',
     'archive\pc\mod\cyberpunkvrport.archive', 'archive\pc\mod\cyberpunkvrport.archive.xl')
+$archiveFolder = 'red4ext\plugins\cyberpunkvrport\archive'
+$packed = @($relativeFiles | Where-Object { $_ -like "$archiveFolder\*.archive" })
+if ($packed.Count -ne 1 -or $packed[0] -ne "$archiveFolder\cyberpunkvrport.archive") {
+    throw 'Full package must contain one unified cyberpunkvrport.archive'
+}
+foreach ($name in @('cpvr_blade_mark.archive', 'cpvr_scope_housings.archive', 'cpvr_lobby_controls.archive')) {
+    $retiredScripts += @("$archiveFolder\$name", "archive\pc\mod\$name")
+}
 foreach ($rel in $retiredScripts) {
-    if ($relativeFiles -contains $rel) { throw "Package contains retired script: $rel" }
+    if ($relativeFiles -contains $rel) { throw "Package contains retired file: $rel" }
 }
 # The port's scripts are the plugin's now (red4ext\plugins\cyberpunkvrport\scripts): every copy an earlier build put
 # in r6\scripts goes, backed up like the rest -- compiled beside the plugin's they would define everything twice.
@@ -67,7 +75,7 @@ if (!(@($relativeFiles | Where-Object { $_ -like 'red4ext\plugins\cyberpunkvrpor
 
 $runtime = @('red4ext\plugins\cyberpunkvrport\config\vrport.ini', 'red4ext\plugins\cyberpunkvrport\config\vrport-launcher.ini',
     'red4ext\plugins\cyberpunkvrport\config\vrik_calibration.ini')
-$stereoConfig = 'bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_Stereo\vrcam.json'
+$stereoConfig = 'red4ext\plugins\cyberpunkvrport\lua\CyberpunkVRPort_Stereo\vrcam.json'
 $backedUp = @()
 # Preserve the just-tested run before the next launch replaces its log.
 $diagnostics = @('red4ext\plugins\cyberpunkvrport\log\cyberpunkvrport.log')
@@ -124,8 +132,8 @@ if (Test-Path -LiteralPath $oldStereo) {
 # the verified backup, rather than leaving a renamed .dll beside the new one.
 $parked = @()
 $strays = @()
-$dxgi = Join-Path $GameRoot 'bin\x64\dxgi.dll'
-if (Test-Path -LiteralPath $dxgi) { $strays += Get-Item -LiteralPath $dxgi }
+# A generic DXGI proxy can belong to ReShade or another overlay. Its filename
+# does not identify a retired port loader; preserve it during deployment.
 foreach ($dir in @('CyberpunkVR_Hands', 'CyberpunkVR_Stereo')) {
     $path = Join-Path $GameRoot "red4ext\plugins\$dir"
     if (!(Test-Path -LiteralPath $path)) { continue }
@@ -146,7 +154,7 @@ $deployed = @(); $preserved = @()
 foreach ($rel in $relativeFiles) {
     $source = Under-Root $Package $rel
     $target = Under-Root $GameRoot $rel
-    if ($rel -eq $hudLayout -and (Test-Path -LiteralPath $target)) {
+    if ($runtime -contains $rel -and (Test-Path -LiteralPath $target)) {
         $preserved += [pscustomobject]@{ Path=$rel; SHA256=(Hash $target) }
         continue
     }
@@ -180,16 +188,27 @@ if ($pickComponent) {
                 [Text.RegularExpressions.MatchEvaluator]{ param($m) $m.Groups[1].Value + $pickCamera + $m.Groups[2].Value })
         }
         [IO.File]::WriteAllText($oldStereo, $text, (New-Object Text.UTF8Encoding($false)))
-        ($deployed | Where-Object Path -eq $stereoConfig).SHA256 = Hash $oldStereo
+        $stereoEntry = $deployed | Where-Object Path -eq $stereoConfig
+        $stereoEntry.SHA256 = Hash $oldStereo
+        $stereoEntry.Bytes = (Get-Item -LiteralPath $oldStereo).Length
     }
 }
 
-$ini = Under-Root $GameRoot 'bin\x64\vrport.ini'
+$ini = Under-Root $GameRoot 'red4ext\plugins\cyberpunkvrport\config\vrport.ini'
 Set-Ini $ini 'first_launch' '0'
 if ($EnableRoomscale) {
     Set-Ini $ini 'xr_roomscale_movement' '1'
     Set-Ini $ini 'xr_physical_body_rotation' '1'
     Set-Ini $ini 'xr_snap_turn_yaw_index' '0'
+}
+# The intended settings merge happens after copying/preserving files. Verify its
+# final bytes, while keeping the independent pre-deployment backup hash intact.
+$iniRelative = 'red4ext\plugins\cyberpunkvrport\config\vrport.ini'
+foreach ($entry in @($deployed + $preserved)) {
+    if ($entry.Path -eq $iniRelative) {
+        $entry.SHA256 = Hash $ini
+        if ($entry.PSObject.Properties['Bytes']) { $entry.Bytes = (Get-Item -LiteralPath $ini).Length }
+    }
 }
 $report = [pscustomobject]@{
     GameRoot=$GameRoot; Package=$Package; Backup=$Backup

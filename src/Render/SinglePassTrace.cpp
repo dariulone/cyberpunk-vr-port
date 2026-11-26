@@ -5,16 +5,27 @@
 #include <mutex>
 
 extern "C" {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's records and their size are rust/crates/cvr-render/src/single_pass_trace.rs'
 __declspec(dllexport) uint32_t CyberpunkVR_SinglePassTraceRecordBytes=sizeof(cvr::stereo::trace::Record);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassTraceRequest{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassTraceState{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassTraceSeq{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassTraceCount{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassTraceNodeFilter{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
 __declspec(dllexport) cvr::stereo::trace::Record CyberpunkVR_SinglePassTraceRecords[cvr::stereo::trace::Capacity]{};
+#endif
 }
 namespace cvr::stereo::trace {
+#if !CVR_RUST_VRIK
 namespace {
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's read is native_inputs in rust/crates/cvr-render/src/single_pass_trace.rs
 std::mutex mutex;
 uint32_t frame{},limit{};
 std::atomic<uint64_t> epoch{0};
@@ -54,6 +65,8 @@ void NativeInputs(Record& row) {
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {row.inputValid=0;}
 }
+#endif
+#if !CVR_RUST_VRIK
 void Append(uint32_t kind,uint32_t node,int side,uint32_t index,const void* object,const void* data,Predict predict=nullptr) {
     std::lock_guard lock(mutex);
     if(CyberpunkVR_SinglePassTraceState.load(std::memory_order_relaxed)!=1)return;
@@ -69,6 +82,32 @@ void Append(uint32_t kind,uint32_t node,int side,uint32_t index,const void* obje
     CyberpunkVR_SinglePassTraceSeq.fetch_add(1,std::memory_order_release);
 }
 }
+#endif
+#if !CVR_RUST_VRIK
+}
+#endif
+#if CVR_RUST_VRIK
+// The trace and the read of the camera builder's inputs are Rust's; this half keeps the exports, handed to Rust while
+// the DLL initialises (the Rust test variants'; the plugin's are single_pass_trace.rs' own).
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
+namespace {
+struct Attach {
+    std::atomic<uint32_t>* request; std::atomic<uint32_t>* state; std::atomic<uint32_t>* seq; std::atomic<uint32_t>* count;
+    std::atomic<uint32_t>* nodeFilter; Record* records;
+};
+const Attach kAttach{&CyberpunkVR_SinglePassTraceRequest,&CyberpunkVR_SinglePassTraceState,&CyberpunkVR_SinglePassTraceSeq,
+    &CyberpunkVR_SinglePassTraceCount,&CyberpunkVR_SinglePassTraceNodeFilter,CyberpunkVR_SinglePassTraceRecords};
+}
+#endif
+}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
+extern "C" void cvr_sp_trace_attach(const void* table);
+namespace {
+const bool attached=(cvr_sp_trace_attach(&cvr::stereo::trace::kAttach),true);
+}
+#endif
+#else
+namespace cvr::stereo::trace {
 void FrameBoundary() {
     if(CyberpunkVR_SinglePassTraceState.load(std::memory_order_relaxed)!=1 &&
        !CyberpunkVR_SinglePassTraceRequest.load(std::memory_order_relaxed))return;
@@ -102,3 +141,4 @@ void List(uint32_t node,int side,const void* list) {
     previous={current,list,node,side};Append(2,node,side,0,list,nullptr);
 }
 }
+#endif

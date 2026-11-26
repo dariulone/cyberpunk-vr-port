@@ -12,7 +12,14 @@ __declspec(dllexport) extern std::atomic<uint64_t> CyberpunkVR_PoseIdImageGenera
 
 namespace cvr::camera {
 using ImagePoseIdentity=ImagePoseLedger<PoseIdentity>::Image;
+#if CVR_RUST_VRIK
+// The image submission lock is Rust's (rust/crates/cvr-host/src/submission.rs): recursive, taken through lock_guard or
+// lock()/unlock() as the std::recursive_mutex it replaces.
+struct ImageSubmissionLock { void lock(); void unlock(); };
+ImageSubmissionLock& ImageSubmissionMutex();
+#else
 std::recursive_mutex& ImageSubmissionMutex();
+#endif
 void ResetImagePoseList(ID3D12GraphicsCommandList* list);
 void RecordImagePose(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,
                      const PoseIdentity& pose,bool stable=false);

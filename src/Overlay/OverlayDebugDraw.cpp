@@ -27,12 +27,12 @@
 #include "Utils/SharedSlots.hpp"   // vrshared::kLeftMuzzle* (the left gun's dot)
 #include "Stereo/EngineStereo.hpp"
 #include "Overlay/OverlayInternal.hpp"
-#include "Natives/DebugView.hpp"
 
+#if !CVR_RUST_VRIK
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 extern void Log(const char* fmt, ...);
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-extern volatile float g_lastLocateQuat[4];
+extern "C" volatile float g_lastLocateQuat[4];
 extern "C" int   CyberpunkVR_StereoModuleEnable;   // vr_core.cpp: did we install at all
 extern "C" int   CyberpunkVR_StereoModuleLoaded;
 extern "C" int32_t CyberpunkVR_StereoLog;
@@ -67,20 +67,60 @@ extern "C" double   CyberpunkVR_ProfDispVrcamMs;
 extern "C" uint32_t CyberpunkVR_ProfDispMainNodes;
 extern "C" uint32_t CyberpunkVR_ProfDispVrcamNodes;
 extern "C" void     CyberpunkVR_ProfDumpNodes();
+#endif
 extern "C" int      CyberpunkVR_ProfSnapshotNodes(uint32_t* rva, double* msv, double* msm,
                                                   uint32_t* cv, uint32_t* cm, int maxn);
+#if !CVR_RUST_VRIK
 extern "C" const char* CyberpunkVR_ProfNodeName(uint32_t rva);
 extern "C" uint64_t CyberpunkVR_DebugViewKeyMainNodes;
 extern "C" uint64_t CyberpunkVR_DebugViewKeyOtherNodes;
-extern volatile int32_t g_lastLocatePosFP[3];
+extern "C" volatile int32_t g_lastLocatePosFP[3];
 extern "C" float CyberpunkVRPort_HalfIpd();
 extern "C" float GetGameRenderFovDeg();
 extern "C" int CyberpunkVR_MainIsRightEye;
 extern "C" UINT GetForcedDisplayModeWidth();
 extern "C" UINT GetForcedDisplayModeHeight();
+#endif
+#if CVR_RUST_VRIK
+// The barrel dots' arithmetic: rust/crates/cvr-camera/src/barrel_dot.rs (the projections and the drawing stay here).
+// The hand locator's wire model: rust/crates/cvr-camera/src/hand_wire.rs (the projection and the drawing stay here).
+#endif
 
 namespace overlay {
 
+#if CVR_RUST_VRIK
+// The Rust build draws the locator in rust/crates/cvr-render/src/overlay_hands.rs; Im3d (the library) stays here.
+static_assert(sizeof(Im3d::DrawList)==24 && offsetof(Im3d::DrawList,m_primType)==4 && offsetof(Im3d::DrawList,m_vertexData)==8 &&
+    offsetof(Im3d::DrawList,m_vertexCount)==16 && sizeof(Im3d::VertexData)==20 && offsetof(Im3d::VertexData,m_color)==16,
+    "mirrored by overlay_hands.rs");
+struct RustProxyVertex {float x,y,z;uint32_t color;};
+static_assert(sizeof(RustProxyVertex)==16 && sizeof(Im3d::Color)==4,"cvr-camera's ProxyVertex");
+extern "C" {
+// Im3d's frame for this display: the head at the origin looking down -z, y up, at 90 Hz, its vertical tan the point
+// projectors' (so Im3d's size attenuation agrees with them).
+void cvr_cpp_im3d_begin(float width,float height,float projScaleY){
+    Im3d::AppData& appData=Im3d::GetAppData();
+    appData.m_viewOrigin=Im3d::Vec3(0.0f,0.0f,0.0f);appData.m_viewDirection=Im3d::Vec3(0.0f,0.0f,-1.0f);
+    appData.m_worldUp=Im3d::Vec3(0.0f,1.0f,0.0f);appData.m_viewportSize=Im3d::Vec2(width,height);
+    appData.m_deltaTime=1.0f/90.0f;appData.m_projOrtho=false;
+    appData.m_projScaleY=projScaleY;Im3d::NewFrame();
+}
+// EmitHandProxyIm3d's Im3d half: the seven boxes as triangles, then the axes as 2-pixel lines when asked.
+void cvr_cpp_im3d_proxy(const RustProxyVertex* v,bool axes){
+    const auto emit=[&](int first,int count){
+        for(int i=first;i<first+count;++i)Im3d::Vertex(Im3d::Vec3(v[i].x,v[i].y,v[i].z),Im3d::Color(v[i].color));};
+    for(int box=0;box<7;++box){Im3d::BeginTriangles();emit(box*36,36);Im3d::End();}
+    if(axes){
+        Im3d::PushSize(2.0f);
+        Im3d::BeginLines();emit(7*36,6);Im3d::End();
+        Im3d::PopSize();
+    }
+}
+void cvr_cpp_im3d_end(){Im3d::EndFrame();}
+// The frame's lists, for overlay_hands.rs's RenderIm3dToDrawList (mirrored there).
+const Im3d::DrawList* cvr_cpp_im3d_lists(uint32_t* count){*count=Im3d::GetDrawListCount();return Im3d::GetDrawLists();}
+}
+#else
 void DrawHandLocatorOverlay() {
     if (!g_drawHandLocator) return;
 
@@ -125,6 +165,14 @@ void DrawHandLocatorOverlay() {
     };
 
     const auto drawHandWire = [&](const OpenXRHeadPose& handPose, ImU32 bodyColor, const char* name, bool isLeftHand) {
+#if CVR_RUST_VRIK
+        struct RustWireSegment {float a[3],b[3];ImU32 color;float thickness;};
+        static_assert(sizeof(RustWireSegment)==32,"mirrored by hand_wire.rs");
+        RustWireSegment segments[32]{};
+        const auto count=cvr_hl_wire(g_handLocatorScale,isLeftHand,bodyColor,segments,32);
+        for(size_t i=0;i<count;++i){const auto& w=segments[i];
+            DrawProjectedBone(drawList,head,handPose,w.a[0],w.a[1],w.a[2],w.b[0],w.b[1],w.b[2],displaySize,w.color,w.thickness);}
+#else
         const ImU32 rightColor = IM_COL32(255, 80, 80, 255);
         const ImU32 upColor = IM_COL32(80, 255, 80, 255);
         const ImU32 fwdColor = IM_COL32(80, 160, 255, 255);
@@ -203,6 +251,7 @@ void DrawHandLocatorOverlay() {
         bone(0.0f, 0.0f, -fwdLen, -0.020f * s, 0.0f, -(fwdLen - 0.028f * s), fwdColor, 2.0f);
         bone(0.0f, 0.0f, -fwdLen, 0.0f, 0.020f * s, -(fwdLen - 0.028f * s), fwdColor, 2.0f);
         bone(0.0f, 0.0f, -fwdLen, 0.0f, -0.020f * s, -(fwdLen - 0.028f * s), fwdColor, 2.0f);
+#endif
 
         // Center dot.
         ImVec2 center{};
@@ -211,11 +260,19 @@ void DrawHandLocatorOverlay() {
             drawList->AddText(ImVec2(center.x + 8.0f, center.y - 20.0f), bodyColor, name);
         }
 
+#if CVR_RUST_VRIK
+        struct RustWireLabel {float at[3],offset[2];uint8_t text;};
+        static_assert(sizeof(RustWireLabel)==24,"mirrored by hand_wire.rs");
+        RustWireLabel labels[5]{};cvr_hl_labels(g_handLocatorScale,labels);
+        for(const auto& l:labels){const char text[2]{char(l.text),0};
+            drawEndpointLabel(handPose,l.at[0],l.at[1],l.at[2],IM_COL32(255,255,255,255),text,ImVec2(l.offset[0],l.offset[1]));}
+#else
         drawEndpointLabel(handPose, 0.070f * s, 0.0f, 0.0f, textColor, "R", ImVec2(4.0f, -6.0f));
         drawEndpointLabel(handPose, -0.070f * s, 0.0f, 0.0f, textColor, "L", ImVec2(-10.0f, -6.0f));
         drawEndpointLabel(handPose, 0.0f, 0.070f * s, 0.0f, textColor, "U", ImVec2(-4.0f, -14.0f));
         drawEndpointLabel(handPose, 0.0f, -0.070f * s, 0.0f, textColor, "D", ImVec2(-4.0f, 2.0f));
         drawEndpointLabel(handPose, 0.0f, 0.0f, -(fwdLen + 0.020f * s), textColor, "F", ImVec2(4.0f, -6.0f));
+#endif
     };
 
     if (hasLeft) {
@@ -278,7 +335,12 @@ void DrawHandLocatorOverlay() {
         if (hasLeft)  laser(left, true, IM_COL32(0, 200, 255, 160), 2.0f);   // off hand: cyan, dimmer
     }
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The barrel dots' exported variables are defined in rust/crates/cvr-render/src/overlay_exports.rs (exported from
+// rust/exported-data.txt); the C++ readers declare them.
+#else
 // The barrel dot, in NDC, for the eye the overlay cannot reach. Written by DrawBarrelCrosshair
 // below; read by the VRCAM eye composite (openxr_capture.cpp) and by the desktop mirror
 // (sync_stereo.cpp). The tick is what makes a stale value harmless: the consumers ignore it once
@@ -316,9 +378,14 @@ extern "C" int CyberpunkVR_MainIsRightEye;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_BarrelDotTick = 0;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_BarrelDotSecondEye = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBarrelDotDraws = 0;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_WeaponClass;
+#endif
 // The optics mod's reticle for holographic sights that show none of their own (SetVRSightDot).
+#if !CVR_RUST_VRIK
 extern "C" int32_t CyberpunkVR_SightDot;
+#endif
 
 // EXACT barrel crosshair. The plugin publishes the weapon muzzle WORLD forward (shared[24..26]); we
 // rotate it into the located game camera's local frame (inv(camQuat) * fwd) and project that
@@ -328,6 +395,10 @@ extern "C" int32_t CyberpunkVR_SightDot;
 // aiming rather than reconstructed from a log afterwards. A window, not the background list, so it
 // reaches both eyes through the second-eye overlay pass. Off by default (dabinn, TofuExpress
 // ec1aa65c): it is an instrument, not a HUD.
+#if CVR_RUST_VRIK
+// The Rust build draws the panel in rust/crates/cvr-render/src/overlay_telemetry.rs, on the C++ half lent here.
+// Its table is built in Rust (overlay_telemetry.rs, from eye_windows.rs).
+#else
 void DrawCompactAdsCameraTelemetry() {
     if (!g_showCompactAdsTelemetry) return;
 
@@ -373,7 +444,12 @@ void DrawCompactAdsCameraTelemetry() {
     }
     ImGui::End();
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build draws the crosshair in rust/crates/cvr-render/src/overlay_crosshair.rs, on the C++ half lent here.
+// Its table is built in Rust (overlay_crosshair.rs, from eye_windows.rs).
+#else
 void DrawBarrelCrosshair() {
     // Invalidate the second-eye/mirror publication before any early return.
     // Equipping melee must not leave the previous gun's dot alive for 250ms.
@@ -435,11 +511,18 @@ void DrawBarrelCrosshair() {
     const float mpz = launcher ? launcherPos[2] : s_mp[2] + lift[2];
     // Straight from the camera hook in this same DLL. Routing these two through shared memory
     // added two more ways to end up with nothing and no message -- which is exactly what happened.
+#if CVR_RUST_VRIK
+    const int32_t fixedHead[3]{g_lastLocatePosFP[0],g_lastLocatePosFP[1],g_lastLocatePosFP[2]};float hc[3]{};
+    const bool headReal=cvr_bd_head_center(fixedHead,hc);
+    const float hcx=hc[0],hcy=hc[1],hcz=hc[2];
+    const bool haveWorld = (mpx * mpx + mpy * mpy + mpz * mpz) > 1.0f && headReal;
+#else
     const float hcx = static_cast<float>(g_lastLocatePosFP[0]) / 131072.0f;
     const float hcy = static_cast<float>(g_lastLocatePosFP[1]) / 131072.0f;
     const float hcz = static_cast<float>(g_lastLocatePosFP[2]) / 131072.0f;
     const bool haveWorld = (mpx * mpx + mpy * mpy + mpz * mpz) > 1.0f &&
                            (hcx * hcx + hcy * hcy + hcz * hcz) > 1.0f;
+#endif
 
     const bool engineStereo = cvr::engine_stereo::Enabled();
     // Full SBS window contains two independent eye viewports. Do not project a
@@ -452,6 +535,10 @@ void DrawBarrelCrosshair() {
     // The camera's right axis, from the same quaternion the view is built with. Column 0 of the
     // rotation -- the engine's camera frame is X right, Y forward, Z up (verified live by
     // right x forward = up on the render camera's own basis).
+#if CVR_RUST_VRIK
+    float rgt[3]{};cvr_bd_camera_right(bf.camQuat,rgt);
+    const float halfIpd=cvr_bd_half_ipd(CyberpunkVRPort_HalfIpd(),OpenXRManager::Get().GetSharedSlot(95));
+#else
     const float rgt[3] = {
         1.0f - 2.0f * (cqy * cqy + cqz * cqz),
         2.0f * (cqx * cqy + cqz * cqw),
@@ -460,6 +547,7 @@ void DrawBarrelCrosshair() {
     float halfIpd = CyberpunkVRPort_HalfIpd();
     if (!(halfIpd > 0.0001f)) halfIpd = OpenXRManager::Get().GetSharedSlot(95);
     if (!(halfIpd > 0.0001f)) halfIpd = 0.0325f;
+#endif
 
     // Screen position of the impact point as seen from one eye. sign: -1 = MAIN/left, +1 = VRCAM.
     static float s_dbgLy[2] = {0.0f, 0.0f};
@@ -468,6 +556,11 @@ void DrawBarrelCrosshair() {
         if (!haveWorld) { s_dbgWhy = 1.0f; return false; }
         const float D = CyberpunkVR_BarrelDotDistM;
         if (!(D > 0.5f)) { s_dbgWhy = 2.0f; return false; }
+#if CVR_RUST_VRIK
+        const float muzzle[3]{mpx,mpy,mpz},forward[3]{mfx,mfy,mfz};float local[3]{};
+        cvr_bd_eye_ray(muzzle,forward,D,hc,rgt,halfIpd,sign,bf.camQuat,local);
+        const float lx=local[0],ly=local[1],lz=local[2];
+#else
         const float ex = hcx + rgt[0] * halfIpd * sign;
         const float ey = hcy + rgt[1] * halfIpd * sign;
         const float ez = hcz + rgt[2] * halfIpd * sign;
@@ -477,6 +570,7 @@ void DrawBarrelCrosshair() {
         const float dz = (mpz + mfz * D) - ez;
         float lx = 0.0f, ly = 0.0f, lz = 0.0f;
         RotateVectorByQuaternion(dx, dy, dz, -cqx, -cqy, -cqz, cqw, &lx, &ly, &lz);
+#endif
         s_dbgLy[(sign > 0.0f) ? 1 : 0] = ly;
         const bool okp = ProjectHeadSpacePointToScreen(lx, lz, -ly, displaySize, out);
         if (!okp) s_dbgWhy = 3.0f;
@@ -493,8 +587,12 @@ void DrawBarrelCrosshair() {
     // Sign fixed by observation: a fixed world point must slide LEFT on screen when the eye
     // moves RIGHT, and it was doing the opposite -- the second eye sat right of the first. So
     // MAIN is the +right eye here, not the -right one. Live switch rather than a silent constant.
+#if CVR_RUST_VRIK
+    const float sMain = cvr_bd_main_sign(engineStereo,CyberpunkVR_MainIsRightEye!=0,CyberpunkVR_BarrelDotEyeSign);
+#else
     const float sMain = engineStereo ? (CyberpunkVR_MainIsRightEye ? 1.0f : -1.0f)
                                     : ((CyberpunkVR_BarrelDotEyeSign >= 0) ? +1.0f : -1.0f);
+#endif
     // Do NOT require both, and do NOT fall back. Requiring both meant one failed projection
     // dropped the pair onto the direction path, which is wrong for the second eye BY
     // CONSTRUCTION -- a mark at infinity cannot show a finite impact from an eye off the line.
@@ -533,12 +631,25 @@ void DrawBarrelCrosshair() {
         // hand the finished screen position over in NDC and let the eye pass stamp the same
         // point. Both eyes are projected through the same effective ADS frustum, so there is
         // nothing left to compensate for here either.
+#if CVR_RUST_VRIK
+        float scNdc[2]{};cvr_bd_ndc(sc.x,sc.y,displaySize.x,displaySize.y,scNdc);
+        CyberpunkVR_BarrelDotNdcX=scNdc[0];CyberpunkVR_BarrelDotNdcY=scNdc[1];
+#else
         CyberpunkVR_BarrelDotNdcX = (sc.x / displaySize.x) * 2.0f - 1.0f;
         CyberpunkVR_BarrelDotNdcY = 1.0f - (sc.y / displaySize.y) * 2.0f;
+#endif
         {
             // Parallax of the zero distance, in NDC. Small-angle: the second eye sees the
             // zero point IPD/D radians to the side, and a magnified (scoped) image scales
             // that angle along with everything else.
+#if CVR_RUST_VRIK
+            float thx = 0.0f, thy = 0.0f;
+            const float zeroM = CyberpunkVR_SightZeroMeters;
+            const bool tans = zeroM > 0.1f && GetOverlayProjTans(displaySize, &thx, &thy);
+            const float dx = cvr_bd_parallax(zeroM,tans,thx,tans?OpenXRManager::Get().GetRuntimeIpd():0.0f,CyberpunkVR_MainIsRightEye!=0);
+            float rightNdc[2]{};cvr_bd_ndc(scRight.x,scRight.y,displaySize.x,displaySize.y,rightNdc);
+            float ndcX2 = worldOk ? rightNdc[0] : (CyberpunkVR_BarrelDotNdcX + dx);
+#else
             float thx = 0.0f, thy = 0.0f;
             float dx = 0.0f;
             const float zeroM = CyberpunkVR_SightZeroMeters;
@@ -556,6 +667,7 @@ void DrawBarrelCrosshair() {
             float ndcX2 = worldOk
                 ? ((scRight.x / displaySize.x) * 2.0f - 1.0f)   // its own eye, its own ray
                 : (CyberpunkVR_BarrelDotNdcX + dx);
+#endif
             // Both were projected through MAIN's window; the second eye renders its own, which under
             // the asymmetric projection is centred elsewhere -- carry the direction across.
             AsymEyeWindows asym{};
@@ -584,8 +696,13 @@ void DrawBarrelCrosshair() {
                     const float y = eye == mainEye ? CyberpunkVR_BarrelDotNdcY : secondY;
                     const float left = float(eye) * displaySize.x;
                     dl->PushClipRect(ImVec2(left, 0), ImVec2(left + displaySize.x, displaySize.y), true);
+#if CVR_RUST_VRIK
+                    float at[2]{};cvr_bd_eye_pixel(x,y,eye,displaySize.x,displaySize.y,at);
+                    dl->AddCircleFilled(ImVec2(at[0],at[1]),rad,IM_COL32(255,60,60,255));
+#else
                     dl->AddCircleFilled(ImVec2(left + (x * 0.5f + 0.5f) * displaySize.x,
                                               (0.5f - y * 0.5f) * displaySize.y), rad, IM_COL32(255, 60, 60, 255));
+#endif
                     dl->PopClipRect();
                 }
             } else {
@@ -594,12 +711,17 @@ void DrawBarrelCrosshair() {
         }
     }
 }
+#endif
 
 // THE LEFT GUN'S DOT, two guns in hand: the mark DrawBarrelCrosshair makes, of the LEFT barrel -- the one the
 // reload mod publishes beside the right gun's (dual_wield.lua SetVRLeftMuzzle: shared[166..168] the muzzle,
 // [169..171] its forward, [172] valid, while [165] says two guns are out; the shot of the left gun leaves it too,
 // Hooks/WeaponAim.cpp WaLeftGunFired). Green, so the two marks are told apart. Under engine stereo both eyes get
 // it in this pass; otherwise only the first eye does (the second eye's composite carries the right gun's dot).
+#if CVR_RUST_VRIK
+// The Rust build draws the left gun's dot in rust/crates/cvr-render/src/overlay_barrel.rs, on the C++ half lent here.
+// Its table is built in Rust (overlay_barrel.rs, from eye_windows.rs).
+#else
 void DrawLeftBarrelDot() {
     if (!g_drawBarrelCross) return;
     auto& xr = OpenXRManager::Get();
@@ -609,18 +731,27 @@ void DrawLeftBarrelDot() {
                          xr.GetSharedSlot(vrshared::kLeftMuzzlePos + 2)};
     float mf[3] = {xr.GetSharedSlot(vrshared::kLeftMuzzleFwd), xr.GetSharedSlot(vrshared::kLeftMuzzleFwd + 1),
                    xr.GetSharedSlot(vrshared::kLeftMuzzleFwd + 2)};
+#if CVR_RUST_VRIK
+    if (!cvr_bd_muzzle_forward(mp, mf)) return;
+#else
     const float fl2 = mf[0] * mf[0] + mf[1] * mf[1] + mf[2] * mf[2];
     if (!(fl2 > 0.25f) || !(mp[0] * mp[0] + mp[1] * mp[1] + mp[2] * mp[2] > 1.0f)) return;
     const float inv = 1.0f / std::sqrt(fl2);
     mf[0] *= inv; mf[1] *= inv; mf[2] *= inv;
+#endif
 
     cvr::camera::BarrelFrame bf{};
     if (!cvr::camera::BarrelFrameRead(&bf)) return;
+#if CVR_RUST_VRIK
+    const int32_t fixedHead[3]{g_lastLocatePosFP[0],g_lastLocatePosFP[1],g_lastLocatePosFP[2]};float hc[3]{};
+    if (!cvr_bd_head_center(fixedHead, hc)) return;
+#else
     const float cqx = bf.camQuat[0], cqy = bf.camQuat[1], cqz = bf.camQuat[2], cqw = bf.camQuat[3];
     const float hcx = static_cast<float>(g_lastLocatePosFP[0]) / 131072.0f;
     const float hcy = static_cast<float>(g_lastLocatePosFP[1]) / 131072.0f;
     const float hcz = static_cast<float>(g_lastLocatePosFP[2]) / 131072.0f;
     if (!(hcx * hcx + hcy * hcy + hcz * hcz > 1.0f)) return;
+#endif
 
     const bool engineStereo = cvr::engine_stereo::Enabled();
     if (engineStereo && cvr::engine_stereo::OnePicture()) return;
@@ -628,24 +759,38 @@ void DrawLeftBarrelDot() {
     const ImVec2 displaySize(engineStereo ? backbufferSize.x * 0.5f : backbufferSize.x, backbufferSize.y);
     if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) return;
 
+#if CVR_RUST_VRIK
+    float rgt[3]{};cvr_bd_camera_right(bf.camQuat,rgt);
+    const float halfIpd=cvr_bd_half_ipd(CyberpunkVRPort_HalfIpd(),xr.GetSharedSlot(95));
+#else
     const float rgt[3] = {1.0f - 2.0f * (cqy * cqy + cqz * cqz), 2.0f * (cqx * cqy + cqz * cqw),
                           2.0f * (cqx * cqz - cqy * cqw)};
     float halfIpd = CyberpunkVRPort_HalfIpd();
     if (!(halfIpd > 0.0001f)) halfIpd = xr.GetSharedSlot(95);
     if (!(halfIpd > 0.0001f)) halfIpd = 0.0325f;
+#endif
     const float D = CyberpunkVR_BarrelDotDistM;
     if (!(D > 0.5f)) return;
     // The point the left bullet reaches at D, seen from one eye (sign as DrawBarrelCrosshair's).
     const auto dotForEye = [&](float sign, ImVec2* out) -> bool {
+#if CVR_RUST_VRIK
+        float local[3]{};cvr_bd_eye_ray(mp,mf,D,hc,rgt,halfIpd,sign,bf.camQuat,local);
+        return ProjectHeadSpacePointToScreen(local[0], local[2], -local[1], displaySize, out);
+#else
         const float dx = (mp[0] + mf[0] * D) - (hcx + rgt[0] * halfIpd * sign);
         const float dy = (mp[1] + mf[1] * D) - (hcy + rgt[1] * halfIpd * sign);
         const float dz = (mp[2] + mf[2] * D) - (hcz + rgt[2] * halfIpd * sign);
         float lx = 0.0f, ly = 0.0f, lz = 0.0f;
         RotateVectorByQuaternion(dx, dy, dz, -cqx, -cqy, -cqz, cqw, &lx, &ly, &lz);
         return ProjectHeadSpacePointToScreen(lx, lz, -ly, displaySize, out);
+#endif
     };
+#if CVR_RUST_VRIK
+    const float sMain = cvr_bd_main_sign(engineStereo,CyberpunkVR_MainIsRightEye!=0,CyberpunkVR_BarrelDotEyeSign);
+#else
     const float sMain = engineStereo ? (CyberpunkVR_MainIsRightEye ? 1.0f : -1.0f)
                                      : ((CyberpunkVR_BarrelDotEyeSign >= 0) ? +1.0f : -1.0f);
+#endif
     ImVec2 sc{}, scSecond{};
     if (!dotForEye(sMain, &sc)) return;
     if (!dotForEye(-sMain, &scSecond)) scSecond = sc;
@@ -659,6 +804,24 @@ void DrawLeftBarrelDot() {
         return;
     }
     const int mainEye = CyberpunkVR_MainIsRightEye ? 1 : 0;
+#if CVR_RUST_VRIK
+    float second[2]{},first[2]{};cvr_bd_ndc(scSecond.x,scSecond.y,displaySize.x,displaySize.y,second);
+    float x2 = second[0], y2 = second[1];
+    AsymEyeWindows asym{};
+    if (cvr::projection::Active() && xr.GetAsymmetricEyeWindows(&asym)) {
+        x2 = cvr::projection::MapNdcX(x2, asym.eye[mainEye], asym.eye[1 - mainEye]);
+        y2 = cvr::projection::MapNdcY(y2, asym.eye[mainEye], asym.eye[1 - mainEye]);
+    }
+    x2 += CyberpunkVR_BarrelDotOffX2;
+    cvr_bd_ndc(sc.x,sc.y,displaySize.x,displaySize.y,first);
+    for (int eye = 0; eye != 2; ++eye) {
+        const float left = float(eye) * displaySize.x;float at[2]{};
+        cvr_bd_eye_pixel(eye == mainEye ? first[0] : x2,eye == mainEye ? first[1] : y2,eye,displaySize.x,displaySize.y,at);
+        dl->PushClipRect(ImVec2(left, 0), ImVec2(left + displaySize.x, displaySize.y), true);
+        dl->AddCircleFilled(ImVec2(at[0],at[1]),rad,green);
+        dl->PopClipRect();
+    }
+#else
     float x2 = (scSecond.x / displaySize.x) * 2.0f - 1.0f, y2 = 1.0f - (scSecond.y / displaySize.y) * 2.0f;
     AsymEyeWindows asym{};
     if (cvr::projection::Active() && xr.GetAsymmetricEyeWindows(&asym)) {
@@ -676,79 +839,9 @@ void DrawLeftBarrelDot() {
                             green);
         dl->PopClipRect();
     }
+#endif
 }
-
-// THE COLLISION VIEW (Natives/DebugView.cpp). Each line is projected from each eye's own position, the way the barrel dot is, so it stands in
-// the world in both eyes.
-void DrawDebugView() {
-    using namespace cvr::debugview;
-    static Segment segments[kMaxSegments];
-    const int count=Copy(segments,kMaxSegments);
-    if(count<=0)return;
-    cvr::camera::BarrelFrame bf{};
-    if(!cvr::camera::BarrelFrameRead(&bf))return;
-    const float hcx=static_cast<float>(g_lastLocatePosFP[0])/131072.0f;
-    const float hcy=static_cast<float>(g_lastLocatePosFP[1])/131072.0f;
-    const float hcz=static_cast<float>(g_lastLocatePosFP[2])/131072.0f;
-    if(hcx*hcx+hcy*hcy+hcz*hcz<=1.0f)return;
-    const bool engineStereo=cvr::engine_stereo::Enabled();
-    if(engineStereo && cvr::engine_stereo::OnePicture())return;
-    const ImVec2 backbufferSize=ImGui::GetIO().DisplaySize;
-    const ImVec2 displaySize(engineStereo?backbufferSize.x*0.5f:backbufferSize.x,backbufferSize.y);
-    if(displaySize.x<=1.0f || displaySize.y<=1.0f)return;
-    ImDrawList* dl=ImGui::GetBackgroundDrawList();
-    if(!dl)return;
-    const float cqx=bf.camQuat[0],cqy=bf.camQuat[1],cqz=bf.camQuat[2],cqw=bf.camQuat[3];
-    const float rgt[3]={1.0f-2.0f*(cqy*cqy+cqz*cqz),2.0f*(cqx*cqy+cqz*cqw),2.0f*(cqx*cqz-cqy*cqw)};
-    float halfIpd=CyberpunkVRPort_HalfIpd();
-    if(!(halfIpd>0.0001f))halfIpd=OpenXRManager::Get().GetSharedSlot(95);
-    if(!(halfIpd>0.0001f))halfIpd=0.0325f;
-    const int mainEye=CyberpunkVR_MainIsRightEye?1:0;
-    const float sMain=engineStereo?(CyberpunkVR_MainIsRightEye?1.0f:-1.0f):((CyberpunkVR_BarrelDotEyeSign>=0)?1.0f:-1.0f);
-    AsymEyeWindows asym{};
-    const bool mapped=engineStereo && cvr::projection::Active() && OpenXRManager::Get().GetAsymmetricEyeWindows(&asym);
-    static const ImU32 palette[ColorCount]={IM_COL32(255,255,255,255),IM_COL32(60,255,90,200),IM_COL32(255,60,60,230),IM_COL32(90,140,255,230),
-        IM_COL32(255,230,60,230),IM_COL32(60,240,240,200),IM_COL32(255,70,230,220),IM_COL32(255,150,40,255),IM_COL32(170,175,195,110),IM_COL32(255,215,70,220)};
-    constexpr float nearPlane=0.05f;
-    for(int eye=engineStereo?0:mainEye;eye<(engineStereo?2:mainEye+1);++eye) {
-        const float sign=eye==mainEye?sMain:-sMain;
-        const float ex=hcx+rgt[0]*halfIpd*sign,ey=hcy+rgt[1]*halfIpd*sign,ez=hcz+rgt[2]*halfIpd*sign;
-        const float left=engineStereo?float(eye)*displaySize.x:0.0f;
-        dl->PushClipRect(ImVec2(left,0),ImVec2(left+displaySize.x,displaySize.y),true);
-        const auto toScreen=[&](float lx,float ly,float lz,ImVec2* out) {
-            ImVec2 sc{};
-            if(!ProjectHeadSpacePointToScreen(lx,lz,-ly,displaySize,&sc))return false;
-            if(mapped && eye!=mainEye) {
-                float nx=(sc.x/displaySize.x)*2.0f-1.0f,ny=1.0f-(sc.y/displaySize.y)*2.0f;
-                nx=cvr::projection::MapNdcX(nx,asym.eye[mainEye],asym.eye[1-mainEye]);
-                ny=cvr::projection::MapNdcY(ny,asym.eye[mainEye],asym.eye[1-mainEye]);
-                sc.x=(nx*0.5f+0.5f)*displaySize.x;
-                sc.y=(0.5f-ny*0.5f)*displaySize.y;
-            }
-            out->x=left+sc.x;out->y=sc.y;
-            return true;
-        };
-        for(int i=0;i<count;++i) {
-            const Segment& s=segments[i];
-            float ax,ay,az,bx,by,bz;
-            RotateVectorByQuaternion(s.a[0]-ex,s.a[1]-ey,s.a[2]-ez,-cqx,-cqy,-cqz,cqw,&ax,&ay,&az);
-            RotateVectorByQuaternion(s.b[0]-ex,s.b[1]-ey,s.b[2]-ez,-cqx,-cqy,-cqz,cqw,&bx,&by,&bz);
-            // the camera's frame is X right, Y forward, Z up
-            if(ay<nearPlane && by<nearPlane)continue;
-            if(ay<nearPlane) {
-                const float t=(nearPlane-ay)/(by-ay);
-                ax+=(bx-ax)*t;az+=(bz-az)*t;ay=nearPlane;
-            } else if(by<nearPlane) {
-                const float t=(nearPlane-by)/(ay-by);
-                bx+=(ax-bx)*t;bz+=(az-bz)*t;by=nearPlane;
-            }
-            ImVec2 pa,pb;
-            if(!toScreen(ax,ay,az,&pa) || !toScreen(bx,by,bz,&pb))continue;
-            dl->AddLine(pa,pb,palette[s.color<ColorCount?s.color:0],1.2f);
-        }
-        dl->PopClipRect();
-    }
-}
+#endif
 
 }  // namespace overlay
 using namespace overlay;

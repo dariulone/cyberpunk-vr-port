@@ -3,6 +3,8 @@
 #include <cmath>
 #include <mutex>
 
+#if !CVR_RUST_VRIK
+// The C++ build's policy; the Rust build's is rust/crates/cvr-render/src/foveated.rs (the header calls it).
 namespace cvr::foveated {
 namespace { std::mutex mutex; SettingsDelay settingsDelay; }
 Settings Normalize(Settings value) {
@@ -82,3 +84,4 @@ void WriteSettings(FILE* file, Settings value) {
         value.mode, value.widthPercent, value.heightPercent, value.showBoundary ? 1 : 0, value.offsetXPercent, value.offsetYPercent);
 }
 }
+#endif

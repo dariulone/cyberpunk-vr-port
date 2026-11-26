@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 #include "Camera/SurveillanceFollow.hpp"
 // PatchCamera -- one hook, one file.
@@ -38,8 +39,10 @@
 #include "Hooks/Trampoline.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Render/Afw.hpp"
+#if !CVR_RUST_VRIK
 extern "C" int GetMenuRectMode();
 extern "C" int GetMenuMode();
+#endif
 #include "Utils/AobScanner.hpp"
 #include "Utils/MemorySafe.hpp"
 
@@ -52,11 +55,37 @@ extern "C" int GetMenuMode();
 #include <mutex>
 #include "Fbt/Game/Body.hpp"
 
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/patch_camera.rs: the same two sites, fast path and callback.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("PatchCamera", ::cvr::hooks::Stage::Boot, 12, cvr_hook_patch_camera_install);
+#endif
+#else
+#include "Anim/CharacterRig.hpp"   // g_VRIKClockQpc
+// OpenXR's pose samples through src/Hooks/HookServices.cpp, as the Rust port reads them, and the clock the tests
+// can set (VRIK_ClockQpc, 1 MHz).
+extern "C" {
+bool cvr_cpp_xr_acquire_camera_pose_frame(OpenXRHeadPose* head,cvr::roomscale::Vec2* consumed,uint64_t* sequence);
+uint64_t cvr_cpp_xr_frame_aim_epoch();
+int64_t cvr_cpp_xr_frame_aim_time();
+bool cvr_cpp_xr_locate_head_pose_at(int64_t time,OpenXRHeadPose* out);
+bool cvr_cpp_xr_get_head_pose(OpenXRHeadPose* out);
+void cvr_cpp_xr_push_render_head_pose(const OpenXRHeadPose* pose);
+bool cvr_cpp_xr_acquire_frame_head_sample(OpenXRHeadPose* out);
+uint64_t cvr_cpp_xr_tracking_origin_serial();
+bool cvr_cpp_surveillance_view_yaw(uintptr_t lens,uintptr_t owner,uint64_t origin,float ownerYaw,float* yaw);
+}
+static void PatchQpc(LARGE_INTEGER& now,LARGE_INTEGER& freq) {
+    if(g_VRIKClockQpc) { now.QuadPart=g_VRIKClockQpc();freq.QuadPart=1000000;return; }
+    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
+}
+
 extern "C" __declspec(dllexport) extern float CyberpunkVR_SceneStickYawDps;
 extern "C" __declspec(dllexport) extern int   CyberpunkVR_SceneStickYawTier;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_DebugSceneStickYawDeg;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVehicleWorldRecompose = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSceneWorldRecompose = 0;
+// PatchCamera's counters are defined in src/Camera/CameraLinkState.cpp (both builds).
+extern "C" uint64_t CyberpunkVR_DebugVehicleWorldRecompose,CyberpunkVR_DebugSceneWorldRecompose,CyberpunkVR_DebugTakeoverWorldRecompose;
+extern "C" float CyberpunkVR_DebugFppSceneComfortLagDeg;
 // The optics mod's eye-to-sight approach, world metres (OrientationProvider.cpp, SetVRSightApproach).
 extern "C" float CyberpunkVR_SightApproach[3];
 
@@ -72,8 +101,7 @@ static float SceneStickYawRad() {
     const float dps = CyberpunkVR_SceneStickYawDps;
     const bool armed = SceneStickYawArmed();
     LARGE_INTEGER now{}, freq{};
-    QueryPerformanceCounter(&now);
-    QueryPerformanceFrequency(&freq);
+    PatchQpc(now, freq);
     if (!armed) {
         s_yaw = 0.0f;
         s_prev = now.QuadPart;
@@ -97,7 +125,6 @@ static float SceneStickYawRad() {
     return s_yaw;
 }
 
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugFppSceneComfortLagDeg = 0.0f;
 
 namespace {
 std::mutex s_cameraComposeMutex;
@@ -117,7 +144,7 @@ cvr::camera::SceneComfortSettings FppSceneComfortSettings() {
 }
 float FppSceneComfortDt() {
     LARGE_INTEGER now{},freq{};
-    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
+    PatchQpc(now,freq);
     float dt=0.0f;
     if(s_fppSceneComfortQpc && freq.QuadPart>0)
         dt=static_cast<float>(static_cast<double>(now.QuadPart-s_fppSceneComfortQpc)/static_cast<double>(freq.QuadPart));
@@ -154,7 +181,6 @@ bool ReadCameraOwnerWorld(void* camera,CameraOwnerWorld* out,
 }
 }
 
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTakeoverWorldRecompose = 0;
 
 extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* ownerState) {
     g_patchCameraHits++;
@@ -477,7 +503,7 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
             cvr::roomscale::Vec2 selectedConsumed{};
             uint64_t selectedSequence{};
             const bool selected=CyberpunkVR_OneSamplePerFrame &&
-                OpenXRManager::Get().AcquireCameraPoseFrame(&selectedPose,&selectedConsumed,&selectedSequence) && selectedPose.valid;
+                cvr_cpp_xr_acquire_camera_pose_frame(&selectedPose,&selectedConsumed,&selectedSequence) && selectedPose.valid;
             // GATE ON THE AIM EPOCH, NOT ON THE PRESENT COUNT.
             //
             // m_presentCount is incremented at the very TOP of OnPresent, but the aim time for
@@ -488,7 +514,7 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
             // epoch is bumped by SetFrameAimTime itself, so claiming it and reading the aim can
             // no longer disagree.
             const uint64_t epoch = selected ? selectedSequence | (uint64_t{1}<<62)
-                                           : OpenXRManager::Get().GetFrameAimEpoch();
+                                           : cvr_cpp_xr_frame_aim_epoch();
             cvr::camera::VehicleStereoHeading::Selection nativeHeading{};
             cvr::camera::VehicleStereoHeading::Selection deviceHeading{};
             float nativeStickYaw=0.0f;
@@ -510,8 +536,8 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                 const auto* q=lensOwnerBefore.rotation;
                 const float ownerYaw=std::atan2(-2*(q[0]*q[1]-q[2]*q[3]),1-2*(q[0]*q[0]+q[2]*q[2]));
                 float viewYaw{};
-                const auto origin=selected ? selectedPose.originSerial : OpenXRManager::Get().GetTrackingOriginSerial();
-                if(cvr::camera::SurveillanceViewYaw(lens,lensOwner,origin,ownerYaw,viewYaw)) {
+                const auto origin=selected ? selectedPose.originSerial : cvr_cpp_xr_tracking_origin_serial();
+                if(cvr_cpp_surveillance_view_yaw(lens,lensOwner,origin,ownerYaw,&viewYaw)) {
                     drivenSurveillance=true;
                     deviceHeading.changed |= !s_surveillanceRenderYawValid ||
                         std::abs(cvr::camera::SurveillanceWrap(viewYaw-s_surveillanceRenderYaw))>1e-6f;
@@ -561,14 +587,14 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                     p=selectedPose;got=selected;
                     if (got) CVR_DIAGNOSTIC(++CyberpunkVR_DebugPoseLocatedAtWrite);
                 } else if (CyberpunkVR_PoseLocateAtWrite) {
-                    const XrTime aim = OpenXRManager::Get().GetFrameAimTime();
+                    const XrTime aim = cvr_cpp_xr_frame_aim_time();
                     if (aim > 0) {
-                        got = OpenXRManager::Get().LocateHeadPoseAt(aim, &p) && p.valid;
+                        got = cvr_cpp_xr_locate_head_pose_at(aim, &p) && p.valid;
                         if (got) CVR_DIAGNOSTIC(++CyberpunkVR_DebugPoseLocatedAtWrite);
                     }
                 }
                 if (!got) {   // no aim yet, or the locate failed -- the cached value still works
-                    got = OpenXRManager::Get().GetHeadPose(&p) && p.valid;
+                    got = cvr_cpp_xr_get_head_pose(&p) && p.valid;
                     if (got) CVR_DIAGNOSTIC(++CyberpunkVR_DebugPoseFromCache);
                 }
                 if (got) {
@@ -765,7 +791,7 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                     // NOT while the push owns the composition: LocateCamera labels the frame with the
                     // sample its own composition came from, and two publishers means the last one wins
                     // with a pose the pixels were never drawn from.
-                    if (!bdPushOwns) OpenXRManager::Get().PushRenderHeadPose(p);
+                    if (!bdPushOwns) cvr_cpp_xr_push_render_head_pose(&p);
                     // Keep the published composition in step for the overlay crosshair and the
                     // legacy readers, so there is only ever one current answer.
                     g_headQuatComposed[0] = rx;
@@ -844,8 +870,8 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
         g_bdScenePoseValid.load(std::memory_order_acquire)) {
         OpenXRHeadPose bp{};
         bool gotBd = CyberpunkVR_OneSamplePerFrame &&
-                     OpenXRManager::Get().AcquireFrameHeadSample(&bp) && bp.valid;
-        if (!gotBd) gotBd = OpenXRManager::Get().GetHeadPose(&bp) && bp.valid;
+                     cvr_cpp_xr_acquire_frame_head_sample(&bp) && bp.valid;
+        if (!gotBd) gotBd = cvr_cpp_xr_get_head_pose(&bp) && bp.valid;
         if (gotBd) {
             float o[4] = {};
             float sceneBase[4];   // the same filtered base as MAIN's, see SceneComfortApply
@@ -1269,8 +1295,8 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
             OpenXRHeadPose translationPose=writtenPose;
             cvr::roomscale::Vec2 translationConsumed=writtenConsumed;
             const bool translationValid = (translationPose.valid &&
-                translationPose.originSerial==OpenXRManager::Get().GetTrackingOriginSerial()) ||
-                (!orientationWritten && OpenXRManager::Get().AcquireCameraPoseFrame(&translationPose,&translationConsumed) && translationPose.valid);
+                translationPose.originSerial==cvr_cpp_xr_tracking_origin_serial()) ||
+                (!orientationWritten && cvr_cpp_xr_acquire_camera_pose_frame(&translationPose,&translationConsumed,nullptr) && translationPose.valid);
             // Both eyes read the shared frame sample, even when the OTHER eye
             // won the orientation-composition gate. Otherwise the second eye
             // falls back to the preceding frame's displacement/consumption.
@@ -1697,3 +1723,5 @@ bool InstallPatchCameraHook() {
 }
 
 CVR_HOOK("PatchCamera", ::cvr::hooks::Stage::Boot, 12, InstallPatchCameraHook);
+#endif
+#endif

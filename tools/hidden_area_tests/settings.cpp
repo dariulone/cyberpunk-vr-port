@@ -115,7 +115,46 @@ static void Window() {
     }
 }
 
-int main() {
+// THE TRACE: every output of the geometry over a fixed sweep, hashed (FNV-1a over the bits), so the C++ build and the
+// Rust build can be compared bit for bit (cmake/ParityTrace.cmake).
+struct TraceHash {
+    uint64_t value=1469598103934665603ull;
+    void Bytes(const void* p,size_t n) {
+        const auto* b=static_cast<const unsigned char*>(p);
+        for(size_t i=0;i<n;++i){value^=b[i];value*=1099511628211ull;}
+    }
+};
+static int Trace() {
+    uint32_t seed=12345;const auto next=[&]{seed=seed*1664525u+1013904223u;return seed;};
+    const auto unit=[&]{return float(next()>>8)/float(1u<<24);};
+    size_t rects=0,scaleCalls=0;
+    TraceHash hr,hc,hs,hh,hy,hn;
+    for(int i=0;i<400;++i) {
+        const Fov f{-(0.6f+unit()*0.9f),0.6f+unit()*0.9f,0.6f+unit()*0.9f,-(0.6f+unit()*0.9f)};
+        const float radius=60+unit()*100;
+        const Fov rendered{f.left*(0.8f+unit()*0.4f),f.right*(0.8f+unit()*0.4f),f.up*(0.8f+unit()*0.4f),f.down*(0.8f+unit()*0.4f)};
+        const uint32_t w=64+next()%900,h=64+next()%900,cell=1u<<(2+next()%4),margin=next()%3;
+        const auto r=BuildRects(f,radius,w,h,rendered,cell,margin);
+        rects+=r.size();
+        for(const auto& x:r)hr.Bytes(&x,sizeof x);
+        const double cov=Coverage(r,w,h);hc.Bytes(&cov,sizeof cov);
+        float scales[4]{};const bool ok=ShaderEllipseScales(f,radius,rendered,scales);
+        hs.Bytes(&ok,1);if(ok){hs.Bytes(scales,sizeof scales);++scaleCalls;}
+        for(int k=0;k<32;++k){const float x=(unit()*2-1)*2,y=(unit()*2-1)*2;const bool hid=Hidden(f,radius,x,y);hh.Bytes(&hid,1);}
+        const float tx=0.5f+unit(),ty=0.5f+unit();
+        const auto sym=BuildRects(f,radius,w,h,tx,ty,cell,margin);
+        for(const auto& x:sym)hy.Bytes(&x,sizeof x);
+        const int enabled=int(next()%3);const float rr=unit()*200;
+        Settings s{enabled,rr};const auto n=Normalize(s);hn.Bytes(&n,sizeof n);
+    }
+    std::printf("hidden_area trace rects %016llx coverage %016llx scales %016llx hidden %016llx symmetric %016llx settings %016llx (rects=%zu scales=%zu)\n",
+        (unsigned long long)hr.value,(unsigned long long)hc.value,(unsigned long long)hs.value,(unsigned long long)hh.value,
+        (unsigned long long)hy.value,(unsigned long long)hn.value,rects,scaleCalls);
+    return 0;
+}
+
+int main(int argc,char** argv) {
+    if(argc>1 && std::string(argv[1])=="trace")return Trace();
     Settings_();HiddenTest();Rects();Window();
     std::printf(failures?"%d failures\n":"all passed\n",failures);
     return failures?1:0;

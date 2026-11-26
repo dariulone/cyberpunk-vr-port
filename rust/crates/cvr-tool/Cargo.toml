@@ -1,0 +1,16 @@
+[package]
+name = "cvr-tool"
+description = "The port's development CLI: SDK bindings generation, baselines, PE/RTTI dumps (stage 0, 2 and 8)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cvr-tool"
+path = "src/main.rs"
+
+[dependencies]
+sha2 = "0.10"
+
+[lints]
+workspace = true

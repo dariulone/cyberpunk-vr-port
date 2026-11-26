@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // VRInteractionAction(action: CName) -> Bool: one interaction input action (ChoiceApply, ChoiceScrollUp,
 // ChoiceScrollDown) handed straight to the game's choice visualizers, the listener the input system feeds when the
 // player scrolls or confirms a choice hub. Nothing else sees it: no pad state, no other input context (a weapon does
@@ -25,6 +26,8 @@
 #include <atomic>
 #include <cstdint>
 
+// The Rust build's native is rust/crates/cvr-rig/src/vrik/interaction_action.rs.
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
 
 namespace {
@@ -119,3 +122,5 @@ void VRInteractionAction(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bo
     onInput(listener, event, result);
     if (aOut) *aOut = result[kResultConsumed] != 0;
 }
+#endif
+#endif

@@ -7,6 +7,10 @@
 #include <reverse/RTTIHelper.h>
 #include <xbyak/xbyak.h>
 
+#if CVR_RUST_VRIK
+// rust/crates/cvr-ffi/src/script_hooks.rs: the one hook on InternalCall, this host's handler behind it.
+extern "C" bool cvr_pure_calls_attach(void* apHandler, void** apReal);
+#endif
 // The host's profiler (src/Lua/Profiler.cpp): an overridden function's call, timed while CVR_LUA_PROFILE is set.
 extern "C" bool CvrProfileWanted();
 extern "C" void CvrProfileOverride(RED4ext::CBaseFunction* apFunction, double aMs);
@@ -607,6 +611,15 @@ void FunctionOverride::HookPureCalls()
         return;
     m_pureCallsHooked = true;
 
+#if CVR_RUST_VRIK
+    // The plugin's Rust side owns the one hook on InternalCall (rust/crates/cvr-ffi/src/script_hooks.rs: its own
+    // script hooks are caught there); this host's handler is put behind it, the same MinHook allowing one per address.
+    if (cvr_pure_calls_attach(reinterpret_cast<void*>(&FunctionOverride::HookRunPureScriptFunction), reinterpret_cast<void**>(&RealRunPureScriptFunction)))
+    {
+        Log::Info("RealRunScriptFunction function hook complete (behind the plugin's)!");
+        return;
+    }
+#endif
     {
         const RED4ext::UniversalRelocPtr<void> func(CyberEngineTweaks::AddressHashes::CScript_RunPureScript);
         RealRunPureScriptFunction = reinterpret_cast<TRunPureScriptFunction>(func.GetAddr());

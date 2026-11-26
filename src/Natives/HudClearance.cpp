@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Runtimes/HudClearance.hpp"
 #include "Natives/NativeFunctions.hpp"
 #include <RED4ext/RED4ext.hpp>
@@ -6,14 +7,24 @@
 #include <cmath>
 
 // 1 = keep the HUD panels in front of the world (xr_hud_clearance). See Runtimes/HudClearance.hpp.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_HudClearance = 0;
 // How much a panel grows as it comes in (xr_hud_clearance_grow), 0..1. See GrowFactor.
 extern "C" __declspec(dllexport) float CyberpunkVR_HudClearanceGrow = 0.5f;
 // 1 = a tracked hand in front of a HUD panel pushes it in too (xr_hud_clearance_hands). See HandFront.
 extern "C" __declspec(dllexport) int CyberpunkVR_HudClearanceHands = 0;
+#endif
 // How far a hand pushes the HUD out (xr_hud_clearance_hands_scale): its scale while a hand is in front, 1..3.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_HudClearanceHandsScale = cvr::hud::clearance::kHandOutScale;
+#endif
 
+#if !CVR_RUST_VRIK
+// The C++ build's native and state; the Rust build's are rust/crates/cvr-xr/src/hud_natives.rs.
 namespace {
 std::atomic<float>    g_clearance{0.0f};
 std::atomic<uint64_t> g_stampMs{0};
@@ -45,3 +56,5 @@ void SetVRHudClearance(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void
     g_clearance.store(depth, std::memory_order_relaxed);
     g_stampMs.store(GetTickCount64(), std::memory_order_release);
 }
+#endif
+#endif

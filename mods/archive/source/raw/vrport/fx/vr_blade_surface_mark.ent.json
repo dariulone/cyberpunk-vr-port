@@ -1,0 +1,52 @@
+{
+  "Header": {
+    "WKitJsonVersion": "0.0.9", "GameVersion": 2500, "DataType": "CR2W",
+    "ArchiveFileName": "vrport\\fx\\vr_blade_surface_mark.ent"
+  },
+  "Data": {
+    "Version": 195, "BuildVersion": 0,
+    "RootChunk": {
+      "$type": "entEntityTemplate", "cookingPlatform": "PLATFORM_PC",
+      "defaultAppearance": {"$type":"CName","$storage":"string","$value":"default"},
+      "entity": {"HandleId":"1","Data":{"$type":"entEntity","renderSceneLayerMask":"Default"}},
+      "compiledData": {
+        "BufferId":"0", "Flags":7471104,
+        "Type":"WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4, Version=8.18.0.0, Culture=neutral, PublicKeyToken=null",
+        "Data": {
+          "Version":4, "Sections":7, "CruidIndex":0,
+          "CruidDict":{"0":"0","1":"733114032007404001","2":"733114032007404002"},
+          "Chunks": [
+            {"$type":"entEntity","renderSceneLayerMask":"Default"},
+            {"$type":"entTransformComponent","id":"733114032007404001","name":{"$type":"CName","$storage":"string","$value":"vrMarkRoot"}},
+            {
+              "$type":"entMeshComponent", "id":"733114032007404002",
+              "name":{"$type":"CName","$storage":"string","$value":"vrMarkDecal"},
+              "parentTransform":{"HandleId":"0","Data":{"$type":"entHardTransformBinding","bindName":{"$type":"CName","$storage":"string","$value":"vrMarkRoot"},"enabled":1}},
+              "isEnabled":0, "autoHideDistance":18, "LODMode":"AlwaysVisible", "chunkMask":"3",
+              "castShadows":"Never", "castLocalShadows":"Never", "castRayTracedGlobalShadows":"Never", "castRayTracedLocalShadows":"Never",
+              "renderSceneLayerMask":"Default", "renderingPlane":"RPl_Scene", "motionBlurScale":0,
+              "visualScale":{"$type":"Vector3","X":1,"Y":1,"Z":1},
+              "meshAppearance":{"$type":"CName","$storage":"string","$value":"default"},
+              "mesh":{"DepotPath":{"$type":"ResourcePath","$storage":"string","$value":"vrport\\fx\\vr_blade_ribbon.mesh"},"Flags":"Default"}
+            }
+          ]
+        }
+      },
+      "components": [
+        {"$type":"entTransformComponent","id":"733114032007404001","name":{"$type":"CName","$storage":"string","$value":"vrMarkRoot"}},
+        {
+          "$type":"entMeshComponent", "id":"733114032007404002",
+          "name":{"$type":"CName","$storage":"string","$value":"vrMarkDecal"},
+          "parentTransform":{"HandleRefId":"0"},
+          "isEnabled":0, "autoHideDistance":18, "LODMode":"AlwaysVisible", "chunkMask":"3",
+          "castShadows":"Never", "castLocalShadows":"Never", "castRayTracedGlobalShadows":"Never", "castRayTracedLocalShadows":"Never",
+          "renderSceneLayerMask":"Default", "renderingPlane":"RPl_Scene", "motionBlurScale":0,
+          "visualScale":{"$type":"Vector3","X":1,"Y":1,"Z":1},
+          "meshAppearance":{"$type":"CName","$storage":"string","$value":"default"},
+          "mesh":{"DepotPath":{"$type":"ResourcePath","$storage":"string","$value":"vrport\\fx\\vr_blade_ribbon.mesh"},"Flags":"Default"}
+        }
+      ]
+    },
+    "EmbeddedFiles":[]
+  }
+}

@@ -2,6 +2,58 @@
 #include <windows.h>
 
 namespace cvr::stereo::target_lifetime {
+#if CVR_RUST_VRIK
+// The runtime: rust/crates/cvr-render/src/target_lifetime.rs. The proofs (shared, holding the C++ identity and scope)
+// stay here; Rust reads their records and asks texture_read::ValidateWritableIdentity through the attached function.
+extern "C" {
+void cvr_tl_attach(bool(*)(const void*,ID3D12CommandQueue*));
+bool cvr_tl_capture(const void*,void*);
+bool cvr_tl_bind(const void*,const void*,ID3D12CommandQueue*,IUnknown*,void*);
+bool cvr_tl_validate(const void*,const void*,IUnknown*,const void*);
+bool cvr_tl_borrowed_pageable(ID3D12Device*,const void*,const void*,const void*,IUnknown*,const void*,ID3D12Pageable**);
+uint32_t cvr_tl_last_failure();
+void cvr_tl_last_details(std::array<uint64_t,12>*);
+}
+namespace detail {
+struct CaptureProof {texture_read::WritableTargetIdentity identity;Snapshot source;};
+struct BorrowProof {std::shared_ptr<const CaptureProof> captured;queue_residency::Scope scope;Snapshot bound;};
+}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's identity check is target_lifetime.rs' own
+namespace {
+bool ValidateIdentityForRust(const void* identity,ID3D12CommandQueue* queue){
+    return texture_read::ValidateWritableIdentity(*static_cast<const texture_read::WritableTargetIdentity*>(identity),queue);
+}
+[[maybe_unused]] const bool kAttached=(cvr_tl_attach(&ValidateIdentityForRust),true);
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool Capture(const texture_read::WritableTargetIdentity& identity,Lease& output){
+    output={};auto proof=std::make_shared<detail::CaptureProof>();
+    if(!cvr_tl_capture(&identity,&proof->source))return false;
+    proof->identity=identity;output.proof_=std::move(proof);return true;
+}
+bool Bind(const Lease& lease,ID3D12CommandQueue* queue,const queue_residency::Scope& scope,BorrowedScope& output){
+    output={};const auto* captured=lease.proof_.get();auto proof=std::make_shared<detail::BorrowProof>();
+    if(!cvr_tl_bind(captured?&captured->identity:nullptr,captured?&captured->source:nullptr,queue,queue_residency::RustHandle(scope),
+        &proof->bound))return false;
+    proof->captured=lease.proof_;proof->scope=scope;output.proof_=std::move(proof);return true;
+}
+bool Validate(const BorrowedScope& scope){
+    const auto* proof=scope.proof_.get();
+    return cvr_tl_validate(proof?&proof->captured->identity:nullptr,proof?&proof->captured->source:nullptr,
+        proof?queue_residency::RustHandle(proof->scope):nullptr,proof?&proof->bound:nullptr);
+}
+bool GetBorrowedPageable(ID3D12Device* device,const texture_read::WritableTargetIdentity& expected,
+                         const BorrowedScope& scope,BorrowedPageable& output){
+    output={};const auto* proof=scope.proof_.get();BorrowedPageable value;
+    if(!cvr_tl_borrowed_pageable(device,&expected,proof?&proof->captured->identity:nullptr,proof?&proof->captured->source:nullptr,
+        proof?queue_residency::RustHandle(proof->scope):nullptr,proof?&proof->bound:nullptr,value.pageable.GetAddressOf()))return false;
+    value.identity=proof->captured->identity;value.lifetime=scope;output=std::move(value);return true;
+}
+uint32_t LastFailure(){return cvr_tl_last_failure();}
+std::array<uint64_t,12> LastDetails(){std::array<uint64_t,12> value{};cvr_tl_last_details(&value);return value;}
+#endif
+#else
 namespace detail {
 struct CaptureProof {texture_read::WritableTargetIdentity identity;Snapshot source;};
 struct BorrowProof {std::shared_ptr<const CaptureProof> captured;queue_residency::Scope scope;Snapshot bound;};
@@ -134,4 +186,5 @@ bool GetBorrowedPageable(ID3D12Device* device,const texture_read::WritableTarget
 uint32_t LastFailure(){return failure;}
 std::array<uint64_t,12> LastDetails(){return details;}
 std::array<uint64_t,3> LastContractFailure(){const auto& value=Contract();return value.accepted?hookFailure:value.failed;}
+#endif
 }

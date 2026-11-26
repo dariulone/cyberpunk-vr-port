@@ -3,8 +3,27 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::body {
+#if CVR_RUST_ROOM
+// rust/crates/cvr-body/src/crouch.rs; the class keeps its fields (Rust has its layout).
+inline float CrouchThreshold(float value) { return cvr_crouch_threshold(value); }
+inline float CrouchDepth(float neckDrop,const BendSample& bend) { return cvr_crouch_depth(neckDrop,&bend); }
+class PhysicalCrouch {
+    uint64_t m_origin{},m_owner{},m_stamp{},m_candidateSince{};
+    bool m_active{},m_candidate{};
+public:
+    void Reset(){cvr_crouch_reset(this);}
+    bool Active() const{return m_active;}
+    bool Update(float depth,float threshold,uint64_t now,uint64_t origin,uint64_t owner,bool allowed) {
+        return cvr_crouch_update(this,depth,threshold,now,origin,owner,allowed);
+    }
+};
+static_assert(sizeof(PhysicalCrouch) == 40);
+#else
 inline float CrouchThreshold(float value) {
     return std::isfinite(value) ? std::clamp(value,.15f,.55f):.45f;
 }
@@ -36,4 +55,5 @@ public:
         return m_active;
     }
 };
+#endif
 }

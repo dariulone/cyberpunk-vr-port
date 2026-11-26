@@ -19,17 +19,17 @@ int main(){
     Packet packet{(uint64_t(3)<<17)|(uint64_t(5)<<32)|(uint64_t(7)<<45)|0x1234,
                   11|(uint64_t(1)<<18)|(uint64_t(13)<<33)|(uint64_t(1)<<51)};
     Memory m;
-    const uint64_t addresses[]{pool+0x50+3*64,pool+0x2581D0+5*6,pool+0x240110+7*40,pool+0x274248+11*24,pool+0x574280+13*48};
-    const unsigned sizes[]{64,6,40,24,48};
+    const uint64_t addresses[]{pool+0x50+3*64,pool+0x2541D0+5*6,pool+0x240110+7*32,pool+0x270248+11*24,pool+0x570280+13*48};
+    const unsigned sizes[]{64,6,32,24,48};
     for(unsigned i=0;i<5;++i)m.regions[addresses[i]]=std::vector<uint8_t>(sizes[i],uint8_t(i+1));
     m.regions[addresses[0]][0]=0;
-    auto& state=m.regions[addresses[2]];std::memset(state.data()+0x18,0,4);
+    auto& state=m.regions[addresses[2]];std::memset(state.data()+0x10,0,4);
     auto resolved=ResolveInputs(packet,pool,Memory::Read,&m);
     Require(resolved.valid==63 && resolved.instances==1 && resolved.commandProgramField==0,"complete direct packet");
     Require(m.calls==5 && resolved.shaders[5]==2 && resolved.shaders[6]==0 && resolved.shaders[7]==0,"exact native strides, zero padding");
     Require(resolved.draw[63]==1 && resolved.object[23]==4 && resolved.transform[47]==5,"complete owned entries");
     m.regions[addresses[0]][1]=9;Require(resolved.draw[1]==1,"independent snapshot");
-    state[0x18]=7;resolved=ResolveInputs(packet,pool,Memory::Read,&m);Require(resolved.commandProgramField==7,"nonempty programs stay explicit");
+    state[0x10]=7;resolved=ResolveInputs(packet,pool,Memory::Read,&m);Require(resolved.commandProgramField==7,"nonempty programs stay explicit");
     auto many=packet;many.second+=uint64_t(1)<<18;resolved=ResolveInputs(many,pool,Memory::Read,&m);
     Require(resolved.instances==2 && resolved.valid==47,"multi-instance matrices not falsely represented by one transform");
     const uint64_t bone=0x789000;std::memcpy(m.regions[addresses[3]].data()+8,&bone,8);
@@ -38,7 +38,7 @@ int main(){
     m.regions.erase(bone+0x14);resolved=ResolveInputs(skin,pool,Memory::Read,&m);Require(resolved.valid==31,"unreadable skin does not pass");
     const uint64_t noBone=0;std::memcpy(m.regions[addresses[3]].data()+8,&noBone,8);
     resolved=ResolveInputs(skin,pool,Memory::Read,&m);Require(resolved.valid==63 && resolved.skin[12]==1,"native null-skin fallback is 0,0,0,1");
-    std::memset(state.data()+0x18,0,4);
+    std::memset(state.data()+0x10,0,4);
     std::vector<uint8_t> blob;
     auto details=ResolveDetails(packet,pool,{},Memory::Read,&m,blob);
     Require(details.valid==127 && details.instanceBytes==48 && details.instanceStride==48,"complete CPU instance");
@@ -54,7 +54,7 @@ int main(){
     Require(details.valid==127 && details.source==2 && details.instanceGpuAddress==gpu+13*48 && details.instanceResource==0x123456 && blob[0]==0xa7,"preuploaded packets use actual instance buffer");
     uploaded.bytes=13*48+95;blob.clear();details=ResolveDetails(gpuPacket,pool,uploaded,Memory::Read,&m,blob);Require(!(details.valid&16),"preuploaded range bound");
     m.regions[addresses[0]][0]=2;blob.clear();details=ResolveDetails(many,pool,{},Memory::Read,&m,blob);Require(details.source==0 && !(details.valid&16),"view-facing geometry excluded");m.regions[addresses[0]][0]=0;
-    const uint64_t program=0x123000;std::memcpy(state.data()+0x10,&program,8);uint32_t programBytes=17;std::memcpy(state.data()+0x18,&programBytes,4);
+    const uint64_t program=0x123000;std::memcpy(state.data()+0x08,&program,8);uint32_t programBytes=17;std::memcpy(state.data()+0x10,&programBytes,4);
     m.regions[program]={1,0,0,0,0x80,0,0,0,7,0,0,0,1,0,0,0,2};blob.clear();
     details=ResolveDetails(many,pool,{},Memory::Read,&m,blob);Require(details.valid==127 && details.programBytes==17 && blob[details.programOffset+16]==2,"native command program copied");
     auto compareGeometry=[&](Packet p,MappedInstances mapped){

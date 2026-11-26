@@ -1,5 +1,4 @@
 #include <MinHook.h>
-#include "Utils/DebugGate.hpp"
 #include "Hooks/RenderDocBridge.hpp"
 #include "Hooks/SwapChainInternal.hpp"
 #include "Render/DesktopMirror.hpp"
@@ -38,21 +37,31 @@
 
 // Defined in Stereo/CommandListCensus.cpp: hooks the game-facing command-list vtable so the port markers
 // land above a capture layer. Declared here because this is where the game-facing device is in hand.
+#if !CVR_RUST_VRIK
 extern "C" void RegisterGameFacingListVtable(ID3D12Device* device);
 extern "C" void CyberpunkVR_RegisterRtvSwapchain(IDXGISwapChain* swapChain);
+#endif
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
 extern volatile int g_verboseLog; // gate per-frame spam (ClipCursor / depth-diag)
 extern "C" void PrepareStartupLiveControls();
+#endif
 // View identity from the render-graph dispatcher (vr_core.cpp): which view is recording
 // on this thread. Used to pick MAIN's depth-stencil without relying on resolution.
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_IsMainViewRecording();
 extern "C" int CyberpunkVR_ViewKeyHookActive();
+#endif
 // Stereo per-node profiler (stereo/sync_stereo.cpp): ends the accounting frame, see the call
 // site in the Present path.
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_ProfPublish();
+#endif
 // Applies a script-written node-cut rule (Stereo/Profiler.cpp) once per Present.
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_NodeCutPoll();
+#endif
 // Where each game Present's time goes, as QPC tick sums (read as deltas over a window by
 // tools/single_pass_tests/control_ab.py): 0 presents, 1 interval since the previous present,
 // 2 GPU-frame finish, 3 inline XR pump (xrWaitFrame/begin/locate/end),
@@ -61,17 +70,30 @@ extern "C" void CyberpunkVR_NodeCutPoll();
 // (City roof, 2560x2560 per eye: 12.5 ms intervals with < 0.3 ms of waits inside the hook while
 // the GPU was 96% busy -- the frame was GPU-bound, not paced by the desktop present. A tearing
 // present was tried and measured no different, run 825.)
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PresentTiming[8]{};
+#endif
 // The rest of the hook, in QPC ticks summed over presents: [0] the per-frame polls before the
 // overlay, [1] OverlayRender, [2] OpenXRManager::OnPresent (HUD + mono capture), [3] rate report and
 // desktop overlay, [4] DesktopMirrorRender, [5] after the DXGI Present. The Present is the last node of
 // the render chain, so every tick here is a tick of frame time in a CPU-bound scene.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PresentSections[8]{};
+#endif
 // Single-pass stage replay census window and hook installation (Render/StageReplay.cpp).
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_StageReplayPoll();
+#endif
 // The node timeline (Stereo/Profiler.cpp) also records each Present as a span.
+#if !CVR_RUST_VRIK
 extern "C" int32_t CyberpunkVR_NodeTimeline;
+#endif
 namespace cvr::detail { void prof_timeline_add(int64_t start, int64_t end, uint32_t rva, uint32_t kind, uint32_t extra = 0); }
+#if !CVR_RUST_VRIK
 extern "C" UINT GetForcedSwapchainWidth();
 extern "C" UINT GetForcedSwapchainHeight();
 extern "C" UINT GetForcedDisplayModeWidth();
@@ -79,6 +101,7 @@ extern "C" UINT GetForcedDisplayModeHeight();
 extern "C" UINT GetForcedWindowWidth();
 extern "C" UINT GetForcedWindowHeight();
 extern "C" int GetMenuMode();
+#endif
 // Nothing in this file may re-derive a size: the swapchain gets the launcher's pick verbatim.
 // The helper that used to do it is gone entirely -- see HookedResizeBuffers.
 
@@ -89,22 +112,68 @@ extern "C" int GetMenuMode();
 // the same wall that kept SyncStereo.cpp a single 13,000-line file until its anonymous namespace
 // was named. Only what Hooks/SwapChainInternal.hpp declares was lifted out; the rest stays private.
 
+#if CVR_RUST_VRIK
+// The vtable slot registry is rust/crates/cvr-engine/src/vtable.rs; the A/B switch stays exported from here.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FastOriginalLookup{1};
+#endif
+extern "C" void cvr_vtable_attach(std::atomic<uint32_t>* fastOriginalLookup);
+// The scene depth's pick (rust/crates/cvr-gpu/src/depth_capture.rs).
+extern "C" uint32_t cvr_depth_format();
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin attaches it in rust/crates/cvr-render/src/engine_detours.rs cvr_static_registrations
+namespace { const bool vtableRegistryAttached = (cvr_vtable_attach(&CyberpunkVR_FastOriginalLookup), true); }
+#endif
+#else
 std::unordered_map<uintptr_t, void*> g_originalVtableMethods;
 cvr::hooks::OriginalMethodTable<> g_originalMethodTable;
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FastOriginalLookup{1};
 std::mutex g_vtableMutex;
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // Dred.cpp's (the C++ build's)
 std::mutex g_dredMutex;
 Microsoft::WRL::ComPtr<ID3D12Device> g_dredDevice;
+#endif
+#if CVR_RUST_VRIK
+#else
 bool g_dredDumped = false;
+#endif
+#if CVR_RUST_VRIK
+#else
 bool g_cursorClipped = false;
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<void*> g_presentQueue{nullptr};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_eclTotalCalls{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_eclTotalLists{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_eclPresentCalls{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_eclPresentLists{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_eclDistinctQueues{0};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's is rust/crates/cvr-render/src/moved_globals.rs'
 std::atomic<void*> g_eclSeenQueues[16];
+#endif
 
+#if CVR_RUST_VRIK
+// THE HELPERS ARE RUST'S (rust/crates/cvr-render/src/swapchain.rs).
+#else
 const char* WideToUtf8(const wchar_t* value, char* buffer, size_t bufferSize) {
 if (!value) {
     return "<unnamed>";
@@ -143,7 +212,14 @@ if (ansiName && ansiName[0] != '\0') {
 }
 return WideToUtf8(wideName, buffer, bufferSize);
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE SWAPCHAIN'S HOOKS (Present, the frame's hub; SetFullscreenState; ResizeBuffers/1) AND THE PLUGIN'S BOOTSTRAP ARE
+// RUST'S (rust/crates/cvr-render/src/swapchain.rs). The state other files read and the timing exports stay here; the
+// subsystems the hub calls are handed over below, in the hub's order.
+// The hub's table is Rust's (swapchain.rs).
+#else
 namespace {
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
 using EnumOutputsFn = HRESULT(STDMETHODCALLTYPE*)(IDXGIAdapter*, UINT, IDXGIOutput**);
@@ -296,6 +372,13 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
 
     // Publish the presented size for the scene-depth picker and re-open the choice for the
     // next frame: the pick must be per-frame, not a session maximum (see the OM hook).
+#if CVR_RUST_VRIK
+    {
+        DXGI_SWAP_CHAIN_DESC scd{};
+        const bool known = swapChain && SUCCEEDED(swapChain->GetDesc(&scd));
+        cvr_depth_present(scd.BufferDesc.Width, scd.BufferDesc.Height, known);   // rust/crates/cvr-gpu/src/depth_capture.rs
+    }
+#else
     if (swapChain) {
         DXGI_SWAP_CHAIN_DESC scd{};
         if (SUCCEEDED(swapChain->GetDesc(&scd))) {
@@ -311,6 +394,8 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
         g_sceneDepthMissFrames.store(0, std::memory_order_relaxed);
         g_sceneDepthArea.store(0, std::memory_order_relaxed);
     }
+#endif
+
 
     section(0);
     cvr::engine_stereo::NotePresent();
@@ -354,7 +439,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
     }
 
     static uint64_t presentLogCounter = 0;
-    if (hr != S_OK || ((++presentLogCounter % 600) == 1 && cvr::RuntimeDiagnosticsEnabled())) {
+    if (hr != S_OK || ((++presentLogCounter % 600) == 1)) {
         HWND foreground = GetForegroundWindow();
         RECT clientRect{};
         RECT windowRect{};
@@ -500,14 +585,21 @@ void InstallSwapchainHooks(IDXGISwapChain* swapChain) {
     }
 }
 }
+#endif
 
 // Extern "C" forwarder so vr_core.cpp can invoke the anonymous-namespace
 // DRED initializer at each CreateDXGIFactory* entry (runs before any D3D12
 // device is created — required for breadcrumbs/page-fault data to populate).
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs
 extern "C" void CyberpunkVRPort_EnableDredOnce() {
     EnableDredOnce();
 }
+#endif
 
+#if CVR_RUST_VRIK
+// DXGIFactoryWrapper is not built here: nothing has made one since the proxy went (0.1.0). The factory hooks and the
+// bootstrap are rust/crates/cvr-render/src/swapchain.rs.
+#else
 DXGIFactoryWrapper::DXGIFactoryWrapper(IDXGIFactory7* realFactory) : m_real(realFactory), m_refCount(1) {}
 
 HRESULT STDMETHODCALLTYPE DXGIFactoryWrapper::QueryInterface(REFIID riid, void** ppvObject) {
@@ -1022,7 +1114,11 @@ extern "C" __declspec(dllexport) void CyberpunkVRPort_PluginBootstrap() {
     HookFactoryExportsIn(L"dxgi.dll");
     HookFactoryExportsIn(L"sl.interposer.dll");
 }
+#endif
 
+#if CVR_RUST_VRIK
+// (DXGIFactoryWrapper: not built, see above.)
+#else
 HRESULT STDMETHODCALLTYPE DXGIFactoryWrapper::CreateSoftwareAdapter(HMODULE Module, IDXGIAdapter** ppAdapter) { return m_real->CreateSoftwareAdapter(Module, ppAdapter); }
 HRESULT STDMETHODCALLTYPE DXGIFactoryWrapper::EnumAdapters1(UINT Adapter, IDXGIAdapter1** ppAdapter) {
     HRESULT hr = m_real->EnumAdapters1(Adapter, ppAdapter);
@@ -1148,9 +1244,12 @@ HRESULT STDMETHODCALLTYPE DXGIFactoryWrapper::EnumAdapterByGpuPreference(UINT Ad
 }
 HRESULT STDMETHODCALLTYPE DXGIFactoryWrapper::RegisterAdaptersChangedEvent(HANDLE hEvent, DWORD* pdwCookie) { return m_real->RegisterAdaptersChangedEvent(hEvent, pdwCookie); }
 HRESULT STDMETHODCALLTYPE DXGIFactoryWrapper::UnregisterAdaptersChangedEvent(DWORD dwCookie) { return m_real->UnregisterAdaptersChangedEvent(dwCookie); }
+#endif
 
 // [DEPTH] Accessors for the submit path (openxr_manager) to snapshot the game's
 // scene depth with the correct (observed) resource state.
+#if CVR_RUST_VRIK
+#else
 extern "C" ID3D12Resource* OmoGetSceneDepthResource() { return g_sceneDepthRes.load(std::memory_order_relaxed); }
 extern "C" ID3D12Resource* OmoAcquireSceneDepthResource() {
     std::lock_guard lock(g_sceneDepthRefMutex);
@@ -1163,3 +1262,4 @@ extern "C" unsigned int OmoGetSceneDepthState() { return g_sceneDepthState.load(
 extern "C" unsigned int OmoGetSceneDepthWidth() { return g_sceneDepthW.load(std::memory_order_relaxed); }
 extern "C" unsigned int OmoGetSceneDepthHeight() { return g_sceneDepthH.load(std::memory_order_relaxed); }
 extern "C" unsigned int OmoGetSceneDepthFormat() { return g_sceneDepthFmt.load(std::memory_order_relaxed); }
+#endif

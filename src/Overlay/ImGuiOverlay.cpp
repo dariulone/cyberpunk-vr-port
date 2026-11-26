@@ -24,24 +24,35 @@
 #include "Overlay/UiRec.hpp"
 #include "Lua/Host.hpp"
 
+#if !CVR_RUST_VRIK
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
+#endif
 
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 
+#if !CVR_RUST_VRIK
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
 
 // located (HMD-injected) game-world camera quaternion, defined in vr_core.cpp. Declared at GLOBAL
 // scope (NOT inside the anonymous namespace below) so it keeps external linkage.
-extern volatile float g_lastLocateQuat[4];
+#if !CVR_RUST_VRIK
+extern "C" volatile float g_lastLocateQuat[4];
+#endif
 
 // ---- sync_stereo tunables (stereo/sync_stereo.cpp, all dllexported) ------------------------
 // Live values, not part of LiveControlsUiState: the engine hooks read these globals directly
 // every frame, so a change takes effect on the next one and the Save button does not apply.
+#if !CVR_RUST_VRIK
 extern "C" int   CyberpunkVR_StereoModuleEnable;   // vr_core.cpp: did we install at all
 extern "C" int   CyberpunkVR_StereoModuleLoaded;
 extern "C" int32_t CyberpunkVR_StereoLog;
+#endif
 // The right eye: capture the VRCAM colour, and send it to the HMD.
+#if !CVR_RUST_VRIK
 extern "C" int      CyberpunkVR_StereoSubmit;              // openxr_frameloop.cpp
 extern "C" int32_t  CyberpunkVR_StereoEyeCapture;
 extern "C" uint32_t CyberpunkVR_StereoEyeMaxAgeMs;
@@ -64,11 +75,15 @@ extern "C" int CyberpunkVR_IsVrcamViewActive();
 extern "C" float CyberpunkVR_DebugMainProjYY;
 extern "C" float CyberpunkVR_DebugMainCamFov;
 extern "C" float CyberpunkVR_MainAdsZoomFactor;
+#endif
 // 1 = everything the overlay projects (the sight mark above all) follows the weapon's ADS
 // magnification. 0 = the old behaviour, projected from the lens FOV alone.
+#if !CVR_RUST_VRIK
 extern "C" float CyberpunkVR_DebugVrcamWantFov;
 extern "C" float CyberpunkVR_DebugVrcamBaseFov;
+#endif
 // per-node CPU profiler
+#if !CVR_RUST_VRIK
 extern "C" int32_t  CyberpunkVR_ProfEnable;
 extern "C" double   CyberpunkVR_ProfFrameMs;
 extern "C" double   CyberpunkVR_ProfDispMainMs;
@@ -76,18 +91,122 @@ extern "C" double   CyberpunkVR_ProfDispVrcamMs;
 extern "C" uint32_t CyberpunkVR_ProfDispMainNodes;
 extern "C" uint32_t CyberpunkVR_ProfDispVrcamNodes;
 extern "C" void     CyberpunkVR_ProfDumpNodes();
+#endif
 extern "C" int      CyberpunkVR_ProfSnapshotNodes(uint32_t* rva, double* msv, double* msm,
                                                   uint32_t* cv, uint32_t* cm, int maxn);
+#if !CVR_RUST_VRIK
 extern "C" const char* CyberpunkVR_ProfNodeName(uint32_t rva);
+#endif
 // view-identity counters (vr_core.cpp, published by the stereo node hook)
+#if !CVR_RUST_VRIK
 extern "C" uint64_t CyberpunkVR_DebugViewKeyMainNodes;
 extern "C" uint64_t CyberpunkVR_DebugViewKeyOtherNodes;
+#endif
 
 // Defined in vr_core.cpp -- same DLL. Must sit OUTSIDE the anonymous namespace below or
 // it gets internal linkage and never resolves.
-extern volatile int32_t g_lastLocatePosFP[3];
+#if !CVR_RUST_VRIK
+extern "C" volatile int32_t g_lastLocatePosFP[3];
 extern "C" float CyberpunkVRPort_HalfIpd();
+#endif
 
+#if CVR_RUST_VRIK
+// THE OVERLAY IS RUST'S (rust/crates/cvr-render/src/imgui_overlay.rs): the context and its fonts, the frame, the
+// settings mirror on the desktop, the second eye, the pacing, the window procedure. What stays here: the exports the
+// tools read and write, the debug drawing's switches (Overlay/OverlayDebugDraw.cpp and the settings panels use them),
+// what Rust asks of this half -- the game font, the world-space debug drawing, the Lua host -- and the entry points.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlayPacing = 3;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlaySkipEmpty = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) double   CyberpunkVR_DebugOverlayWaitMs = 0.0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayDrains = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayWaitTimeouts = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayGuardArms = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayEmptyFrames = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlaySubmissions = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayWaits = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayWaitTotalUs = 0;
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_ImGuiDump = 0;
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_ImGuiDumpTabs = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_VrShellTab = -1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) int      CyberpunkVR_OverlaySecondEye = 1;
+extern "C" __declspec(dllexport) float    CyberpunkVR_OverlaySecondEyeDistM = 0.0f;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlaySecondEyeDraws = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlaySecondEyeSkips = 0;
+#endif
+#if CVR_RUST_VRIK
+#else
+bool g_drawHandLocator = false;
+#endif
+#if CVR_RUST_VRIK
+#else
+bool g_drawHandProxy3D = false;
+#endif
+#if CVR_RUST_VRIK
+#else
+bool g_drawHandDebugAxes = false;
+#endif
+#if CVR_RUST_VRIK
+#else
+float g_handLocatorScale = 1.0f;
+#endif
+#if CVR_RUST_VRIK
+#else
+bool g_drawAimRay = true;
+#endif
+#if CVR_RUST_VRIK
+#else
+float g_aimRayLenM = 8.0f;
+#endif
+#if CVR_RUST_VRIK
+#else
+bool g_showCompactAdsTelemetry = false;
+#endif
+#if CVR_RUST_VRIK
+#else
+float g_compactAdsTelemetryX = 0.57f;
+#endif
+#if CVR_RUST_VRIK
+#else
+float g_compactAdsTelemetryY = 0.30f;
+#endif
+#if CVR_RUST_VRIK
+#else
+bool g_drawBarrelCross = false;
+#endif
+// The overlay's table is built in rust/crates/cvr-render/src/imgui_overlay.rs; its C++ services (the Lua host and the
+// game font):
+extern "C" void cvr_cpp_load_cyberpunk_font() { overlay::LoadCyberpunkFont(ImGui::GetIO()); }
+extern "C" void cvr_cpp_lua_draw(float width, float height) { cvr::lua::Draw(width, height); }
+extern "C" void cvr_cpp_lua_on_wndproc(void* hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    cvr::lua::OnWndProc(static_cast<HWND>(hwnd), msg, wParam, lParam);
+}
+extern "C" bool cvr_cpp_lua_pass_raw_input(LPARAM lParam) { return cvr::lua::PassRawInput(lParam); }
+#if CVR_RUST_VRIK   // formerly src/Hooks/OsInput.cpp's: whether the Lua overlay is open, for the Rust input hooks
+extern "C" bool cvr_cpp_lua_overlay_open() { return cvr::lua::OverlayOpen(); }
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool OverlayIsVisible() { return cvr::vrui::Visible(); }
+#endif
+#else
 // ONE NAMED NAMESPACE WHERE THERE WAS AN ANONYMOUS ONE, and this is the change that lets the overlay
 // split at all -- the same prerequisite SyncStereo.cpp and SwapChain.cpp each needed.
 //
@@ -272,6 +391,47 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayGuardArms = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayEmptyFrames = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlaySubmissions = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayWaits = 0;
+// A/B diagnostics for the VR menu's drawing (the port's ImGui code moving to Rust): N > 0 writes the draw data of the
+// N-th frame in a row the VR menu is drawn -- every list's commands, vertices and indices -- to imgui_dump.txt in the
+// log folder, once, then clears itself. With CyberpunkVR_ImGuiDumpTabs (a bit per VR shell tab, 0 GENERAL .. 6
+// OVERLAY) it selects each of those tabs in turn (CyberpunkVR_VrShellTab, which the shell takes on its next frame) and
+// writes each one's frame N frames later to imgui_dump_<tab>.txt. Set by tools (probe_session.ps1 -SetExports).
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_ImGuiDump = 0;
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_ImGuiDumpTabs = 0;
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_VrShellTab = -1;
+}  // namespace overlay
+std::string VRDiagPath(const char* name);  // Main.cpp
+namespace overlay {
+namespace {
+void DumpImGuiDrawData(const ImDrawData* data, const char* name) {
+    if (!data) return;
+    FILE* file = nullptr;
+    if (fopen_s(&file, VRDiagPath(name).c_str(), "w") != 0 || !file) return;
+    std::fprintf(file, "display %.3f %.3f %.3f %.3f lists %d vtx %d idx %d\n", data->DisplayPos.x, data->DisplayPos.y,
+                 data->DisplaySize.x, data->DisplaySize.y, data->CmdListsCount, data->TotalVtxCount, data->TotalIdxCount);
+    // The default font's glyphs, so a reader can turn the text quads back into text.
+    if (ImGui::GetIO().Fonts && ImGui::GetIO().Fonts->Fonts.Size > 0)
+        for (const ImFontGlyph& glyph : ImGui::GetIO().Fonts->Fonts[0]->Glyphs)
+            std::fprintf(file, "glyph %u %.5f %.5f\n", unsigned(glyph.Codepoint), glyph.U0, glyph.V0);
+    for (int l = 0; l < data->CmdListsCount; ++l) {
+        const ImDrawList* list = data->CmdLists[l];
+        std::fprintf(file, "list %d %s cmds %d vtx %d idx %d\n", l, list->_OwnerName ? list->_OwnerName : "-",
+                     list->CmdBuffer.Size, list->VtxBuffer.Size, list->IdxBuffer.Size);
+        for (const ImDrawCmd& cmd : list->CmdBuffer)
+            std::fprintf(file, "cmd elem %u vtx %u idx %u clip %.3f %.3f %.3f %.3f tex %llu cb %d\n", cmd.ElemCount,
+                         cmd.VtxOffset, cmd.IdxOffset, cmd.ClipRect.x, cmd.ClipRect.y, cmd.ClipRect.z, cmd.ClipRect.w,
+                         static_cast<unsigned long long>(cmd.GetTexID() != 0), cmd.UserCallback ? 1 : 0);
+        for (const ImDrawVert& v : list->VtxBuffer)
+            std::fprintf(file, "v %.3f %.3f %.5f %.5f %08X\n", v.pos.x, v.pos.y, v.uv.x, v.uv.y, v.col);
+        for (int i = 0; i < list->IdxBuffer.Size; i += 3) {
+            std::fprintf(file, "i");
+            for (int k = i; k < i + 3 && k < list->IdxBuffer.Size; ++k) std::fprintf(file, " %u", unsigned(list->IdxBuffer[k]));
+            std::fprintf(file, "\n");
+        }
+    }
+    std::fclose(file);
+}
+}  // namespace
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayWaitTotalUs = 0;
 
 // A BOUNDED wait on an already-signalled value. Bounded rather than INFINITE on purpose: this runs on
@@ -687,7 +847,7 @@ void OverlayRender(IDXGISwapChain* swapChain) {
 
     ImGui::NewFrame();
 
-    if(!g_menuVisible){DrawHandLocatorOverlay();DrawDebugView();DrawBarrelCrosshair();DrawLeftBarrelDot();DrawFbtCalibrationHelpers();DrawCompactAdsCameraTelemetry();cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);}
+    if(!g_menuVisible){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawLeftBarrelDot();DrawFbtCalibrationHelpers();DrawCompactAdsCameraTelemetry();cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);}
 
     const bool placementSave = cvr::vrui::ConsumePlacementSave();
     bool foveatedEditing=false;
@@ -705,6 +865,32 @@ void OverlayRender(IDXGISwapChain* swapChain) {
     g_bgDrawList = ImGui::GetBackgroundDrawList();
 
     ImGui::Render();
+    {
+        static int menuFrames = 0, dumpTab = -1;
+        menuFrames = g_menuVisible ? menuFrames + 1 : 0;
+        const int every = CyberpunkVR_ImGuiDump;
+        if (every > 0 && menuFrames > 0 && menuFrames % every == 0) {
+            if (CyberpunkVR_ImGuiDumpTabs == 0) {
+                DumpImGuiDrawData(ImGui::GetDrawData(), "imgui_dump.txt");
+                CyberpunkVR_ImGuiDump = 0;
+            } else {
+                if (dumpTab >= 0) {
+                    char name[32];
+                    std::snprintf(name, sizeof(name), "imgui_dump_%d.txt", dumpTab);
+                    DumpImGuiDrawData(ImGui::GetDrawData(), name);
+                }
+                int next = dumpTab + 1;
+                while (next < 7 && !(CyberpunkVR_ImGuiDumpTabs & (1 << next))) ++next;
+                if (next >= 7) {
+                    CyberpunkVR_ImGuiDump = 0;
+                    dumpTab = -1;
+                } else {
+                    dumpTab = next;
+                    CyberpunkVR_VrShellTab = next;
+                }
+            }
+        }
+    }
 
     const bool drain = ShouldDrainThisFrame();
     if (CyberpunkVR_OverlaySkipEmpty && !vrCanvas && !HasDrawWork(ImGui::GetDrawData())) {
@@ -986,3 +1172,4 @@ bool OverlayRecordIntoTarget(ID3D12GraphicsCommandList* cmdList, ID3D12Resource*
     if (anything) CVR_DIAGNOSTIC(++CyberpunkVR_DebugOverlaySecondEyeDraws);
     return anything;
 }
+#endif

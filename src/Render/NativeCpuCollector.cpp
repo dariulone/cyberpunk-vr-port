@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's owner; the Rust build's is rust/crates/cvr-render/src/cpu_collector.rs (the header calls it).
 #include "Render/NativeCpuCollector.hpp"
 
 namespace cvr::stereo {
@@ -13,3 +15,4 @@ bool NativeCpuCollector::Create(const CollectorInput& input) {
     return true;
 }
 }
+#endif

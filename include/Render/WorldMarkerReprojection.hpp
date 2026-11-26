@@ -17,6 +17,28 @@ struct WorldMarkerCamera {
 };
 static_assert(sizeof(SourceProjection)==72 && sizeof(WorldMarkerCamera)==80);
 
+#if CVR_RUST_VRIK
+// The arithmetic: rust/crates/cvr-render/src/world_marker_math.rs through world_marker_abi.rs (tools/world_marker_tests
+// runs its cases against it in its Rust variant).
+struct MarkerAnchor;
+extern "C" {
+bool cvr_wm_read_projection(const uint8_t*,float,float,SourceProjection*,bool);
+float cvr_wm_source_depth(const SourceProjection*,const float*);
+bool cvr_wm_canvas_to_world(bool,const SourceProjection*,const MarkerAnchor*,float,float,float,float*);
+bool cvr_wm_anchor_of(const SourceProjection*,const float*,MarkerAnchor*);
+void cvr_wm_level_axes(const SourceProjection*,float*,float*);
+bool cvr_wm_text_translation_exact(float*,float,float);
+bool cvr_wm_text_to_world(float*,const SourceProjection*,float,const MarkerAnchor*);
+void cvr_wm_marker_camera(const SourceProjection*,WorldMarkerCamera*);
+}
+inline bool ReadProjection(const uint8_t* camera,float width,float height,SourceProjection& out,bool unjitter=false){
+    return cvr_wm_read_projection(camera,width,height,&out,unjitter);
+}
+inline float SourceDepth(const SourceProjection& source,const float point[3]){return cvr_wm_source_depth(&source,point);}
+inline bool CanvasToWorld(const SourceProjection& source,float inverseDepth,float x,float y,float world[3]){
+    return cvr_wm_canvas_to_world(false,&source,nullptr,inverseDepth,x,y,world);
+}
+#else
 inline bool ReadProjection(const uint8_t* camera,float width,float height,SourceProjection& out,bool unjitter=false) {
     if(!camera || !std::isfinite(width) || !std::isfinite(height) || width<1 || height<1 || width>16384 || height>16384)return false;
     float q[4],p[16];int32_t position[3];
@@ -55,8 +77,26 @@ inline bool CanvasToWorld(const SourceProjection& source,float inverseDepth,floa
     for(int i=0;i<3;++i)world[i]=float(source.origin[i]+(source.forward[i]+vx*source.right[i]+vy*source.up[i])/inverseDepth);
     return std::isfinite(world[0]) && std::isfinite(world[1]) && std::isfinite(world[2]);
 }
+#endif
 // A marker's world point with the canvas pixel the source camera puts it on: the point its geometry hangs from.
 struct MarkerAnchor { float world[3]{},canvas[2]{}; bool valid{}; };
+#if CVR_RUST_VRIK
+static_assert(sizeof(MarkerAnchor)==24,"mirrored by world_marker_math.rs");
+inline bool AnchorOf(const SourceProjection& source,const float point[3],MarkerAnchor& anchor){return cvr_wm_anchor_of(&source,point,&anchor);}
+// The source's picture plane without its roll: right level with the world (game Z up), up across it and the
+// forward. Straight up or down there is no level right, and the source's own axes stay.
+inline void LevelAxes(const SourceProjection& source,float right[3],float up[3]){cvr_wm_level_axes(&source,right,up);}
+// THE MARKER HANGS LEVEL FROM ITS POINT (CanvasToWorldLevel): the point stays exact; the pixels around it go out
+// along the level axes, at its depth.
+inline bool CanvasToWorldLevel(const SourceProjection& source,const MarkerAnchor& anchor,float inverseDepth,float x,float y,float world[3]){
+    return cvr_wm_canvas_to_world(true,&source,&anchor,inverseDepth,x,y,world);
+}
+inline bool TextTranslationExact(float* matrix,float x,float y){return cvr_wm_text_translation_exact(matrix,x,y);}
+inline bool TextToWorld(float* matrix,const SourceProjection& source,float inverseDepth,const MarkerAnchor* anchor=nullptr){
+    return cvr_wm_text_to_world(matrix,&source,inverseDepth,anchor);
+}
+inline WorldMarkerCamera MarkerCamera(const SourceProjection& eye){WorldMarkerCamera result;cvr_wm_marker_camera(&eye,&result);return result;}
+#else
 inline bool AnchorOf(const SourceProjection& source,const float point[3],MarkerAnchor& anchor) {
     anchor={};
     if(!source.Valid())return false;
@@ -131,4 +171,5 @@ inline WorldMarkerCamera MarkerCamera(const SourceProjection& eye) {
     result.projection[0]=eye.p00;result.projection[1]=eye.p11;result.projection[2]=eye.p20;result.projection[3]=eye.p21;
     return result;
 }
+#endif
 }

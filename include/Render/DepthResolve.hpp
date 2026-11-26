@@ -21,6 +21,35 @@
 #include <mutex>
 #include <wrl.h>
 
+#if CVR_RUST_VRIK
+// The resolve: rust/crates/cvr-gpu/src/depth_resolve.rs.
+extern "C" {
+void* cvr_gpu_depth_resolve_new();
+void cvr_gpu_depth_resolve_free(void* resolve);
+bool cvr_gpu_depth_resolve_ensure(const void* resolve, ID3D12Device* device, int format, uint32_t width, uint32_t height);
+bool cvr_gpu_depth_resolve_record(const void* resolve, ID3D12GraphicsCommandList* cmdList, ID3D12Resource* src,
+                                  ID3D12Resource* dst);
+void cvr_gpu_depth_resolve_shutdown(const void* resolve);
+}
+class DepthResolve {
+public:
+    DepthResolve() : m_rust(cvr_gpu_depth_resolve_new()) {}
+    ~DepthResolve() { cvr_gpu_depth_resolve_free(m_rust); }
+    DepthResolve(const DepthResolve&) = delete;
+    DepthResolve& operator=(const DepthResolve&) = delete;
+    // Lazy init for a given (device, output dims/format). Multi-call safe.
+    bool EnsureInitialized(ID3D12Device* device, DXGI_FORMAT depthOutputFormat, uint32_t width, uint32_t height) {
+        return cvr_gpu_depth_resolve_ensure(m_rust, device, static_cast<int>(depthOutputFormat), width, height);
+    }
+    // src in PIXEL_SHADER_RESOURCE, dst in DEPTH_WRITE.
+    bool RecordResolve(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* src, ID3D12Resource* dst) {
+        return cvr_gpu_depth_resolve_record(m_rust, cmdList, src, dst);
+    }
+    void Shutdown() { cvr_gpu_depth_resolve_shutdown(m_rust); }
+private:
+    void* m_rust;
+};
+#else
 class DepthResolve {
 public:
     DepthResolve() = default;
@@ -63,3 +92,4 @@ private:
     uint32_t m_width = 0;
     uint32_t m_height = 0;
 };
+#endif

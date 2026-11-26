@@ -1,4 +1,6 @@
 #include "Render/NativeDepthPolicy.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's policy; the Rust build's is rust/crates/cvr-render/src/depth_policy.rs (the header calls it).
 #include <d3dcompiler.h>
 #include <d3d12shader.h>
 #include <wrl/client.h>
@@ -84,3 +86,4 @@ bool ExplicitShaderResources(D3D12_SHADER_BYTECODE code){return ExplicitResource
 bool ShaderReadOnly(D3D12_SHADER_BYTECODE code){return ReadOnly(code,false,false);}
 bool ShaderSingleLayerReadOnly(D3D12_SHADER_BYTECODE code,bool vertex){return ReadOnly(code,true,vertex);}
 }
+#endif

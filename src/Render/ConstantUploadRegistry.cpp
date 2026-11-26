@@ -10,7 +10,12 @@
 #include <memory>
 #include <cstring>
 #include <intrin.h>
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// The exported state is Rust's (rust/crates/cvr-render/src/constant_registry_exports.rs), declared in the headers.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ConstantUploadCount{},CyberpunkVR_ConstantUploadFailures{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_ConstantUploadBytes{},CyberpunkVR_ConstantUploadReads{},CyberpunkVR_ConstantUploadMisses{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ConstantUploadEvictions{};
@@ -21,7 +26,57 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ConstantUploadApiHits{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ConstantUploadFastPath{1};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_ConstantUploadFastStats[6]{};
 __declspec(dllexport) uint32_t CyberpunkVR_ConstantUploadFastStatsCount=6;
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE REGISTRY IS RUST'S (rust/crates/cvr-render/src/upload_registry.rs, its plugin table there); a Rust test variant
+// hands it its reference exports while it initialises, with the descriptor families' switch and the observation
+// profile's counters.
+namespace {
+struct CvrUploadRegistryAttach {
+    std::atomic<uint32_t>* count;std::atomic<uint32_t>* failures;
+    std::atomic<uint64_t>* bytes;std::atomic<uint64_t>* reads;std::atomic<uint64_t>* misses;
+    std::atomic<uint32_t>* evictions;std::atomic<uint32_t>* types;
+    std::atomic<uint32_t>* nativeImports;std::atomic<uint32_t>* nativeRejects;std::atomic<uint32_t>* apiHits;
+    std::atomic<uint32_t>* fastPath;std::atomic<uint64_t>* fastStats;
+    std::atomic<uint32_t>* profileEnable;std::atomic<uint64_t>* profileStats;
+    bool (*familiesEnabled)();
+};
+static_assert(sizeof(CvrUploadRegistryAttach)==120,"mirrored by rust/crates/cvr-render/src/upload_registry.rs");
+bool FamiliesEnabled(){return cvr::stereo::families::Enabled();}
+const CvrUploadRegistryAttach kAttach{&CyberpunkVR_ConstantUploadCount,&CyberpunkVR_ConstantUploadFailures,
+    &CyberpunkVR_ConstantUploadBytes,&CyberpunkVR_ConstantUploadReads,&CyberpunkVR_ConstantUploadMisses,
+    &CyberpunkVR_ConstantUploadEvictions,CyberpunkVR_ConstantUploadTypes,
+    &CyberpunkVR_ConstantUploadNativeImports,&CyberpunkVR_ConstantUploadNativeRejects,&CyberpunkVR_ConstantUploadApiHits,
+    &CyberpunkVR_ConstantUploadFastPath,CyberpunkVR_ConstantUploadFastStats,
+    &CyberpunkVR_ObservationProfileEnable,CyberpunkVR_ObservationProfileStats,&FamiliesEnabled};
+}
+extern "C" void cvr_upload_registry_attach(const CvrUploadRegistryAttach*);
+namespace {
+[[maybe_unused]] const bool kUploadRegistryAttached=(cvr_upload_registry_attach(&kAttach),true);
+}
+extern "C" {
+void cvr_upload_created(ID3D12Resource*);
+void cvr_upload_address_observed(ID3D12Resource*,uint64_t);
+void cvr_upload_observe_resource_api(ID3D12Resource*);
+void cvr_upload_touch(const D3D12_CONSTANT_BUFFER_VIEW_DESC*);
+ID3D12Resource* cvr_upload_registered_source(uint32_t,uint32_t);
+bool cvr_upload_read(uint64_t,void*,size_t,bool fixedOnly);
+}
+namespace cvr::stereo::constants {
+void UploadCreated(ID3D12Resource* resource){cvr_upload_created(resource);}
+void UploadAddressObserved(ID3D12Resource* resource,uint64_t address){cvr_upload_address_observed(resource,address);}
+void ObserveResourceApi(ID3D12Resource* resource){cvr_upload_observe_resource_api(resource);}
+void TouchUpload(const D3D12_CONSTANT_BUFFER_VIEW_DESC* desc){cvr_upload_touch(desc);}
+ID3D12Resource* RegisteredSource(uint32_t handle,uint32_t size){return cvr_upload_registered_source(handle,size);}
+bool ReadUpload(uint64_t address,void* output,size_t bytes){return cvr_upload_read(address,output,bytes,false);}
+bool ReadFixedUpload(uint64_t address,void* output,size_t bytes){return cvr_upload_read(address,output,bytes,true);}
+}
+#endif
+#else
 namespace cvr::stereo::constants {
 namespace {
 struct Upload {
@@ -243,3 +298,4 @@ bool ReadOwnedUpload(uint64_t address,void* output,size_t bytes,bool fixedOnly) 
 bool ReadUpload(uint64_t address,void* output,size_t bytes){return ReadOwnedUpload(address,output,bytes,false);}
 bool ReadFixedUpload(uint64_t address,void* output,size_t bytes){return ReadOwnedUpload(address,output,bytes,true);}
 }
+#endif

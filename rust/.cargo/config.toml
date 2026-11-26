@@ -1,0 +1,3 @@
+[alias]
+# The build and release tasks (rust/crates/xtask): cargo xtask dist [--version X.Y.Z] [--build-dir DIR] [--zip] [--force]
+xtask = "run --quiet --package xtask --"

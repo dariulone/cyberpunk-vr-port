@@ -28,7 +28,10 @@ std::shared_ptr<const Family> Lookup(ID3D12PipelineState*){return {};}
 }
 namespace cvr::stereo::camera_upload {Context CurrentContext(uintptr_t){return {};}}
 namespace cvr::stereo::native_recording {bool ValidateRecording(const Lease&,ID3D12GraphicsCommandList*,camera_upload::Context){return false;}}
+#if !CVR_RUST_VRIK
+// The Rust build defines it (the header forwards to Rust).
 namespace cvr::stereo::scene_state {bool CaptureSourceBindings(ID3D12GraphicsCommandList*,Bindings& output){output={};return false;}}
+#endif
 namespace cvr::stereo::texture_read {
 bool PinFixedAsset(ID3D12GraphicsCommandList*,uint64_t,FixedAssetPins& output){output={};return false;}
 bool GetFixedPinnedResource(const FixedAssetPins&,ComPtr<ID3D12Resource>& output){output.Reset();return false;}
@@ -450,7 +453,7 @@ int main()try {
     Require(bank->BindSource(fixture.list.Get()),"Owned root33 mixed table could not bind");fixture.ResetCounter();fixture.Draw(1);Check(fixture.list->Close());
     Require(!PrintValidationErrors(device.Get()),"Validation errors before first source-table submission");
     ID3D12CommandList* lists[]{fixture.list.Get()};auto firstSubmission=cvr::gpu::PrepareCommandResources(1,lists);
-    Require(!firstSubmission.batches.empty(),"Owned source bank lacked command-resource lifetime");queue->ExecuteCommandLists(1,lists);cvr::gpu::SubmitCommandResources(queue.Get(),std::move(firstSubmission));Await(queue.Get(),complete.Get(),1);
+    Require(!cvr::gpu::SubmissionEmpty(firstSubmission),"Owned source bank lacked command-resource lifetime");queue->ExecuteCommandLists(1,lists);cvr::gpu::SubmitCommandResources(queue.Get(),std::move(firstSubmission));Await(queue.Get(),complete.Get(),1);
     Check(fixture.list->Reset(fixture.next.Get(),nullptr));cvr::gpu::ResetCommandResources(fixture.list.Get());audit::Reset(fixture.list.Get());cvr::gpu::CollectCommandResources();fixture.BindOriginal();
     fixture.Overwrite();std::vector<audit::OwnedSourceTable> changed;
     Require(audit::CaptureSourceTablesAtDraw(device.Get(),fixture.list.Get(),fixture.bindings,fixture.requests,Provider::Resolve,&provider,cache,changed),"Changed source capture failed");
@@ -462,7 +465,7 @@ int main()try {
     D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=fixture.target.Get();from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     to.pResource=readback.Get();to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=footprint;fixture.list->CopyTextureRegion(&to,0,0,0,&from,nullptr);Check(fixture.list->Close());
     Require(!PrintValidationErrors(device.Get()),"Validation errors before final source-table submission");
-    auto submitted=cvr::gpu::PrepareCommandResources(1,lists);Require(!submitted.batches.empty(),"Final owned draw had no submission receipt");
+    auto submitted=cvr::gpu::PrepareCommandResources(1,lists);Require(!cvr::gpu::SubmissionEmpty(submitted),"Final owned draw had no submission receipt");
     captured.clear();repeated.clear();changed.clear();cache.Clear();provider.resource.Reset();provider.owner.Reset();
     fixture.constants.Reset();fixture.texture.Reset();fixture.extra.Reset();fixture.unordered.Reset();fixture.counter.Reset();fixture.cpu.Reset();fixture.visible.Reset();fixture.samplerCpu.Reset();fixture.samplerVisible.Reset();bank.reset();
     Require(!destroyed && !resourcesDestroyed,"Original caller/cache release destroyed recorded source backing or counter");

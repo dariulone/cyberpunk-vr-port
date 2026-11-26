@@ -8,10 +8,74 @@ enum class DeclarationCompletionFailure:uint32_t {
     None,Arguments,Caller,AlreadyAttempted,MissingApi,Read,FrameOwner,Group,References,Pending,Changed,
     NotCaptured,ProducerClosed,AlreadyMatched,DeclarationIdentity,NotMatched,AlreadyReturned
 };
+#if CVR_RUST_VRIK
+// The lease: rust/crates/cvr-render/src/native/declaration_completion.rs through graph_jobs_abi.rs
+// (tools/single_pass_tests/graph_declaration_completion_test runs its cases against it in its Rust variant).
+struct RustDeclarationLease;
+struct RustDeclarationState {
+    uint64_t contextAddress,group,frameOwner,executionGraph,imageBase,epoch,generation,id;
+    uint32_t failure;bool captured,matched,declareReturned,rootReturned,failed;
+};
+static_assert(sizeof(RustDeclarationState)==80,"mirrored by graph_jobs_abi.rs");
+extern "C" {
+RustDeclarationLease* cvr_dc_new();
+void cvr_dc_free(RustDeclarationLease*);
+bool cvr_dc_capture(RustDeclarationLease*,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,ReadMemory,const JobLeaseApi*);
+bool cvr_dc_match(RustDeclarationLease*,uint64_t,uint64_t,uint64_t,ReadMemory);
+bool cvr_dc_step(RustDeclarationLease*,uint32_t);
+void cvr_dc_state(const RustDeclarationLease*,RustDeclarationState*);
+}
+#endif
 
 // Caller serializes access and proves native body/dispatch coverage separately.
 // This pins only the D0 group; it neither owns definitions nor waits or authorizes
 // storage destruction. Native retain/release/complete callbacks must not throw.
+#if CVR_RUST_VRIK
+class DeclarationCompletionLease {
+public:
+    DeclarationCompletionLease():rust_(cvr_dc_new()){}
+    ~DeclarationCompletionLease(){cvr_dc_free(rust_);}
+    DeclarationCompletionLease(const DeclarationCompletionLease&)=delete;
+    DeclarationCompletionLease& operator=(const DeclarationCompletionLease&)=delete;
+    DeclarationCompletionLease(DeclarationCompletionLease&&)=delete;
+    DeclarationCompletionLease& operator=(DeclarationCompletionLease&&)=delete;
+
+    // A throwing reader unwinds through the rules (their pin releases the group) and is refused with Read here.
+    bool CaptureBeforeConstruct(uint64_t ownerAddress,uint64_t executionGraph,uint64_t caller,uint64_t imageBase,
+                                uint64_t epoch,uint64_t generation,uint64_t consumerId,ReadMemory read,JobLeaseApi api)try{
+        return cvr_dc_capture(rust_,ownerAddress,executionGraph,caller,imageBase,epoch,generation,consumerId,read,&api);
+    }catch(...){return cvr_dc_step(rust_,3);}
+
+    // Immediate before originalA86438 only, while the original root still owns
+    // its context. Native141B10 may rotate context+18 immediately after dispatch.
+    bool MatchBeforeDeclare(uint64_t job,uint64_t graph,uint64_t caller,ReadMemory read)try{
+        return cvr_dc_match(rust_,job,graph,caller,read);
+    }catch(...){return cvr_dc_step(rust_,3);}
+
+    bool MarkOriginalDeclareReturned()noexcept{return cvr_dc_step(rust_,0);}
+    // Clear every context/stack address even when an earlier proof failed.
+    // This marks normal original219730 return, not the outer AA scheduler return.
+    bool MarkOriginalRootReturned()noexcept{return cvr_dc_step(rust_,1);}
+    bool Complete()const noexcept{return cvr_dc_step(rust_,2);}
+    bool Captured()const noexcept{return State().captured;}
+    bool Matched()const noexcept{return State().matched;}
+    bool OriginalDeclareReturned()const noexcept{return State().declareReturned;}
+    bool OriginalRootReturned()const noexcept{return State().rootReturned;}
+    bool Failed()const noexcept{return State().failed;}
+    uint64_t ContextAddress()const noexcept{return State().contextAddress;}
+    uint64_t Group()const noexcept{return State().group;}
+    uint64_t FrameOwner()const noexcept{return State().frameOwner;}
+    uint64_t ExecutionGraph()const noexcept{return State().executionGraph;}
+    uint64_t ImageBase()const noexcept{return State().imageBase;}
+    uint64_t Epoch()const noexcept{return State().epoch;}
+    uint64_t Generation()const noexcept{return State().generation;}
+    uint64_t Id()const noexcept{return State().id;}
+    DeclarationCompletionFailure Rejection()const noexcept{return DeclarationCompletionFailure(State().failure);}
+private:
+    RustDeclarationState State()const noexcept{RustDeclarationState state{};cvr_dc_state(rust_,&state);return state;}
+    RustDeclarationLease* rust_;
+};
+#else
 class DeclarationCompletionLease {
 public:
     DeclarationCompletionLease()=default;
@@ -125,4 +189,5 @@ private:
     bool attempted_{},captured_{},matched_{},declareReturned_{},rootReturned_{},failed_{};
     DeclarationCompletionFailure failure_=DeclarationCompletionFailure::None;
 };
+#endif
 }

@@ -125,6 +125,14 @@ local function holds(pl, hand)
   return not free
 end
 
+local function physicalAtPalm(hand)
+  if type(GetMod) ~= "function" then return false end
+  local ok, collision = pcall(GetMod, "CyberpunkVRPort_HandCollision")
+  if not ok or not collision or type(collision.canGrabNear) ~= "function" then return false end
+  local found, near = pcall(collision.canGrabNear, hand - 1)
+  return found and near == true
+end
+
 -- The hand the game draws a weapon into: the left one in the left-handed mode.
 local function weaponHand()
   return (type(VRLeftHanded) == "function" and VRLeftHanded() == true) and 1 or 2
@@ -654,6 +662,13 @@ local function frame(dt, marker)
     return
   end
   local H = S.hands[hand]
+  -- This also handles the callback order where Reach runs before hand physics.
+  -- A distant hover must not lock the same grip edge that takes a nearby prop.
+  if how ~= "near" and H.grip and not H.gripPrev and physicalAtPalm(hand) then
+    S.target = nil
+    aim(nil)
+    return
+  end
   if T == nil or T.thing.id ~= thing.id or T.hand ~= hand then
     T = { hand = hand, thing = thing, since = S.time, confirmed = false, locked = false }
     S.target = T

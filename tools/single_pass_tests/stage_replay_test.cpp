@@ -53,23 +53,23 @@ static void Categories() {
 
 static void Decisions() {
     Settings s{uint32_t(Mode::Replay), (1ull << 9) | (1ull << 7), 1};
-    CHECK(Decide(s, 1, 0x23A938, 9) == Action::Capture);   // source records natively
-    CHECK(Decide(s, 0, 0x23A938, 9) == Action::Replay);    // target replays
-    CHECK(Decide(s, 0, 0x23A938, 8) == Action::Forward);   // stage not selected
-    CHECK(Decide(s, 0, 0x1EC1D0, 9) == Action::Forward);   // not RenderElements
-    CHECK(Decide(s, -1, 0x23A938, 9) == Action::Forward);  // unknown view
-    CHECK(Decide(s, 0, 0x23A938, 64) == Action::Forward);  // out-of-mask stage id
+    CHECK(Decide(s, 1, 0x33DDA4, 9) == Action::Capture);   // source records natively
+    CHECK(Decide(s, 0, 0x33DDA4, 9) == Action::Replay);    // target replays
+    CHECK(Decide(s, 0, 0x33DDA4, 8) == Action::Forward);   // stage not selected
+    CHECK(Decide(s, 0, 0x332D5C, 9) == Action::Forward);   // not RenderElements
+    CHECK(Decide(s, -1, 0x33DDA4, 9) == Action::Forward);  // unknown view
+    CHECK(Decide(s, 0, 0x33DDA4, 64) == Action::Forward);  // out-of-mask stage id
     s.mode = uint32_t(Mode::Skip);
-    CHECK(Decide(s, 0, 0x23A938, 7) == Action::Skip);
-    CHECK(Decide(s, 1, 0x23A938, 7) == Action::Forward);
+    CHECK(Decide(s, 0, 0x33DDA4, 7) == Action::Skip);
+    CHECK(Decide(s, 1, 0x33DDA4, 7) == Action::Forward);
     s.source = 0;
-    CHECK(Decide(s, 1, 0x23A938, 7) == Action::Skip);
+    CHECK(Decide(s, 1, 0x33DDA4, 7) == Action::Skip);
     s.mode = uint32_t(Mode::Census);
-    CHECK(Decide(s, 0, 0x23A938, 7) == Action::Capture && Decide(s, 1, 0x23A938, 7) == Action::Capture);
+    CHECK(Decide(s, 0, 0x33DDA4, 7) == Action::Capture && Decide(s, 1, 0x33DDA4, 7) == Action::Capture);
     s.mode = uint32_t(Mode::Off);
-    CHECK(Decide(s, 0, 0x23A938, 7) == Action::Forward);
+    CHECK(Decide(s, 0, 0x33DDA4, 7) == Action::Forward);
     s.mode = uint32_t(Mode::ReplayCamera); s.source = 1;
-    CHECK(Decide(s, 0, 0x23A938, 9) == Action::Replay);
+    CHECK(Decide(s, 0, 0x33DDA4, 9) == Action::Replay);
     CHECK(SameFrame(5, 5, true) && !SameFrame(5, 6, true) && !SameFrame(5, 5, false));
 }
 

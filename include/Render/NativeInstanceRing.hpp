@@ -79,8 +79,25 @@ public:
     const CompletedWriter& Producer()const noexcept;
     const ReadRequest& Source()const noexcept{return source_;}
     const Publication& Published()const noexcept{return publication_;}
+#if CVR_RUST_VRIK
+    // The bytes are rust/crates/cvr-render/src/instance_ring.rs's immutable payload, one reference held here.
+    CpuCandidate()=default;
+    CpuCandidate(const CpuCandidate&)noexcept;
+    CpuCandidate& operator=(const CpuCandidate&)noexcept;
+    CpuCandidate(CpuCandidate&&)noexcept;
+    CpuCandidate& operator=(CpuCandidate&&)noexcept;
+    ~CpuCandidate();
+    // A query the Rust instance observer made (rust/crates/cvr-render/src/instance_observer_native.rs): its payload
+    // reference handed over with the producer, the request, the publication and the subrange.
+    static CpuCandidate Adopt(const void* payload,const CompletedWriter& producer,const ReadRequest& source,
+        const Publication& publication,size_t offset,size_t bytes)noexcept;
+private:
+    const void* data_{};
+    CompletedWriter producer_;
+#else
 private:
     std::shared_ptr<const detail::Payload> data_;
+#endif
     ReadRequest source_;
     Publication publication_;
     size_t offset_{},bytes_{};

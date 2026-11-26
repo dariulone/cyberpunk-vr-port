@@ -1,0 +1,58 @@
+{
+  "pid": 15656,
+  "clip": "short",
+  "equipment": "Items.Preset_Katana_Default",
+  "input": "OpenXR hand position only",
+  "airBefore": {
+    "serial": 0,
+    "full": 1,
+    "sounds": 1,
+    "hits": 0,
+    "shortQueries": 0,
+    "shortDispatch": 0,
+    "follow": false
+  },
+  "airAfter": {
+    "serial": 0,
+    "full": 1,
+    "sounds": 1,
+    "hits": 0,
+    "shortQueries": 1,
+    "shortDispatch": 0,
+    "follow": false
+  },
+  "touchBefore": {
+    "follow": false,
+    "full": 2,
+    "sounds": 2,
+    "shortQueries": 1,
+    "shortDispatch": 0,
+    "serial": 0,
+    "hits": 0,
+    "mark": "attached=0 pending=0 last=None shape=None",
+    "health": 613.89996337891
+  },
+  "touchAfter": {
+    "follow": false,
+    "full": 2,
+    "shortQueries": 2,
+    "sounds": 2,
+    "serial": 1,
+    "mark": "attached=1 pending=0 last=AttachedShape shape=Belly",
+    "hits": 1,
+    "health": 552.10211181641,
+    "shortDispatch": 1
+  },
+  "still": {
+    "follow": false,
+    "full": 2,
+    "shortQueries": 2,
+    "sounds": 2,
+    "serial": 1,
+    "mark": "attached=1 pending=0 last=AttachedShape shape=Belly",
+    "hits": 1,
+    "health": 552.10211181641,
+    "shortDispatch": 1
+  },
+  "pass": true
+}

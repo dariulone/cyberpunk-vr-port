@@ -1,0 +1,9 @@
+[package]
+name = "cvr-crt"
+description = "The C runtime called as the C++ half called it: sscanf_s, snprintf, fopen_s, fgets, fputs (stage 3/4, docs/rust-migration-plan.md)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

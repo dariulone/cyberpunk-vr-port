@@ -8,13 +8,119 @@
 #include <stdexcept>
 #include <algorithm>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryLeaseSeq{},CyberpunkVR_GeometryLeaseCompatible{},CyberpunkVR_GeometryLeaseFailure{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryLeaseDrawCount{},CyberpunkVR_GeometryLeaseResourceCount{};
 __declspec(dllexport) uint64_t CyberpunkVR_GeometryLeaseDraws{},CyberpunkVR_GeometryLeaseResources{};
 __declspec(dllexport) uint64_t CyberpunkVR_GeometryLeaseReadStates{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 namespace cvr::stereo::geometry {
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+namespace {
+// The bindings, the leases and the diagnostic rows: rust/crates/cvr-render/src/geometry_leases.rs (BufferLease and the
+// rows mirrored there). The native draws, their instances and states, the freeze, the IA decoding and the exports stay
+// here; the rows are published from Rust's tables.
+struct RustPublished {uint64_t draws;uint32_t drawCount,resourceCount;uint64_t resources,readStates;};
+struct RustSnapshot {uint32_t flags;bool freeze;DrawReadStates states;};
+static_assert(sizeof(BufferLease)==80 && offsetof(BufferLease,native)==32 && sizeof(RustPublished)==32 && sizeof(RustSnapshot)==216 &&
+    sizeof(native_probe::DrawRecord)==1096,"mirrored by geometry_leases.rs");
+extern "C" {
+void cvr_gl_begin(bool);
+bool cvr_gl_flag(uint32_t);
+void cvr_gl_bindings(uint32_t,ID3D12GraphicsCommandList*);
+bool cvr_gl_index(ID3D12GraphicsCommandList*,const D3D12_INDEX_BUFFER_VIEW*,const BufferLease*);
+uint32_t cvr_gl_vertices(ID3D12GraphicsCommandList*,UINT,UINT,const D3D12_VERTEX_BUFFER_VIEW*,const BufferLease*);
+uint32_t cvr_gl_snapshot(const native_probe::DrawRecord*,size_t,size_t,bool,bool,void(*)(void*,const BufferLease*,ReadState*),BufferLease*,BufferLease*,
+    RustSnapshot*);
+bool cvr_gl_copy_draw(uint32_t,BufferLease*,BufferLease*,size_t*);
+bool cvr_gl_current(ID3D12GraphicsCommandList*,const native_probe::DrawRecord*,bool,bool,BufferLease*,BufferLease*);
+void cvr_gl_published(RustPublished*);
+}
+std::mutex mutex;
+std::vector<native_probe::DrawRecord> nativeDraws;
+std::vector<std::vector<uint8_t>> instanceData;
+std::vector<scene_state::DrawState> drawStates;
+size_t instanceBytes{};
+void Publish() {
+    RustPublished p{};cvr_gl_published(&p);
+    CyberpunkVR_GeometryLeaseDraws=p.draws;CyberpunkVR_GeometryLeaseDrawCount=p.drawCount;
+    CyberpunkVR_GeometryLeaseResources=p.resources;CyberpunkVR_GeometryLeaseResourceCount=p.resourceCount;
+    CyberpunkVR_GeometryLeaseReadStates=p.readStates;
+}
+void ReadAtDraw(void* list,const BufferLease* lease,ReadState* out){*out=ReadStateAtDraw(static_cast<ID3D12GraphicsCommandList*>(list),*lease);}
+}
+void Begin(bool enabled) {
+    std::lock_guard lock(mutex);CyberpunkVR_GeometryLeaseSeq.fetch_add(1);
+    cvr_gl_begin(enabled);CyberpunkVR_GeometryLeaseFailure=0;
+    geometry_snapshots::Begin(enabled && CyberpunkVR_GeometryFreezeEnable.load()!=0);
+    nativeDraws.clear();instanceData.clear();drawStates.clear();instanceBytes=0;
+    if(enabled)CyberpunkVR_GeometryLeaseCompatible=NativeIaCompatible()?1:2;
+    Publish();CyberpunkVR_GeometryLeaseSeq.fetch_add(1);
+}
+void BeginBindings(){cvr_gl_bindings(0,nullptr);}
+void EndBindings(){cvr_gl_bindings(1,nullptr);}
+void End(){cvr_gl_bindings(2,nullptr);}
+void ClearBindings(){cvr_gl_bindings(3,nullptr);}
+void Reset(ID3D12GraphicsCommandList* list){cvr_gl_bindings(4,list);}
+void Index(ID3D12GraphicsCommandList* list,const D3D12_INDEX_BUFFER_VIEW* view) {
+    if(!cvr_gl_flag(0) || probe::internalCommands || !list)return;
+    IndexLease(list,view,view?BoundIndex(*view):BufferLease{});
+}
+void IndexLease(ID3D12GraphicsCommandList* list,const D3D12_INDEX_BUFFER_VIEW* view,BufferLease lease) {
+    if(probe::internalCommands || !list)return;
+    if(!cvr_gl_index(list,view,&lease))CyberpunkVR_GeometryLeaseFailure=1;
+}
+void Vertices(ID3D12GraphicsCommandList* list,UINT start,UINT count,const D3D12_VERTEX_BUFFER_VIEW* views) {
+    if(!cvr_gl_flag(0) || probe::internalCommands || !list)return;
+    if(start>32 || count>32-start){CyberpunkVR_GeometryLeaseFailure=2;return;}
+    if(start>=16)return;
+    VertexLeases(list,start,count,views,BoundVertices(start,count,views));
+}
+void VertexLeases(ID3D12GraphicsCommandList* list,UINT start,UINT count,const D3D12_VERTEX_BUFFER_VIEW* views,std::array<BufferLease,16> leases) {
+    if(probe::internalCommands || !list)return;
+    if(const auto failure=cvr_gl_vertices(list,start,count,views,leases.data()))CyberpunkVR_GeometryLeaseFailure=failure;
+}
+void Snapshot(const native_probe::DrawRecord& draw,std::span<const uint8_t> instances,const scene_state::DrawState* drawState,bool freeze) {
+    if(!cvr_gl_flag(1))return;
+    std::lock_guard lock(mutex);if(!cvr_gl_flag(1))return;
+    CyberpunkVR_GeometryLeaseSeq.fetch_add(1);
+    try {
+        const bool stateOk=drawState && reinterpret_cast<uintptr_t>(drawState->original.Get())==draw.pipeline && drawState->topology && drawState->rate.known;
+        DrawResources source;RustSnapshot out{};   // the freeze's leases are given into source
+        const auto result=cvr_gl_snapshot(&draw,instances.size(),instanceBytes,stateOk,freeze && CyberpunkVR_GeometryFreezeEnable.load(std::memory_order_relaxed),
+            &ReadAtDraw,&source.index,source.vertices.data(),&out);
+        if(result==1)CyberpunkVR_GeometryLeaseFailure=1;
+        else if(!result){
+            if(out.freeze){source.draw=draw;source.state=*drawState;geometry_snapshots::Capture(source,out.states.buffers,true);}
+            drawStates.push_back((out.flags&16)?*drawState:scene_state::DrawState{});
+            instanceData.emplace_back(instances.begin(),instances.end());instanceBytes+=instances.size();nativeDraws.push_back(draw);
+        }
+    }catch(...){CyberpunkVR_GeometryLeaseFailure=1;}
+    Publish();CyberpunkVR_GeometryLeaseSeq.fetch_add(1);
+}
+bool CopyDraw(uint32_t sequence,DrawResources& output) {
+    std::lock_guard lock(mutex);if(CyberpunkVR_GeometryLeaseFailure.load())return false;
+    DrawResources result;size_t at{};
+    if(!cvr_gl_copy_draw(sequence,&result.index,result.vertices.data(),&at))return false;   // the owned leases, given
+    result.draw=nativeDraws[at];result.instances=instanceData[at];result.state=drawStates[at];
+    output=std::move(result);return true;
+}
+bool CopyCurrentBindings(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& draw,bool indexed,DrawResources& output)try{
+    DrawResources pending;pending.draw=draw;
+    if(!cvr_gl_current(list,&draw,indexed,probe::internalCommands,&pending.index,pending.vertices.data()))return false;   // the exact bound leases, given
+    output=std::move(pending);return true;
+}catch(...){return false;}
+#endif
+#else
 namespace {
 struct State {
     BufferLease index;D3D12_INDEX_BUFFER_VIEW indexView{};
@@ -172,4 +278,5 @@ bool CopyCurrentBindings(ID3D12GraphicsCommandList* list,const native_probe::Dra
     }
     output=std::move(pending);return true;
 }catch(...){return false;}
+#endif
 }

@@ -1,0 +1,22 @@
+[package]
+name = "cvr-host"
+description = "Plugin host services shared by the port's Rust DLLs: plugin folders, the log, panic guards at the engine boundary, the script compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+red4ext-abi = { path = "../red4ext-abi" }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Performance",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

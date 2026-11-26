@@ -98,16 +98,6 @@ public final func GetItemIDfromEquipmentManipulationAction(action: EquipmentMani
   return state;
 }
 
-@addMethod(LeftHandCyberwareEquipDecisions)
-protected final const func ToVrLauncherReady(const stateContext: ref<StateContext>, const scriptInterface: ref<StateGameScriptInterface>) -> Bool {
-  let player = scriptInterface.executionOwner as PlayerPuppet;
-  if player.vrLauncherSelectedAsWeapon && LeftHandCyberwareHelper.IsProjectileLauncherEquipped(scriptInterface) {
-    player.vrLauncherKeepOpen = true;
-  };
-  return (scriptInterface.executionOwner as PlayerPuppet).vrLauncherSelectedAsWeapon
-    && this.VrLauncherCanStay(stateContext, scriptInterface)
-    && this.GetInStateTime() >= this.GetEquipDuration(scriptInterface);
-}
 
 @wrapMethod(LeftHandCyberwareEquipDecisions)
 protected final const func ToLeftHandCyberwareUnequip(const stateContext: ref<StateContext>, const scriptInterface: ref<StateGameScriptInterface>) -> Bool {

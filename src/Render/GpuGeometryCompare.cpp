@@ -1,4 +1,6 @@
 #include "Render/GpuGeometryCompare.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's comparison; the Rust build's is rust/crates/cvr-gpu/src/geometry_compare.rs (the header calls it).
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
 #include <d3dcompiler.h>
@@ -153,3 +155,4 @@ UINT GpuGeometryCompare::RangeCount()const{return storage_?UINT(storage_->ranges
 UINT GpuGeometryCompare::DispatchCount()const{return storage_ && storage_->recorded?UINT(storage_->batches.size())+1:0;}
 UINT64 GpuGeometryCompare::ComparedBytes()const{return storage_?storage_->bytes:0;}
 }
+#endif

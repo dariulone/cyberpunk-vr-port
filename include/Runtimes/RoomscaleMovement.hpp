@@ -9,6 +9,9 @@
 #include <limits>
 #include "Runtimes/BodyFollowZone.hpp"
 #include "Anim/BodyBend.hpp"
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::roomscale {
 
@@ -21,6 +24,13 @@ struct Vec2 {
 };
 inline float Dot(Vec2 a, Vec2 b) { return a.x*b.x + a.y*b.y; }
 inline bool Finite(Vec2 v) { return std::isfinite(v.x) && std::isfinite(v.y); }
+#if CVR_RUST_ROOM
+// rust/crates/cvr-body/src/roomscale.rs: the classes below keep their fields (Rust has their layouts).
+inline CvrVec2 ToC(Vec2 v) { return {v.x, v.y}; }
+inline Vec2 FromC(CvrVec2 v) { return {v.x, v.y}; }
+inline Vec2 Rotate(Vec2 v, float yaw) { return FromC(cvr_room_rotate(ToC(v), yaw)); }
+inline float TrackingYaw(float entityYaw, float bodyRealign) { return cvr_room_tracking_yaw(entityYaw, bodyRealign); }
+#else
 inline Vec2 Rotate(Vec2 v, float yaw) {
     const float c = std::cos(yaw), s = std::sin(yaw);
     return {c*v.x - s*v.y, s*v.x + c*v.y};
@@ -28,11 +38,12 @@ inline Vec2 Rotate(Vec2 v, float yaw) {
 inline float TrackingYaw(float entityYaw, float bodyRealign) {
     return std::remainder(entityYaw - bodyRealign, 6.28318530718f);
 }
+#endif
 
 // Translation starts from rest at the free-zone boundary. The angular follower
 // intentionally keeps its shorter response; sharing its exponential fraction
 // made a 5.2cm lean produce a 2.7cm first CCT step in the live trace.
-// IT ENDS UNDER THE HEAD, AND THEN IT STANDS STILL (2026-11-06: "the legs twitch a hundred times"). A follow used
+// IT ENDS UNDER THE HEAD, AND THEN IT STANDS STILL (2026-11-06, user: "the legs twitch a hundred times"). A follow used
 // to end only within half a millimetre of the headset, which is inside a headset's own position noise (0.3-0.5 mm and
 // a slow wander of about as much): it never ended, and every frame of tracking noise after a step was a capsule move --
 // 0.1-0.19 m/s pulses on a body standing still, each one a step of the walking animation. Now a follow ends once the
@@ -59,6 +70,14 @@ public:
     static constexpr float kStillTime = 1.0f;       // s: ...for this long (a glance round a corner is shorter)
     static constexpr float kFollowOmega = 20.0f;    // 1/s: leaving the free zone: 95 % in 0.24 s
     static constexpr float kRecentreOmega = 12.0f;  // 1/s: recentring: 95 % in 0.4 s, one short shuffle
+#if CVR_RUST_ROOM
+    void Reset() { cvr_room_follow_reset(this); }
+    bool Following() const { return m_following; }
+    void HeadMotion(Vec2 neck, bool upright, float dt) { cvr_room_follow_head_motion(this, ToC(neck), upright, dt); }
+    bool HeadStill() const { return cvr_room_follow_head_still(this); }
+    void Block(Vec2 refused) { cvr_room_follow_block(this, ToC(refused)); }
+    Vec2 Step(Vec2 error,float radius,float dt) { return FromC(cvr_room_follow_step(this, ToC(error), radius, dt)); }
+#else
     void Reset() { m_following=false;m_velocity={}; }
     bool Following() const { return m_following; }
     // Where the head is this tick, for the standing recentre: the NECK ITSELF, the hip hinge the bend tracker takes
@@ -114,6 +133,7 @@ public:
         if(Dot(step,step)>=distance2) return error;     // caught the head: on under it, the follow goes on
         return step;
     }
+#endif
 private:
     Vec2 m_velocity{};
     float m_omega = kFollowOmega;
@@ -125,7 +145,7 @@ private:
 
 // THE WALK THE REST OF THE GAME SEES (strict mode, 2026-11-07). With the body strictly under the head every move of the
 // neck is a capsule move -- a lean, a sway, the headset's own noise -- and every reader of the player's velocity (the
-// locomotion animation first) would see each of them as a start and a
+// locomotion animation first: user, "чтобы он не запускал анимацию 1000 раз") would see each of them as a start and a
 // stop. Those readers get the physical part of the velocity only as a WALK: smoothed over kTau, and only once the
 // smoothed speed has passed kWalkOn, until it has stayed under kWalkOff for kWalkOffHold. Standing, leaning, swaying
 // and stepping in place, they see nothing of it; walking, they see one steady speed. The capsule itself still moves
@@ -136,6 +156,12 @@ public:
     static constexpr float kWalkOn = 0.30f;       // m/s: a walk starts once the smoothed speed passes this...
     static constexpr float kWalkOff = 0.12f;      // m/s: ...and ends once it has stayed under this...
     static constexpr float kWalkOffHold = 0.25f;  // s: ...for this long (a gait's slow phase is shorter)
+#if CVR_RUST_ROOM
+    void Reset() { cvr_room_walk_gate_reset(this); }
+    void Update(Vec2 velocity, float dt) { cvr_room_walk_gate_update(this, ToC(velocity), dt); }
+    bool Walking() const { return m_walking; }
+    Vec2 Reported() const { return FromC(cvr_room_walk_gate_reported(this)); }
+#else
     void Reset() { *this = {}; }
     void Update(Vec2 velocity, float dt) {
         if(!Finite(velocity) || !std::isfinite(dt) || dt<=0) { Reset(); return; }
@@ -153,12 +179,16 @@ public:
     }
     bool Walking() const { return m_walking; }
     Vec2 Reported() const { return m_walking ? m_smoothed : Vec2{}; }
+#endif
 private:
     Vec2 m_smoothed{};
     float m_slowFor{};
     bool m_walking{};
 };
 
+#if CVR_RUST_ROOM
+inline bool HeadYaw(float x, float y, float z, float w, float* yaw) { return cvr_room_head_yaw(x, y, z, w, yaw); }
+#else
 inline bool HeadYaw(float x, float y, float z, float w, float* yaw) {
     const float n2 = x*x + y*y + z*z + w*w;
     if (!yaw || !std::isfinite(n2) || n2 < 0.5f || n2 > 1.5f) return false;
@@ -174,15 +204,19 @@ inline bool HeadYaw(float x, float y, float z, float w, float* yaw) {
     *yaw = std::atan2(hx, hz);
     return true;
 }
+#endif
 
 // THE NECK, NOT THE EYES. The view pose is the eyes, and they sit ahead of and above the point the head turns about,
 // so a head turned without a step carries them along an arc round the neck: 13 cm for a quarter turn looking ahead,
 // 20 cm and more looking down, past the free zone (xr_body_move_radius) -- and the body walked after a look round
-// (2026-11-04: "turning the head down and to the left or right moves the avatar"). Roomscale counts the
+// (players, 2026-11-04: "turning the head down and to the left or right moves the avatar"). Roomscale counts the
 // neck: the eyes less this lever, in the head's own axes (OpenXR: +Y up, -Z ahead). The view keeps the eyes.
 inline constexpr float kEyeAboveNeck = cvr::body::EyeAboveNeck, kEyeAheadOfNeck = cvr::body::EyeAheadOfNeck;
 // The lever's planar part in movement axes (x right, y forward = -OpenXR Z) for a head orientation; zero for an
 // orientation that is not one.
+#if CVR_RUST_ROOM
+inline Vec2 EyeFromNeck(float x, float y, float z, float w) { return FromC(cvr_room_eye_from_neck(x, y, z, w)); }
+#else
 inline Vec2 EyeFromNeck(float x, float y, float z, float w) {
     const float n2 = x*x + y*y + z*z + w*w;
     if (!std::isfinite(n2) || n2 < 0.5f || n2 > 1.5f) return {};
@@ -195,6 +229,7 @@ inline Vec2 EyeFromNeck(float x, float y, float z, float w) {
     const float rz = v[2] + w*t[2] + (x*t[1] - y*t[0]);
     return {rx, -rz};
 }
+#endif
 
 struct Sample {
     Vec2 head{};
@@ -211,6 +246,11 @@ struct Sample {
 
 // The runtime packet qualifies tracking availability. The displacement must
 // come from the SAME latched position that the body/camera will render.
+#if CVR_RUST_ROOM
+inline Sample MovementFrameSample(const Sample& tracking, const Sample& frame) {
+    Sample result; cvr_room_movement_frame_sample(&tracking, &frame, &result); return result;
+}
+#else
 inline Sample MovementFrameSample(const Sample& tracking, const Sample& frame) {
     Sample result=frame;
     result.valid=tracking.valid && frame.valid && Finite(tracking.head) && tracking.origin==frame.origin;
@@ -222,6 +262,7 @@ inline Sample MovementFrameSample(const Sample& tracking, const Sample& frame) {
     result.runtimeHeadKnown=true;
     return result;
 }
+#endif
 
 enum class Reason : uint32_t {
     Applied, Baseline, Suspended, TrackingInvalid, Stale, Duplicate, Discontinuity
@@ -235,32 +276,52 @@ struct Step {
     uint64_t origin{};
     uint64_t ticket{};
     Reason reason{Reason::Suspended};
-    bool strict{};        // asked in strict mode: Complete takes the refused part off the view (VRExpansion's rule)
 };
 
 class Movement {
 public:
     static constexpr uint64_t MaxAgeUs = 250000;
     static constexpr float MaxStepMetres = 0.5f;
-
+    static constexpr float kStrictRest = 0.0001f;   // m: a lead under this is no move (the same sample again)
+    static constexpr float kLeadEaseBack = 0.10f;    // m/s
+    static constexpr float kRefusedMin = 0.0005f;    // m a tick: less is the solver's rounding
+    struct LeadLimit {
+        Vec2 eyeBase{};
+        float radius = std::numeric_limits<float>::infinity();
+    };
+#if CVR_RUST_ROOM
+    void Reset() { cvr_room_movement_reset(this); }
+    void Suspend() { cvr_room_movement_suspend(this); }
+    Step Begin(const Sample& sample, uint64_t nowUs, float dt,
+               float scale, float trackingYaw, bool allowed,float freeRadiusMetres=0,bool strict=false) {
+        Step step;
+        cvr_room_movement_begin(this, &sample, nowUs, dt, scale, trackingYaw, allowed, freeRadiusMetres, strict, &step);
+        return step;
+    }
+    void Complete(const Step& step) { Complete(step, step.world, LeadLimit{}); }
+    void Complete(const Step& step, Vec2 acceptedWorld, LeadLimit limit) {
+        cvr_room_movement_complete(this, &step, ToC(acceptedWorld), &limit);
+    }
+    Vec2 Consumed(uint64_t origin) const { return origin == m_origin ? m_consumed : Vec2{}; }
+    bool RestNeck(uint64_t origin, Vec2* out) const {
+        CvrVec2 v;
+        if (!out || !cvr_room_movement_rest_neck(this, origin, &v)) return false;
+        *out = FromC(v);
+        return true;
+    }
+    bool Following() const { return cvr_room_movement_following(this); }
+    Vec2 Pending() const { return m_pending; }
+#else
     void Reset() { *this = {}; }
     // m_pending is the view's lead over the capsule, not motion still to replay:
     // a suspension, a gap or a tracking jump keeps it for the body to follow
     // later. Dropped, it would stay in the view as a permanent offset from the body.
     void Suspend() { m_active = false;m_follow.Reset(); }
 
-    // STRICT: the body strictly under the head (2026-11-07): the whole lead the head has over the capsule is asked of
-    // the controller every tick -- no free zone, no follow and no settle. The readers of the velocity see it as
-    // PhysicalWalkGate lets them.
-    // WHAT THE WORLD REFUSES IS THE VIEW'S, AT ONCE (2026-11-07). As VRExpansionPlugin's retained roomscale does it:
-    // every tick UVRBaseCharacterMovementComponent::RewindVRRelativeMovement moves the root back by the headset's delta
-    // and the move sweeps it forward again (SafeMoveUpdatedComponent(Velocity * dt + AdditionalVRInputVector), step-up,
-    // slide along the surface), so the capsule stays at the headset and whatever the sweep refuses moves the tracking
-    // origin -- the view -- back by exactly that, the same tick. Nothing is kept: no lead in the wall that is asked again
-    // next tick (the stumble against a prop: the controller met the same refused lead every tick) and no lead eased out
-    // of the view afterwards (the view drifting back from the wall at kLeadEaseBack). Complete() does that for a strict
-    // step.
-    static constexpr float kStrictRest = 0.0001f;   // m: a lead under this is no move (the same sample again)
+    // STRICT: the body strictly under the head (user, 2026-11-07, after Titanfall 2 VR's roomscale): the whole lead the
+    // head has over the capsule is asked of the controller every tick -- no free zone, no follow and no settle. What a
+    // wall refuses stays the view's lead as in the follow mode. The readers of the velocity see it as PhysicalWalkGate
+    // lets them.
     Step Begin(const Sample& sample, uint64_t nowUs, float dt,
                float scale, float trackingYaw, bool allowed,float freeRadiusMetres=0,bool strict=false) {
         Step step{};
@@ -314,7 +375,6 @@ public:
         m_previous = sample.head;
         m_haveHead = true;
         m_sequence = sample.sequence;
-        if (Finite(sample.eyeFromNeck)) m_eyeFromNeck = sample.eyeFromNeck;
         const Vec2 metres = delta * scale;
         m_follow.HeadMotion((sample.head + sample.bend) * scale, sample.upright, dt);
         const Vec2 runtimeDelta = (sample.runtimeHead - m_previousRuntime) * scale;
@@ -341,7 +401,6 @@ public:
             return step;
         }
         m_pending=m_pending+delta;
-        step.strict = strict;
         if (strict) { m_follow.Reset(); step.raw=m_pending; }
         else step.raw=m_follow.Step(m_pending*scale,freeRadiusMetres,dt)*(1.0f/scale);
         step.world = Rotate(step.raw*scale, trackingYaw);
@@ -361,15 +420,9 @@ public:
     // response behind it -- and capping that too stopped the body outright: with the
     // 0.25 m capsule the eye may lead its axis by 0.20 m, it sits 0.13 m ahead already,
     // and the 0.07 m left never reached the 0.10 m free zone, so a step straight ahead
-    // was consumed into the view and never walked (2026-11-04: "roomscale
+    // was consumed into the view and never walked (players, 2026-11-04: "roomscale
     // moves in steps again"). Met with more lead than that, the eye is not thrown back
-    // either: it stops where it is and eases back in at kLeadEaseBack.
-    static constexpr float kLeadEaseBack = 0.10f;    // m/s
-    static constexpr float kRefusedMin = 0.0005f;    // m a tick: less is the solver's rounding
-    struct LeadLimit {
-        Vec2 eyeBase{};
-        float radius = std::numeric_limits<float>::infinity();
-    };
+    // either: it stops where it is and eases back in at kLeadEaseBack (constants and LeadLimit at the top of the class).
 
     // The controller carried out the whole request.
     void Complete(const Step& step) { Complete(step, step.world, LeadLimit{}); }
@@ -386,13 +439,6 @@ public:
         const Vec2 refusedWorld = step.world - acceptedWorld;
         if (Finite(acceptedWorld) && step.scale > 0 && Dot(refusedWorld, refusedWorld) > 1e-14f)
             accepted = step.raw - Rotate(refusedWorld, -step.yaw) * (1.0f / step.scale);
-        if (step.strict && step.reason == Reason::Applied) {
-            // the accepted part moved the capsule, the refused part moves the view back: both are taken off the lead
-            m_consumed = m_consumed + step.raw;
-            m_pending = m_pending - step.raw;
-            m_reach = -1;
-            return;
-        }
         m_consumed = m_consumed + accepted;
         if (step.reason != Reason::Applied) { m_reach = -1; return; }
         m_pending = m_pending - accepted;
@@ -436,25 +482,15 @@ public:
         *out = neck;
         return true;
     }
-    // THE EYE AS THE LAST MOVE SAW IT, in the tracked residual's frame (the head less Consumed): where the camera was
-    // when the capsule was last placed. The rendered camera has moved on since by the head's motion since that sample;
-    // the visible body follows that too (Hooks/AnimPose.cpp, CyberpunkVR_BodyUnderRenderedHead).
-    bool TickEye(uint64_t origin, Vec2* out) const {
-        if (!out || !m_origin || origin != m_origin || !m_haveHead) return false;
-        const Vec2 eye = m_previous - m_consumed - m_pending + m_eyeFromNeck;
-        if (!Finite(eye)) return false;
-        *out = eye;
-        return true;
-    }
     // The body is walking after the head (a follow in progress).
     bool Following() const { return m_active && m_follow.Following(); }
     // The head's lead over the capsule that the body still has to follow (tracking units).
     Vec2 Pending() const { return m_pending; }
+#endif
 
 private:
     Vec2 m_previous{}, m_consumed{};
     Vec2 m_pending{};
-    Vec2 m_eyeFromNeck{};
     float m_reach = -1;   // the eye's distance from the axis after the last move; -1 unknown
     BodyTranslationFollow m_follow;
     Vec2 m_previousRuntime{};
@@ -476,6 +512,16 @@ private:
 // along it: 9.6 mm asked and moved, 5.1 mm accepted. The rest stayed in the lead, the follow
 // asked for it again, and the capsule overran the headset (1.23-1.36 m for a 1 m walk,
 // measured 2026-11-04).
+#if CVR_RUST_ROOM
+static_assert(sizeof(BodyTranslationFollow) == 28 && sizeof(PhysicalWalkGate) == 16 && sizeof(Sample) == 72 &&
+              sizeof(Step) == 56 && sizeof(Movement::LeadLimit) == 12 && sizeof(Movement) == 112);
+inline Vec2 AcceptedDisplacement(Vec2 native, Vec2 physical, Vec2 resolved) {
+    return FromC(cvr_room_accepted_displacement(ToC(native), ToC(physical), ToC(resolved)));
+}
+inline Vec2 PhysicalVelocity(Vec2 native, Vec2 physical, Vec2 resolvedVelocity, float dt) {
+    return FromC(cvr_room_physical_velocity(ToC(native), ToC(physical), ToC(resolvedVelocity), dt));
+}
+#else
 inline Vec2 AcceptedDisplacement(Vec2 native, Vec2 physical, Vec2 resolved) {
     if (!Finite(native) || !Finite(physical) || !Finite(resolved)) return physical;
     const Vec2 lost = native + physical - resolved;
@@ -497,5 +543,6 @@ inline Vec2 PhysicalVelocity(Vec2 native, Vec2 physical, Vec2 resolvedVelocity, 
     }
     return accepted * (1.0f / dt);
 }
+#endif
 
 } // namespace cvr::roomscale

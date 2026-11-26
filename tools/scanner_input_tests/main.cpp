@@ -75,57 +75,18 @@ int main(){
     Check(zone.Contains(-.20f,0,-.05f,false));
     Check(!zone.Contains(-.20f,-.30f,-.40f,false)); // ordinary hand rest / weapon position
     Check(!zone.Contains(.10f,-.03f,.06f,false)); // other side of the head
-    // Run the exact raw-click owner and deferred-L3 policy used before XInput/handedness.
-    cvr::input::ScannerClick click;
-    cvr::input::DeferredLeftStickClick deferred;
-    unsigned sprintClicks=0;
-    auto tick=[&](bool down,bool atEar=true,bool enabled=true,bool valid=true,double dt=20,bool dpad=false) {
-        const bool claim=click.Update(enabled,down,valid,atEar?-.18f:0.f,-.08f,.08f,dt);
-        if(deferred.Update(down,claim || dpad))++sprintClicks;
-        return claim;
-    };
-    for(int i=0;i<6;++i)Check(!tick(true)); // held from startup, even once zone settles
-    Check(click.Presses()==0 && !click.Held());
-    Check(!tick(false)); // release the unclaimed ordinary L3
-    Check(sprintClicks==1);
-    Check(tick(true) && click.Presses()==1 && click.Held()); // fresh at ear, immediate
-    for(int i=0;i<20;++i)Check(tick(true));
-    Check(click.Presses()==1); // holding never toggles twice
-    Check(tick(false));Check(!click.Held());Check(sprintClicks==1); // consume release too
-    Check(tick(true) && click.Presses()==2); // release/rearm permits closing
-    for(int i=0;i<20;++i)Check(tick(true,false)); // carry a consumed hold out of the zone
-    Check(!click.Held());Check(tick(false,false));Check(sprintClicks==1);
-    Check(!tick(false,false));Check(!tick(true,false));
-    for(int i=0;i<10;++i)Check(!tick(true,true)); // ordinary L3 carried into ear never scans
-    Check(click.Presses()==2);Check(!tick(false));Check(sprintClicks==2);
-    Check(tick(true) && click.Presses()==3);
-    Check(tick(true,true,false));Check(tick(false,true,false));Check(sprintClicks==2);
-    // Pressing during a menu/disabled state cannot turn into a scanner click after resuming.
-    Check(!tick(true,true,false));
-    for(int i=0;i<10;++i)Check(!tick(true));
-    Check(click.Presses()==3);Check(!tick(false));
-    const auto ordinary=sprintClicks;
-    Check(tick(true));
-    for(int i=0;i<20;++i)Check(tick(true,true,true,false)); // invalid tracking cannot repeat
-    Check(click.Presses()==4);Check(tick(false));Check(sprintClicks==ordinary);
-    Check(!tick(false));
-    // No press during the exit grace: the current pose, not just the armed latch, must be inside.
-    Check(!tick(true,false));Check(click.Presses()==4);Check(!tick(false,false));
-    // Ordinary D-pad use outside the ear still suppresses its deferred sprint.
-    const auto beforeDpad=sprintClicks;
-    Check(!tick(true,false,true,true,20,true));Check(!tick(false,false));Check(sprintClicks==beforeDpad);
-    // Settling after an early press must not manufacture a fresh edge.
-    cvr::input::ScannerClick early;
-    Check(!early.Update(true,false,true,-.18f,-.08f,.08f,20));
-    Check(!early.Update(true,true,true,-.18f,-.08f,.08f,20));
-    Check(!early.Update(true,true,true,-.18f,-.08f,.08f,100));Check(early.Presses()==0);
-    early.Update(true,false,true,-.18f,-.08f,.08f,20);
-    Check(early.Update(true,true,true,-.18f,-.08f,.08f,20));
-    Check(early.Update(true,false,true,-.18f,-.08f,.08f,20));
-    Check(!early.Update(true,true,true,-.18f,-.08f,.08f,1000)); // resume while held: not a fresh edge
-    Check(!early.Update(true,true,true,-.18f,-.08f,.08f,100));Check(early.Presses()==1);
-    early.Update(true,false,true,-.18f,-.08f,.08f,20);
-    Check(early.Update(true,true,true,-.18f,-.08f,.08f,20));Check(early.Presses()==2);
+    cvr::input::ScannerSqueeze squeeze;
+    Check(!squeeze.Update(1,true));   // held from the start: a grip must open first
+    Check(!squeeze.Update(0,true));Check(squeeze.Update(1,true));          // a clean press at the ear: scan
+    Check(squeeze.Update(1,false)); // leaving keeps the squeeze; the zone's own exit timer decides
+    squeeze.Update(0,false);Check(!squeeze.Update(1,false));Check(!squeeze.Update(1,true)); // carried in: no scan
+    squeeze.Update(0,false);
+    Check(!squeeze.Update(.8f,false));Check(!squeeze.Update(.6f,true));Check(!squeeze.Update(.8f,true));
+    Check(!squeeze.Update(.4f,true));Check(!squeeze.Update(.9f,true)); // a held grip dipping at the ear is no new press
+    Check(!squeeze.Update(.3f,true));Check(squeeze.Update(.75f,true));  // a real release, then a press: scan
+    squeeze.Reset();Check(!squeeze.Update(1,true));                     // held across a reset: no scan
+    Check(!squeeze.Update(0,true));Check(squeeze.Update(1,true));
+    Check(!squeeze.Update(std::numeric_limits<float>::quiet_NaN(),true)); // a bad sample reads as open
     Check(!zone.Contains(std::numeric_limits<float>::quiet_NaN(),0,0,false));
     cvr::input::ScannerRequest request;bool held=true;
     request.Update(held,0,1000);Check(held);

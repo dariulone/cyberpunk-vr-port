@@ -7,6 +7,7 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Utils/MemorySafe.hpp"
+#include "Anim/CharacterRig.hpp"   // VRIK_ClockMs: the clock the tests can set
 #include <RED4ext/Scripting/Natives/entEntity.hpp>
 #include <RED4ext/Scripting/Natives/entIComponent.hpp>
 #include <RED4ext/RTTITypes.hpp>
@@ -15,9 +16,16 @@
 #include <mutex>
 
 extern "C" {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's is rust/crates/cvr-render/src/asm_thunks/surveillance_input_thunk.rs'
 void* CvrSurveillanceInputOriginal{};
+#endif
+#if !CVR_RUST_VRIK
 void CvrSurveillanceInputDetour();
 void CvrSurveillanceFinishDetour();
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) int CyberpunkVR_SurveillanceBodyFollow=1;
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_SurveillanceBodyUpdates{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_SurveillanceBodyInjected{};
@@ -25,7 +33,34 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SurveillanceBodyDebugSeq
 __declspec(dllexport) float CyberpunkVR_SurveillanceBodyDebug[9]{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_SurveillanceAutoFiltered{};
 __declspec(dllexport) float CyberpunkVR_SurveillanceAutoDebug[6]{};
+#endif
 }
+// What the engine's RTTI says about the device camera control component (src/Hooks/HookServices.cpp): its owner, the
+// owner's entity, whether the component is enabled, and the owner's kind (1 SurveillanceCamera, 2 SniperNest).
+struct SurveillanceControl {uintptr_t owner{};uint64_t entity{};bool enabled{};uint8_t kind{};};
+#if !CVR_RUST_VRIK
+extern "C" bool cvr_cpp_surveillance_control(uintptr_t component,SurveillanceControl* out);
+#endif
+
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/surveillance_body.rs: the input and finish callbacks the thunks call, the view yaw, the
+// sniper's head follow and the two patches.
+extern "C" {
+bool cvr_surveillance_view_yaw(uintptr_t lens,uintptr_t owner,uint64_t origin,float ownerYaw,float* yaw);
+bool cvr_sniper_head_follow_active();
+}
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("SurveillanceBody",::cvr::hooks::Stage::Boot,88,cvr_hook_surveillance_body_install);
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool cvr::camera::SurveillanceViewYaw(uintptr_t lens,uintptr_t owner,uint64_t origin,float ownerYaw,float& yaw) {
+    return cvr_surveillance_view_yaw(lens,owner,origin,ownerYaw,&yaw);
+}
+bool cvr::camera::SniperHeadFollowActive() { return cvr_sniper_head_follow_active(); }
+#endif
+#else
+// OpenXR's pose sample and the takeover through src/Hooks/HookServices.cpp, as the Rust port reads them.
+extern "C" bool cvr_cpp_xr_acquire_camera_pose_frame(OpenXRHeadPose* head,cvr::roomscale::Vec2* consumed,uint64_t* sequence);
 namespace {
 std::mutex mutex;
 cvr::camera::SurveillanceFollow follow;
@@ -92,13 +127,13 @@ CVR_HOOK("SurveillanceBody",::cvr::hooks::Stage::Boot,88,Install);
 extern "C" void CvrSurveillanceInputAfter(uintptr_t component,float* delta) {
     pendingInput.Capture(0,nullptr,false);
     if(!CyberpunkVR_SurveillanceBodyFollow || !CyberpunkVR_DeviceCamOrient || !DeviceCamActive()) {Clear();return;}
-    auto* control=reinterpret_cast<RED4ext::ent::IComponent*>(component);
-    const auto owner=reinterpret_cast<uintptr_t>(control->owner);
+    SurveillanceControl control{};
+    if(!cvr_cpp_surveillance_control(component,&control))return;
+    const auto owner=control.owner;
     const auto lens=g_lensComp.load(std::memory_order_acquire);
-    if(!owner || owner!=g_takeoverEntity.load(std::memory_order_acquire) || !lens || !control->isEnabled)return;
-    const auto type=control->owner->GetType()->GetName();
-    const bool sniper=type==RED4ext::CName("SniperNest");
-    if(type!=RED4ext::CName("SurveillanceCamera") && !sniper)return;
+    if(!owner || owner!=g_takeoverEntity.load(std::memory_order_acquire) || !lens || !control.enabled)return;
+    const bool sniper=control.kind==2;
+    if(control.kind==0)return;
     uintptr_t nativeLens{};
     if(!ReadPtrSafe(component+0xE0,&nativeLens)||nativeLens!=lens)return;
     // This callback exists only on the native active-controller update path.
@@ -112,17 +147,17 @@ extern "C" void CvrSurveillanceInputAfter(uintptr_t component,float* delta) {
        !ReadFloatSafe(component+0x110,&minimum)||!ReadFloatSafe(component+0x114,&maximum))return;
     const float manualYaw=cvr::camera::SurveillanceManualYaw(currentYaw,delta[2],minimum,maximum);
     OpenXRHeadPose head{};cvr::roomscale::Vec2 consumed{};uint64_t sequence{};
-    if(!OpenXRManager::Get().AcquireCameraPoseFrame(&head,&consumed,&sequence)||!head.valid)return;
+    if(!cvr_cpp_xr_acquire_camera_pose_frame(&head,&consumed,&sequence)||!head.valid)return;
     const bool enabled=g_menuModeValue==0 && !cvr::vrui::CapturesInput();
-    const uint64_t entity=control->owner->entityID.hash;
+    const uint64_t entity=control.entity;
     cvr::camera::SurveillanceAngles angles{};
     std::lock_guard lock(mutex);
     if(!cvr::camera::SurveillanceHeadAngles(head.oriX,head.oriY,head.oriZ,head.oriW,follow.LastHeadYaw(),angles))return;
     constexpr float radians=cvr::camera::SurveillancePi/180.f;
-    const auto added=follow.Step(component,entity,head.originSerial,GetTickCount64(),angles,nativeYaw,ownerYaw,
+    const auto added=follow.Step(component,entity,head.originSerial,VRIK_ClockMs(),angles,nativeYaw,ownerYaw,
                                  manualYaw*radians,enabled,sniper,nativePitch,delta[1]*radians);
     sourceLens=lens;sourceOwner=owner;sourceControl=component;sourceEntity=entity;
-    sniperStamp.store(GetTickCount64(),std::memory_order_relaxed);
+    sniperStamp.store(VRIK_ClockMs(),std::memory_order_relaxed);
     sniperEntity.store(sniper?entity:0,std::memory_order_release);
     CVR_DIAGNOSTIC(
         CyberpunkVR_SurveillanceBodyDebugSeq.fetch_add(1,std::memory_order_acq_rel);
@@ -131,7 +166,7 @@ extern "C" void CvrSurveillanceInputAfter(uintptr_t component,float* delta) {
         CyberpunkVR_SurveillanceBodyDebug[2]=added.yaw/radians;CyberpunkVR_SurveillanceBodyDebug[3]=added.pitch/radians;
         CyberpunkVR_SurveillanceBodyDebug[4]=nativeYaw/radians;CyberpunkVR_SurveillanceBodyDebug[5]=ownerYaw/radians;
         CyberpunkVR_SurveillanceBodyDebug[6]=angles.yaw/radians;CyberpunkVR_SurveillanceBodyDebug[7]=angles.pitch/radians;
-        float viewYaw{};follow.View(component,entity,head.originSerial,GetTickCount64(),ownerYaw,viewYaw);
+        float viewYaw{};follow.View(component,entity,head.originSerial,VRIK_ClockMs(),ownerYaw,viewYaw);
         CyberpunkVR_SurveillanceBodyDebug[8]=viewYaw/radians;
         if(added.yaw!=0 || added.pitch!=0)++CyberpunkVR_SurveillanceBodyInjected;
         CyberpunkVR_SurveillanceBodyDebugSeq.fetch_add(1,std::memory_order_release);
@@ -156,12 +191,13 @@ bool cvr::camera::SurveillanceViewYaw(uintptr_t lens,uintptr_t owner,uint64_t or
     if(lens!=sourceLens||owner!=sourceOwner)return false;
     // The active source is supplied by a live native callback; no stored game
     // pointer is dereferenced on the camera/render side.
-    return follow.View(sourceControl,sourceEntity,origin,GetTickCount64(),ownerYaw,yaw);
+    return follow.View(sourceControl,sourceEntity,origin,VRIK_ClockMs(),ownerYaw,yaw);
 }
 
 bool cvr::camera::SniperHeadFollowActive() {
     const auto entity=sniperEntity.load(std::memory_order_acquire);
-    const auto stamp=sniperStamp.load(std::memory_order_relaxed),now=GetTickCount64();
+    const auto stamp=sniperStamp.load(std::memory_order_relaxed),now=VRIK_ClockMs();
     return entity && entity==g_takeoverEntityId.load(std::memory_order_acquire) &&
         g_remoteCamOn.load(std::memory_order_acquire) && now>=stamp && now-stamp<300 && DeviceCamActive();
 }
+#endif

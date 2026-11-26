@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's scene state; the Rust build's is rust/crates/cvr-gpu/src/scene_state.rs (the header calls it).
 #include "Render/StereoSceneState.hpp"
 #include "Render/RenderProbeScope.hpp"
 #include <mutex>
@@ -227,3 +229,4 @@ bool DescribeTargets(const native_probe::DrawRecord& draw,std::array<TargetInfo,
     result=pending;return true;
 }
 }
+#endif

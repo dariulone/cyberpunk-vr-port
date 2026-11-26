@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Overlay/VrWidgets.hpp"
 #include "Overlay/UiRec.hpp"
 #include <imgui_internal.h>
@@ -7,6 +8,10 @@
 #include <cstring>
 #include <vector>
 
+#if CVR_RUST_VRIK
+// THE VR MENU'S WIDGETS ARE RUST'S (rust/crates/cvr-render/src/vr_widgets.rs), ImGui reached through
+// Overlay/ImGuiAbi.cpp, the VR menu's recorder Rust's too (ui_rec.rs).
+#else
 namespace overlay::widgets {
 namespace {
 const ImVec4 Red{1,.28f,.29f,1}, Cyan{.30f,.88f,.94f,1}, Yellow{.98f,.94f,.06f,1};
@@ -203,7 +208,7 @@ void DrawBindings() {
         {"LEFT TRIGGER","Aim / block in melee."},
         {"RIGHT GRIP  At a holster","Equip or holster the weapon at the reached slot."},
         {"LEFT GRIP","Grab the magazine during a reload."},
-        {"LEFT L3  Near left ear","Toggle the scanner with a fresh left-stick click. Release and click again to close. Always the physical left hand, including left-handed mode."},
+        {"LEFT GRIP  Near left ear","Toggle the scanner. Squeeze again to close it."},
         {"L3 + LEFT GRIP  Hold 0.5 seconds","Activate cyberware once. Release both to use again."},
         {"LEFT MENU BUTTON","Open the game's pause menu."}
     };
@@ -247,3 +252,5 @@ void DrawBindings() {
     UI::Spacing();UI::TextWrapped("Change game actions in Settings > Key Bindings > Controller. VR gesture settings are in CONTROLS and AVATAR.");
 }
 }
+#endif
+#endif

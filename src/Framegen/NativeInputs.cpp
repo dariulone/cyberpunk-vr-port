@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Framegen/NativeInputs.hpp"
 #include "Framegen/InputCopy.hpp"
 #include "Framegen/Framegen.hpp"
@@ -6,11 +7,21 @@
 #include "Render/RenderProbeScope.hpp"
 #include <atomic>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_FramegenNativeStages[4]{};
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_FramegenNativeDebug[2][8]{};
 // Which engine node the last native capture came from: 1 TAA, 2 FSR 2, 3 FSR 3.0, 4 FSR 3.1+, 5 XeSS.
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FramegenNativeSource{};
+#endif
+#if CVR_RUST_VRIK
+// THE NATIVE CONSUMERS ARE RUST'S (rust/crates/cvr-render/src/framegen_inputs.rs): this file keeps the exports above,
+// the C++ names as forwarders and the render node this thread works (a C++ thread-local) as an adapter.
+#else
 namespace cvr::framegen {
 namespace {
 // The engine nodes whose depth and motion framegen reuses when Streamline is not the upscaler. TAA
@@ -153,3 +164,5 @@ void Capture(ID3D12GraphicsCommandList* list,bool library) {
 void CaptureNativeInputs(ID3D12GraphicsCommandList* list) {Capture(list,false);}
 void CaptureUpscalerInputs(ID3D12GraphicsCommandList* list) {Capture(list,true);}
 }
+#endif
+#endif

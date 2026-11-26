@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.24)
+project(ReloadGlowParts LANGUAGES CXX)
+enable_testing()
+add_executable(reload_glow_part part_generator.cpp)
+target_compile_features(reload_glow_part PRIVATE cxx_std_20)
+target_include_directories(reload_glow_part PRIVATE ../../build/patchday/sdk25-build/_deps/nlohmann_json-src/single_include)
+add_test(NAME selected_glow_geometry COMMAND reload_glow_part --self-test)

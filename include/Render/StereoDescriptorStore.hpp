@@ -23,6 +23,34 @@ struct BorrowedDescriptorInventory {
 };
 // Classification of canonical metadata only. The returned cookie is a weak
 // numeric label, never a source pointer or resource/lifetime permission.
+#if CVR_RUST_VRIK
+// The rules and the store: rust/crates/cvr-render/src/descriptor_store.rs (tools/single_pass_tests/descriptor_store_test
+// runs its cases against them in its Rust variant). The Store face owns the Rust store; BorrowedRangeTracking's atomics
+// stay here and Rust operates on them.
+struct RangeIdentity;struct BorrowedRootRange;struct BorrowedShaderUse;struct BorrowedUsedRange;class BorrowedRangeTracking;
+namespace detail {
+extern "C" {
+uint64_t cvr_ds_inventory(const Value*,bool,BorrowedDescriptorInventory*);
+uint32_t cvr_ds_mutation_mode(bool,bool,bool);
+void cvr_ds_tracking_details(bool,bool,uint64_t,uint64_t,uint32_t,uint32_t,bool,uint32_t,uint32_t,bool,std::array<uint64_t,4>*);
+bool cvr_ds_same_range(const RangeIdentity*,const RangeIdentity*);
+bool cvr_ds_plan(uint32_t,bool,bool,const BorrowedRootRange*,size_t,const BorrowedShaderUse*,size_t,BorrowedUsedRange*,size_t*);
+bool cvr_ds_tracking(const BorrowedRangeTracking*,uint32_t,uint64_t);
+void* cvr_ds_new(bool);
+void cvr_ds_free(void*);
+void cvr_ds_set_retirement(void*,void(*)(const Value&));
+uint64_t cvr_ds_query(const void*,uint32_t,uint64_t);
+void cvr_ds_stats(const void*,std::array<uint64_t,6>*);
+const Value* cvr_ds_get(const void*,uint32_t);
+uint32_t cvr_ds_change(void*,uint32_t,uint64_t,uint64_t,uint64_t,uint32_t,uint32_t);
+uint32_t cvr_ds_value(void*,uint32_t,const Value*,uint64_t,uint32_t);
+void cvr_ds_range(const void*,uint64_t,uint32_t,RangeIdentity*);
+}
+}
+inline uint64_t InventoryBorrowedDescriptor(const Value* value,bool canonicalSrvValid,BorrowedDescriptorInventory& out){
+    return detail::cvr_ds_inventory(value,canonicalSrvValid,&out);
+}
+#else
 inline uint64_t InventoryBorrowedDescriptor(const Value* value,bool canonicalSrvValid,BorrowedDescriptorInventory& out){
     ++out.slots;
     if(!value || !(*value)[0] || (*value)[0]>4){++out.unknown;return 0;}
@@ -49,13 +77,43 @@ inline uint64_t InventoryBorrowedDescriptor(const Value* value,bool canonicalSrv
     }
     return v[2];
 }
+#endif
 struct RangeIdentity {uint64_t heap{},cpu{},gpu{},version{};uint32_t count{},stride{};bool valid{};};
 enum class DescriptorMutationMode {Ignore,Canonical,InvalidateTracked};
+#if CVR_RUST_VRIK
+inline DescriptorMutationMode DescriptorMutationObservation(bool internal,bool enabled,bool borrowed){
+    return DescriptorMutationMode(detail::cvr_ds_mutation_mode(internal,enabled,borrowed));
+}
+#else
 inline DescriptorMutationMode DescriptorMutationObservation(bool internal,bool enabled,bool borrowed){
     if(internal)return borrowed?DescriptorMutationMode::InvalidateTracked:DescriptorMutationMode::Ignore;
     return enabled || borrowed?DescriptorMutationMode::Canonical:DescriptorMutationMode::Ignore;
 }
+#endif
 enum class TrackedDescriptorWrite {Ignored,Invalidated,Rejected};
+#if CVR_RUST_VRIK
+class BorrowedRangeTracking {
+    std::atomic<uint64_t> epoch_{1};
+    std::atomic<uint32_t> pins_{},mutations_{};
+    std::atomic<bool> ready_{},unavailable_{};
+    bool Call(uint32_t which,uint64_t value=0)const{return detail::cvr_ds_tracking(this,which,value);}
+public:
+    static constexpr uint32_t PinLimit=4096;
+    void Ready(bool value){Call(0,value);}
+    bool Ready()const{return Call(1);}
+    uint32_t Pins()const{return pins_.load(std::memory_order_acquire);}
+    uint32_t Mutations()const{return mutations_.load(std::memory_order_acquire);}
+    uint64_t Epoch()const{return epoch_.load(std::memory_order_acquire);}
+    bool Pin(){return Call(2);}
+    void Release(){Call(3);}
+    bool MutationBegin(){return Call(4);}
+    void MutationEnd(){Call(5);}
+    bool Stable(uint64_t epoch)const{return Call(6,epoch);}
+    bool VersionsRequired(bool liveMetadata)const{return Call(7,liveMetadata);}
+    void Invalidate(){Call(8);}
+};
+static_assert(sizeof(BorrowedRangeTracking)==24,"mirrored by descriptor_store.rs");
+#else
 class BorrowedRangeTracking {
     std::atomic<uint64_t> epoch_{1};
     std::atomic<uint32_t> pins_{},mutations_{};
@@ -87,6 +145,16 @@ public:
         if(value==UINT64_MAX){Ready(false);return;}epoch_.store(value+1,std::memory_order_release);
     }
 };
+#endif
+#if CVR_RUST_VRIK
+inline std::array<uint64_t,4> BorrowedTrackingDetails(bool pinned,bool ready,uint64_t savedEpoch,uint64_t currentEpoch,
+    uint32_t pins,uint32_t mutations,bool versions,uint32_t overflow,uint32_t failure,bool empty){
+    std::array<uint64_t,4> details{};
+    detail::cvr_ds_tracking_details(pinned,ready,savedEpoch,currentEpoch,pins,mutations,versions,overflow,failure,empty,&details);
+    return details;
+}
+inline bool SameBorrowedRange(const RangeIdentity& a,const RangeIdentity& b){return detail::cvr_ds_same_range(&a,&b);}
+#else
 inline std::array<uint64_t,4> BorrowedTrackingDetails(bool pinned,bool ready,uint64_t savedEpoch,uint64_t currentEpoch,
     uint32_t pins,uint32_t mutations,bool versions,uint32_t overflow,uint32_t failure,bool empty){
     const uint64_t reasons=uint64_t(!pinned)|(uint64_t(!ready)<<1)|(uint64_t(savedEpoch!=currentEpoch)<<2)|
@@ -97,6 +165,7 @@ inline bool SameBorrowedRange(const RangeIdentity& a,const RangeIdentity& b){
     return a.valid && b.valid && a.heap && a.cpu && a.gpu && a.count && a.stride &&
         a.heap==b.heap && a.cpu==b.cpu && a.gpu==b.gpu && a.version==b.version && a.count==b.count && a.stride==b.stride;
 }
+#endif
 struct BorrowedRootRange {uint32_t parameter{},type{},space{},shaderRegister{},count{},offset{},visibility{};};
 struct BorrowedShaderUse {uint32_t type{},visibility{},space{},shaderRegister{},count{};};
 struct BorrowedUsedRange {
@@ -107,6 +176,18 @@ struct BorrowedUsedRange {
 // Numeric planner only; the runtime obtains uses from an authenticated current
 // PSO family, never from a caller's proposed access list. Unbounded-root uses
 // retain the whole physical remainder even when shader reflection is finite.
+#if CVR_RUST_VRIK
+inline bool PlanBorrowedShaderRanges(uint32_t parameters,bool supported,bool directHeapIndexing,
+    std::span<const BorrowedRootRange> declarations,std::span<const BorrowedShaderUse> uses,
+    std::vector<BorrowedUsedRange>& output){
+    output.clear();std::array<BorrowedUsedRange,256> planned{};size_t count{};
+    if(!detail::cvr_ds_plan(parameters,supported,directHeapIndexing,declarations.data(),declarations.size(),
+        uses.data(),uses.size(),planned.data(),&count))return false;
+    output.assign(planned.begin(),planned.begin()+count);return true;
+}
+static_assert(sizeof(RangeIdentity)==48 && sizeof(BorrowedDescriptorInventory)==96 && sizeof(BorrowedRootRange)==28 &&
+    sizeof(BorrowedShaderUse)==20 && sizeof(BorrowedUsedRange)==24,"mirrored by descriptor_store.rs");
+#else
 inline bool PlanBorrowedShaderRanges(uint32_t parameters,bool supported,bool directHeapIndexing,
     std::span<const BorrowedRootRange> declarations,std::span<const BorrowedShaderUse> uses,
     std::vector<BorrowedUsedRange>& output){
@@ -165,6 +246,61 @@ inline bool PlanBorrowedShaderRanges(uint32_t parameters,bool supported,bool dir
     }
     output=std::move(merged);return !output.empty();
 }
+#endif
+#if CVR_RUST_VRIK
+class Store {
+public:
+    explicit Store(bool dense=true):store_(detail::cvr_ds_new(dense)){}
+    ~Store(){detail::cvr_ds_free(store_);}
+    Store(const Store&)=delete;
+    Store& operator=(const Store&)=delete;
+    // Aggregate CPU metadata budget, not a per-shader-visible-heap size limit.
+    // Keep descriptor values only once; the interning index stores hashes/IDs.
+    static constexpr size_t SlotLimit=4*1048576,ValueLimit=1048576;
+    // Called under the owner's metadata lock only when the last slot releases
+    // a canonical value, including a streaming value overwritten in place.
+    void SetValueRetirement(void(*callback)(const Value&)){detail::cvr_ds_set_retirement(store_,callback);}
+    bool Overflow()const{return detail::cvr_ds_query(store_,0,0)!=0;}
+    std::array<uint64_t,6> Stats()const{std::array<uint64_t,6> stats{};detail::cvr_ds_stats(store_,&stats);return stats;}
+    bool Dense()const{return detail::cvr_ds_query(store_,1,0)!=0;}
+    bool TrackVersions()const{return detail::cvr_ds_query(store_,2,0)!=0;}
+    // A caller may suspend history only when no captured ranges are awaiting
+    // submission. Current descriptor values and their ownership remain live.
+    void TrackVersions(bool enabled){detail::cvr_ds_change(store_,0,enabled,0,0,0,0);}
+    // Representation-only change under the caller's metadata lock. Descriptor
+    // IDs, reference counts, heap cookies and every range version stay intact.
+    void Dense(bool enabled){detail::cvr_ds_change(store_,1,enabled,0,0,0,0);}
+    size_t Values()const{return size_t(detail::cvr_ds_query(store_,3,0));}
+    uint64_t HeapSlots()const{return detail::cvr_ds_query(store_,4,0);}
+    // Valid until the store's next change, as the C++ vector element was.
+    const Value* Get(uint32_t id)const{return detail::cvr_ds_get(store_,id);}
+    uint32_t Intern(const Value& value){return detail::cvr_ds_value(store_,0,&value,0,0);}
+    bool HeapCreated(uint64_t cpu,uint64_t gpu,uint32_t count,uint32_t stride,uint64_t cookie){
+        return detail::cvr_ds_change(store_,6,cpu,gpu,cookie,count,stride)!=0;
+    }
+    void HeapRemoved(uint64_t cookie){detail::cvr_ds_change(store_,2,cookie,0,0,0,0);}
+    // Private heaps never enter this store. A private operation that writes an
+    // already-tracked heap must still invalidate its exact destination range,
+    // without reading untracked source descriptors or interning new metadata.
+    TrackedDescriptorWrite InvalidateTracked(uint64_t cpu,uint32_t count,uint32_t stride){
+        return TrackedDescriptorWrite(detail::cvr_ds_change(store_,5,cpu,0,0,count,stride));
+    }
+    void Write(uint64_t cpu,uint32_t stride,uint32_t id){detail::cvr_ds_change(store_,3,cpu,0,0,id,stride);}
+    // Streaming CBVs rarely repeat, so avoid hashing/interning their full API
+    // description. Copied descriptors still share immutable values; overwrite
+    // in place only when this slot is their sole owner.
+    void WriteValue(uint64_t cpu,uint32_t stride,const Value& value){detail::cvr_ds_value(store_,1,&value,cpu,stride);}
+    uint32_t At(uint64_t cpu)const{return uint32_t(detail::cvr_ds_query(store_,5,cpu));}
+    void Copy(uint64_t destination,uint64_t source,uint32_t count,uint32_t stride){
+        detail::cvr_ds_change(store_,4,destination,source,0,count,stride);
+    }
+    RangeIdentity Range(uint64_t gpu,uint32_t count)const{RangeIdentity range;detail::cvr_ds_range(store_,gpu,count,&range);return range;}
+    // The Rust store itself, for the owner's Rust half (descriptor audit).
+    const void* Rust()const{return store_;}
+private:
+    void* store_;
+};
+#else
 class Store {
     struct Heap {uint64_t cpu{},gpu{},cookie{};uint32_t count{},stride{};std::vector<uint32_t> slots;};
     static constexpr uint64_t PageBytes=4096;
@@ -475,4 +611,5 @@ public:
         return {};
     }
 };
+#endif
 }

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Runtimes/InteractionDepth.hpp"
 #include "Natives/NativeFunctions.hpp"
 #include <RED4ext/RED4ext.hpp>
@@ -6,8 +7,14 @@
 #include <cmath>
 
 // 1 = place the interaction prompt at the depth of its object (xr_interaction_anchor). See the header.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_InteractionAnchor = 0;
+#endif
 
+#if !CVR_RUST_VRIK
+// The C++ build's native and state; the Rust build's are rust/crates/cvr-xr/src/hud_natives.rs.
 namespace {
 std::atomic<float>    g_depth{0.0f};
 std::atomic<uint64_t> g_stampMs{0};
@@ -31,3 +38,5 @@ void SetVRInteractionDepth(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, 
     g_depth.store(depth, std::memory_order_relaxed);
     g_stampMs.store(GetTickCount64(), std::memory_order_release);
 }
+#endif
+#endif

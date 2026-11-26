@@ -15,7 +15,7 @@ struct Memory {
         draw[8]=17;packet[1]=uint64_t(1)<<51;
         entry.rcx=0x7000;entry.rdx=entry.r14=reinterpret_cast<uintptr_t>(draw.data());
         entry.r8=entry.rbx=reinterpret_cast<uintptr_t>(batch.data());entry.rdi=reinterpret_cast<uintptr_t>(flush.data());
-        entry.r15=reinterpret_cast<uintptr_t>(packet.data());entry.r12=3;entry.caller=base+0x1F19DA;
+        entry.r15=reinterpret_cast<uintptr_t>(packet.data());entry.r12=3;entry.caller=base+0x335496;
         std::memcpy(batch.data()+0x48,&entry.rdx,8);flush[0]=entry.r8;flush[3]=entry.rcx;flush[4]=entry.r15;
     }
     static bool Read(void* context,uint64_t address,void* output,size_t size){
@@ -46,7 +46,8 @@ int main()try{
     std::memcpy(memory.batch.data()+0x1C,&skinCount,4);std::memcpy(memory.batch.data()+0x0C,&ordinaryCount,4);
     Check(ResolveOrigin(origin,0x7000,3,64,Memory::Read,&memory,output) && output==memory.draw);
     Check(!ResolveOrigin(origin,0x7000,3,48,Memory::Read,&memory,output));
-    // The existing entry thunk remains specific to the ordinary flush caller.
+    // The existing entry thunk remains specific to the ordinary flush caller (2.5 return 0x335496); any other
+    // caller -- here 2.31's skin flush return -- is refused.
     auto skinEntry=memory.entry;skinEntry.caller=memory.base+0x1F1A56;
     Check(!OriginFromEntry(skinEntry,memory.base).valid);
     for(const uint32_t count:{0u,2u,4u,UINT32_MAX}){

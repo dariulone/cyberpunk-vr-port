@@ -11,6 +11,41 @@
 #include <d3d12.h>
 #include <cstdint>
 
+#if CVR_RUST_VRIK
+// The probe: rust/crates/cvr-render/src/pair_probe.rs (src/Stereo/StereoPairProbe.cpp keeps the exported request, state,
+// records and counters).
+extern "C" {
+bool cvr_pair_probe_wanted();
+void cvr_pair_probe_install(void** vtable);
+bool cvr_pair_probe_tracking();
+void cvr_pair_probe_reset(ID3D12GraphicsCommandList*);
+void cvr_pair_probe_viewports(ID3D12GraphicsCommandList*, UINT, const D3D12_VIEWPORT*);
+void cvr_pair_probe_vertex_buffers(ID3D12GraphicsCommandList*, UINT, UINT, const D3D12_VERTEX_BUFFER_VIEW*);
+void cvr_pair_probe_draw(ID3D12GraphicsCommandList*, uint32_t, ID3D12PipelineState*, uint32_t, const uint32_t (*)[5]);
+void cvr_pair_probe_poll();
+uint32_t cvr_pair_probe_before_draw(ID3D12GraphicsCommandList*, uint32_t, ID3D12PipelineState*, uint32_t, const uint32_t (*)[5], uint32_t);
+void cvr_pair_probe_after_draw(ID3D12GraphicsCommandList*);
+}
+namespace cvr::stereo::pair_probe {
+inline bool Wanted() { return cvr_pair_probe_wanted(); }
+inline void Install(void** vtable) { cvr_pair_probe_install(vtable); }
+inline bool Tracking() { return cvr_pair_probe_tracking(); }
+inline void Reset(ID3D12GraphicsCommandList* list) { cvr_pair_probe_reset(list); }
+inline void Viewports(ID3D12GraphicsCommandList* list, UINT count, const D3D12_VIEWPORT* v) { cvr_pair_probe_viewports(list, count, v); }
+inline void VertexBuffers(ID3D12GraphicsCommandList* list, UINT start, UINT count, const D3D12_VERTEX_BUFFER_VIEW* v) {
+    cvr_pair_probe_vertex_buffers(list, start, count, v);
+}
+inline void Draw(ID3D12GraphicsCommandList* list, uint32_t node, ID3D12PipelineState* pso, uint32_t kind, const uint32_t (&args)[5]) {
+    cvr_pair_probe_draw(list, node, pso, kind, &args);
+}
+inline void Poll() { cvr_pair_probe_poll(); }
+inline uint32_t BeforeDraw(ID3D12GraphicsCommandList* list, uint32_t node, ID3D12PipelineState* pso, uint32_t kind,
+                           const uint32_t (&args)[5], uint32_t startInstance) {
+    return cvr_pair_probe_before_draw(list, node, pso, kind, &args, startInstance);
+}
+inline void AfterDraw(ID3D12GraphicsCommandList* list) { cvr_pair_probe_after_draw(list); }
+}
+#else
 namespace cvr::stereo::pair_probe {
 bool Wanted();
 // Called with the vtable writable, after the census hooks: saves the originals of slots 30, 32, 34, 36, 38, 40, 42,
@@ -34,3 +69,4 @@ uint32_t BeforeDraw(ID3D12GraphicsCommandList*,uint32_t node,ID3D12PipelineState
                     uint32_t startInstance);
 void AfterDraw(ID3D12GraphicsCommandList*);
 }
+#endif

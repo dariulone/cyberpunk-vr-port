@@ -1,4 +1,11 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 #include "Hooks/Reflex.hpp"
+#if CVR_RUST_VRIK
+#include "Hooks/Hook.hpp"
+// rust/crates/cvr-rig/src/vrik/reflex_hook.rs: the detour, the selected mode and the timing report.
+extern "C" bool cvr_hook_reflex_install();
+CVR_HOOK("NvidiaReflex",::cvr::hooks::Stage::Boot,89,cvr_hook_reflex_install);
+#else
 #include "Hooks/ReflexOptions.hpp"
 #include "Hooks/ReflexTiming.hpp"
 #include "Hooks/Hook.hpp"
@@ -92,3 +99,5 @@ std::string TimingReport(bool request) {
     return timingReport;
 }
 }
+#endif
+#endif

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // BackgroundPad -- the pad's events reach the game while the headset has the input, whichever window is in front.
 //
 // The game polls the pad in the background, but hands its events on (2.5 sub_1420849A0) only while
@@ -15,6 +16,11 @@
 // and cursor logic still see the real foreground window.
 
 #include "Hooks/Hook.hpp"
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/background_pad.rs: the same site, stub and question.
+extern "C" bool cvr_hook_background_pad_install();
+CVR_HOOK("BackgroundPad", ::cvr::hooks::Stage::Boot, 86, cvr_hook_background_pad_install);
+#else
 #include "Hooks/Trampoline.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Utils/AobScanner.hpp"
@@ -76,3 +82,5 @@ bool InstallBackgroundPadHook() {
 }  // namespace
 
 CVR_HOOK("BackgroundPad", ::cvr::hooks::Stage::Boot, 86, InstallBackgroundPadHook);
+#endif
+#endif

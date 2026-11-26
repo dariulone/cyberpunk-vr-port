@@ -16,7 +16,7 @@ static policy::Admission Pool(){auto a=Tracked();a.width=a.allocationBytes=26214
     a.comOffset=512;a.nativeGpu=a.gpu+512;a.reflectedBytes=4;a.viewBytes=256;a.creationKind=1;a.creationHeap=a.allocationHeap=0;
     a.creationBytes=0;a.allocationKind=0;a.initialState=D3D12_RESOURCE_STATE_GENERIC_READ;a.state={D3D12_RESOURCE_STATE_GENERIC_READ,8,1};a.poolKnown=true;return a;}
 static policy::Admission Upload(){auto a=Tracked();a.width=201326592;a.comOffset=4096;a.nativeGpu=a.nativeBytes=0;a.reflectedBytes=112;a.viewBytes=256;
-    a.heap=D3D12_HEAP_TYPE_UPLOAD;a.handle=0;a.nativeKind=0;a.creator=0x1F2960;a.creationKind=1;a.creationHeap=0;
+    a.heap=D3D12_HEAP_TYPE_UPLOAD;a.handle=0;a.nativeKind=0;a.creator=0x3362A0;a.creationKind=1;a.creationHeap=0;
     a.initialState=D3D12_RESOURCE_STATE_GENERIC_READ;a.state={D3D12_RESOURCE_STATE_GENERIC_READ,1,0};return a;}
 static void Admissions(){
     policy::Kind kind;auto a=Tracked();Require(policy::Admit(a,kind)==snapshot::Failure::None && kind==policy::Kind::Tracked,"Observed placed class3 was rejected");
@@ -31,11 +31,11 @@ static void Admissions(){
     a.poolKnown=false;Require(policy::Admit(a,kind)==snapshot::Failure::Pool,"Unknown pool occupancy admitted");
     a=Pool();a.nativeBytes=513;Require(policy::Admit(a,kind)==snapshot::Failure::Pool,"Unobserved class1 pool unit admitted");
     a=Upload();Require(policy::Admit(a,kind)==snapshot::Failure::None && kind==policy::Kind::Upload,"Exact committed b5 upload admitted incorrectly");
-    a.handle=7;a.nativeKind=4;a.creator=0x1F0BF7;a.nativeBytes=448;a.reflectedBytes=448;a.viewBytes=512;a.state.kind=4;
+    a.handle=7;a.nativeKind=4;a.creator=0x3346B1;a.nativeBytes=448;a.reflectedBytes=448;a.viewBytes=512;a.state.kind=4;
     Require(policy::Admit(a,kind)==snapshot::Failure::None && kind==policy::Kind::Upload,"Transient upload required fake B0 GPU/resource fields");
     a.heap=D3D12_HEAP_TYPE_GPU_UPLOAD;Require(policy::Admit(a,kind)==snapshot::Failure::Class,"Unobserved GPU_UPLOAD admitted");
     a=Upload();a.initialKnown=false;Require(policy::Admit(a,kind)==snapshot::Failure::Creation,"Unknown creation state admitted");
-    a=Upload();a.creator=0x1F01A6;Require(policy::Admit(a,kind)==snapshot::Failure::Class,"Unobserved standalone creator admitted");
+    a=Upload();a.creator=0x333C1A;Require(policy::Admit(a,kind)==snapshot::Failure::Class,"Unobserved standalone creator admitted");
 }
 static void RangesAndRecovery(){
     auto a=Tracked();a.comOffset=1;Require(!policy::Range(a),"Unaligned CBV slice admitted");
@@ -66,7 +66,7 @@ struct Token final:IUnknown {
 };
 static void InlineUploadEpoch(){
     Token token,foreign;cvr::stereo::source_cbv::SourceCbvBacking source;
-    source.creatorRva=0x1F2960;source.completedProducerRva=0x1F292F;source.logicalBytes=112;
+    source.creatorRva=0x3362A0;source.completedProducerRva=0x33626F;source.logicalBytes=112;
     source.descriptorBytes=source.reservedBytes=256;
     source.recording={&token,12,14,11,15};source.creationRecording=source.recording;
     snapshot::ReadEpochCertificate epoch{11,12,13,true};
@@ -75,10 +75,10 @@ static void InlineUploadEpoch(){
     auto bad=source;bad.completedProducerRva=0;Require(!policy::InlineDirectUpload(bad,epoch,112),"Missing completed producer was accepted");
     bad=source;bad.creationRecording.token=&foreign;Require(!policy::InlineDirectUpload(bad,epoch,112),"Another native creation token was accepted");
     bad=source;++bad.creationRecording.generation;Require(!policy::InlineDirectUpload(bad,epoch,112),"Older recording supplied an upload epoch");
-    bad=source;bad.creatorRva=0x1F0BF7;Require(!policy::InlineDirectUpload(bad,epoch,112),"Pre-write transient creator was accepted");
+    bad=source;bad.creatorRva=0x3346B1;Require(!policy::InlineDirectUpload(bad,epoch,112),"Pre-write transient creator was accepted");
     bad=source;bad.reservedBytes=512;Require(!policy::InlineDirectUpload(bad,epoch,112),"Another reserved extent was accepted");
     epoch.certified=false;Require(!policy::InlineDirectUpload(source,epoch,112),"Producer facts manufactured a valid queued epoch");
-    epoch.certified=true;source.creatorRva=0x1F0BF7;source.completedProducerRva=0x1F08C2;
+    epoch.certified=true;source.creatorRva=0x3346B1;source.completedProducerRva=0x33435E;
     source.native.kind=4;source.native.handle=7;source.writerNonce=8;source.writerDestination=0x100000;
     source.writerBytes=source.logicalBytes=448;source.reservedBytes=source.descriptorBytes=512;source.writerRecording=source.recording;
     Require(policy::InlineTransientUpload(source,epoch,448),"Exact transient completion did not inherit its original queued epoch");

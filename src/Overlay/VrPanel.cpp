@@ -3,6 +3,13 @@
 #include <array>
 #include <mutex>
 
+#if CVR_RUST_VRIK
+// THE CANVASES AND THE PANEL ARE RUST'S (rust/crates/cvr-xr/src/vr_panel.rs). The overlay's canvas is a shared_ptr
+// around a lease on Rust's; the panel takes the image submission mutex through the runtime below.
+extern "C" {
+}
+// The panel's table is built in rust/crates/cvr-xr/src/vr_panel.rs.
+#else
 namespace cvr::vrui {
 namespace {
 std::mutex canvasMutex;
@@ -105,3 +112,4 @@ void Panel::Shutdown(){
     fenceValue=lastSerial=0;published=rayVisible=false;ClearCanvas();
 }
 }
+#endif

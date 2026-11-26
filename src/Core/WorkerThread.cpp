@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // WorkerThread -- the one background thread, and the reason there is only one.
 //
 // It polls: the live-control file, the hotkeys, the recenter request, the calibration bridge. All of
@@ -18,8 +19,10 @@
 #include "Camera/CameraState.hpp"   // PatchFastPath, PatchFastDisarm
 #include "Stereo/EngineStereo.hpp"  // SecondViewWanted
 // The per-camera recognition counters, read by the fast-path recovery below.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugPatchCamMain;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugPatchCamVrcam;
+#endif
 #include <cstdint>
 #include <cstddef>
 #include <cstdio>
@@ -47,6 +50,11 @@ extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugPatchCamVrcam;
 #include "Camera/CameraLink.hpp"
 #include "Hooks/Hook.hpp"
 
+#if CVR_RUST_VRIK
+// THE WORKER THREAD IS RUST'S (rust/crates/cvr-render/src/worker.rs); the state it reads and the polls it calls stay
+// here, handed over below.
+// Its table is built in Rust (worker.rs).
+#else
 DWORD WINAPI WorkerThread(LPVOID) {
     if (g_verboseLog) Log("Worker thread started, waiting 8 seconds...\n");
     if (g_backendModulePath[0] != '\0') {
@@ -374,3 +382,5 @@ DWORD WINAPI WorkerThread(LPVOID) {
     }
     return 0;
 }
+#endif
+#endif

@@ -52,10 +52,35 @@ template<size_t N>bool Stable(geometry::MemoryReader read,void* user,uint64_t ad
     std::array<uint8_t,N> again{};
     return Read(read,user,address,bytes.data(),N) && Read(read,user,address,again.data(),N) && bytes==again;
 }
+#if CVR_RUST_VRIK
+// The rules below: rust/crates/cvr-render/src/source_srv.rs (tools/single_pass_tests/source_srv_binding_test runs its
+// cases against them in its Rust variant).
+static_assert(sizeof(Slot)==80 && sizeof(CandidateInput)==48 && offsetof(ThunkFrame,r8)==56,"mirrored by source_srv.rs");
+extern "C" {
+bool cvr_srv_relevant(uint32_t,const ThunkFrame*);
+bool cvr_srv_decode_candidate(uint32_t,const ThunkFrame*,uint64_t,geometry::MemoryReader,void*,CandidateInput*,uint32_t);
+bool cvr_srv_read_slot(geometry::MemoryReader,void*,uint64_t,Slot*,uint32_t);
+bool cvr_srv_matches_mode(const CandidateInput*,const Slot*);
+bool cvr_srv_cached_group(geometry::MemoryReader,void*,const Slot*);
+bool cvr_srv_read_record(geometry::MemoryReader,void*,uint64_t,uint64_t,uint32_t,std::array<uint8_t,0xB0>*,uint64_t*,geometry::NativeBuffer*);
+bool cvr_srv_view_range(const geometry::NativeBuffer*,uint64_t,uint64_t,const D3D12_SHADER_RESOURCE_VIEW_DESC*,uint64_t*,uint64_t*,uint32_t);
+bool cvr_srv_valid_xstate(uint64_t,uint64_t,uint64_t);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool Relevant(Route route,const ThunkFrame& frame)noexcept{return cvr_srv_relevant(uint32_t(route),&frame);}
+#else
 inline bool Relevant(Route route,const ThunkFrame& frame)noexcept {
     return route==Route::Individual?TrackedRegister(uint32_t(frame.rdx)) && uint8_t(frame.r8)==StageIndex:
         route==Route::Cached && uint8_t(frame.rdx)==StageIndex;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool DecodeCandidate(Route route,const ThunkFrame& frame,uint64_t registry,
+    geometry::MemoryReader read,void* user,CandidateInput& output,uint32_t shaderRegister=ShaderRegister){
+    return cvr_srv_decode_candidate(uint32_t(route),&frame,registry,read,user,&output,shaderRegister);
+}
+#else
 inline bool DecodeCandidate(Route route,const ThunkFrame& frame,uint64_t registry,
     geometry::MemoryReader read,void* user,CandidateInput& output,uint32_t shaderRegister=ShaderRegister){
     output={};if(!Relevant(route,frame) || !TrackedRegister(shaderRegister) ||
@@ -76,6 +101,12 @@ inline bool DecodeCandidate(Route route,const ThunkFrame& frame,uint64_t registr
     }
     if(!next.handle || next.handle>MaxHandles)return false;output=next;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ReadSlot(geometry::MemoryReader read,void* user,uint64_t state,Slot& output,uint32_t shaderRegister=ShaderRegister){
+    return cvr_srv_read_slot(read,user,state,&output,shaderRegister);
+}
+#else
 inline bool ReadSlot(geometry::MemoryReader read,void* user,uint64_t state,Slot& output,uint32_t shaderRegister=ShaderRegister){
     output={};if(!TrackedRegister(shaderRegister) || !state || state>UINT64_MAX-0x180)return false;
     Slot next;
@@ -96,13 +127,28 @@ inline bool ReadSlot(geometry::MemoryReader read,void* user,uint64_t state,Slot&
     }else if(next.cachedIndex>INT32_MAX)return false;
     output=next;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool MatchesMode(const CandidateInput& candidate,const Slot& slot)noexcept{return cvr_srv_matches_mode(&candidate,&slot);}
+#else
 inline bool MatchesMode(const CandidateInput& candidate,const Slot& slot)noexcept {
     return candidate.route==Route::Individual?slot.cachedIndex==UINT32_MAX:
         candidate.route==Route::Cached && slot.cachedIndex==candidate.bundleIndex;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool CachedGroup(geometry::MemoryReader read,void* user,const Slot& slot){return cvr_srv_cached_group(read,user,&slot);}
+#else
 inline bool CachedGroup(geometry::MemoryReader read,void* user,const Slot& slot){
     uint8_t first{};return Read(read,user,slot.layout+0x4C3+StageIndex*0x100,&first,1) && first==slot.group;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ReadRecord(geometry::MemoryReader read,void* user,uint64_t registry,uint64_t context,
+    uint32_t handle,std::array<uint8_t,0xB0>& raw,uint64_t& address,geometry::NativeBuffer& native){
+    return cvr_srv_read_record(read,user,registry,context,handle,&raw,&address,&native);
+}
+#else
 inline bool ReadRecord(geometry::MemoryReader read,void* user,uint64_t registry,uint64_t context,
     uint32_t handle,std::array<uint8_t,0xB0>& raw,uint64_t& address,geometry::NativeBuffer& native){
     raw={};address=0;native={};if(!registry || !context || !handle || handle>MaxHandles)return false;
@@ -112,6 +158,13 @@ inline bool ReadRecord(geometry::MemoryReader read,void* user,uint64_t registry,
     native={Field<uint64_t>(raw,0x10),Field<uint64_t>(raw,8),Field<uint32_t>(raw,0),registry,context,handle,uint32_t(raw[6]>>4)};
     return native.kind!=4 && native.resource && native.gpu && native.bytes && native.gpu<=UINT64_MAX-native.bytes;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ViewRange(const geometry::NativeBuffer& native,uint64_t gpu,uint64_t backingBytes,
+    const D3D12_SHADER_RESOURCE_VIEW_DESC& view,uint64_t& offset,uint64_t& bytes,uint32_t shaderRegister=ShaderRegister)noexcept{
+    return cvr_srv_view_range(&native,gpu,backingBytes,&view,&offset,&bytes,shaderRegister);
+}
+#else
 inline bool ViewRange(const geometry::NativeBuffer& native,uint64_t gpu,uint64_t backingBytes,
     const D3D12_SHADER_RESOURCE_VIEW_DESC& view,uint64_t& offset,uint64_t& bytes,uint32_t shaderRegister=ShaderRegister)noexcept {
     offset=bytes=0;
@@ -127,9 +180,14 @@ inline bool ViewRange(const geometry::NativeBuffer& native,uint64_t gpu,uint64_t
         span>native.bytes-(gpu+begin-native.gpu))return false;
     offset=begin;bytes=span;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ValidXstate(uint64_t enabled,uint64_t supported,uint64_t bytes)noexcept{return cvr_srv_valid_xstate(enabled,supported,bytes);}
+#else
 inline bool ValidXstate(uint64_t enabled,uint64_t supported,uint64_t bytes)noexcept {
     return (enabled&3)==3 && !(enabled&~supported) && bytes>=576 && bytes<=MaxXstateBytes;
 }
+#endif
 }
 struct SourceSrvBacking {
     descriptors::SrvBinding binding;

@@ -3,9 +3,13 @@
 #include "Render/NativePacketPass.hpp"
 #include <cstdio>
 #include <random>
+#include <source_location>
+#include <string>
 #include <stdexcept>
 using namespace cvr::stereo;
-static void Require(bool value){if(!value)throw std::runtime_error("Mesh plan assertion failed");}
+static void Require(bool value,std::source_location at=std::source_location::current()){
+    if(!value)throw std::runtime_error("Mesh plan assertion failed at line "+std::to_string(at.line()));
+}
 static size_t Reference(std::span<const uint64_t> a,std::span<const uint64_t> b) {
     std::vector<size_t> row(b.size()+1);
     for(auto id:a){size_t previous{};for(size_t j=0;j<b.size();++j){const auto old=row[j+1];
@@ -46,7 +50,8 @@ int main() try {
         Require(byte?valid:true);if(byte)Require((original==changed)==padding);else Require(!valid);}
     for(unsigned byte=0;byte<40;++byte){auto copy=input;copy.state[byte]^=0x33;
         Require(MeshCandidateKey(packet,copy,blob,changed));
-        Require((original==changed)==((byte>=16 && byte<24)||(byte>=28 && byte<32)||byte==39));}
+        // 2.5's 32-byte record: +4..7, the program pointer +8..F, +14..17 and +1F are not keyed.
+        Require((original==changed)==((byte>=0x04 && byte<0x10)||(byte>=0x14 && byte<0x18)||byte==0x1f));}
     auto copy=packet;copy.first^=0x1fff;Require(MeshCandidateKey(copy,input,blob,changed)&&changed==original);
     copy=packet;copy.first^=1ull<<13;Require(MeshCandidateKey(copy,input,blob,changed)&&changed!=original);
     copy=packet;copy.first^=0x3fffffffffull<<17;copy.second^=0x3ffff|(0x1ffffull<<33);
@@ -59,13 +64,13 @@ int main() try {
     blob.resize(68);const uint32_t programWords[5]{1,0,13,4,0x12345678};std::memcpy(blob.data()+48,programWords,20);
     auto programmed=input;programmed.programOffset=48;programmed.programBytes=programmed.commandProgramField=20;
     Require(MeshCandidateKey(packet,programmed,blob,original));
-    programmed.state[16]^=0x44;Require(MeshCandidateKey(packet,programmed,blob,changed)&&original==changed);
+    programmed.state[StateProgram]^=0x44;Require(MeshCandidateKey(packet,programmed,blob,changed)&&original==changed);
     blob.back()^=1;Require(MeshCandidateKey(packet,programmed,blob,changed)&&original!=changed);
     programmed.programBytes=19;Require(!MeshCandidateKey(packet,programmed,blob,changed));
     programmed.programBytes=20;blob[48]=2;Require(!MeshCandidateKey(packet,programmed,blob,changed));
     std::array<Record,4> chunks{};
     for(uint32_t i=0;i<4;++i) {
-        auto& r=chunks[i];r.frame=1;r.node=0x23a938;r.side=1;r.metadataFlags=7;r.beginQpc=1;r.endQpc=2;
+        auto& r=chunks[i];r.frame=1;r.node=0x33DDA4;r.side=1;r.metadataFlags=7;r.beginQpc=1;r.endQpc=2;
         r.begin=0x1000+(7*i/4)*16;r.end=0x1000+(7*(i+1)/4)*16;r.count=uint32_t((r.end-r.begin)/16);r.offset=7*i/4;
         const uint32_t parts=4;std::memcpy(r.groupBytes.data()+40,&i,4);std::memcpy(r.groupBytes.data()+44,&parts,4);
     }

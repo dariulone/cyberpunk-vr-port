@@ -18,12 +18,26 @@
 #include <algorithm>
 #include <vector>
 
+#if CVR_RUST_VRIK
+extern "C" void cvr_detours_register(const char* name, uintptr_t rva, void* detour, void** original,
+                                     cvr::detail::DetourWantedFn wanted, bool* installed);
+#if CVR_RUST_VRIK
+// The engine detours whose hooks and originals are Rust's register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+extern "C" void cvr_engine_detours_attach();
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin registers them in rust/crates/cvr-render/src/engine_detours.rs cvr_static_registrations
+namespace {
+[[maybe_unused]] const bool kRustEngineDetours = (cvr_engine_detours_attach(), true);
+}
+#endif
+#endif
+#endif
 namespace cvr {
 namespace detail {
 
 namespace {
 
 using namespace cvr::stereo::instance_observer;
+#if !CVR_RUST_VRIK   // the Rust build's detours: rust/crates/cvr-render/src/instance_observer_native.rs
 NativeWriter originalInstanceWriter{};
 NativePublish originalInstancePublish{};
 uint32_t __fastcall ObserveInstanceWriter(void* ring,const void* bytes,uint32_t count,uint32_t* cursor){
@@ -38,7 +52,9 @@ void __fastcall ObserveInstancePublish(void* ring){
 }
 CVR_DETOUR_IF("[instance] completed writer",WriterRva,ObserveInstanceWriter,originalInstanceWriter,Compatible);
 CVR_DETOUR_IF("[instance] stamp publication",PublishRva,ObserveInstancePublish,originalInstancePublish,Compatible);
+#endif
 
+#if !CVR_RUST_VRIK
 // A FUNCTION-LOCAL STATIC, for the same reason as the hook registry's: detours register from static
 // constructors in translation units whose initialisation order is unspecified, and a namespace-scope
 // head could be zeroed after the first registration and silently drop it.
@@ -47,8 +63,23 @@ EngineDetour*& Head() {
     return head;
 }
 
+#endif
+
 }  // namespace
 
+#if CVR_RUST_VRIK
+// The registry and the install pass are rust/crates/cvr-engine/src/detours.rs: every EngineDetour registers there, the
+// pass checks the base and the build, runs PrepareBeforeDetours and installs by RVA with the same lines. The instance
+// witness and the source selectors that follow read its results.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no translation unit of the plugin declares an EngineDetour
+EngineDetour::EngineDetour(const char* n, uintptr_t r, void* d, void** o, DetourWantedFn w)
+    : name(n), rva(r), detour(d), original(o), wanted(w), next(nullptr), installed(false) {
+    cvr_detours_register(n, r, d, o, w, &installed);
+}
+#endif
+
+// InstallEngineDetours and what runs before its pass: rust/crates/cvr-render/src/stereo_start.rs.
+#else
 EngineDetour::EngineDetour(const char* n, uintptr_t r, void* d, void** o, DetourWantedFn w)
     : name(n), rva(r), detour(d), original(o), wanted(w), next(Head()), installed(false) {
     Head() = this;
@@ -137,6 +168,8 @@ int InstallEngineDetours() {
         cvr::stereo::source_srv::Compatible() && cvr::stereo::source_srv::ConfigureXstate())CyberpunkVR_SourceSrvBindingEnable=1;
     return failed;
 }
+
+#endif
 
 }  // namespace detail
 }  // namespace cvr

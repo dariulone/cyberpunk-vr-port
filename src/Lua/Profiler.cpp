@@ -15,7 +15,8 @@ extern "C" void CvrLogText(const char* text);
 // Where the host's Lua time goes, for moving the heaviest of it native: LuaJIT's own sampling profiler (1 ms) on the
 // host's state, started when the environment has CVR_LUA_PROFILE. Each sample is the line running (marked when no
 // mod's onUpdate runs it: an Observe callback, a draw) and the VM's state (compiled code, interpreter, C, GC, JIT
-// compiler). Summed up with the onUpdate summary, every 30 s.
+// compiler). Summed up with the onUpdate summary, every 10 s while profiling. Also counts the pcall/xpcall calls that fail,
+// by the calling line and the error: under Wine/Proton each Lua error is an SEH exception, dear enough to matter.
 namespace {
 
 std::mutex g_lock;
@@ -56,7 +57,86 @@ void OnSample(void*, lua_State* L, int samples, int vmstate)
     ++g_total;
 }
 
+// Failed pcall/xpcall calls, by the Lua line that made the call and the error's first line. Under Wine every Lua error
+// is an SEH exception (LuaJIT raises them with RaiseException), much dearer than on Windows.
+std::unordered_map<std::string, int> g_errors;
+int g_errorTotal = 0;
+
+void RecordError(lua_State* L, int aMessageIndex)
+{
+    std::string key = "?";
+    lua_Debug ar;
+    if (lua_getstack(L, 1, &ar) && lua_getinfo(L, "Sl", &ar))
+    {
+        key = fmt::format("{}:{}", ar.short_src, ar.currentline);
+        if (const auto at = key.rfind("\\lua\\"); at != std::string::npos)
+            key.erase(0, at + 5);
+    }
+    // lua_tostring converts numbers in place. The protected call returns the original error object.
+    lua_pushvalue(L, aMessageIndex);
+    const char* message = lua_tostring(L, -1);
+    std::string text = message ? message : luaL_typename(L, -1);
+    lua_pop(L, 1);
+    if (const auto end = text.find('\n'); end != std::string::npos)
+        text.resize(end);
+    if (text.size() > 160)
+        text.resize(160);
+    key += " | " + text;
+    std::lock_guard guard(g_lock);
+    ++g_errors[key];
+    ++g_errorTotal;
+}
+
+// pcall(f, ...): LuaJIT's semantics, recording a failure.
+int CountingPcall(lua_State* L)
+{
+    luaL_checkany(L, 1);
+    const int status = lua_pcall(L, lua_gettop(L) - 1, LUA_MULTRET, 0);
+    if (status != 0)
+    {
+        RecordError(L, -1);
+        lua_pushboolean(L, 0);
+        lua_insert(L, -2);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    lua_insert(L, 1);
+    return lua_gettop(L);
+}
+
+// xpcall(f, handler, ...): the handler sits below the call, as lua_pcall wants it.
+int CountingXpcall(lua_State* L)
+{
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    const int args = lua_gettop(L) - 2;
+    lua_pushvalue(L, 2);
+    lua_insert(L, 1); // handler, f, handler, args...
+    lua_remove(L, 3); // handler, f, args...
+    const int status = lua_pcall(L, args, LUA_MULTRET, 1);
+    if (status != 0)
+    {
+        RecordError(L, -1);
+        lua_pushboolean(L, 0);
+        lua_replace(L, 1);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    lua_replace(L, 1);
+    return lua_gettop(L);
+}
+
 } // namespace
+
+// Replaces the global pcall and xpcall with counting ones, before the sandbox copies the globals. Profiling only:
+// C functions end LuaJIT traces, and a coroutine cannot yield through them.
+extern "C" void CvrProfileInstallPcall(lua_State* L)
+{
+    lua_pushcfunction(L, CountingPcall);
+    lua_setglobal(L, "pcall");
+    lua_pushcfunction(L, CountingXpcall);
+    lua_setglobal(L, "xpcall");
+    CvrLogText("[lua] profiler: pcall and xpcall count their failures\n");
+}
 
 extern "C" bool CvrProfileWanted()
 {
@@ -70,7 +150,7 @@ extern "C" void CvrProfileStart(lua_State* L)
         return;
     luaJIT_profile_start(L, "li1", OnSample, nullptr);
     g_running = true;
-    CvrLogText("[lua] profiler on (CVR_LUA_PROFILE): 1 ms samples, summed every 30 s\n");
+    CvrLogText("[lua] profiler on (CVR_LUA_PROFILE): 1 ms samples, summed every 10 s\n");
 }
 
 // An overridden function's call (FunctionOverride), its Lua chain included.
@@ -102,6 +182,24 @@ extern "C" void CvrProfileReport(size_t aTicks)
 {
     if (!g_running)
         return;
+    {
+        std::vector<std::pair<std::string, int>> errors;
+        int errorTotal;
+        {
+            std::lock_guard guard(g_lock);
+            errors.assign(g_errors.begin(), g_errors.end());
+            g_errors.clear();
+            errorTotal = g_errorTotal;
+            g_errorTotal = 0;
+        }
+        std::sort(errors.begin(), errors.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+        std::string text = fmt::format("[lua] caught errors: {} in {} ticks ({:.1f} per tick)", errorTotal, aTicks,
+                                       aTicks ? double(errorTotal) / aTicks : 0.0);
+        for (size_t i = 0; i < errors.size() && i < 12; ++i)
+            text += fmt::format("\n[lua]   {:7} {}", errors[i].second, errors[i].first);
+        text += '\n';
+        CvrLogText(text.c_str());
+    }
     std::vector<std::pair<std::string, int>> lines;
     std::vector<std::pair<RED4ext::CBaseFunction*, Calls>> overrides;
     std::vector<std::pair<std::pair<const char*, RED4ext::CBaseFunction*>, Calls>> gameCalls;

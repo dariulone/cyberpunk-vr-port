@@ -46,6 +46,7 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_slide' },
 
     slide = {
+        ejectLiveRound = false,
         slot       = 'vrp_slide',        -- the reference the grips are measured against; see the note below
         which      = 1, bone = 6,        -- the REAR charging handle -- the bone named `hammer`, settled by pushing it
                                          -- live and watching what moved: the part the pinch pulls

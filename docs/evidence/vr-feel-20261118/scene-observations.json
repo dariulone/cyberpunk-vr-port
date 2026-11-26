@@ -1,0 +1,286 @@
+{
+  "climb_wall": {
+    "pid": 19860,
+    "sourceSha256": "982e79f935b5b062e533996c0d508506abc6bede3a6f5352ccc4af5fbbbc6cbf",
+    "status": "PASS",
+    "reason": "Physical wall contact and grip, no latch or lift",
+    "touch": true,
+    "sampledHold": false,
+    "relativeControllerDown": 0.1680011749269994,
+    "pullRise": 0.0,
+    "palmDrift": 0.11567519948430928
+  },
+  "climb_rail": {
+    "pid": 26636,
+    "sourceSha256": "a56db416a915baa6d77884de185bb8698f38c521b5a9f11a8710bd209093bdf0",
+    "status": "PASS",
+    "reason": "Latched, lifted the player on pull, released",
+    "touch": true,
+    "sampledHold": true,
+    "relativeControllerDown": 0.16800689698000326,
+    "pullRise": 0.16801452637000125,
+    "palmDrift": 0.0
+  },
+  "overture": {
+    "sourceLog": "overture-simulator.log",
+    "sourceSha256": "749840d672c00c292b79431d91d87e9ea08615a6837a02b6d61fd19b25f75780",
+    "observations": [
+      {
+        "state": "closed",
+        "hatch": 0.0,
+        "open": false
+      },
+      {
+        "state": "open",
+        "hatch": 1.0,
+        "open": true
+      },
+      {
+        "state": "closed again",
+        "hatch": 0.0,
+        "open": false
+      }
+    ]
+  },
+  "follow": {
+    "sourceLog": "held-contact-a1.log",
+    "sourceSha256": "2ed3beceb891e9475ea80893ff50ac6407c90d8c996bf4953a46bad25b250409",
+    "observations": [
+      {
+        "phase": "before",
+        "hp": 1513.8999023438,
+        "n": 0,
+        "follow": false,
+        "asked": 0,
+        "stealth": false,
+        "pose": "idle",
+        "peak": 0
+      },
+      {
+        "phase": "entry 0.57 1",
+        "hp": 1461.0358886719,
+        "n": 1,
+        "follow": false,
+        "asked": 0,
+        "stealth": false,
+        "pose": "bound",
+        "peak": 0
+      },
+      {
+        "phase": "motion",
+        "hp": 1410.3297119141,
+        "n": 2,
+        "follow": true,
+        "asked": 1,
+        "stealth": false,
+        "pose": "released",
+        "peak": 0.08,
+        "attempts": 1
+      },
+      {
+        "phase": "held",
+        "hp": 1410.3297119141,
+        "n": 2,
+        "follow": true,
+        "asked": 1,
+        "stealth": false,
+        "pose": "released",
+        "peak": 0.08,
+        "attempts": 1
+      },
+      {
+        "phase": "release",
+        "hp": 1410.3297119141,
+        "n": 2,
+        "follow": true,
+        "asked": 1,
+        "stealth": false,
+        "pose": "released",
+        "peak": 0.08,
+        "attempts": 1
+      }
+    ]
+  },
+  "strongFollow": {
+    "sourceLog": "held-contact-a2.log",
+    "sourceSha256": "57bb4056651010c643dae7963196f898f7408a61d721b1dbac5a97fb641e4717",
+    "observations": [
+      "Body 20",
+      {
+        "phase": "entry 0.57 1",
+        "hp": 1476.0882568359,
+        "n": 1,
+        "part": false,
+        "slot": "attached=1 pending=0 last=AttachedShape shape=Belly",
+        "follow": false,
+        "asked": 0,
+        "stealth": false,
+        "pose": "bound",
+        "peak": 0
+      },
+      {
+        "phase": "motion",
+        "hp": 0,
+        "n": 2,
+        "part": true,
+        "slot": "attached=1 pending=1 last=Pending shape=Belly",
+        "follow": true,
+        "asked": 1,
+        "stealth": false,
+        "pose": "released",
+        "peak": 0.08,
+        "attempts": 1
+      },
+      {
+        "phase": "held",
+        "hp": 0,
+        "n": 2,
+        "part": true,
+        "slot": "attached=2 pending=0 last=AttachedShape shape=Belly",
+        "follow": true,
+        "asked": 1,
+        "stealth": false,
+        "pose": "released",
+        "peak": 0.08,
+        "attempts": 1
+      },
+      {
+        "phase": "release",
+        "hp": 0,
+        "n": 2,
+        "part": true,
+        "slot": "attached=2 pending=0 last=AttachedShape shape=Belly",
+        "follow": true,
+        "asked": 1,
+        "stealth": false,
+        "pose": "released",
+        "peak": 0.08,
+        "attempts": 1
+      }
+    ]
+  },
+  "stealth": {
+    "sourceLog": "port-accepted-live.log",
+    "sourceSha256": "72fd1913bc35f0f5308b6e17e90efacae719e262aacd1e98d654cbfa08d1ed42",
+    "observations": [
+      {
+        "phase": "rpg before Character.valentinos_grunt1_ranged1_nova_ma",
+        "hp": 613.89996337891,
+        "max": 613.89996337891,
+        "grade": "gamedataNPCRarity : Normal (3)",
+        "high": "gamedataNPCHighLevelState : Relaxed (5)",
+        "det": 0,
+        "serial": 0,
+        "part": "attached=0 pending=0 last=None shape=None",
+        "rpg": false,
+        "diag": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "rear": true
+      },
+      {
+        "phase": "rpg result Character.valentinos_grunt1_ranged1_nova_ma",
+        "hp": 0,
+        "max": 613.89996337891,
+        "grade": "gamedataNPCRarity : Normal (3)",
+        "high": "gamedataNPCHighLevelState : Dead (3)",
+        "det": 0,
+        "serial": 1,
+        "part": "attached=1 pending=0 last=AttachedShape shape=Head",
+        "rpg": true,
+        "diag": [
+          1,
+          1,
+          1,
+          2
+        ],
+        "rear": true
+      },
+      {
+        "phase": "rpg before Character.valentinos_sniper_sniper3_grad_wa_elite",
+        "hp": 1841.6999511719,
+        "max": 1841.6999511719,
+        "grade": "gamedataNPCRarity : Elite (1)",
+        "high": "gamedataNPCHighLevelState : Relaxed (5)",
+        "det": 0,
+        "serial": 1,
+        "part": "attached=0 pending=0 last=None shape=None",
+        "rpg": true,
+        "diag": [
+          1,
+          1,
+          1,
+          2
+        ],
+        "rear": true
+      },
+      {
+        "phase": "rpg result Character.valentinos_sniper_sniper3_grad_wa_elite",
+        "hp": 368.33999633789,
+        "max": 1841.6999511719,
+        "grade": "gamedataNPCRarity : Elite (1)",
+        "high": "gamedataNPCHighLevelState : Combat (2)",
+        "det": 0.049116030335426,
+        "serial": 2,
+        "part": "attached=1 pending=0 last=AttachedShape shape=Head",
+        "rpg": true,
+        "diag": [
+          1,
+          1,
+          1,
+          2
+        ],
+        "rear": true
+      }
+    ]
+  },
+  "stealthTorsoControl": {
+    "sourceLog": "held-contact-a2.log",
+    "sourceSha256": "57bb4056651010c643dae7963196f898f7408a61d721b1dbac5a97fb641e4717",
+    "observations": [
+      {
+        "phase": "rpg before Character.maelstrom_grunt1_melee1_knife_ma",
+        "hp": 613.89996337891,
+        "max": 613.89996337891,
+        "grade": "gamedataNPCRarity : Normal (3)",
+        "high": "gamedataNPCHighLevelState : Relaxed (5)",
+        "det": 0,
+        "serial": 0,
+        "rpg": false
+      },
+      {
+        "phase": "rpg result Character.maelstrom_grunt1_melee1_knife_ma",
+        "hp": 561.24011230469,
+        "max": 613.89996337891,
+        "grade": "gamedataNPCRarity : Normal (3)",
+        "high": "gamedataNPCHighLevelState : Combat (2)",
+        "det": 0,
+        "serial": 1,
+        "rpg": false
+      },
+      {
+        "phase": "rpg before Character.maelstrom_fast_fmelee3_mantis_wa_elite",
+        "hp": 1565.4450683594,
+        "max": 1565.4450683594,
+        "grade": "gamedataNPCRarity : Elite (1)",
+        "high": "gamedataNPCHighLevelState : Relaxed (5)",
+        "det": 0,
+        "serial": 1,
+        "rpg": false
+      },
+      {
+        "phase": "rpg result Character.maelstrom_fast_fmelee3_mantis_wa_elite",
+        "hp": 1508.1688232422,
+        "max": 1565.4450683594,
+        "grade": "gamedataNPCRarity : Elite (1)",
+        "high": "gamedataNPCHighLevelState : Combat (2)",
+        "det": 0,
+        "serial": 2,
+        "rpg": false
+      }
+    ]
+  }
+}

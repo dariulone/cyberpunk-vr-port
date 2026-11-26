@@ -33,6 +33,7 @@
 #include <atomic>
 #include <wrl.h>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
 extern volatile int g_verboseLog; // gate per-frame spam (ClipCursor / depth-diag)
 extern "C" void PrepareStartupLiveControls();
@@ -46,7 +47,13 @@ extern "C" UINT GetForcedDisplayModeHeight();
 extern "C" UINT GetForcedWindowWidth();
 extern "C" UINT GetForcedWindowHeight();
 extern "C" int GetMenuMode();
+#endif
 
+#if CVR_RUST_VRIK
+// The IAT hooks, the cover transform and the cursor capture are rust/crates/cvr-rig/src/vrik/os_input.rs; the game's
+// window, the cursor-map export and the names the swapchain hooks call stay.
+// The game's window is rust/crates/cvr-render/src/moved_globals.rs'; the Lua overlay's query ImGuiOverlay.cpp's.
+#else
 static bool IsGameWindowForeground(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) return false;
 
@@ -593,3 +600,4 @@ void UpdateCursorCapture(HWND hwnd) {
         g_cursorClipped = false;
     }
 }
+#endif

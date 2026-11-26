@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // debug_gate.cpp - every probe, census, dump and diagnostic log in the mod, in one list,
 // behind the DEBUG tick-box in the launcher.
 //
@@ -24,16 +25,26 @@
 // mutex for every constant-buffer view over 768 bytes (114195 of those in ten seconds,
 // measured). DEBUG is for diagnosis, not for playing.
 
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include "Utils/DebugGate.hpp"
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_RuntimeDiagnostics = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
 extern "C" int GetLauncherDebug();
+#endif
 
 // The verbose per-frame channel in vr_core.cpp -- not exported, so it is reached by extern.
+#if !CVR_RUST_VRIK
 extern volatile int g_verboseLog;
+#endif
 
 // ---- the flags ------------------------------------------------------------------------------
 // Declared, not defined: each lives in the translation unit that uses it.
@@ -47,9 +58,12 @@ extern "C" {
 // these five produced 1.5 MB of the plugin log by themselves, and the CET mods another 4 MB; they
 // were never in this list, so they shipped at 1 for everyone. Gated, not deleted: every one of them
 // is the instrument some past bug was found with, and each is one checkbox away.
+#if !CVR_RUST_VRIK
 extern __declspec(dllexport) int  CyberpunkVR_XrRateLog;        // [xrrate]/[xrloop]/[xrcycle]/[xrorder]/[xrcadence]
 extern __declspec(dllexport) int  CyberpunkVR_XrDeepDiag;       // the deep blocks inside those
+#endif
 extern __declspec(dllexport) int  CyberpunkVR_VrikRateLog;      // [vrik]/[rebind]/[heading]/[bodyyaw]/[yawphase]
+#if !CVR_RUST_VRIK
 extern __declspec(dllexport) int32_t CyberpunkVR_TemporalScan;  // [temporal]/[wide]
 extern __declspec(dllexport) int32_t CyberpunkVR_WideCensus;    // upload census and its temporal report
 extern __declspec(dllexport) int32_t CyberpunkVR_CascFitProbe;  // [cascfit]/[cascrec]
@@ -69,12 +83,16 @@ extern __declspec(dllexport) int32_t CyberpunkVR_PsoProbe;
 extern __declspec(dllexport) int32_t CyberpunkVR_RtMapProbe;
 extern __declspec(dllexport) int32_t CyberpunkVR_CbvProbe;
 extern __declspec(dllexport) int32_t CyberpunkVR_CamCbProbe;
+#endif
 // The repeating half of the cascade-sampling report. The LEND itself is not listed here on purpose: it is a
 // fix, not a probe, and it must work in a normal play session. Its first success logs one line regardless.
+#if !CVR_RUST_VRIK
 extern __declspec(dllexport) int32_t CyberpunkVR_CascSampleProbe;
+#endif
 // Every PIX marker the port writes into the command lists. Under the gate because the markers are for a
 // CAPTURE, not for play: with DEBUG unticked they cost nothing at all, and a marker per node per view per
 // command list is not free in a frame that has thousands of them.
+#if !CVR_RUST_VRIK
 extern __declspec(dllexport) int32_t CyberpunkVR_CaptureMarkers;
 extern __declspec(dllexport) int32_t CyberpunkVR_CmdListHunt;
 extern __declspec(dllexport) int32_t CyberpunkVR_CascSideCensus;
@@ -94,6 +112,7 @@ extern __declspec(dllexport) int32_t CyberpunkVR_VisionMap;
 extern __declspec(dllexport) int32_t CyberpunkVR_ViewDataDiff;
 extern __declspec(dllexport) int32_t CyberpunkVR_DebugRtvPickLog;
 extern __declspec(dllexport) uint32_t CyberpunkVR_LodThreshOverrideEnable;   // uint32_t, see below
+#endif
 
 // openxr_present.cpp
 extern __declspec(dllexport) int CyberpunkVR_VrikRateLog;
@@ -102,6 +121,7 @@ extern __declspec(dllexport) int CyberpunkVR_VrikRateLog;
 // additionally covers export-only counters, snapshots and diagnostic JSON.
 }
 
+#if !CVR_RUST_VRIK   // the table and the gate: rust/crates/cvr-render/src/debug_gate_table.rs
 namespace {
 
 // A flag and the value it takes when DEBUG is ticked. Most are a plain 1; the two that are not
@@ -178,9 +198,14 @@ const DebugFlag kFlags[] = {
 };
 
 }  // namespace
+#endif
 
 // Called once from InitStereoOnce, before any hook is installed and long before the first
 // frame, so nothing has read a flag yet.
+#if CVR_RUST_VRIK
+// ApplyLauncherDebugGate and its table are Rust's (rust/crates/cvr-render/src/debug_gate_table.rs, the gate
+// rust/crates/cvr-host/src/debug_gate.rs); the flags stay where they are defined.
+#else
 extern "C" void ApplyLauncherDebugGate() {
     const bool on = GetLauncherDebug() != 0;
     int applied = 0;
@@ -196,3 +221,5 @@ extern "C" void ApplyLauncherDebugGate() {
         on ? "Expect a large log and a heavy frame time; this is for diagnosis, not play."
            : "Flip one live in x64dbg if you need a single probe without restarting.");
 }
+#endif
+#endif

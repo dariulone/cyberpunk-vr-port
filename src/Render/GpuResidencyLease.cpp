@@ -8,6 +8,42 @@
 
 namespace cvr::gpu::residency {
 using Microsoft::WRL::ComPtr;
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's leases are rust/crates/cvr-render/src/prepared_pair_native.rs' (its only user)
+#if CVR_RUST_VRIK
+// The lease's SDK residency -- its owners, transaction, queue and fence, the accounting: rust/crates/cvr-render/src/
+// residency_lease.rs. The native authentication of material sources and borrowed targets, their records and the
+// quarantined list stay here.
+struct RustLeaseMember {const void* lease;void* storage;};
+extern "C" {
+HRESULT cvr_rl_begin(ID3D12Device*,size_t,bool,uint32_t,void**);
+void cvr_rl_free(void*);
+HRESULT cvr_rl_add(void*,ID3D12Pageable*);
+HRESULT cvr_rl_acquire(void*);
+size_t cvr_rl_objects(const void*);
+uint32_t cvr_rl_status(const void*);
+HRESULT cvr_rl_submit(ID3D12CommandQueue*,const RustLeaseMember*,size_t,bool(*)(void*,size_t),void*);
+HRESULT cvr_rl_fence(void*,ID3D12CommandQueue*,ID3D12Fence*,uint64_t,HRESULT);
+HRESULT cvr_rl_release(void*,uint32_t);
+bool cvr_rl_quarantine(void*);
+bool cvr_rl_healthy();
+uint64_t cvr_rl_quarantined();
+bool cvr_rl_same_owner(ID3D12Pageable*,ID3D12Pageable*);
+}
+namespace detail {
+struct Storage {
+    ComPtr<ID3D12Device> device;void* rust{};
+    std::vector<stereo::texture_read::ImmutablePageable> sources;
+    std::vector<stereo::target_lifetime::BorrowedPageable> targets;
+    Storage* next{};
+    explicit Storage(ID3D12Device* value):device(value){}
+    Storage(const Storage&)=delete;Storage& operator=(const Storage&)=delete;
+    ~Storage(){cvr_rl_free(rust);}
+};
+}
+namespace {
+std::atomic<detail::Storage*> quarantined{};
+}
+#else
 namespace detail {
 struct Storage {
     Transaction transaction;
@@ -45,6 +81,7 @@ bool SameOwner(const ComPtr<ID3D12Pageable>& a,const ComPtr<ID3D12Pageable>& b){
     ComPtr<IUnknown> first,second;return a && b && SUCCEEDED(a.As(&first)) && SUCCEEDED(b.As(&second)) && first && first==second;
 }
 }
+#endif
 Lease::Lease()=default;
 Lease::~Lease(){Quarantine();}
 Lease::Lease(Lease&& other)noexcept:storage_(std::move(other.storage_)),terminal_(other.terminal_),objects_(other.objects_),sources_(other.sources_){
@@ -54,6 +91,41 @@ Lease& Lease::operator=(Lease&& other)noexcept{
     if(this!=&other){Quarantine();storage_=std::move(other.storage_);terminal_=other.terminal_;objects_=other.objects_;sources_=other.sources_;
         other.terminal_=State::Empty;other.objects_=other.sources_=0;}return *this;
 }
+#if CVR_RUST_VRIK
+State Lease::Status()const noexcept{return storage_?State(cvr_rl_status(storage_->rust)):terminal_;}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool Healthy()noexcept{return cvr_rl_healthy();}
+#endif
+uint64_t QuarantinedCount()noexcept{return cvr_rl_quarantined();}
+HRESULT Lease::AcquireStorage(std::unique_ptr<detail::Storage> next,size_t sourceCount){
+    const auto hr=cvr_rl_acquire(next->rust);
+    if(FAILED(hr) && State(cvr_rl_status(next->rust))!=State::Quarantined)return hr;
+    objects_=cvr_rl_objects(next->rust);sources_=sourceCount;storage_=std::move(next);
+    if(FAILED(hr))Quarantine();return hr;
+}
+HRESULT Lease::Acquire(ID3D12Device* device,std::span<const stereo::texture_read::ImmutableLease> sources)try{
+    auto next=std::make_unique<detail::Storage>(device);
+    const auto admitted=cvr_rl_begin(device,sources.size(),bool(storage_),UINT(terminal_),&next->rust);if(FAILED(admitted))return admitted;
+    next->sources.reserve(sources.size());
+    for(const auto& source:sources){stereo::texture_read::ImmutablePageable physical;
+        if(!stereo::texture_read::GetImmutablePageable(device,source,physical))return E_ACCESSDENIED;
+        const auto added=cvr_rl_add(next->rust,physical.pageable.Get());if(FAILED(added))return added;
+        next->sources.push_back(std::move(physical));
+    }
+    return AcquireStorage(std::move(next),sources.size());
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}catch(...){return E_FAIL;}
+HRESULT Lease::AcquireBorrowedTargets(ID3D12Device* device,std::span<const BorrowedTarget> targets)try{
+    auto next=std::make_unique<detail::Storage>(device);
+    const auto admitted=cvr_rl_begin(device,targets.size(),bool(storage_),UINT(terminal_),&next->rust);if(FAILED(admitted))return admitted;
+    next->targets.reserve(targets.size());
+    for(const auto& target:targets){stereo::target_lifetime::BorrowedPageable physical;
+        if(!stereo::target_lifetime::GetBorrowedPageable(device,target.identity,target.lifetime,physical))return E_ACCESSDENIED;
+        const auto added=cvr_rl_add(next->rust,physical.pageable.Get());if(FAILED(added))return added;
+        next->targets.push_back(std::move(physical));
+    }
+    return AcquireStorage(std::move(next),targets.size());
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}catch(...){return E_FAIL;}
+#else
 State Lease::Status()const noexcept{return storage_?storage_->transaction.Status():terminal_;}
 bool Healthy()noexcept{return healthy.load(std::memory_order_acquire);}
 uint64_t QuarantinedCount()noexcept{return quarantineCount.load(std::memory_order_acquire);}
@@ -92,9 +164,41 @@ HRESULT Lease::AcquireBorrowedTargets(ID3D12Device* device,std::span<const Borro
     }
     return AcquireStorage(std::move(next),targets.size());
 }catch(const std::bad_alloc&){return E_OUTOFMEMORY;}catch(...){return E_FAIL;}
+#endif
 HRESULT Lease::MarkSubmitted(ID3D12CommandQueue* queue){
     std::array<Lease*,1> group{this};return MarkSubmittedTogether(queue,group);
 }
+#if CVR_RUST_VRIK
+HRESULT Lease::MarkSubmittedTogether(ID3D12CommandQueue* queue,std::span<Lease*> group)try{
+    std::vector<RustLeaseMember> members;members.reserve(group.size());
+    for(auto* lease:group)members.push_back({lease,lease && lease->storage_?lease->storage_->rust:nullptr});
+    // Borrowed target authority expires with the native invocation: each member's targets authenticate again.
+    const auto current=[](void* context,size_t index)->bool{const auto& storage=*(*static_cast<std::span<Lease*>*>(context))[index]->storage_;
+        for(const auto& target:storage.targets){stereo::target_lifetime::BorrowedPageable now;
+            if(!stereo::target_lifetime::GetBorrowedPageable(storage.device.Get(),target.identity,target.lifetime,now) ||
+                !cvr_rl_same_owner(now.pageable.Get(),target.pageable.Get()))return false;}
+        return true;};
+    return cvr_rl_submit(queue,members.data(),members.size(),current,&group);
+}catch(...){return E_FAIL;}
+HRESULT Lease::AssociateFence(ID3D12CommandQueue* queue,ID3D12Fence* fence,uint64_t value,HRESULT signalResult){
+    if(!storage_ || State(cvr_rl_status(storage_->rust))!=State::Submitted)return E_UNEXPECTED;
+    const auto hr=cvr_rl_fence(storage_->rust,queue,fence,value,signalResult);if(FAILED(hr))Quarantine();return hr;
+}
+HRESULT Lease::FinishRelease(HRESULT hr)noexcept{
+    const auto state=State(cvr_rl_status(storage_->rust));
+    if(state==State::Quarantined)Quarantine();else if(state==State::Retired){storage_.reset();terminal_=State::Retired;}
+    return hr;
+}
+HRESULT Lease::Cancel(){return storage_?FinishRelease(cvr_rl_release(storage_->rust,0)):E_UNEXPECTED;}
+HRESULT Lease::Retire(){return storage_?FinishRelease(cvr_rl_release(storage_->rust,1)):E_UNEXPECTED;}
+void Lease::Quarantine()noexcept{
+    if(!storage_)return;
+    if(!cvr_rl_quarantine(storage_->rust)){storage_.reset();return;}
+    auto* abandoned=storage_.release();abandoned->next=quarantined.load(std::memory_order_relaxed);
+    while(!quarantined.compare_exchange_weak(abandoned->next,abandoned,std::memory_order_release,std::memory_order_relaxed)){}
+    terminal_=State::Quarantined;
+}
+#else
 HRESULT Lease::MarkSubmittedTogether(ID3D12CommandQueue* queue,std::span<Lease*> group)try{
     if(!queue || group.empty() || group.size()>UINT_MAX || queue->GetDesc().Type!=D3D12_COMMAND_LIST_TYPE_DIRECT)return E_INVALIDARG;
     for(size_t i=0;i<group.size();++i){
@@ -151,4 +255,6 @@ void Lease::Quarantine()noexcept{
     while(!quarantined.compare_exchange_weak(abandoned->next,abandoned,std::memory_order_release,std::memory_order_relaxed)){}
     ++quarantineCount;terminal_=State::Quarantined;
 }
+#endif
+#endif
 }

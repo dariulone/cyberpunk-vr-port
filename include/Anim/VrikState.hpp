@@ -59,16 +59,25 @@ inline SRWLOCK g_PlayerPoseStateLock = SRWLOCK_INIT;
 inline std::atomic<bool> g_PlayerPoseHeadingReady{false};
 // THE MIRROR DOUBLE (src/Natives/VrikArming.cpp): the scene's NPC copy of V, bound from CET, takes the player's
 // pose after each pass. While one is bound the scene does not suspend VRIK: the tier below reads -1 then.
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/vrik_arming.rs
+extern "C" bool VRIK_MirrorDoubleActive();
+extern "C" int VRIK_EffectiveCutsceneSuspendTier();
+extern "C" void VRIK_MirrorDoublePass(uint8_t* boneBuf,uintptr_t trackBuf,uint32_t slots);
+#else
 bool VRIK_MirrorDoubleActive();
 int VRIK_EffectiveCutsceneSuspendTier();
 void VRIK_MirrorDoublePass(uint8_t* boneBuf,uintptr_t trackBuf,uint32_t slots);
+#endif
 inline bool VRIK_PlayerPoseFits(uint32_t slots,int bones,int fkCount) {
     return bones>0 && bones<=VRIK_MAX_BONES && slots>=static_cast<uint32_t>(bones) &&
         fkCount>=0 && fkCount<=bones;
 }
 
 // ---- the shared globals ----
-extern RED4ext::Vector4 g_CameraWorldPos; 
+// C linkage: the Rust half (rust/crates/cvr-rig/src/vrik/env.rs) reads and writes them by these names.
+extern "C" {
+extern RED4ext::Vector4 g_CameraWorldPos;
 extern int g_CalibrationBoneIndex;
 extern volatile int       g_SmallN;
 extern volatile uintptr_t g_SmallBuf[VRSMALL_MAX];
@@ -381,7 +390,6 @@ extern volatile float     g_VRIKDbgClav[2][8];
 extern volatile float     g_VRIKDbgChestTgt[3];
 extern int16_t            g_VRBoneParent[VRIK_MAX_BONES]; // metaRig parent index per bone
 extern volatile int       g_VRBoneCount;           // bone count (0 = not resolved)
-extern volatile int       g_VRBodyFemale;          // V's body: 1 a woman's, 0 a man's, -1 not known yet (the rig policy)
 extern volatile int       g_VRFKCount;             // solver-touched bone prefix (0 = full count)
 extern volatile int       g_VRRightUpperArmIdx;    // RightArm  (shoulder joint / upper-arm start)
 extern volatile int       g_VRRightForeArmIdx;     // RightForeArm (elbow)
@@ -427,6 +435,7 @@ extern volatile int   g_VRHandStopValid[2];
 extern float g_fkPos[VRIK_MAX_BONES][3];
 extern bool     g_handsStableValid;
 extern float g_vrikViewScaleUsed;
+}  // extern "C"
 
 // THE INCLUDE-ORDER DEPENDENCY THIS SPLIT WAS ALWAYS GOING TO EXPOSE.
 //

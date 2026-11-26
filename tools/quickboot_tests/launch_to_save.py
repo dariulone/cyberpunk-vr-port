@@ -133,9 +133,10 @@ def find_codex_window(preferred):
     # that had it when the launch began.
     if not candidates and preferred and user32.IsWindow(preferred) and user32.IsWindowVisible(preferred):
         return preferred
-    if len(candidates) != 1:
-        raise RuntimeError(f"Expected one Codex desktop window, found {len(candidates)}")
-    return candidates[0]["hwnd"]
+    if not candidates:
+        raise RuntimeError("Expected one Codex desktop window, found 0")
+    # Several (a second Codex window, a detached panel): focus goes back to the largest of them.
+    return max(candidates, key=lambda row: row["width"] * row["height"])["hwnd"]
 
 
 def reporter_window_pids():
@@ -511,11 +512,20 @@ class NativeResumeGate:
         return self.since is not None and now-self.since>=.1
 
 
+def port_folder(game):
+    """The port's folder: CVR_PORT_DIR when set (a bench choosing the build), at the game's root with its own loader,
+    else RED4ext's plugin folder."""
+    if os.environ.get("CVR_PORT_DIR"):
+        return Path(os.environ["CVR_PORT_DIR"])
+    root = game / "cyberpunkvrport"
+    return root if (root / "cyberpunkvrport.dll").exists() else game / "red4ext" / "plugins" / "cyberpunkvrport"
+
+
 def native_loading_state(pid,game,symbols):
     from live_read import Reader
     from live_symbols import resolve
     if not symbols:
-        symbols.update(resolve(pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',
+        symbols.update(resolve(pid,port_folder(game)/'cyberpunkvrport.dll',
                                ['CyberpunkVR_MenuSourceSeq','CyberpunkVR_MenuSource']))
     reader=Reader(pid,game/'bin/x64/Cyberpunk2077.exe',0,0)
     try:
@@ -613,7 +623,7 @@ def main():
 
     # The port's Lua mods run in the plugin's host, from its lua folder (src/Lua); --mods-root names another
     # (CET's mods folder, for an A/B run with the mods back in CET).
-    from_root = args.mods_root or game / "red4ext" / "plugins" / "cyberpunkvrport" / "lua"
+    from_root = args.mods_root or port_folder(game) / "lua"
     if not from_root.is_dir():
         parser.error(f"The Lua mods folder is missing: {from_root}")
     existing = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Cyberpunk2077.exe", "/FO", "CSV"],

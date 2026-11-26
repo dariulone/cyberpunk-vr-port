@@ -45,6 +45,18 @@ local S = {
   fppFov = 0.0,
 }
 
+-- THE RUST BUILD PUBLISHES ALL OF THIS (rust/crates/cvr-ffi/src/mechanics/force_fpp.rs, bit 23 of VRRustMechanics): the
+-- popup owner, the braindance and scene gate, the taken-over camera, the legacy restriction and the body stand-in. The
+-- observers report the attach and detach to it (VRCameraBridgeAttach), the overlay's knobs go to it
+-- (VRCameraBridgeKnobs) and its sliders follow its context (VRCameraBridgeContext). The reference build has no such
+-- native, and everything runs here. A field of S and not a local: this main chunk is near Lua's 200 locals.
+function S.rust()
+  if S.rustOwned == nil then
+    S.rustOwned = type(VRRustMechanics) == "function" and math.floor(VRRustMechanics() / 8388608) % 2 == 1
+  end
+  return S.rustOwned
+end
+
 -- THE TAKEN-OVER CAMERA'S VIEWPOINT, three numbers only the person looking can choose. Kept in a file
 -- next to this mod so a session does not start by re-dragging them, and pushed to the plugin whenever
 -- they change or the mod loads. The plugin clamps them to +-3 m and applies them in the LENS's own frame:
@@ -219,7 +231,12 @@ end
 -- second: the state only has to be right BEFORE a press, and the plugin's own block window covers the rest.
 local ui = { acc = 0.0, widget = false, sent = nil, what = "-" }
 
+-- A leaf widget (text, image) is no inkCompoundWidget and has no GetNumChildren: the lookup gives nil, so it is
+-- asked for before calling. Calling it raised a Lua error per leaf, which the pcall swallowed -- hundreds a
+-- second with quest notifications up -- and every Lua error is an SEH exception, which under Wine/Proton
+-- costs enough to drop the game to single figures (dariulone/cyberpunk-vr-port#251).
 local function numChildren(w)
+  if w == nil or w.GetNumChildren == nil then return 0 end
   local n = 0
   pcall(function() n = w:GetNumChildren() end)
   return n
@@ -329,6 +346,8 @@ end
 -- base class, so the hook sits there and picks the two popups out. Their show and hide animations move
 -- the Root's children, never the Root. The ten-a-second check below covers anything else that resets it.
 local function dropPopupController(self)
+  -- Rust keeps its own container; the one remembered here may belong to an earlier session.
+  if S.rust() then memo.notif = nil end
   local what = nil
   pcall(function()
     if self:IsA("VehicleRadioPopupGameController") then what = "radio"
@@ -904,10 +923,22 @@ local function publishBraindance(dt)
   S.bdFov = fov
 end
 
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent("onInit", function()
-  ObserveAfter("PlayerPuppet", "OnGameAttached", function() cleanedPlayer = nil; standInReset(true) end)
-  ObserveBefore("PlayerPuppet", "OnDetach", function() standInReset(false) end)
+  if not rustHooks() then
+  ObserveAfter("PlayerPuppet", "OnGameAttached", function()
+    cleanedPlayer = nil; standInReset(true)
+    if S.rust() then pcall(VRCameraBridgeAttach, true) end
+  end)
+  ObserveBefore("PlayerPuppet", "OnDetach", function()
+    standInReset(false)
+    if S.rust() then pcall(VRCameraBridgeAttach, false) end
+  end)
   ObserveAfter("BaseModalListPopupGameController", "OnInitialize", dropPopupController)
+  end
   devcamLoad()
   devcamPush()
   print(string.format("[ForceFPP] ready; lens offset right=%.2f forward=%.2f up=%.2f",
@@ -915,6 +946,7 @@ registerForEvent("onInit", function()
 end)
 
 registerForEvent("onUpdate", function(dt)
+  if S.rust() then return end
   -- Which overlay owns B right now; see publishUiPopup. Every frame, because the answer has to be right
   -- BEFORE the press, and the phone half of it is a single blackboard read.
   publishUiPopup(dt)
@@ -955,9 +987,20 @@ registerForEvent("onDraw", function()
     ImGui.SetNextWindowPos(w * 0.01, h * 0.04, ImGuiCond.FirstUseEver)
     ImGui.SetNextWindowSize(w * 0.19, h * 0.45, ImGuiCond.FirstUseEver)
     ImGui.Begin("VR camera bridge")
+    if S.rust() then
+      local c = 0
+      pcall(function() c = VRCameraBridgeContext() end)
+      S.takeover = c >= 2
+      local want = (c % 2 == 1) and "av" or "default"
+      if want ~= devCtx then devcamApply(want) end
+      ImGui.Text("published from Rust (mechanics/force_fpp.rs): the state lines are the log's")
+    end
     ImGui.Text("UI overlay owning B: " .. tostring(S.popupWhat or "-"))
     local g, gch = ImGui.Checkbox("scene camera path in ordinary scenes", S.sceneGate)
-    if gch then S.sceneGate = g end
+    if gch then
+      S.sceneGate = g
+      if S.rust() then pcall(VRCameraBridgeKnobs, S.sceneGate, S.sceneInTakeover) end
+    end
     ImGui.Text(string.format("gate open: %s   latched: %s   takeover: %s   SceneTier: %d",
                tostring(S.bd == true), tostring(S.latched == true),
                tostring(S.takeover == true), S.tier or -1))
@@ -998,7 +1041,10 @@ registerForEvent("onDraw", function()
       end
     end
     local sb, sbch = ImGui.Checkbox("scene path during a takeover (A/B)", S.sceneInTakeover)
-    if sbch then S.sceneInTakeover = sb end
+    if sbch then
+      S.sceneInTakeover = sb
+      if S.rust() then pcall(VRCameraBridgeKnobs, S.sceneGate, S.sceneInTakeover) end
+    end
     ImGui.Text("off = the device path owns the second eye (no jerk, no head steering?)")
     ImGui.Text("on  = the scene path writes MAIN through the located buffer as well")
     ImGui.Separator()

@@ -12,7 +12,10 @@
 #include <unordered_map>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's records are rust/crates/cvr-render/src/pair_probe.rs's
 namespace cvr::rootsig { bool Blob(ID3D12RootSignature*,std::vector<uint8_t>&); }   // Stereo/DeviceHooks.cpp
 
 namespace {
@@ -31,22 +34,40 @@ struct Record {
 static_assert(sizeof(Record)==448);
 constexpr uint32_t kCapacity=16384;
 }
+#endif
 extern "C" {
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 __declspec(dllexport) uint32_t CyberpunkVR_PairProbeRecordBytes=sizeof(Record);
+#endif
 // Frames to record (1..8); 0 when taken. State: 0 idle, 1 armed, 2 recording, 3 done, 4 not installed.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PairProbeRequest{0},CyberpunkVR_PairProbeState{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PairProbeNode{0x33DDA4};   // RenderElements; 0 = every node
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PairProbeCount{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 __declspec(dllexport) Record CyberpunkVR_PairProbeRecords[kCapacity]{};
+#endif
 // Single-pass feasibility (StereoPairProbe.hpp): root parameters (bit n = parameter n) whose tables a right-eye draw
 // takes from its left partner; 0 = off. 1 = also the partner's start instance.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PairSubstituteMask{0},CyberpunkVR_PairSubstituteMaskHigh{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PairSubstituteInstance{0};
 // [0] right-eye draws substituted, [1] right-eye draws without a matching partner, [2] left-eye draws kept,
 // [3] tables substituted.
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PairSubstituteCounts[4]{};
+#endif
+#if !CVR_RUST_VRIK
 extern std::atomic<uint64_t> CyberpunkVR_PresentTiming[8];
+#endif
 }
+
+#if !CVR_RUST_VRIK
+// The C++ build's probe; the Rust build's is rust/crates/cvr-render/src/pair_probe.rs (the header calls it).
 
 namespace cvr::stereo::pair_probe {
 namespace {
@@ -329,3 +350,4 @@ void Poll() {
     CyberpunkVR_PairProbeState.store(2);
 }
 }
+#endif

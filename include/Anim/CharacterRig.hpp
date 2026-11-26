@@ -7,7 +7,9 @@
 // Signatures are copied from the definitions, never retyped.
 
 #include "Anim/VrikState.hpp"
+#include "Camera/AnchorTranslation.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <cstddef>
 #include <atomic>
@@ -26,6 +28,11 @@
 // render snapshot) catch two different arm positions inside one image -- measured, and it looked like
 // a second arm on snap turns. Keying on the XR publish (72/s against ~52 frames) would reintroduce
 // exactly that. One epoch per frame keeps the passes coherent while taking the script out of the path.
+//
+// C LINKAGE for everything below: the solve is defined either by src/Anim/CharacterRig.cpp or, with CVR_RUST_VRIK, by
+// rust/crates/cvr-rig/src/vrik (the same names, signatures and globals); the globals themselves are
+// src/Anim/CharacterRigState.cpp's in both.
+extern "C" {
 extern std::atomic<uint32_t> g_VrikFrameEpoch;
 
 // Peak second difference per hand, per stage (0 ctrl as the solve reads it, 1 anchor, 2 target,
@@ -193,3 +200,37 @@ void VRIK_BuildHandTarget(const float* shoulderModelPos,
                           float scale,
                           const float* off,
                           float* outTarget, float* outHandRot);
+// The solve's live controls and probes (src/Anim/CharacterRigState.cpp, exported from the DLL).
+__declspec(dllexport) extern int   CyberpunkVR_GripReach,CyberpunkVR_SquatKneeMode,CyberpunkVR_SquatFeetUnderHips;
+__declspec(dllexport) extern int   CyberpunkVR_SquatSymmetric,CyberpunkVR_ClipBodyMoves;
+__declspec(dllexport) extern float CyberpunkVR_DebugSquatStance[2],CyberpunkVR_DebugToes[2][3],CyberpunkVR_GripProtract;
+__declspec(dllexport) extern float CyberpunkVR_GripTorsoMaxDeg,CyberpunkVR_DebugGripShortMm[2],CyberpunkVR_DebugGripTorsoDeg;
+__declspec(dllexport) extern float CyberpunkVR_DebugGripReach[6],CyberpunkVR_DebugClipBody[12];
+// The clock the hands' layers (finger gestures, arm cyberware) run by, in milliseconds; tests set it, null =
+// GetTickCount64 (VRIK_ClockMs below).
+extern uint64_t (*g_VRIKClockMs)();
+// ...and its performance counter, ticks at 1 MHz under the test hook; null = QueryPerformanceCounter
+// (VRIK_ClockQpc and VRIK_ClockQpcFrequency below).
+extern int64_t (*g_VRIKClockQpc)();
+// ...and the steering wheel's microseconds (src/Anim/WheelGrab.cpp); null = XrDiagNowUs.
+extern uint64_t (*g_VRIKClockUs)();
+// The solve's namespaced readers (cvr::camera::ReadNeckCamera*, cvr::gestures::ThumbReference/SpreadAxis) in C form.
+bool cvr_vrik_read_neck_camera_mount(cvr::camera::AnchorVector* offset);
+bool cvr_vrik_read_neck_camera_eye_offset(cvr::camera::AnchorVector* offset);
+bool cvr_vrik_thumb_reference(int side,float* rotation);
+bool cvr_vrik_spread_axis(int side,int digit,int* bone,float axis[3]);
+}  // extern "C"
+inline uint64_t VRIK_ClockMs() { return g_VRIKClockMs ? g_VRIKClockMs() : GetTickCount64(); }
+inline int64_t VRIK_ClockQpc() {
+    if(g_VRIKClockQpc)return g_VRIKClockQpc();
+    LARGE_INTEGER c{};QueryPerformanceCounter(&c);return c.QuadPart;
+}
+// steady_clock::now() in nanoseconds -- or, under the tests' counter, its ticks (1 MHz) as nanoseconds.
+inline int64_t VRIK_SteadyNs() {
+    if(g_VRIKClockQpc)return g_VRIKClockQpc()*1000;
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+inline double VRIK_ClockQpcFrequency() {
+    if(g_VRIKClockQpc)return 1e6;
+    LARGE_INTEGER f{};QueryPerformanceFrequency(&f);return static_cast<double>(f.QuadPart);
+}

@@ -14,6 +14,70 @@ struct Proof {
     bool readRegistered{};
     bool operator==(const Proof&)const=default;
 };
+#if CVR_RUST_VRIK
+namespace detail {
+// The rules: rust/crates/cvr-render/src/buffer_read.rs (tools/single_pass_tests/buffer_read_state_test runs its cases
+// against them in its Rust variant). History and RecordingState keep their members here, mirrored there.
+struct History;struct RecordingState;
+extern "C" {
+bool cvr_brd_valid_range(const geometry::NativeBuffer*,uint64_t,uint64_t,uint64_t,uint64_t);
+bool cvr_brd_read_pool_range(geometry::MemoryReader,void*,uint64_t,const geometry::NativeBuffer*,uint64_t,uint64_t,uint64_t,uint64_t,
+    Pool*,uint32_t*);
+bool cvr_brd_read_pool(geometry::MemoryReader,void*,uint64_t,const geometry::NativeBuffer*,uint64_t,uint64_t,Pool*,uint32_t*);
+bool cvr_brd_proof(uint32_t,const Proof*,const Proof*,uint64_t,uint64_t);
+bool cvr_brd_initial_state(uint32_t);
+uint64_t cvr_brd_history(History*,uint32_t,uint64_t,bool);
+bool cvr_brd_recording(RecordingState*,uint32_t);
+}
+inline bool SameRangeObservation(const Proof& a,const Proof& b){return cvr_brd_proof(0,&a,&b,0,0);}
+inline bool RegisteredRange(const Proof& proof,uint64_t comOffset,uint64_t copyBytes){return cvr_brd_proof(1,&proof,nullptr,comOffset,copyBytes);}
+// A receipt proves observed state history, not immutable bytes. Every allowed
+// uploader write changes the epoch, invalidating all earlier snapshot tokens.
+struct History {
+    enum class Stage:uint8_t {Recorded,Submitting,Submitted};
+    struct Producer {uint64_t generation{};Stage stage{};};
+    static constexpr uint32_t Capacity=128;
+    uint64_t epoch=1,producer{};
+    bool valid=true,uploaded{},pending{};
+    std::array<Producer,Capacity> producers{};
+    uint32_t count{};
+    Producer* Find(uint64_t recording){const auto at=cvr_brd_history(this,0,recording,false);return at?&producers[at-1]:nullptr;}
+    void Refresh(){cvr_brd_history(this,1,0,false);}
+    void Invalidate(){cvr_brd_history(this,2,0,false);}
+    void Written(uint64_t recording){cvr_brd_history(this,3,recording,false);}
+    void BeforeSubmit(uint64_t recording,bool queueMatches){cvr_brd_history(this,4,recording,queueMatches);}
+    void Submitted(uint64_t recording,bool queueMatches){cvr_brd_history(this,5,recording,queueMatches);}
+    void Abandon(uint64_t recording){cvr_brd_history(this,6,recording,false);}
+    bool Matches(uint64_t saved)const{return cvr_brd_history(const_cast<History*>(this),7,saved,false)!=0;}
+};
+struct RecordingState {
+    bool valid=true,pending{},submitted{};
+    bool BeforeSubmit(){return cvr_brd_recording(this,0);}
+    bool Submitted(){return cvr_brd_recording(this,1);}
+};
+static_assert(sizeof(History)==2080 && sizeof(RecordingState)==3 && sizeof(Proof)==96 && sizeof(geometry::NativeBuffer)==48,
+    "mirrored by buffer_read.rs");
+inline bool InitialState(uint32_t state){return cvr_brd_initial_state(state);}
+// Mathematical bounds only; live ownership/occupancy and history are separate.
+// Never expand the native logical allocation to a padded CBV or whole pool unit.
+inline bool ValidRange(const geometry::NativeBuffer& source,uint64_t resourceGpu,uint64_t resourceBytes,
+                       uint64_t comOffset,uint64_t copyBytes){
+    return cvr_brd_valid_range(&source,resourceGpu,resourceBytes,comOffset,copyBytes);
+}
+// The general path lowers the old292-byte minimum ONLY for an explicit exact
+// range that passes native logical, 512-byte slot and COM buffer bounds.
+inline bool ReadPoolRange(geometry::MemoryReader reader,void* user,uint64_t game,
+                     const geometry::NativeBuffer& source,uint64_t resourceGpu,uint64_t resourceBytes,
+                     uint64_t comOffset,uint64_t copyBytes,Pool& out,uint32_t* reason=nullptr){
+    return cvr_brd_read_pool_range(reader,user,game,&source,resourceGpu,resourceBytes,comOffset,copyBytes,&out,reason);
+}
+// Original material path retains its292-byte admission minimum.
+inline bool ReadPool(geometry::MemoryReader reader,void* user,uint64_t game,
+                    const geometry::NativeBuffer& source,uint64_t resourceGpu,uint64_t resourceBytes,Pool& out,uint32_t* reason=nullptr){
+    return cvr_brd_read_pool(reader,user,game,&source,resourceGpu,resourceBytes,&out,reason);
+}
+}
+#else
 namespace detail {
 inline bool SameRangeObservation(const Proof& a,const Proof& b){
     return a.receipt && a.epoch && a.recording && a.generation && a.registry && a.directQueue && a.copyBytes &&
@@ -142,6 +206,7 @@ inline bool ReadPool(geometry::MemoryReader reader,void* user,uint64_t game,
     return ReadPoolRange(reader,user,game,source,resourceGpu,resourceBytes,source.gpu-resourceGpu,292,out,reason);
 }
 }
+#endif
 // Creation ignores private probe resources. All other observations include
 // internal commands: writes/barriers to an observed native source still count.
 void ResourceCreated(ID3D12Resource*,D3D12_RESOURCE_STATES initialState,bool placed);

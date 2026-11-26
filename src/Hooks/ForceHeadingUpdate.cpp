@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // ForceHeadingUpdate -- one hook, one file. Installed from the registry it registers itself with at the
 // bottom; see Hooks/Hook.hpp for why the order is declared here rather than in a boot function.
 //
@@ -14,6 +15,12 @@
 #include <cstdint>
 #include <cstddef>
 
+#if CVR_RUST_VRIK
+// THE PATCH IS RUST'S (rust/crates/cvr-rig/src/vrik/force_heading_update.rs); the registration stays here, so the install
+// order holds.
+extern "C" bool cvr_hook_force_heading_update_install();
+CVR_HOOK("ForceHeadingUpdate", ::cvr::hooks::Stage::Boot, 75, cvr_hook_force_heading_update_install);
+#else
 bool InstallForceHeadingUpdateHook() {
     const char* pattern = "\x48\x8B\xCB\xF3\x0F\x10\x4F\x1C\xE8\x00\x00\x00\x00\x84\xC0";
     const char* mask = "xxxxxxxxx????xx";
@@ -52,3 +59,5 @@ bool InstallForceHeadingUpdateHook() {
 }
 
 CVR_HOOK("ForceHeadingUpdate", ::cvr::hooks::Stage::Boot, 75, InstallForceHeadingUpdateHook);
+#endif
+#endif

@@ -3,6 +3,62 @@
 #include "Render/RenderProbeScope.hpp"
 #include <windows.h>
 #include <new>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The snapshots at the actual call: rust/crates/cvr-render/src/structured_snapshot_receipt.rs (the arena, the receipt,
+// the reuse of whole original views, the registration and its recovery, the proofs; the switch and the finalize
+// diagnostic are declared_moved_exports.rs'). This half lends the graph parent's revalidation.
+namespace cvr::stereo::structured_buffer_snapshot {
+static_assert(sizeof(Request)==1136 && offsetof(Request,parameter)==1112 && sizeof(PreparedCopy)==72 && sizeof(PrivateRange)==40,
+    "mirrored by structured_snapshot_receipt.rs");
+extern "C" {
+void cvr_sbsn_scope_enter(uint64_t,uint64_t,uint64_t,indirect_copy::detail::ScopeStamp*);
+void cvr_sbsn_scope_exit(const indirect_copy::detail::ScopeStamp*);
+bool cvr_sbsn_scope_active(const indirect_copy::detail::ScopeStamp*);
+uint32_t cvr_sbsn_last_failure();
+HRESULT cvr_sbsn_arena_create(void*,ID3D12Device*,ID3D12GraphicsCommandList*,uint64_t,uint64_t,uint32_t,void**);
+void cvr_sbsn_arena_abort(void*);
+bool cvr_sbsn_arena_finalized(void*);
+uint64_t cvr_sbsn_arena_bytes(void*);
+void* cvr_sbsn_arena_resource(void*);
+bool cvr_sbsn_arena_finalize(void*,ID3D12GraphicsCommandList*);
+bool cvr_sbsn_prepare(ID3D12GraphicsCommandList*,uint64_t,const Request*,const preparation::GraphParentRecord*,const ReadEpochCertificate*,
+    void*,PreparedCopy*);
+bool cvr_sbsn_validate(ID3D12GraphicsCommandList*,const PreparedCopy*);
+bool cvr_sbsn_record(ID3D12GraphicsCommandList*,const PreparedCopy*,PrivateRange*);
+bool cvr_sbsn_recorded_view(const PreparedCopy*,const PrivateRange*,D3D12_SHADER_RESOURCE_VIEW_DESC*);
+bool cvr_sbsn_validate_submission(const PreparedCopy*,ID3D12CommandQueue*);
+}
+struct SnapshotArena::Storage:IUnknown {};   // the Rust storage's IUnknown face
+SnapshotArena::SnapshotArena()=default;SnapshotArena::~SnapshotArena()=default;
+Failure LastFailure(){return Failure(cvr_sbsn_last_failure());}
+ActualCallScope::ActualCallScope(ID3D12GraphicsCommandList* list,uint64_t generation,uint64_t occurrence)noexcept{
+    cvr_sbsn_scope_enter(reinterpret_cast<uintptr_t>(list),generation,occurrence,&stamp_);}
+ActualCallScope::~ActualCallScope(){cvr_sbsn_scope_exit(&stamp_);}
+bool ActualCallScope::Active()const noexcept{return cvr_sbsn_scope_active(&stamp_);}
+HRESULT SnapshotArena::Create(ID3D12Device* device,ID3D12GraphicsCommandList* list,uint64_t generation,uint64_t capacity,Layout layout){
+    void* made{};const HRESULT hr=cvr_sbsn_arena_create(storage_.Get(),device,list,generation,capacity,uint32_t(layout),&made);
+    if(SUCCEEDED(hr))storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(made)));
+    return hr;
+}
+void SnapshotArena::Abort()noexcept{cvr_sbsn_arena_abort(storage_.Get());}
+bool SnapshotArena::Finalized()const{return cvr_sbsn_arena_finalized(storage_.Get());}
+uint64_t SnapshotArena::Bytes()const{return cvr_sbsn_arena_bytes(storage_.Get());}
+Microsoft::WRL::ComPtr<ID3D12Resource> SnapshotArena::Resource()const{
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource;resource.Attach(static_cast<ID3D12Resource*>(cvr_sbsn_arena_resource(storage_.Get())));return resource;}
+bool SnapshotArena::Finalize(ID3D12GraphicsCommandList* list){return cvr_sbsn_arena_finalize(storage_.Get(),list);}
+bool PrepareAtActualCall(ID3D12GraphicsCommandList* list,uint64_t root,const Request& request,const preparation::GraphParentRecord& parent,
+    const ReadEpochCertificate& epoch,SnapshotArena& arena,PreparedCopy& output){
+    return cvr_sbsn_prepare(list,root,&request,&parent,&epoch,arena.storage_.Get(),&output);}
+bool ValidateAtActualCall(ID3D12GraphicsCommandList* list,const PreparedCopy& proof){return cvr_sbsn_validate(list,&proof);}
+bool RecordAtActualCall(ID3D12GraphicsCommandList* list,const PreparedCopy& proof,PrivateRange& output){
+    return cvr_sbsn_record(list,&proof,&output);}
+bool RecordedView(const PreparedCopy& proof,const PrivateRange& range,D3D12_SHADER_RESOURCE_VIEW_DESC& output){
+    return cvr_sbsn_recorded_view(&proof,&range,&output);}
+bool ValidateSourceSubmission(const PreparedCopy& proof,ID3D12CommandQueue* queue){return cvr_sbsn_validate_submission(&proof,queue);}
+}  // namespace cvr::stereo::structured_buffer_snapshot
+#endif
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StructuredBufferSnapshotsEnable{};
@@ -296,3 +352,4 @@ bool ValidateSourceSubmission(const PreparedCopy& proof,ID3D12CommandQueue* queu
     failure=Failure::Changed;if(!SameShape(owner->observed,current))return false;failure=Failure::None;return true;
 }catch(...){failure=Failure::Exception;return false;}
 }
+#endif

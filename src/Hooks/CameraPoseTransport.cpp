@@ -5,13 +5,11 @@
 #include "Camera/PlayerCameraState.hpp"
 #include "Camera/ExternalViewLease.hpp"
 #include "Camera/CameraState.hpp"
-#include "Stereo/StereoInternal.hpp"
+#include "Hooks/CameraPoseTransportState.hpp"
 #include "Hooks/Hook.hpp"
 #include "Hooks/CameraPoseSites.hpp"
 #include "Utils/MemorySafe.hpp"
-#include "Utils/WeakObjectSlot.hpp"
 #include "Core/VrCoreShared.hpp"
-#include <RED4ext/Scripting/Natives/entIComponent.hpp>
 #include <MinHook.h>
 #include <intrin.h>
 #include <cstring>
@@ -20,34 +18,49 @@
 #include <type_traits>
 #include <vector>
 #include <array>
-#include "Lobby/MenuLobby.hpp"
 
-struct PoseBlendDebug {
-    uint64_t calls{},labelled{},rejected{};
-    uintptr_t director{};
-    uint32_t count{},accepted{};
-    float weights[8]{};
-    uint64_t poseIds[8]{};
-    uintptr_t components[8]{};
-    cvr::camera::PoseFingerprint inputs[8]{},output{};
-};
-struct ExternalCameraDebug {
-    uint64_t writes{},stampUs{},poseId{},origin{},component{};
-    int32_t position[3]{};
-    float rotation[4]{},head[7]{},fov{};
-};
-static_assert(sizeof(ExternalCameraDebug)==104);
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// rust/crates/cvr-rig/src/vrik/pose_transport.rs: the same twelve detours (the setup copy and default still through
+// CameraPoseLeafThunks.asm), the external view and its readers.
 extern "C" {
-__declspec(dllexport) PoseBlendDebug CyberpunkVR_PoseBlendDebug{};
-__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PoseBlendDebugSeq{};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseMainReadMissing[2]{}; // blended / override setup
-__declspec(dllexport) ExternalCameraDebug CyberpunkVR_ExternalCameraDebug[2]{};
-__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ExternalCameraDebugSeq[2]{};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_ExternalSelectionStates[4]{}; // fresh / retained / inactive / unavailable
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_ExternalNotify[3]{}; // MAIN pushes / expired or replaced / disabled or detached
+uintptr_t cvr_pose_transport_serialized_component();
+bool cvr_pose_transport_read_main_aim(cvr::camera::MainAimPose* out);
+bool cvr_pose_transport_read_external_direction(float* out,uint64_t* poseId);
 }
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("CameraPoseTransport",::cvr::hooks::Stage::Boot,81,cvr_hook_pose_transport_install);
+#endif
+static_assert(sizeof(cvr::camera::MainAimPose)==40 && offsetof(cvr::camera::MainAimPose,poseId)==32,
+              "MainAimPose is mirrored in rust/crates/cvr-rig/src/vrik/pose_transport.rs");
+uintptr_t cvr::camera::CurrentSerializedCameraComponent() { return cvr_pose_transport_serialized_component(); }
+bool cvr::camera::ReadMainAimPose(MainAimPose& out) { return cvr_pose_transport_read_main_aim(&out); }
+bool cvr::camera::ReadExternalMainDirection(float out[3],uint64_t* poseId) {
+    return cvr_pose_transport_read_external_direction(out,poseId);
+}
+#endif
+#else
+#include "Anim/CharacterRig.hpp"   // g_VRIKClockQpc
 
-bool EnsureCameraPoseCopyHook();
+// The plugin's state and OpenXR are asked through src/Hooks/HookServices.cpp, as the Rust port asks them, and the
+// second eye's component is held by the weak reference there; the diagnostics live in src/Camera/CameraLinkState.cpp.
+extern "C" {
+bool cvr_cpp_lobby_world_shown();
+bool cvr_cpp_xr_session_running();
+bool cvr_cpp_device_cam_active();
+bool cvr_cpp_braindance_active();
+bool cvr_cpp_bd_scene_pose_valid();
+uintptr_t cvr_cpp_cam_obj_main();
+uintptr_t cvr_cpp_vrcam_comp();
+uint64_t cvr_cpp_xr_tracking_origin_serial();
+bool cvr_cpp_xr_external_pose_reset_pending();
+bool cvr_cpp_xr_acquire_camera_pose_frame(OpenXRHeadPose* head,cvr::roomscale::Vec2* consumed,uint64_t* sequence);
+void cvr_cpp_refresh_player_camera_state();
+float cvr_cpp_normal_fov_override();
+void cvr_cpp_external_vrcam_observe(uintptr_t component);
+int cvr_cpp_external_vrcam_notify(uintptr_t eyeCamera,void(*notify)(uintptr_t));
+bool cvr_cpp_ensure_camera_pose_copy_hook();
+}
 
 // These engine leaf functions have a narrower clobber set than the Win64 ABI.
 // In particular, +682209 calls SetupDefault with a live object in R9 and uses
@@ -99,32 +112,34 @@ struct ExternalHead {OpenXRHeadPose head{};uint64_t id{};};
 thread_local ExternalHead t_externalHead{};
 std::mutex s_blendDebugMutex;
 std::mutex s_externalDebugMutex[2];
+// XrDiagNowUs, or the tests' counter (g_VRIKClockQpc, 1 MHz).
+uint64_t ClockUs() { return g_VRIKClockQpc ? static_cast<uint64_t>(g_VRIKClockQpc()) : XrDiagNowUs(); }
 
 bool ExternalAllowed() {
     // The existing device-lens and BD playback paths already own those views.
     // The main menu shown in its world is head-tracked as a scene is (Lobby/MenuLobby.hpp WorldShown).
-    return (g_menuModeValue==0 || cvr::lobby::WorldShown()) && OpenXRManager::Get().IsSessionRunning() && !DeviceCamActive() && !(g_bdActive.load(std::memory_order_relaxed) &&
-                                  g_bdScenePoseValid.load(std::memory_order_acquire));
+    return (g_menuModeValue==0 || cvr_cpp_lobby_world_shown()) && cvr_cpp_xr_session_running() && !cvr_cpp_device_cam_active() &&
+        !(cvr_cpp_braindance_active() && cvr_cpp_bd_scene_pose_valid());
 }
 bool ExternalHeadRead(ExternalHead& sample,bool includesFpp) {
     if(includesFpp) {
-        const auto component=g_camObjMain.load(std::memory_order_acquire);
+        const auto component=cvr_cpp_cam_obj_main();
         const auto source=component ? CapturePoseAddress(component+0xE0):PoseReceipt{};
         if(!source || source.payload.view!=1 || !source.payload.head.valid ||
-           source.payload.head.originSerial!=OpenXRManager::Get().GetTrackingOriginSerial())return false;
+           source.payload.head.originSerial!=cvr_cpp_xr_tracking_origin_serial())return false;
         sample={source.payload.head,source.payload.poseId};return true;
     }
     // A dormant FPP component may carry an old, still valid label. Use it only
     // when the director is actually blending that component into this view.
     uint64_t sequence{};cvr::roomscale::Vec2 consumed{};
-    if(!OpenXRManager::Get().AcquireCameraPoseFrame(&sample.head,&consumed,&sequence) || !sample.head.valid)return false;
+    if(!cvr_cpp_xr_acquire_camera_pose_frame(&sample.head,&consumed,&sequence) || !sample.head.valid)return false;
     sample.id=sequence ? sequence:NextPoseIdentity();return true;
 }
 bool SelectionIncludesFpp(uintptr_t director) {
     // Called inside the native serializer loop, which already holds its lock.
     uintptr_t table{};uint8_t count{};
     if(!ReadU64Safe(director+0x48,&table)||!ReadU8Safe(director+0x54,&count)||!table||count>64)return false;
-    const auto main=g_camObjMain.load(std::memory_order_acquire);
+    const auto main=cvr_cpp_cam_obj_main();
     for(uint32_t i=0;i<count;++i) {
         uintptr_t camera{};float weight{};
         if(ReadU64Safe(table+i*0x20,&camera)&&camera==main&&ReadFloatSafe(table+i*0x20+0x10,&weight)&&weight>0)return true;
@@ -146,7 +161,7 @@ void RecordExternal(uint32_t eye,uintptr_t address,uintptr_t component,const Ext
     std::lock_guard lock(s_externalDebugMutex[eye]);
     auto& out=CyberpunkVR_ExternalCameraDebug[eye];
     CyberpunkVR_ExternalCameraDebugSeq[eye].fetch_add(1,std::memory_order_acq_rel);
-    ++out.writes;out.stampUs=XrDiagNowUs();out.poseId=sample.id;out.origin=sample.head.originSerial;out.component=component;
+    ++out.writes;out.stampUs=ClockUs();out.poseId=sample.id;out.origin=sample.head.originSerial;out.component=component;
     std::memcpy(out.position,pose.position.data(),12);std::memcpy(out.rotation,&pose.rotation,16);
     const auto& h=sample.head;
     const float head[]{h.posX,h.posY,h.posZ,h.oriX,h.oriY,h.oriZ,h.oriW};
@@ -164,24 +179,14 @@ thread_local const ExternalSelection* t_externalRtt{};
 std::mutex s_externalMainMutex;
 ExternalViewLease<ExternalSelection> s_externalMain;
 ExternalViewLease<ExternalSelection> s_aimMain;
-cvr::WeakObjectSlot<RED4ext::WeakHandle<RED4ext::ISerializable>> s_externalVrcam;
-void ObserveExternalVrcam(uintptr_t component) {
-    // Only called with the live argument of the engine's RTT callbacks.
-    if(!component)return;
-    const auto* object=reinterpret_cast<RED4ext::ent::IComponent*>(component);
-    if(object->ref.instance==object && object->ref.refCount)
-        s_externalVrcam.Bind(component,reinterpret_cast<uintptr_t>(object->ref.refCount),object->ref);
-}
 ExternalViewKey ExternalKey() {
-    return {g_camObjMain.load(std::memory_order_acquire),
-        cvr::detail::g_vrcam_comp.load(std::memory_order_acquire),OpenXRManager::Get().GetTrackingOriginSerial()};
+    return {cvr_cpp_cam_obj_main(),cvr_cpp_vrcam_comp(),cvr_cpp_xr_tracking_origin_serial()};
 }
 bool SceneMainHandoff() {
     // This existing scene/editor route already positions VRCAM from MAIN.
     // Carry the completed MAIN receipt with that transform as well, instead
     // of losing it at the legacy component rewrite (and disabling framegen).
-    return CyberpunkVR_BdEditorAlign && g_bdActive.load(std::memory_order_relaxed) &&
-        !g_bdScenePoseValid.load(std::memory_order_acquire);
+    return CyberpunkVR_BdEditorAlign && cvr_cpp_braindance_active() && !cvr_cpp_bd_scene_pose_valid();
 }
 void NotifyExternalVrcam(uintptr_t component) {
     static thread_local bool pushing=false;
@@ -205,7 +210,7 @@ void PublishExternalMain(uintptr_t address,const PoseReceipt& receipt) {
     const bool mirror=frame.externalView || SceneMainHandoff();
     {
         std::lock_guard lock(s_externalMainMutex);
-        const auto now=XrDiagNowUs();
+        const auto now=ClockUs();
         s_aimMain.Publish(frame,key,now);
         if(mirror)s_externalMain.Publish(frame,key,now);else s_externalMain.Clear();
     }
@@ -213,31 +218,40 @@ void PublishExternalMain(uintptr_t address,const PoseReceipt& receipt) {
     // Refresh from this completed MAIN, without one-frame lag. The address is
     // only an identity comparison: locking the engine weak reference is what
     // proves lifetime, including if the old component has already been freed.
-    const auto live=s_externalVrcam.Lock(key.eyeCamera);
-    if(!live){CVR_DIAGNOSTIC(++CyberpunkVR_ExternalNotify[1]);return;}
-    const auto* component=static_cast<RED4ext::ent::IComponent*>(live.GetPtr());
-    if(!component->isEnabled || !component->owner ||
-       key.eyeCamera!=cvr::detail::g_vrcam_comp.load(std::memory_order_acquire)) {
-        CVR_DIAGNOSTIC(++CyberpunkVR_ExternalNotify[2]);return;
-    }
-    NotifyExternalVrcam(key.eyeCamera); // live holds the component through the call
-    CVR_DIAGNOSTIC(++CyberpunkVR_ExternalNotify[0]);
+    const int notified=cvr_cpp_external_vrcam_notify(key.eyeCamera,&NotifyExternalVrcam);
+    CVR_DIAGNOSTIC(++CyberpunkVR_ExternalNotify[notified==0 ? 0 : notified==1 ? 1 : 2]);
 }
 bool ReadExternalMain(ExternalSelection& output) {
     const auto key=ExternalKey();
     std::lock_guard lock(s_externalMainMutex);
-    if(!ExternalAllowed() || OpenXRManager::Get().ExternalPoseResetPending()) {
+    if(!ExternalAllowed() || cvr_cpp_xr_external_pose_reset_pending()) {
         s_externalMain.Clear();CVR_DIAGNOSTIC(++CyberpunkVR_ExternalSelectionStates[2]);return false;
     }
-    const auto now=XrDiagNowUs();
+    const auto now=ClockUs();
     if(s_externalMain.Read(key,now,output)) {
         if(!output.externalView && !SceneMainHandoff()) {s_externalMain.Clear();return false;}
         CVR_DIAGNOSTIC(++CyberpunkVR_ExternalSelectionStates[now-s_externalMain.stamp>50000?1:0]);return true;
     }
     CVR_DIAGNOSTIC(++CyberpunkVR_ExternalSelectionStates[3]);return false;
 }
+struct SourceScope {
+    PoseReceipt previous;
+    explicit SourceScope(const PoseReceipt& value):previous(t_source) { t_source=value; }
+    ~SourceScope() { t_source=previous; }
+};
+bool DescriptorMatches(uintptr_t descriptor,const PoseReceipt* receipt) {
+    if(!receipt || !*receipt || descriptor<0x10000)return false;
+    __try {
+        return std::memcmp(reinterpret_cast<const void*>(descriptor),receipt->fingerprint.rotation.data(),16)==0 &&
+               std::memcmp(reinterpret_cast<const void*>(descriptor+16),receipt->fingerprint.position.data(),12)==0;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+}
 
-uintptr_t __fastcall Blend(uintptr_t director) {
+// The detours' bodies, with C names so the bench can drive them (tools/vrik_tests TracePoseTransport) as it drives
+// the Rust port's; the three that ask where they were called from take the return address as an argument.
+extern "C" {
+uintptr_t __fastcall CvrPtBlend(uintptr_t director) {
     const auto previous=t_blendDirector;
     const auto previousHead=t_externalHead;t_externalHead={};
     t_blendDirector=director;
@@ -246,12 +260,12 @@ uintptr_t __fastcall Blend(uintptr_t director) {
     t_externalHead=previousHead;
     return result;
 }
-void __fastcall BlendFinalize(uintptr_t array) {
+void __fastcall CvrPtBlendFinalizeAt(uintptr_t array,uintptr_t returnAddress) {
     // The native blend is finished, but its serialized inputs still exist.
     // This call site is under our Blend scope; unrelated array frees never
     // acquire a camera label. Read the actual entries, not a table sampled
     // before the director took its own lock.
-    if(t_blendDirector && reinterpret_cast<uintptr_t>(_ReturnAddress())==s_exe+0x5FBE2B) {
+    if(t_blendDirector && returnAddress==s_exe+0x5FBE2B) {
         uintptr_t entries{};uint32_t count{};
         const bool diagnostics=cvr::RuntimeDiagnosticsEnabled();
         PoseBlendDebug diagnostic{};
@@ -294,20 +308,7 @@ void __fastcall BlendFinalize(uintptr_t array) {
     }
     s_blendFinalize(array);
 }
-
-struct SourceScope {
-    PoseReceipt previous;
-    explicit SourceScope(const PoseReceipt& value):previous(t_source) { t_source=value; }
-    ~SourceScope() { t_source=previous; }
-};
-bool DescriptorMatches(uintptr_t descriptor,const PoseReceipt* receipt) {
-    if(!receipt || !*receipt || descriptor<0x10000)return false;
-    __try {
-        return std::memcmp(reinterpret_cast<const void*>(descriptor),receipt->fingerprint.rotation.data(),16)==0 &&
-               std::memcmp(reinterpret_cast<const void*>(descriptor+16),receipt->fingerprint.position.data(),12)==0;
-    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
-void __fastcall Serialize(uintptr_t interfacePointer,uintptr_t destination) {
+void __fastcall CvrPtSerialize(uintptr_t interfacePointer,uintptr_t destination) {
     const auto source=CapturePoseAddress(interfacePointer-0x120+0xE0);
     InvalidatePoseAddress(destination);
     const auto previous=t_serializingComponent;
@@ -320,21 +321,21 @@ void __fastcall Serialize(uintptr_t interfacePointer,uintptr_t destination) {
     // the component receipt as before.
     if(!CapturePoseAddress(destination))PublishSerializedPose(destination,source);
 }
-void __fastcall GenericSerialize(uintptr_t interfacePointer,uintptr_t destination) {
+void __fastcall CvrPtGenericSerialize(uintptr_t interfacePointer,uintptr_t destination) {
     InvalidatePoseAddress(destination);
     s_genericSerialize(interfacePointer,destination);
     if(!t_blendDirector || !ExternalAllowed())return;
-    RefreshPlayerCameraState();
+    cvr_cpp_refresh_player_camera_state();
     if(!t_externalHead.id && !ExternalHeadRead(t_externalHead,SelectionIncludesFpp(t_blendDirector)))return;
     ExternalViewPose base{},composed{};
     if(!ReadExternalPose(destination,base)||!ComposeExternalMain(base,t_externalHead,composed)||
        !WriteExternalPose(destination,composed))return;
-    const float fov=g_normalFovOverrideValue;
+    const float fov=cvr_cpp_normal_fov_override();
     if(std::isfinite(fov)&&fov>1&&fov<179)WriteFloatSafe(destination+0x20,fov);
     PublishCameraSetupPose(destination,interfacePointer-0x120,1,t_externalHead.id,t_externalHead.head,true);
     CVR_DIAGNOSTIC(RecordExternal(0,destination,interfacePointer-0x120,t_externalHead));
 }
-uintptr_t __fastcall MainRead(uintptr_t director,uintptr_t destination,uintptr_t setup) {
+uintptr_t __fastcall CvrPtMainRead(uintptr_t director,uintptr_t destination,uintptr_t setup) {
     // Bind the actual selected setup argument. Reading director+500 here would
     // mislabel an override chosen by the director after an earlier observation.
     SourceScope scope(CapturePoseAddress(setup));
@@ -345,29 +346,28 @@ uintptr_t __fastcall MainRead(uintptr_t director,uintptr_t destination,uintptr_t
     PublishExternalMain(destination,CapturePoseAddress(destination));
     return result;
 }
-double __fastcall RttBuild(uintptr_t component,uintptr_t destination,char force) {
+double __fastcall CvrPtRttBuild(uintptr_t component,uintptr_t destination,char force) {
     // D29AA8 reads this component's +E0/+F0 before publishing its named view.
     // Capture BEFORE the read, including when the resulting coordinates repeat.
     SourceScope scope(CapturePoseAddress(component+0xE0));
-    if(component && component==cvr::detail::g_vrcam_comp.load(std::memory_order_acquire))ObserveExternalVrcam(component);
+    if(component && component==cvr_cpp_vrcam_comp())cvr_cpp_external_vrcam_observe(component);
     ExternalSelection selection{};
-    const bool external=component==cvr::detail::g_vrcam_comp.load(std::memory_order_acquire) && ReadExternalMain(selection);
+    const bool external=component==cvr_cpp_vrcam_comp() && ReadExternalMain(selection);
     const auto previousSelection=t_externalRtt;t_externalRtt=external?&selection:nullptr;
     const auto previous=t_rttComponent;t_rttComponent=component;
     const auto result=s_rtt(component,destination,external?1:force);
     t_rttComponent=previous;t_externalRtt=previousSelection;return result;
 }
-void __fastcall RttRefresh(uintptr_t component) {
-    if(component && component==cvr::detail::g_vrcam_comp.load(std::memory_order_acquire)) {
-        ObserveExternalVrcam(component);
+void __fastcall CvrPtRttRefresh(uintptr_t component) {
+    if(component && component==cvr_cpp_vrcam_comp()) {
+        cvr_cpp_external_vrcam_observe(component);
         ExternalSelection selection{};
         if(ReadExternalMain(selection))NotifyExternalVrcam(component);
     }
     s_rttRefresh(component);
 }
-uintptr_t __fastcall DescriptorBuild(uintptr_t destination,uintptr_t descriptor) {
-    if(t_rttComponent && t_rttComponent==cvr::detail::g_vrcam_comp.load(std::memory_order_acquire) &&
-       reinterpret_cast<uintptr_t>(_ReturnAddress())==s_exe+0xD29C8C) {
+uintptr_t __fastcall CvrPtDescriptorBuildAt(uintptr_t destination,uintptr_t descriptor,uintptr_t returnAddress) {
+    if(t_rttComponent && t_rttComponent==cvr_cpp_vrcam_comp() && returnAddress==s_exe+0xD29C8C) {
         if(t_externalRtt) {
             const auto& source=*t_externalRtt;
             auto opposite=source.main;
@@ -398,17 +398,16 @@ uintptr_t __fastcall DescriptorBuild(uintptr_t destination,uintptr_t descriptor)
     const auto result=s_descriptor(destination,descriptor);
     TransferPoseAddress(source,destination);return result;
 }
-uintptr_t __fastcall CameraClone(uintptr_t destination,uintptr_t source) {
+uintptr_t __fastcall CvrPtCameraClone(uintptr_t destination,uintptr_t source) {
     const auto receipt=CapturePoseAddress(source);
     const auto result=s_cameraClone(destination,source);
     TransferPoseAddress(receipt,destination);return result;
 }
-uintptr_t __fastcall RenderBuild(uintptr_t destination,uintptr_t descriptor,uintptr_t clipPlanes) {
+uintptr_t __fastcall CvrPtRenderBuildAt(uintptr_t destination,uintptr_t descriptor,uintptr_t clipPlanes,uintptr_t returnAddress) {
     // The two verified calls (4248F6, 424951) pass context+2ED0. Their descriptor is
     // made from context+2C50, populated by the registered-camera copy. 2.31 had one
     // call (4E50F9) with context+20A0 / +1E20: the context block moved up by 0xE30.
     PoseReceipt source{};
-    const auto returnAddress=reinterpret_cast<uintptr_t>(_ReturnAddress());
     if((returnAddress==s_exe+0x4248FB || returnAddress==s_exe+0x424956) && clipPlanes>0x2ED0) {
         const auto context=clipPlanes-0x2ED0;
         source=CapturePoseAddress(context+0x2C50);
@@ -417,6 +416,27 @@ uintptr_t __fastcall RenderBuild(uintptr_t destination,uintptr_t descriptor,uint
     InvalidatePoseAddress(destination);
     const auto result=s_render(destination,descriptor,clipPlanes);
     TransferPoseAddress(source,destination);return result;
+}
+// The bench's stand-ins for the engine: the image base and the ten originals, in the detours' order.
+void CvrPoseTransportBind(uintptr_t exe,const uintptr_t* originals) {
+    s_exe=exe;
+    const auto at=[&](int k) { return originals ? originals[k]:uintptr_t{}; };
+    s_blend=reinterpret_cast<BlendFn>(at(0));s_blendFinalize=reinterpret_cast<BlendFinalizeFn>(at(1));
+    s_serialize=reinterpret_cast<SerializeFn>(at(2));s_genericSerialize=reinterpret_cast<SerializeFn>(at(3));
+    s_mainRead=reinterpret_cast<RenderFn>(at(4));s_rtt=reinterpret_cast<RttFn>(at(5));s_rttRefresh=reinterpret_cast<RttRefreshFn>(at(6));
+    s_descriptor=reinterpret_cast<CopyFn>(at(7));s_cameraClone=reinterpret_cast<CopyFn>(at(8));s_render=reinterpret_cast<RenderFn>(at(9));
+}
+}
+
+namespace {
+void __fastcall BlendFinalize(uintptr_t array) {
+    CvrPtBlendFinalizeAt(array,reinterpret_cast<uintptr_t>(_ReturnAddress()));
+}
+uintptr_t __fastcall DescriptorBuild(uintptr_t destination,uintptr_t descriptor) {
+    return CvrPtDescriptorBuildAt(destination,descriptor,reinterpret_cast<uintptr_t>(_ReturnAddress()));
+}
+uintptr_t __fastcall RenderBuild(uintptr_t destination,uintptr_t descriptor,uintptr_t clipPlanes) {
+    return CvrPtRenderBuildAt(destination,descriptor,clipPlanes,reinterpret_cast<uintptr_t>(_ReturnAddress()));
 }
 
 bool Matches(const cvr::camera::sites::Site& site) {
@@ -432,23 +452,23 @@ bool InstallCameraPoseTransport() {
     s_exe=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     if(!s_exe)return false;
     const Site sites[]={
-        {cvr::camera::sites::Blend,reinterpret_cast<void*>(&Blend),reinterpret_cast<void**>(&s_blend)},
+        {cvr::camera::sites::Blend,reinterpret_cast<void*>(&CvrPtBlend),reinterpret_cast<void**>(&s_blend)},
         {cvr::camera::sites::BlendFinalize,reinterpret_cast<void*>(&BlendFinalize),reinterpret_cast<void**>(&s_blendFinalize)},
-        {cvr::camera::sites::Serialize,reinterpret_cast<void*>(&Serialize),reinterpret_cast<void**>(&s_serialize)},
-        {cvr::camera::sites::GenericSerialize,reinterpret_cast<void*>(&GenericSerialize),reinterpret_cast<void**>(&s_genericSerialize)},
+        {cvr::camera::sites::Serialize,reinterpret_cast<void*>(&CvrPtSerialize),reinterpret_cast<void**>(&s_serialize)},
+        {cvr::camera::sites::GenericSerialize,reinterpret_cast<void*>(&CvrPtGenericSerialize),reinterpret_cast<void**>(&s_genericSerialize)},
         {cvr::camera::sites::SetupCopy,reinterpret_cast<void*>(&CvrPoseSetupCopyDetour),&CvrPoseSetupCopyOriginal},
         {cvr::camera::sites::SetupDefault,reinterpret_cast<void*>(&CvrPoseSetupDefaultDetour),&CvrPoseSetupDefaultOriginal},
-        {cvr::camera::sites::MainRead,reinterpret_cast<void*>(&MainRead),reinterpret_cast<void**>(&s_mainRead)},
-        {cvr::camera::sites::RttBuild,reinterpret_cast<void*>(&RttBuild),reinterpret_cast<void**>(&s_rtt)},
-        {cvr::camera::sites::RttRefresh,reinterpret_cast<void*>(&RttRefresh),reinterpret_cast<void**>(&s_rttRefresh)},
+        {cvr::camera::sites::MainRead,reinterpret_cast<void*>(&CvrPtMainRead),reinterpret_cast<void**>(&s_mainRead)},
+        {cvr::camera::sites::RttBuild,reinterpret_cast<void*>(&CvrPtRttBuild),reinterpret_cast<void**>(&s_rtt)},
+        {cvr::camera::sites::RttRefresh,reinterpret_cast<void*>(&CvrPtRttRefresh),reinterpret_cast<void**>(&s_rttRefresh)},
         {cvr::camera::sites::DescriptorBuild,reinterpret_cast<void*>(&DescriptorBuild),reinterpret_cast<void**>(&s_descriptor)},
-        {cvr::camera::sites::CameraClone,reinterpret_cast<void*>(&CameraClone),reinterpret_cast<void**>(&s_cameraClone)},
+        {cvr::camera::sites::CameraClone,reinterpret_cast<void*>(&CvrPtCameraClone),reinterpret_cast<void**>(&s_cameraClone)},
         {cvr::camera::sites::RenderBuild,reinterpret_cast<void*>(&RenderBuild),reinterpret_cast<void**>(&s_render)}
     };
     for(const auto& site:sites)if(!Matches(site.expected))return false;
     if(!Matches(cvr::camera::sites::RenderCall) || !Matches(cvr::camera::sites::BlendFinalizeCall) ||
        !Matches(cvr::camera::sites::RttDescriptorCall)||
-       !EnsureCameraPoseCopyHook())return false;
+       !cvr_cpp_ensure_camera_pose_copy_hook())return false;
     bool ok=true;
     for(const auto& site:sites) {
         void* target=reinterpret_cast<void*>(s_exe+site.expected.rva);
@@ -467,8 +487,8 @@ CVR_HOOK("CameraPoseTransport",::cvr::hooks::Stage::Boot,81,InstallCameraPoseTra
 uintptr_t cvr::camera::CurrentSerializedCameraComponent() {return t_serializingComponent;}
 
 bool cvr::camera::ReadMainAimPose(MainAimPose& out) {
-    if(!ExternalAllowed() || OpenXRManager::Get().ExternalPoseResetPending())return false;
-    ExternalSelection frame{};const auto key=ExternalKey();const auto now=XrDiagNowUs();
+    if(!ExternalAllowed() || cvr_cpp_xr_external_pose_reset_pending())return false;
+    ExternalSelection frame{};const auto key=ExternalKey();const auto now=ClockUs();
     {
         std::lock_guard lock(s_externalMainMutex);
         if(!s_aimMain.Read(key,now,frame) || now-s_aimMain.stamp>100000)return false;
@@ -482,8 +502,8 @@ bool cvr::camera::ReadMainAimPose(MainAimPose& out) {
 }
 
 bool cvr::camera::ReadExternalMainDirection(float out[3],uint64_t* poseId) {
-    if(!out || !ExternalAllowed() || OpenXRManager::Get().ExternalPoseResetPending())return false;
-    ExternalSelection frame{};const auto key=ExternalKey();const auto now=XrDiagNowUs();
+    if(!out || !ExternalAllowed() || cvr_cpp_xr_external_pose_reset_pending())return false;
+    ExternalSelection frame{};const auto key=ExternalKey();const auto now=ClockUs();
     {
         std::lock_guard lock(s_externalMainMutex);
         // Steering needs a recent observation even though a missing MAIN update
@@ -494,3 +514,4 @@ bool cvr::camera::ReadExternalMainDirection(float out[3],uint64_t* poseId) {
     out[0]=forward.x;out[1]=forward.y;out[2]=0;
     if(poseId)*poseId=frame.sample.id;return true;
 }
+#endif

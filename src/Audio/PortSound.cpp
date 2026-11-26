@@ -1,6 +1,11 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // The port's own sounds (Audio/PortSound.hpp).
 #include "Audio/PortSound.hpp"
 #include "Core/Paths.hpp"
+
+#if CVR_RUST_VRIK
+// The sounds are rust/crates/cvr-rig/src/vrik/port_sound.rs (stb_vorbis stays compiled by src/Audio/StbVorbis.cpp).
+#else
 
 #include <windows.h>
 #include <xaudio2.h>
@@ -352,3 +357,5 @@ void Tick() {
 }
 
 }  // namespace cvr::sound
+#endif
+#endif

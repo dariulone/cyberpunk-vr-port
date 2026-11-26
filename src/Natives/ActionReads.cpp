@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Hooks/LadderInput.hpp"
 #include "Hooks/SwimmingInput.hpp"
 #include <RED4ext/RED4ext.hpp>
@@ -7,7 +8,9 @@
 #include <cmath>
 #include <cstring>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
 
 // The state machines' input reads, gamestateMachineGameScriptInterface::GetActionValue and IsActionJustPressed,
 // with the player's machines given the gestures: the ladder's climbing axis on a resting MoveY, the swimming strokes
@@ -16,6 +19,10 @@ extern void Log(const char*,...);
 // host's most sampled lines). Here the function objects are swapped with native ones the way the host's overrides swap
 // them: the original moves into the object made here and is called through it, so a mod's own Override of the same
 // function still chains over this one.
+#if CVR_RUST_VRIK
+// The swap and the reads are rust/crates/cvr-rig/src/vrik/action_reads.rs (CvrInstallActionReads is Rust's export);
+// whether they are in place still answers to this name (src/Hooks/HookServices.cpp, tools/vrik_tests).
+#else
 namespace cvr::swimming {
 namespace {
 RED4ext::CBaseFunction* g_actionValue{};   // the originals, after the swap
@@ -99,3 +106,5 @@ bool ScriptHooksActive() { return g_actionValue && g_justPressed; }
 }
 
 extern "C" bool CvrInstallActionReads() { return cvr::swimming::InstallScriptHooks(); }
+#endif
+#endif

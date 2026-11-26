@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/SceneGpuProfile.hpp"
 #include "Render/CommandResources.hpp"
 #include <wrl/client.h>
@@ -11,6 +12,10 @@
 #include <tuple>
 #include <unordered_map>
 #include <set>
+#if CVR_RUST_VRIK
+// The exports' tables are attached by rust/crates/cvr-render/src/export_attach.rs as the plugin loads;
+// nothing of this file remains in the Rust build.
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SceneGpuRequest{0},CyberpunkVR_SceneGpuReportSeq{0};
@@ -379,3 +384,5 @@ void Poll() {
     Publish();
 }
 }
+#endif
+#endif

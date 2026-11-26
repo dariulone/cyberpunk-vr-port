@@ -12,6 +12,7 @@
 #include "Anim/HandGestures.hpp"
 #include "Anim/HeadAimWeapon.hpp"
 #include "Anim/VrikState.hpp"   // g_VRLocomotionState, for the sprint crouch gate
+#include "Anim/CharacterRig.hpp"  // VRIK_ClockMs / VRIK_ClockQpc
 #include "Core/VrCoreShared.hpp"
 #include "Camera/CameraState.hpp"   // DeviceCamActive -- the stick belongs to the camera, not the player
 #include "Core/LiveControls.hpp"
@@ -34,7 +35,6 @@
 #include "Hooks/CyberwareChord.hpp"
 #include "Hooks/WeaponWheelHold.hpp"
 #include "Natives/Reach.hpp"
-#include "Natives/PhysHands.hpp"
 #include "Natives/VrMenu.hpp"
 #include "Quest/StoryAttention.hpp"
 #include "Runtimes/OpenXRManager.hpp"
@@ -47,37 +47,44 @@
 #include <cstdint>
 #include <cstddef>
 #include <Xinput.h>
-
-// The right grip's published flag (shared[49]) and why it is what it is, logged when that changes (physhands trace=1):
-// 0 released, 1 a ladder, 2 the cyberware, 3 held, 4 a VR UI capture, 5 a menu or braindance, 6 the VR menu's capture.
-static int s_rightGripWhy = -1;
-static void NoteRightGrip(int why, float raw) {
-    if (why == s_rightGripWhy) return;
-    if (cvr::physhands::Tracing())
-        Log("[xinput] right grip published %s (%d, the controller's %.2f)\n", why == 3 ? "held" : "off", why, raw);
-    s_rightGripWhy = why;
-}
 #include <mutex>
 
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_WeaponClass;
 extern HWND g_gameHwnd;
+#endif
+// SendInput through src/Hooks/InputServices.cpp, which tools/vrik_tests records instead of typing; the clocks are the solve's
+// (VRIK_ClockMs, VRIK_ClockQpc), which the tests set.
+#if !CVR_RUST_VRIK
+extern "C" uint32_t cvr_cpp_send_input(uint32_t count, const void* inputs, int size);
+#endif
+#if CVR_RUST_VRIK
+// THE MERGE IS RUST'S (rust/crates/cvr-rig/src/vrik/xinput.rs): the scanner's state and the trigger's switch it publishes.
+extern "C" { void cvr_input_publish_scanner_vision(int state); int cvr_input_scanner_vision(); bool cvr_input_weapon_trigger_enabled(); }
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void cvr::input::PublishScannerVision(int state) { cvr_input_publish_scanner_vision(state); }
+int cvr::input::ScannerVision() { return cvr_input_scanner_vision(); }
+bool cvr::input::WeaponTriggerEnabled() { return cvr_input_weapon_trigger_enabled(); }
+#endif
+#else
 namespace {
     std::atomic<bool> s_weaponTriggerEnabled{false};
     std::atomic<uint64_t> s_weaponTriggerStamp{0};
     std::atomic<uint64_t> s_scannerVision{0};
 }
 void cvr::input::PublishScannerVision(int state) {
-    scannerHandPhysics.Publish(state);
-    s_scannerVision.store((GetTickCount64()<<1)|(state==1?1:0),std::memory_order_release);
+    s_scannerVision.store((VRIK_ClockMs()<<1)|(state==1?1:0),std::memory_order_release);
 }
 int cvr::input::ScannerVision() {
-    const auto sample=s_scannerVision.load(std::memory_order_acquire),stamp=sample>>1,now=GetTickCount64();
+    const auto sample=s_scannerVision.load(std::memory_order_acquire),stamp=sample>>1,now=VRIK_ClockMs();
     return stamp && now>=stamp && now-stamp<=350 ? int(sample&1) : -1;
 }
 bool cvr::input::WeaponTriggerEnabled() {
     return s_weaponTriggerEnabled.load(std::memory_order_relaxed) &&
-        GetTickCount64()-s_weaponTriggerStamp.load(std::memory_order_relaxed)<250;
+        VRIK_ClockMs()-s_weaponTriggerStamp.load(std::memory_order_relaxed)<250;
 }
+
+#endif
 
 // DASH on the right stick pushed fully UP. 1 = on. A knob rather than a hardcoded gesture like
 // sprint and crouch, because this one claims half of an axis that a player who turns "Disable Mouse Y"
@@ -98,20 +105,24 @@ bool cvr::input::WeaponTriggerEnabled() {
 // buttons stand in for those two shoulders so the UI remains navigable with Virtual Desktop gamepad
 // emulation off, and the braindance has its editor (LB) and its layers (RB). This is a hardware
 // translation, not a gameplay remap; gameplay grips remain reserved for VR actions.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_InputDefaultInUi = 1;
 // How long the magazine drop stays blocked after a UI overlay closes. Spamming the close button is what
 // this is for: the popup goes away on the first press and the next one would land in gameplay, where B
 // drops the magazine.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_PopupMagBlockMs = 1000;
+#endif
 // TEST INPUT: XInput button bits (0x4000 X, 0x2000 B, 0x0080 R3, ...) OR'ed into the VR controller state as if
 // the controllers pressed them, so a harness can drive the whole input path -- shared slots, the merge, the
 // game's own actions. The OpenXR simulator does not map the port's boolean actions; written by a test process
 // only, and 0 in normal play. Bits 16/17 hold the left/right grip fully: the simulator's pose command has no
 // grip, and the monowire deploys and swings only while one is held.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) volatile int32_t CyberpunkVR_TestPadButtons = 0;
-// Bounded background test stick: signed X/Y int16 in the low DWORD, GetTickCount deadline in the high DWORD.
-// No controller replacement in normal play; a lost harness expires within ten seconds.
-extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_TestPadLeft{};
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_MoveTiers = 1;
 // HOW LONG THE STICK MUST STAY AT THE STOP BEFORE IT SPRINTS, milliseconds. It used to be instant, and
 // with discrete speed that is wrong by construction: any push already runs at full speed, so the stick
@@ -123,12 +134,18 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_SprintHoldMs = 200;
 // That is the opposite of what a crouching player wants, so the block is the honest default. 1 asks
 // anyway, for a build or a cyberware where the game answers differently.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SprintFromCrouch = 0;
+#endif
 // The left stick's clicks, counted by the OpenXR loop (Runtimes/OpenXRFrameLoop.cpp): the sprint-on-click mode.
+#if !CVR_RUST_VRIK
 extern "C" volatile long CyberpunkVR_LeftStickClicks;
+#endif
 // THE RE-ENTRY BLIP. Sprint is a HOLD -- measured: ten press/release pulses never entered the sprint
 // state once, while a held button always has. But a game that has LEFT the sprint (a dash, a jump, ADS)
 // will not re-enter on a button that is already down, so the hold is briefly RELEASED to make the next
 // hold an edge. Held for SprintPulseMs at a minimum between blips, released for SprintGapMs.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SprintPulseMs = 240;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SprintGapMs   = 60;
 // After this long without reaching the sprint, stop blipping and just HOLD. Holding is the behaviour
@@ -159,7 +176,7 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_DualWieldPressDelayMs = 40;
 // the left gun's magazine drop (see the end of the merge).
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DualWieldYHoldMs = 300;
 
-// SCANNER GESTURE -- physical left hand at the left ear + a fresh left-stick click.
+// SCANNER GESTURE -- left hand at the left ear + left grip toggles the scanner.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerGesture = 1;
 // The ear, in HMD-LOCAL XR axes (x right, y up, z BACKWARD -- the published hand position is in the
 // headset's own frame, so this rides the head and works whichever way the player faces).
@@ -175,19 +192,29 @@ extern "C" __declspec(dllexport) float CyberpunkVR_ScannerEarMargin = 0.04f;
 // dropout, so a bad tick has to be swallowed rather than believed.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerEnterMs = 80;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerExitMs  = 250;
-// TOGGLE OR HOLD. The game's Vision_Hold_Button stays open while LB is asserted.
-// By default each fresh left-ear L3 click flips the latch; 0 keeps it open only
-// while that click is held in the ear zone.
+// TOGGLE OR HOLD. The game's own binding is Vision_Hold_Button, i.e. the scanner stays open only
+// while LB is asserted -- so a held gesture was the shape that matched it, and holding a grip at the
+// ear for as long as the scanner is wanted is what that costs. With this on the gesture only FLIPS a
+// latch and the port keeps LB asserted itself: squeeze at the ear to open, squeeze at the ear again
+// to close, hand free in between. 0 restores the original hold.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerToggle = 1;
-// 1 = a button bound to LB toggles the scanner as well (press opens, press closes); 0 = the game's raw hold.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerButtonToggle = 1;
-// THE HACK LIST ON THE MOVEMENT STICK, up and down. Navigation keeps the existing
-// handedness mapping; the activation gesture alone always belongs to physical LEFT L3.
-// 0.90 to fire and 0.50 to re-arm keep a resting thumb from paging a list.
+#endif
+// THE HACK LIST ON THE LEFT STICK, up and down, at the threshold every other gesture in this file
+// fires at. It REPLACES the face buttons for paging -- X and Y sat under the thumb of the hand that is
+// already squeezing a grip at the ear, which is the reach the one-handed scanner exists to avoid, so X
+// is now only the apply and Y does nothing. 0.90 to fire and 0.50 to re-arm are the snap turn's numbers
+// for its reason: a resting thumb, or a wrist drifting while walking, must not page a list.
 // 1 = while MOUNTED, A also emits X so a dialogue line can be confirmed. X is the vehicle exit
 // there and is held out of the merge, which left nothing able to confirm at all. The handbrake on
 // A keeps working -- the mirror is added, not substituted. 0 restores the previous behaviour.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VehicleDialogConfirmOnA = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerStickNav      = 1;
 extern "C" __declspec(dllexport) float   CyberpunkVR_ScannerStickNavFire  = 0.90f;
 extern "C" __declspec(dllexport) float   CyberpunkVR_ScannerStickNavRearm = 0.50f;
@@ -198,8 +225,14 @@ extern "C" __declspec(dllexport) float   CyberpunkVR_ScannerStickNavRearm = 0.50
 // read out of. Each is separately switchable because each takes a button away from gameplay.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerFaceNav     = 1;   // left Y up, left X down / apply
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerTriggerTag  = 1;   // right trigger tags, and does not fire
+#endif
 // Raised by the weapon module while the weapon is carried in the LEFT hand (see TwoHandGrip.cpp).
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int CyberpunkVR_CarryLeft;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerStickTab    = 1;   // right stick click changes the tab
 // THE SCANNER'S ZOOM: hold the LEFT trigger and the right stick zooms, in the game's own steps.
 // The right stick is busy -- crouch, dash, pitch, snap turn -- so the trigger is the modifier that
@@ -225,23 +258,33 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerPulseMs     = 90;
 // as a button. 400 ms is the timeout the game uses for its own hold bindings.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VehicleExitHoldMs = 400;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DashStickUp = 1;
-// Raw horizontal travel, not the deadzoned camera axis. Requiring >0.90 after
-// deadzone meant >0.918 raw travel and missed slightly diagonal flicks. Keep
-// a deliberate push with a wide hysteresis band, without requiring the stop.
-extern "C" __declspec(dllexport) float CyberpunkVR_SnapTurnStickFire  = cvr::input::kSnapTurnStickFire;
-extern "C" __declspec(dllexport) float CyberpunkVR_SnapTurnStickRearm = cvr::input::kSnapTurnStickRearm;
+// HOW FAR THE RIGHT STICK MUST GO TO SNAP-TURN, and how far back before it can snap again. 0.90 puts
+// the snap where every other gesture in this file already is (sprint, crouch, dash) -- a deliberate
+// push to the stop, not the half-deflection it used to be, which is where a thumb rests and where a
+// wrist drifts while walking. The re-arm is not back at centre on purpose: 90 degrees is three snaps,
+// and a full return between each makes that slow; 0.90/0.50 is a 0.40 band no jitter crosses.
+extern "C" __declspec(dllexport) float CyberpunkVR_SnapTurnStickFire  = 0.90f;
+extern "C" __declspec(dllexport) float CyberpunkVR_SnapTurnStickRearm = 0.50f;
 // How long the synthetic dodge press is held, milliseconds. A dodge is a button PRESS, so the pulse
 // only has to be long enough for the game to see an edge; held level it would dodge over and over.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DashPulseMs = 100;
-// How long the synthetic R3 of the crouch gesture is held, milliseconds: short enough to stay a tap.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_CrouchPulseMs = 100;
+#endif
 
 // The left trigger is claimed by the lighter gesture while it is armed; the gate says so.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) int CyberpunkVR_LtLighterGate;
+#endif
 // How many times the wheel-hub horn gesture fired while it had no button to press. Non-zero here
 // with xr_wheel_horn on means the gesture still works and only the binding is missing.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugWheelHornGestures = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// The hook registers from rust/crates/cvr-render/src/hook_table.rs (its want: the live controls' xrXInputInstall).
+#else
 namespace { volatile bool g_sprintInputActive = false; }  // private to this hook
 
 // XInput merge: hook XInputGetState in the loaded XInput1_*.dll and OR the VR
@@ -293,7 +336,7 @@ static void SendZoomKey(bool zoomIn) {
     in[0].ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
     in[1] = in[0];
     in[1].ki.dwFlags = KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP;
-    SendInput(2, in, sizeof(INPUT));
+    cvr_cpp_send_input(2, in, sizeof(INPUT));
 }
 
 // THE HACK LIST, AS A KEY, and for the same reason the zoom above is one: the pad button the game binds
@@ -316,7 +359,7 @@ static void SendListKey(bool up) {
     in[0].ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
     in[1] = in[0];
     in[1].ki.dwFlags = KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP;
-    SendInput(2, in, sizeof(INPUT));
+    cvr_cpp_send_input(2, in, sizeof(INPUT));
 }
 
 static float ApplyStickDeadzone(float v, float dz) {
@@ -339,7 +382,7 @@ static uint16_t SenseSystemEvent(bool pressed, bool available) {
     static std::mutex mutex;
     static cvr::input::SenseSystemButton button;
     std::lock_guard lock(mutex);
-    const auto event = button.Update(pressed, GetTickCount64(), available);
+    const auto event = button.Update(pressed, VRIK_ClockMs(), available);
     static uint16_t logged = 0;
     if (event && !(logged & event)) {
         logged |= event;
@@ -348,10 +391,10 @@ static uint16_t SenseSystemEvent(bool pressed, bool available) {
     return event;
 }
 
-DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
-    DWORD r = ERROR_DEVICE_NOT_CONNECTED;
-    if (g_realXInputGetState) r = g_realXInputGetState(dwUserIndex, pState);
-
+// The merge, given what the real XInputGetState returned: C linkage, so tools/vrik_tests calls the same name in both
+// builds (rust/crates/cvr-rig/src/vrik/xinput.rs).
+extern "C" DWORD cvr_xinput_merge(DWORD dwUserIndex, XINPUT_STATE* pState, DWORD realResult) {
+    DWORD r = realResult;
     if (!pState) return r;
     if (dwUserIndex != 0) return r;
     if (g_liveControls.xrXInputHook == 0) { SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
@@ -361,27 +404,16 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     vr.buttons |= static_cast<uint16_t>(CyberpunkVR_TestPadButtons & 0xFFFF);
     if (CyberpunkVR_TestPadButtons & 0x10000) vr.leftGrip = 1.f;
     if (CyberpunkVR_TestPadButtons & 0x20000) vr.rightGrip = 1.f;
-    if (const auto test = CyberpunkVR_TestPadLeft.load(std::memory_order_relaxed)) {
-        const int32_t remaining = static_cast<int32_t>(uint32_t(test >> 32) - GetTickCount());
-        if (remaining > 0 && remaining <= 10000) {
-            vr.leftThumbX = static_cast<int16_t>(test & 0xFFFF) / 32767.f;
-            vr.leftThumbY = static_cast<int16_t>((test >> 16) & 0xFFFF) / 32767.f;
-        }
-    }
     // PSVR2: the Sense controller's Create button, tap = Start, hold = Back (Hooks/Psvr2Input.hpp)
     vr.buttons |= SenseSystemEvent(vr.psvr2SystemPressed, vr.psvr2SystemAvailable && !cvr::vrui::CapturesInput());
     // LEFT-HANDED, THE CONTROLLERS TRADE ROLES HERE, once (Hooks/Handedness.hpp): from this line `vr` is what the
     // controllers mean to the game -- "right" the weapon hand, "left" the other one -- and `physical` is the two
     // controllers as they are, for what a hand does as a hand (its fingers, a ladder rung, its arm's cyberware, the
-    // menu tab its grip pages toward). The scanner always uses the physical left hand.
+    // menu tab its grip pages toward). The support hand is the one that raises the scanner.
     VRControllerState physical = vr;
-    static uint64_t scannerPressesSeen=0;
-    static bool scannerLatch=false;
-    const uint64_t freshScannerPresses=physical.scannerPresses>=scannerPressesSeen ?
-        physical.scannerPresses-scannerPressesSeen : 0;
-    scannerPressesSeen=physical.scannerPresses;
     const bool leftHanded = g_liveControls.xrLeftHanded != 0;
     if (leftHanded) vr = cvr::input::Mirrored(vr, g_liveControls.xrLeftHandedBindings);
+    const int supportHand = leftHanded ? 1 : 0;
     // The hand's grip on what it reaches for presses the interaction button (Natives/Reach.hpp).
     if (cvr::reach::UseHeld()) vr.buttons |= 0x4000;
     cvr::input::DispatchCyberwareChord();
@@ -406,12 +438,10 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         pState->Gamepad.wButtons &= static_cast<uint16_t>(~0x4000);
     }
     if(cvr::vrui::CapturesInput()){
-        scannerLatch=false;
         pState->Gamepad={};g_lookStickX.store(0,std::memory_order_relaxed);
         cvr::swimming::ResetInput();cvr::ladder::ResetInput();
         for(int slot:{30,49,vrshared::kRightSecondaryBtn,vrshared::kLeftSecondaryBtn,vrshared::kRightStickClick,vrshared::kLeftGripPressed,vrshared::kRightTriggerAnalog,vrshared::kLeftTriggerAnalog})
             OpenXRManager::Get().SetSharedSlot(slot,0);
-        NoteRightGrip(4,physical.rightGrip);
         PublishMergedPacket(pState);return r;
     }
     // THE VR MENU holds the triggers, grips and face buttons while it is open (Natives/VrMenu.cpp reads them
@@ -546,7 +576,6 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // a slot left standing at 1 would keep firing after the menu closes.
     if (keypadInput || (CyberpunkVR_InputDefaultInUi != 0 &&
         (g_menuModeValue != 0 || inBraindance || g_bdActive.load(std::memory_order_relaxed) != 0))) {
-        scannerLatch=false;
         pState->Gamepad.wButtons |= vr.buttons;
         // the grips' shoulders: a menu's and a braindance's, never another scene's or the keypad's
         if (!keypadInput && (inBraindance || g_bdActive.load(std::memory_order_relaxed) == 0))
@@ -586,7 +615,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         if (cvr::lobby::WorldShown()) {
             pState->Gamepad.bLeftTrigger = 0;
             pState->Gamepad.bRightTrigger = 0;
-            if (cvr::lobby::Curtain() > 0.0f || cvr::lobby::intro::Latest() != nullptr) {
+            if (cvr::lobby::Curtain() > 0.0f || cvr::lobby::intro::Running()) {
                 pState->Gamepad.sThumbLX = pState->Gamepad.sThumbLY = 0;
                 pState->Gamepad.sThumbRX = pState->Gamepad.sThumbRY = 0;
                 g_lookStickX.store(0.0f, std::memory_order_relaxed);
@@ -601,7 +630,6 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         // finger curl is drawn from them and a menu is no reason for a fist.
         OpenXRManager::Get().SetSharedSlot(30, 0.0f);
         OpenXRManager::Get().SetSharedSlot(49, 0.0f);
-        NoteRightGrip(5, physical.rightGrip);
         OpenXRManager::Get().SetSharedSlot(vrshared::kRightSecondaryBtn, 0.0f);
         OpenXRManager::Get().SetSharedSlot(vrshared::kLeftSecondaryBtn, 0.0f);
         OpenXRManager::Get().SetSharedSlot(vrshared::kRightStickClick, 0.0f);
@@ -629,22 +657,25 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // The weapon test alone was too wide and cost the brake: no weapon is equipped while driving,
     // so LT did nothing at all in a vehicle -- LT did not work, and rightly so.
     // The lighter is not in anyone's hand behind a steering wheel, so the vehicle flag we already
-    // maintain for VRIK settles it. CyberpunkVR_LtLighterGate=0 (an export, no ini key) drops the gate.
-    // NOT WHILE A DEVICE CAMERA IS TAKEN OVER: V holds no weapon of her own in a camera or the q303
-    // SniperNest, so the gate read "empty hands" and swallowed the nest's zoom (LT), 2026-11-12.
-    const bool deviceTakeover = DeviceCamActive();
+    // maintain for VRIK settles it. xr_lt_needs_weapon=0 drops the gate entirely for anyone who
+    // does not use the smoking mod and would rather have vanilla LT everywhere.
     const bool ltClaimedByLighter =
-        CyberpunkVR_LtLighterGate != 0 && !g_hasWeaponEquipped && !g_isInVehicle && !deviceTakeover;
+        CyberpunkVR_LtLighterGate != 0 && !g_hasWeaponEquipped && !g_isInVehicle;
     if (!ltClaimedByLighter && lt > pState->Gamepad.bLeftTrigger)  pState->Gamepad.bLeftTrigger  = lt;
     // ...and not while that trigger is working a pump's fore-end: grip + trigger on the fore-end is the rack, and
     // the same squeeze reaching the game would aim down the sights halfway through it. The reload mod holds the
     // deadline up for as long as the hand is on the fore-end (SetVRLeftTriggerBlock); the raw value above is
     // still published, which is what it reads.
-    if (GetTickCount64() < CyberpunkVR_LeftTriggerBlockUntil) pState->Gamepad.bLeftTrigger = 0;
+    if (VRIK_ClockMs() < CyberpunkVR_LeftTriggerBlockUntil) pState->Gamepad.bLeftTrigger = 0;
 
-    // ---- SCANNER: physical left hand to the left ear + fresh L3 -------------------------------
-    // OpenXR owns the raw click before its D-pad/deferred-sprint conversion and publishes a
-    // monotonic press count, so a short press between XInput polls is not lost.
+    // ---- SCANNER: left hand to the left ear + left grip -----------------------------------------
+    //
+    // The game's own scanner is a HOLD on LB (Vision_Hold_Button = IK_Tab + IK_Pad_LeftShoulder), so
+    // The gesture flips a latch which keeps LB asserted after the grip is released.
+    // Navigation is enabled only after the game confirms Vision=Focus.
+    //
+    // The hand arms the zone on its own and the grip gates the output, so a squeeze with the hand
+    // already at the ear takes effect on the same frame.
     const int cyberwareKind=cvr::cyberware::SelectedKind();
     const bool physicalCyberware=((cyberwareKind>=1 && cyberwareKind<=3) || cyberwareKind==5) && g_menuModeValue==0 && !cvr::anim::IsHeadAimWeaponActive();
     const bool wireOwnsGrip=physicalCyberware && cyberwareKind==3 && !onLadder;
@@ -655,51 +686,108 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     const bool fireHeld=weaponTrigger.Update(firearmTrigger,vr.rightTrigger);
     if(firearmTrigger)rt=fireHeld?255:0;
     s_weaponTriggerEnabled.store(firearmTrigger,std::memory_order_relaxed);
-    s_weaponTriggerStamp.store(GetTickCount64(),std::memory_order_relaxed);
+    s_weaponTriggerStamp.store(VRIK_ClockMs(),std::memory_order_relaxed);
     cvr::cyberware::PublishGrips(wireOwnsGrip && physical.leftGrip>.5f,wireOwnsGrip && physical.rightGrip>.5f);
     bool scannerHold = false;
     const int scannerVision=cvr::input::ScannerVision();
     const bool scannerActive=scannerVision==1 && g_menuModeValue==0;
     {
-        static cvr::input::ScannerRequest request;
-        const bool enabled=CyberpunkVR_ScannerGesture!=0 && gameplayScreen && !menuCapture &&
-            !cvr::lobby::WorldShown();
-        if(!enabled) {
-            scannerLatch=false;
-        } else if(CyberpunkVR_ScannerToggle!=0) {
-            if(freshScannerPresses&1)scannerLatch=!scannerLatch;
-        } else {
-            scannerLatch=false;
-        }
-        request.Update(scannerLatch,scannerVision,GetTickCount64());
-        scannerHold=enabled && (CyberpunkVR_ScannerToggle!=0 ? scannerLatch : physical.scannerHeld);
-    }
+        static bool   s_earArmed = false;
+        static bool   s_gesture = false;      // the raw gesture this frame: hand at the ear + grip
+        static bool   s_pressUsed = false;   // tracking dropouts cannot toggle twice during one squeeze
+        static bool   s_latch = false;        // the toggled state the port asserts LB from
+        static cvr::input::ScannerSqueeze s_squeeze;   // only a squeeze begun AT the ear counts
+        static double s_inMs = 0.0;    // continuous time INSIDE the zone
+        static double s_outMs = 0.0;   // continuous time OUTSIDE it
+        static LARGE_INTEGER s_qpc = {};
 
-    // ---- SCANNER ON THE LB BUTTON, AS A TOGGLE ---------------------------------------------------
-    //
-    // The game's LB is Vision_Hold_Button, a HOLD. The ear gesture above has always been a toggle; a
-    // button bound to LB (here the Frame bumper action, which a SteamVR binding can put on an Index
-    // trackpad) went straight through as the raw hold. 2026-11-12, the user: the scanner should toggle.
-    // One press opens, the next closes. The raw LB is taken out of the merge and asserted from the latch.
-    // On foot the same request check as the gesture's releases a press the game did not take; in a
-    // device takeover (the q303 SniperNest) PlayerStateMachine.Vision is not trusted to report the
-    // device's scanner, so only a second press or leaving the takeover ends it.
-    // Not in a vehicle and not in menus/braindance (those keep the vanilla LB; the latter never reach here).
-    {
-        static bool s_lbWas = false, s_btnLatch = false, s_wasTakeover = false;
-        static cvr::input::ScannerRequest s_btnRequest;
-        const bool eligible = CyberpunkVR_ScannerButtonToggle != 0 && gameplayScreen && !uiPopupOpen &&
-            !g_isInVehicle && g_menuModeValue == 0 && !cvr::lobby::WorldShown();
-        const bool lb = (vr.buttons & 0x0100) != 0;
-        if (!eligible || deviceTakeover != s_wasTakeover) s_btnLatch = false;
-        else if (lb && !s_lbWas) s_btnLatch = !s_btnLatch;
-        s_lbWas = lb;
-        s_wasTakeover = deviceTakeover;
-        if (!deviceTakeover) s_btnRequest.Update(s_btnLatch, scannerVision, GetTickCount64());
-        else { bool none = false; s_btnRequest.Update(none, 0, 0); }
-        if (eligible) {
-            pState->Gamepad.wButtons &= static_cast<uint16_t>(~0x0100);
-            scannerHold = scannerHold || s_btnLatch;
+        LARGE_INTEGER now, freq;
+        now.QuadPart = VRIK_ClockQpc();
+        freq.QuadPart = static_cast<LONGLONG>(VRIK_ClockQpcFrequency());
+        double dtMs = 0.0;
+        if (s_qpc.QuadPart != 0 && freq.QuadPart > 0) {
+            dtMs = static_cast<double>(now.QuadPart - s_qpc.QuadPart) * 1000.0
+                 / static_cast<double>(freq.QuadPart);
+        }
+        s_qpc = now;
+        if (dtMs < 0.0) dtMs = 0.0;
+        if (dtMs > 100.0) dtMs = 100.0;   // a hitch must not satisfy a whole window by itself
+
+        // Not in the lobby: an engram goes in at the neck under the left ear, held in the left grip -- the gesture's
+        // own pose -- and the lobby has nothing to scan.
+        if (CyberpunkVR_ScannerGesture != 0 && !wireOwnsGrip && !cvr::lobby::WorldShown()) {
+            // Coherent raw grip pose, before the visual hand filter. The filter can
+            // keep the hand below the zone until after a short squeeze has ended.
+            // An INVALID sample counts as absence --
+            // it feeds the exit timer rather than dropping the scan, because a dropout is exactly what
+            // that timer exists to ride out.
+            bool inZone = false;
+            OpenXRHeadPose scanHead{},scanHands[2]{};uint64_t sequence{},stamp{};
+            // The support hand at its own ear: the zone is the left ear's, so the right hand is seen mirrored.
+            const auto& scanHand=scanHands[supportHand];
+            const bool scanValid=OpenXRManager::Get().GetGestureHandFrame(&scanHead,scanHands,&sequence,&stamp,true)
+                && scanHead.valid && scanHand.valid;
+            const float scanX=supportHand==0 ? scanHand.posX : -scanHand.posX;
+            const cvr::input::ScannerEarZone zone{CyberpunkVR_ScannerEarX,CyberpunkVR_ScannerEarY,
+                CyberpunkVR_ScannerEarZ,CyberpunkVR_ScannerEarRadius,CyberpunkVR_ScannerEarMargin};
+            if(scanValid)inZone=zone.Contains(scanX,scanHand.posY,scanHand.posZ,s_earArmed);
+            if(cvr::RuntimeDiagnosticsEnabled()) {
+                static uint64_t lastLog=0;const auto tick=VRIK_ClockMs();
+                if(tick-lastLog>=500 && (vr.leftGrip>.1f || inZone)) {
+                    lastLog=tick;
+                    Log("[scanner-gesture] valid=%d raw=(%.3f,%.3f,%.3f) grip=%.3f zone=%d armed=%d menu=%d\n",
+                        scanValid,scanX,scanHand.posY,scanHand.posZ,vr.leftGrip,inZone,s_earArmed,g_menuModeValue);
+                }
+            }
+
+            if (inZone) { s_inMs += dtMs; s_outMs = 0.0; }
+            else        { s_outMs += dtMs; s_inMs = 0.0; }
+
+            const double enterMs = (CyberpunkVR_ScannerEnterMs > 0) ? CyberpunkVR_ScannerEnterMs : 80;
+            const double exitMs  = (CyberpunkVR_ScannerExitMs  > 0) ? CyberpunkVR_ScannerExitMs  : 250;
+            if (!s_earArmed && s_inMs  >= enterMs) s_earArmed = true;
+            if ( s_earArmed && s_outMs >= exitMs)  s_earArmed = false;
+
+            // THE LEFT GRIP, which is the hand that is already at the ear. The right stick click
+            // used to do this, and it asked for two hands and a thumb reach for a one-hand gesture;
+            // squeezing the hand you just raised is the whole motion. Threshold matches the menu
+            // LB mapping above so one number describes "the left grip is held" everywhere.
+            //
+            // Gameplay screen only: in menus LB pages the popup list, which is not what a hand near
+            // a headset should do. And the ear zone is what keeps this off the reload -- the
+            // magazine grab is a left grip too, but it happens at the weapon, not at the head.
+            // A SQUEEZE THAT STARTED AT THE EAR. A hand that is already squeezing -- a shotgun shell, a
+            // magazine off the belt on its way to the gun -- passes within the zone's 22 cm of the head
+            // whenever the gun is held close in to load, and opened the scanner on the way. A clean new
+            // press only (ScannerSqueeze: the analog grip with a release hysteresis, a release first after
+            // a reset), made with the hand settled in the zone now -- not within the exit timer after it left.
+            const bool squeezed = s_squeeze.Update(vr.leftGrip, s_earArmed && inZone);
+            s_gesture = s_earArmed && squeezed && (g_menuModeValue == 0);
+        } else {
+            s_earArmed = false;
+            s_inMs = 0.0;
+            s_outMs = 0.0;
+            s_gesture = false;
+            s_squeeze.Reset();
+            s_latch = false;          // the gesture is switched off: nothing may stay asserted
+        }
+
+        // THE LATCH, so the hand does not have to stay squeezed at the ear for as long as the scanner is
+        // wanted. One squeeze flips the state once, even if tracking drops out and returns.
+        // Releasing the grip rearms it; rejected requests cannot leave navigation captured.
+        //
+        // Evaluated OUTSIDE the ear-zone block on purpose: s_earArmed drops as soon as the hand leaves
+        // (with its exit hysteresis), and that must not close a scanner the latch says is open.
+        if(vr.leftGrip<.5f)s_pressUsed=false;
+        if (CyberpunkVR_ScannerToggle != 0) {
+            if (s_gesture && !s_pressUsed) {s_latch = !s_latch;s_pressUsed=true;}
+            if (g_menuModeValue != 0) s_latch = false;   // a menu owns LB; never leave it stuck
+            static cvr::input::ScannerRequest request;
+            request.Update(s_latch,scannerVision,VRIK_ClockMs());
+            scannerHold = s_latch;
+        } else {
+            s_latch = false;
+            scannerHold = s_gesture;
         }
     }
 
@@ -747,7 +835,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         static uint64_t s_upUntilMs = 0, s_downUntilMs = 0, s_applyUntilMs = 0,
                         s_tagUntilMs = 0, s_tabUntilMs = 0;
 
-        const uint64_t now = GetTickCount64();
+        const uint64_t now = VRIK_ClockMs();
         const uint64_t pulseMs = (CyberpunkVR_ScannerPulseMs > 0)
                                      ? static_cast<uint64_t>(CyberpunkVR_ScannerPulseMs) : 90;
         // CyberpunkVR_ScannerApplyHoldMs is no longer read: the tap/hold split it timed existed only
@@ -819,8 +907,6 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // publishes from the live FK pose to decide whether reaching for a visual holster + a grip
     // press should equip / unequip the corresponding weapon.
     OpenXRManager::Get().SetSharedSlot(49, !onLadder && !wireOwnsGrip && physical.rightGrip > 0.5f ? 1.0f : 0.0f);
-    NoteRightGrip(menuCapture && handInput.rightGrip > 0.5f ? 6 : physical.rightGrip <= 0.5f ? 0 : onLadder ? 1 : wireOwnsGrip ? 2 : 3,
-                  handInput.rightGrip);
     // LEFT hand, for the smoking mod: the lighter is ignited by the left trigger and the cigarette
     // is taken to and from the mouth with either grip, so it needs all three. Only the right grip
     // was ever published; the left pair had no channel at all, and the CET bridge was reading [67]
@@ -843,7 +929,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         const unsigned long long closedMs = g_uiPopupClosedMs.load(std::memory_order_relaxed);
         const int32_t blockMs = (CyberpunkVR_PopupMagBlockMs > 0) ? CyberpunkVR_PopupMagBlockMs : 0;
         const bool justClosed = closedMs != 0ull &&
-                                (GetTickCount64() - closedMs) < static_cast<unsigned long long>(blockMs);
+                                (VRIK_ClockMs() - closedMs) < static_cast<unsigned long long>(blockMs);
         const bool magBlocked = uiPopupOpen || justClosed;
         OpenXRManager::Get().SetSharedSlot(vrshared::kRightSecondaryBtn,
                                            (!magBlocked && (vr.buttons & 0x2000)) ? 1.0f : 0.0f);
@@ -887,13 +973,11 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // launch a vanilla melee animation/attack from the same held trigger.
     // The selected left-arm launcher uses LT to enter its native firing state.
     // Publish raw RT above for free-hand gestures; it must not fire the launcher.
-    // NONE OF THE THREE WHILE A DEVICE CAMERA IS TAKEN OVER: V's own hands hold nothing there, and the
-    // q303 SniperNest fires its rifle on RT and zooms on LT (2026-11-12: RT never reached the game).
-    if(physicalCyberware && !deviceTakeover)pState->Gamepad.bRightTrigger=0;
-    if(cyberwareKind==4 && gameplayScreen && !g_isInVehicle && !deviceTakeover) {
+    if(physicalCyberware)pState->Gamepad.bRightTrigger=0;
+    if(cyberwareKind==4 && gameplayScreen && !g_isInVehicle) {
         pState->Gamepad.bRightTrigger=FloatToBYTE(vr.leftTrigger);
         pState->Gamepad.bLeftTrigger=0;
-    } else if(g_VRBind==4 && gameplayScreen && !g_isInVehicle && !g_hasWeaponEquipped && !deviceTakeover) {
+    } else if(g_VRBind==4 && gameplayScreen && !g_isInVehicle && !g_hasWeaponEquipped) {
         // Empty-hand RT is a finger gesture, never the game's draw-weapon action.
         pState->Gamepad.bRightTrigger=0;
     }
@@ -915,7 +999,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // A NEW SQUEEZE HOLDS THE ACTION RELEASED FOR A MOMENT. The routing has to reach the other gun before the
     // press edge does: a semi-automatic fires on the edge, and the gun that sees it while the other hand still
     // owns the shot never fires. With the other trigger already held there would be no edge at all.
-    const bool dualWield = CyberpunkVR_DualWieldInput != 0 && GetTickCount64() < CyberpunkVR_DualWieldUntil &&
+    const bool dualWield = CyberpunkVR_DualWieldInput != 0 && VRIK_ClockMs() < CyberpunkVR_DualWieldUntil &&
         gameplayScreen && !uiPopupOpen && !g_isInVehicle && g_hasWeaponEquipped && !menuCapture && !scannerActive;
     {
         static bool s_dualLeft = false, s_dualRight = false;
@@ -924,13 +1008,13 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         const bool left = s_dualBreak[0].Update(dualWield, physical.leftTrigger);
         const bool right = s_dualBreak[1].Update(dualWield, physical.rightTrigger);
         if ((left && !s_dualLeft) || (right && !s_dualRight))
-            s_dualHoldUntil = GetTickCount64() + static_cast<uint64_t>((std::max)(0, CyberpunkVR_DualWieldPressDelayMs));
+            s_dualHoldUntil = VRIK_ClockMs() + static_cast<uint64_t>((std::max)(0, CyberpunkVR_DualWieldPressDelayMs));
         s_dualLeft = left;
         s_dualRight = right;
         if (dualWield) {
             pState->Gamepad.bLeftTrigger = 0;
             const BYTE fire = (left || right) ? BYTE{255} : pState->Gamepad.bRightTrigger;
-            pState->Gamepad.bRightTrigger = GetTickCount64() < s_dualHoldUntil ? 0 : fire;
+            pState->Gamepad.bRightTrigger = VRIK_ClockMs() < s_dualHoldUntil ? 0 : fire;
         }
         OpenXRManager::Get().SetSharedSlot(vrshared::kDualWieldActive,
             dualWield ? static_cast<float>(1 | (left ? vrshared::kDualWieldLeftFires : 0) | (right ? vrshared::kDualWieldRightFires : 0)) : 0.0f);
@@ -1106,8 +1190,8 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
                       && g_liveControls.xrVehicleGunTrigger != 0);
         if (vehGunMode) {
             LARGE_INTEGER now, freq;
-            QueryPerformanceCounter(&now);
-            QueryPerformanceFrequency(&freq);
+            now.QuadPart = VRIK_ClockQpc();
+            freq.QuadPart = static_cast<LONGLONG>(VRIK_ClockQpcFrequency());
             float dt = 0.0f;
             if (s_vehGunPrev && s_vehGunQpc.QuadPart != 0 && freq.QuadPart > 0) {
                 dt = static_cast<float>(static_cast<double>(now.QuadPart - s_vehGunQpc.QuadPart)
@@ -1170,8 +1254,8 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         static bool   s_gaveUp = false;
         static LARGE_INTEGER s_sprintQpc = {};
         LARGE_INTEGER nowS, freqS;
-        QueryPerformanceCounter(&nowS);
-        QueryPerformanceFrequency(&freqS);
+        nowS.QuadPart = VRIK_ClockQpc();
+        freqS.QuadPart = static_cast<LONGLONG>(VRIK_ClockQpcFrequency());
         double dtMs = 0.0;
         if (s_sprintQpc.QuadPart != 0 && freqS.QuadPart > 0) {
             dtMs = static_cast<double>(nowS.QuadPart - s_sprintQpc.QuadPart) * 1000.0
@@ -1198,7 +1282,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         const double holdMs = (CyberpunkVR_SprintHoldMs >= 0) ? CyberpunkVR_SprintHoldMs : 200;
         bool want = detent && (s_detentMs >= holdMs);
 
-        // SPRINT ON A CLICK (xr_sprint_mode=1, beside the stick held at the stop): a click of the
+        // SPRINT ON A CLICK (xr_sprint_mode=1, players asked for it beside the stick held at the stop): a click of the
         // left stick starts the sprint and it lasts until the stick is let go -- the game's own toggle on a pad (its L3
         // is ToggleSprint: a second press does not end a sprint, only the stick coming back does), only kept: after a
         // dash or a jump it comes back by itself, through the same hold below. A click made standing still waits
@@ -1311,11 +1395,10 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     const float legacyRy=ApplyStickDeadzone(vr.rightThumbY,.18f);
     float rx=analogMovement?cvr::input::AnalogAxis(vr.rightThumbX,g_liveControls.xrRightStickDeadzone,fullInput):legacyRx;
     float ry=analogMovement?cvr::input::AnalogAxis(vr.rightThumbY,g_liveControls.xrRightStickDeadzone,fullInput):legacyRy;
-    float snapStickX=vr.rightThumbX;
 
     // Right stick pushed near FULL down => CROUCH. Same bind as the right-stick click
-    // (R3, ToggleCrouch in the Alternative scheme the preset selects); each push taps R3 once
-    // and the downward Y is consumed while held so it doesn't also drive camera pitch. Detected here, before the snap
+    // (R3) used today; we assert R3 while the stick is held fully down and consume the
+    // downward Y so it doesn't also drive camera pitch. Detected here, before the snap
     // turn block may zero ry, so it works regardless of the turn mode.
     // CROUCH IS THIS, AND ONLY THIS, since the click became the slide release: the stick past 0.90 down.
     // ON FOOT ONLY, for the same reason the dash below is: crouching means nothing in a car, and
@@ -1348,7 +1431,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     {
         static bool     s_ltZoomWas   = false;
         static uint64_t s_nextStepMs  = 0;
-        const uint64_t now = GetTickCount64();
+        const uint64_t now = VRIK_ClockMs();
         // Hysteresis on the trigger for the same reason the tag has it: one squeeze is one gesture,
         // and a finger resting at the break point is not a stream of them.
         const bool ltDown = s_ltZoomWas ? (vr.leftTrigger > 0.35f) : (vr.leftTrigger > 0.60f);
@@ -1370,7 +1453,6 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
             }
             rx = 0.0f;
             ry = 0.0f;
-            snapStickX = 0.0f; // Scanner zoom owns raw snap travel too.
         } else {
             s_nextStepMs = 0;
         }
@@ -1378,15 +1460,9 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
 
     const bool fullDown=cvr::input::AtFullTravel(analogMovement?vr.rightThumbY:ry,analogMovement,fullInput,true);
     const bool fullUp=cvr::input::AtFullTravel(analogMovement?vr.rightThumbY:ry,analogMovement,fullInput);
-    const bool crouchAllowed = !inWater && !g_isInVehicle && !deviceScreen && !scannerActive
-                               && !DeviceCamActive();   // in a camera the stick aims the camera
-    const bool wantCrouch = fullDown && crouchAllowed;
+    const bool wantCrouch = fullDown && !inWater && !g_isInVehicle && !deviceScreen && !scannerActive
+                            && !DeviceCamActive();   // in a camera the stick aims the camera
     if (wantCrouch) ry = 0.0f;
-    // R3 is a tap per push, not a level: ToggleCrouch only reacts to a tap, so a held stick stood still.
-    static cvr::input::StickPulse s_crouchPulse;
-    const bool crouchPulse = s_crouchPulse.Update(fullDown, analogMovement ? -vr.rightThumbY : -legacyRy,
-        GetTickCount64(), static_cast<uint32_t>(CyberpunkVR_CrouchPulseMs > 0 ? CyberpunkVR_CrouchPulseMs : 100),
-        crouchAllowed);
 
     // Right stick pushed near FULL UP => DASH (the game's Dodge_Button, pad B). The mirror image of
     // the crouch gesture above, in every respect: same 0.90 threshold, detected here BEFORE the pitch
@@ -1413,7 +1489,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
                                && !g_isInVehicle            // in a car the right stick is free look
                                && (g_menuModeValue == 0);    // in menus it navigates
         if (allowDash) {
-            const uint64_t now = GetTickCount64();
+            const uint64_t now = VRIK_ClockMs();
             if (fullUp) {
                 if (s_dashArmedDir == 0) {
                     s_dashArmedDir = 1;
@@ -1450,7 +1526,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     const bool snapEnabled=g_liveControls.xrSnapTurn != 0 && !DeviceCamActive() &&
         !SceneStickYawArmed() && !cvr::input::NativeOwnsTurn(
             g_isInVehicle,g_vehicleState.load(std::memory_order_relaxed),cvr::ladder::Active());
-    const auto turn=cvr::input::RouteControllerTurn(snapStickX,rx,snapEnabled,g_xinputSnapArmedDir,
+    const auto turn=cvr::input::RouteTurn(rx,snapEnabled,g_xinputSnapArmedDir,
         g_liveControls.xrSnapTurnAngleDeg,CyberpunkVR_SnapTurnStickFire,CyberpunkVR_SnapTurnStickRearm);
     if (turn.clearPending) InterlockedExchange(&g_pendingSnapYawDeltaBits,0);
     else if (turn.snapDegrees!=0) {
@@ -1471,7 +1547,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // stick => crouch (R3). OR'd in on top of any physical / VR button press.
     uint16_t synthButtons = 0;
     if (wantSprint) synthButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
-    if (crouchPulse) synthButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
+    if (wantCrouch) synthButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
     // The dash, as the B the game's Dodge_Button listens for. Emitted HERE rather than merged with the
     // controller's own buttons, because the physical B is the port's now (the magazine drop) and is
     // masked out of that merge -- so this pulse is the only thing in the process that can dodge.
@@ -1526,13 +1602,13 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     {
         static cvr::input::VehicleExitHold exitHold;
         const uint64_t need=CyberpunkVR_VehicleExitHoldMs>0 ? uint64_t(CyberpunkVR_VehicleExitHoldMs) : 400;
-        if(exitHold.Update(vehicleButtons.exitOnX && gameplayScreen,(vr.buttons&0x4000)!=0,GetTickCount64(),need))
+        if(exitHold.Update(vehicleButtons.exitOnX && gameplayScreen,(vr.buttons&0x4000)!=0,VRIK_ClockMs(),need))
             synthButtons |= 0x2000;   // XINPUT_GAMEPAD_B = ExitVehicle_Button
     }
     pState->Gamepad.wButtons |= synthButtons;
     if(cvr::RuntimeDiagnosticsEnabled()) {
         static uint64_t lastScanOutput=0;static bool lastHold=false;
-        const auto tick=GetTickCount64();
+        const auto tick=VRIK_ClockMs();
         if(scannerHold!=lastHold || (scannerHold && tick-lastScanOutput>=250)) {
             lastScanOutput=tick;lastHold=scannerHold;
             Log("[scanner-output] requested=%d vision=%d buttons=%04X grip=%.3f foreground=%d\n",
@@ -1551,7 +1627,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         static bool s_yPass = false;
         static float s_yTaps = 0.0f;
         const bool yDown = (vr.buttons & 0x8000) != 0;
-        const uint64_t now = GetTickCount64();
+        const uint64_t now = VRIK_ClockMs();
         if (dualWield && yDown) {
             if (s_yDownAt == 0) s_yDownAt = now;
             const int32_t holdMs = (std::max)(0, CyberpunkVR_DualWieldYHoldMs);
@@ -1574,7 +1650,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // capture, scanner or braindance: everywhere else Y means something else.
     {
         static cvr::input::WheelHold s_wheelHold;
-        const uint64_t now = GetTickCount64();
+        const uint64_t now = VRIK_ClockMs();
         const bool armed = cvr::vrmenu::WheelArmed(now) && gameplayScreen && !uiPopupOpen && !menuCapture &&
                            !scannerActive && g_bdActive.load(std::memory_order_relaxed) == 0;
         const auto wheel = s_wheelHold.Step((pState->Gamepad.wButtons & 0x8000) != 0, armed, now);
@@ -1586,6 +1662,12 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     menuMask();
     PublishMergedPacket(pState);
     return r;
+}
+
+DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
+    DWORD r = ERROR_DEVICE_NOT_CONNECTED;
+    if (g_realXInputGetState) r = g_realXInputGetState(dwUserIndex, pState);
+    return cvr_xinput_merge(dwUserIndex, pState, r);
 }
 
 static int PatchXInputIat(HMODULE mod, void* newFunc, void** outOrig) {
@@ -1673,3 +1755,4 @@ bool InstallXInputHook() {
 namespace { bool XInputWanted() { return g_liveControls.xrXInputInstall != 0; } }
 
 CVR_HOOK_IF("XInput", ::cvr::hooks::Stage::Boot, 100, InstallXInputHook, XInputWanted);
+#endif

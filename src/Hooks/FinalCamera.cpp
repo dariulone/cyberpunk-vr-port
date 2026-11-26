@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 #include "Utils/DebugGate.hpp"
 // FinalCamera -- one hook, one file.
 //
@@ -37,6 +38,18 @@
 #include <cstdint>
 #include <cstddef>
 
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/final_camera.rs: the same site, stub and read-back.
+extern "C" bool cvr_hook_final_camera_install();
+CVR_HOOK("FinalCamera", ::cvr::hooks::Stage::Boot, 14, cvr_hook_final_camera_install);
+#else
+// The telemetry, the shot buffer and the rendered-frame queues through src/Hooks/HookServices.cpp, as the Rust port.
+extern "C" {
+void cvr_cpp_telemetry_final(uint32_t hits,uintptr_t rsi);
+float* cvr_cpp_shot_shared();
+void cvr_cpp_xr_push_rendered_frame_pose(const OpenXRHeadPose* pose,bool vrcam);
+}
+
 namespace {
 bool MatchRenderedPose(float* camera, const float q[4], uint32_t view,
                        OpenXRHeadPose* pose, uint32_t* age, uint32_t* ties) {
@@ -61,10 +74,7 @@ bool MatchRenderedPose(float* camera, const float q[4], uint32_t view,
 
 extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
     g_finalCameraHits++;
-    if (g_telemetry) {
-        g_telemetry->finalHits = static_cast<uint32_t>(g_finalCameraHits);
-        g_telemetry->finalRsi = reinterpret_cast<uintptr_t>(rsiPtr);
-    }
+    cvr_cpp_telemetry_final(static_cast<uint32_t>(g_finalCameraHits),reinterpret_cast<uintptr_t>(rsiPtr));
 
     const uint32_t locateSeq = g_lastLocateSeq;
     if (locateSeq != 0) {
@@ -105,7 +115,7 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
                 // last real direction is kept. The latch lives here now so the direction and the
                 // quaternion leave as ONE packet.
                 static float s_muzzleFwd[3] = {};
-                if (float* sh = GetShotShared(); sh && sh[27] >= 0.5f) {
+                if (float* sh = cvr_cpp_shot_shared(); sh && sh[27] >= 0.5f) {
                     const float x = sh[24], y = sh[25], z = sh[26];
                     const bool identityDefault = (x == 0.0f && y == 1.0f && z == 0.0f);
                     if (!identityDefault && x * x + y * y + z * z > 0.25f) {
@@ -116,9 +126,9 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
                 float launcherOrigin[3], launcherFwd[3];
                 const float* const muzzleFwd =
                     cvr::cyberware::LauncherLine(launcherOrigin, launcherFwd) ? launcherFwd : s_muzzleFwd;
-                // Whether or not a barrel has been seen: each reader checks the direction it needs, and the collision view
-                // needs only the camera.
-                {
+                if (muzzleFwd[0] * muzzleFwd[0] +
+                    muzzleFwd[1] * muzzleFwd[1] +
+                    muzzleFwd[2] * muzzleFwd[2] > 0.25f) {
                     cvr::camera::BarrelFrame bf{};
                     bf.camQuat[0] = camq[0]; bf.camQuat[1] = camq[1];
                     bf.camQuat[2] = camq[2]; bf.camQuat[3] = camq[3];
@@ -142,7 +152,7 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
             }
             // Keep an invalid slot on a miss, so a later success cannot label
             // this frame by shifting the render/Present FIFO by one entry.
-            if (CyberpunkVR_PoseReadBack) OpenXRManager::Get().PushRenderedFramePose(matched);
+            if (CyberpunkVR_PoseReadBack) cvr_cpp_xr_push_rendered_frame_pose(&matched,false);
         }
 
         // THE SECOND VIEW, IDENTIFIED THE SAME WAY, INTO ITS OWN QUEUE.
@@ -168,7 +178,7 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
                     CVR_DIAGNOSTIC(++CyberpunkVR_DebugVrcamFinalNoMatch);
                 }
             }
-            OpenXRManager::Get().PushVrcamRenderedFramePose(matched);
+            cvr_cpp_xr_push_rendered_frame_pose(&matched,true);
         }
     }
 
@@ -405,3 +415,5 @@ bool InstallFinalCameraHook() {
 }
 
 CVR_HOOK("FinalCamera", ::cvr::hooks::Stage::Boot, 14, InstallFinalCameraHook);
+#endif
+#endif

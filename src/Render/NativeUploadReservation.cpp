@@ -1,18 +1,31 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/NativeUploadReservation.hpp"
 #include <Windows.h>
 #include <cstring>
 #include <intrin.h>
 #include <mutex>
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/upload_reservation_runtime.rs (the exports, the thunk's XSAVE choice
+// and callback, the installation and the ledger).
+#else
 extern "C" {
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_UploadReservationEnable{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_UploadReservationCount{0};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_UploadReservationDropped{0};
+#endif
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_UploadReservationState{uint32_t(cvr::stereo::upload_reservation::Status::Disabled)};
 __declspec(dllexport) std::array<cvr::stereo::upload_reservation::Row,cvr::stereo::upload_reservation::MaxRows> CyberpunkVR_UploadReservationRows{};
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_UploadReservationPrepareRequest{},CyberpunkVR_UploadReservationAcceptRequest{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_UploadReservationExternalPlanSeq{},CyberpunkVR_UploadReservationExternalReceiptSeq{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_UploadReservationExternalInstallState{};
+#endif
 __declspec(dllexport) cvr::stereo::upload_reservation::ExternalInstallPlan CyberpunkVR_UploadReservationExternalPlan{};
 __declspec(dllexport) cvr::stereo::upload_reservation::ExternalInstallReceipt CyberpunkVR_UploadReservationExternalReceipt{};
 uint64_t CvrNativeUploadReservationXstateMask{};
@@ -278,3 +291,5 @@ extern "C" void CvrNativeUploadReservationObserve(const cvr::stereo::upload_rese
     else if(result==Status::Capacity){lost.store(true,std::memory_order_release);CyberpunkVR_UploadReservationDropped.fetch_add(1,std::memory_order_relaxed);}
     State(result);
 }
+#endif
+#endif

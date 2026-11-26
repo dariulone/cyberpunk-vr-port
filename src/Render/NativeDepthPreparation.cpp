@@ -4,9 +4,38 @@
 #include <mutex>
 
 extern "C" {
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EagerDepthMode{},CyberpunkVR_EagerDepthCompatible{},CyberpunkVR_EagerDepthVerified{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+__declspec(dllexport) extern uint32_t CyberpunkVR_EagerDepthStats[cvr::stereo::eager_depth::CounterCount];
+#else
 __declspec(dllexport) uint32_t CyberpunkVR_EagerDepthStats[cvr::stereo::eager_depth::CounterCount]{};
+#endif
 }
+#if CVR_RUST_VRIK
+// The cache and the interception: rust/crates/cvr-render/src/eager_depth.rs (its plugin table there). A Rust test
+// variant attaches the exports above and the preparation run's state here.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
+namespace {
+using namespace cvr::stereo;
+struct EagerDepthAttach {
+    const std::atomic<uint32_t>* mode;const std::atomic<uint32_t>* compatible;const std::atomic<uint32_t>* verified;uint32_t* stats;
+    bool(*runActive)();bool(*active)();
+    const std::atomic<uint32_t>* pairState;const std::atomic<uint32_t>* runFrames;const uint64_t* pairData;const std::atomic<uint32_t>* runDepth;
+};
+static_assert(sizeof(std::atomic<uint32_t>)==4);
+const EagerDepthAttach eagerDepthTable{&CyberpunkVR_EagerDepthMode,&CyberpunkVR_EagerDepthCompatible,&CyberpunkVR_EagerDepthVerified,
+    CyberpunkVR_EagerDepthStats,[]{return preparation::RunActive();},[]{return preparation::Active();},
+    &CyberpunkVR_PreparationPairState,&CyberpunkVR_PreparationRunFrames,CyberpunkVR_PreparationPairData,CyberpunkVR_PreparationRunDepth};
+extern "C" void cvr_eager_depth_attach(const EagerDepthAttach*);
+const bool eagerDepthAttached=(cvr_eager_depth_attach(&eagerDepthTable),true);
+}
+#endif
+#else
 namespace cvr::stereo::eager_depth {
 namespace {
 std::mutex mutex;Cache cache;
@@ -47,3 +76,4 @@ bool Intercept(Prepare prepare,Gather gather,Filter filter,Finalize finalize,voi
     return handled;
 }
 }
+#endif

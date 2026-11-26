@@ -39,22 +39,35 @@
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/inkLayer.hpp>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 float GetDesiredHalfIpd();
+#if !CVR_RUST_VRIK
 extern int g_launcherWidth;    // one eye's render size (Core/VrCore.cpp)
 extern int g_launcherHeight;
 extern "C" __declspec(dllexport) extern int CyberpunkVR_IpdInWorldPos;
 extern "C" void CyberpunkVR_SetVrcamEnabled(uint32_t on);   // src/Stereo/SyncStereo.cpp
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_EngineStereo = 0;
 __declspec(dllexport) int32_t CyberpunkVR_MonoMode = 0;
 __declspec(dllexport) int32_t CyberpunkVR_MonoView = 0;
 __declspec(dllexport) int32_t CyberpunkVR_Afw = 0;
 __declspec(dllexport) int32_t CyberpunkVR_EngineStereoEyeWindows = 1;
+#endif
 // 1 = the eye cameras turn the TAA jitter into NDC with their own width (half the view's): each eye's samples
 // cover a whole pixel, as the engine's pixel jitter means. 0 = the view's width, as the engine hands it (an eye
 // jitters over half a pixel horizontally). Live: the size is written at every jittered build.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_EngineStereoEyeJitterWidth = 0;
 // MAIN frames prepared with the engine's stereo off / on.
 __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoFrames[2] = {};
@@ -82,32 +95,23 @@ __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoUiTicks = 0;
 // 1 (default) = the loading screen is shown as one picture on the menu panel while its layer is up (LoadingShown).
 __declspec(dllexport) int32_t CyberpunkVR_EngineStereoLoadingPanel = 1;
 __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoLoadingTicks = 0;
+#endif
 // The loading layer as LoadingShown last read it: presents since the one its last tick counts for (below 0: the frame
 // being built ticked it; INT32_MIN never), its active byte (-1 unread).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_DebugEngineStereoLoadingLayer[2] = {INT32_MIN, -1};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+// The launch's switch, the C++ build's; the Rust build's is rust/crates/cvr-render/src/engine_stereo.rs (switch).
+#if !CVR_RUST_VRIK
 namespace cvr::engine_stereo {
 namespace {
 
-constexpr uintptr_t SEPARATION_RVA = 0x2284990;
-constexpr uintptr_t WEAPON_SEPARATION_RVA = 0x22849D0;
-constexpr uintptr_t CONVERGENCE_RVA = 0x2284950;
-constexpr uintptr_t WEAPON_CONVERGENCE_RVA = 0x3D31790;   // .data float, read only by sub_1404240DC
-// The view's render feature bits (sub_1404240DC stores them at view+0x25B0); 98 is the stereo frame.
-constexpr size_t kViewFeatures = 0x25B0;
-constexpr int kStereoFeature = 98;
-// Far enough that the off-axis term is noise (P20 ~ 1e-8): both eyes look straight ahead, as a headset's do.
-constexpr float kParallel = 1.0e6f;
-
-using FloatGetterFn = float(__fastcall*)(void*);
-FloatGetterFn g_orig_separation = nullptr;
-FloatGetterFn g_orig_weapon_separation = nullptr;
-FloatGetterFn g_orig_convergence = nullptr;
-
-std::atomic<int> g_rendering{-1};
-// The presents counted when MAIN was last prepared, plus one (as the loading layer's tick below); 0 never.
-std::atomic<uint64_t> g_mainPrepared{0};
 // xr_engine_stereo as the ini asks for it, before the mono mode has its say.
 bool g_requested = false;
 // The launch started in the mono mode.
@@ -162,6 +166,86 @@ bool ReadSwitch() {
     return value != 0;
 }
 
+}  // namespace
+
+bool Enabled() {
+    static const bool enabled = ReadSwitch();
+    return enabled;
+}
+
+bool Requested() {
+    (void)Enabled();
+    return g_requested;
+}
+
+bool MonoLaunch() {
+    (void)Enabled();
+    return g_monoLaunch;
+}
+
+void ApplyMonoMode(bool mono) {
+    CyberpunkVR_MonoMode = mono ? 1 : 0;
+    // Engine stereo is running: this launch keeps it, and the switch takes effect at the next start
+    // (RestartPending). The port's second view does not exist here to be switched.
+    if (Enabled()) return;
+    // A launch that started in mono stays mono: the second view's machinery is installed only for a launch that
+    // may render one (SecondViewWanted), so there is nothing to go back to until the next start.
+    const bool view = mono || g_monoLaunch;
+    static int s_applied = -1;
+    if (s_applied == (view ? 1 : 0)) return;
+    s_applied = view ? 1 : 0;
+    CyberpunkVR_MonoView = view ? 1 : 0;
+    // MAIN at the head centre (the one picture is drawn from between the eyes), and the second view off. Written on
+    // the first apply as well: the VRCAM request outlives a launch in the CET bridge, and a launch in stereo after
+    // one in mono must not inherit "off".
+    // Under AFW MAIN is an eye: Hooks/PatchCamera.cpp puts it at the frame's eye.
+    CyberpunkVR_IpdInWorldPos = (view && !cvr::afw::Launch()) ? 0 : 1;
+    CyberpunkVR_SetVrcamEnabled(view ? 0u : 1u);
+    Log("[mono] %s\n", cvr::afw::Launch() ? "AFW/OSR: MAIN draws the eyes in turn, VRCAM off"
+                        : view ? "ON: one picture from the head centre for both eyes, VRCAM off"
+                               : "OFF: MAIN is one eye, VRCAM the other");
+}
+
+}  // namespace cvr::engine_stereo
+#endif  // !CVR_RUST_VRIK
+
+#if CVR_RUST_VRIK
+// The Rust build's engine stereo is rust/crates/cvr-render/src/engine_stereo.rs: the separation and convergence the
+// engine is handed, each eye camera's window, the first-person plane's eyes, the UI laid out for one eye and the
+// loading layer, and the launch's switch (vrport.ini's xr_engine_stereo, the mono mode, AFW and OSR); its table is
+// built in rust/crates/cvr-render/src/stereo_tables.rs.
+static_assert(sizeof(cvr::engine_stereo::EyePlaces) == 80 && offsetof(cvr::engine_stereo::EyePlaces, valid) == 72,
+              "rust/crates/cvr-render/src/engine_stereo.rs EyePlaces");
+
+namespace cvr::engine_stereo {
+
+
+// The engine stereo detours and their originals register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+
+}  // namespace cvr::engine_stereo
+#else
+// The C++ build's; the Rust build's is rust/crates/cvr-render/src/engine_stereo.rs.
+namespace cvr::engine_stereo {
+namespace {
+
+constexpr uintptr_t SEPARATION_RVA = 0x2284990;
+constexpr uintptr_t WEAPON_SEPARATION_RVA = 0x22849D0;
+constexpr uintptr_t CONVERGENCE_RVA = 0x2284950;
+constexpr uintptr_t WEAPON_CONVERGENCE_RVA = 0x3D31790;   // .data float, read only by sub_1404240DC
+// The view's render feature bits (sub_1404240DC stores them at view+0x25B0); 98 is the stereo frame.
+constexpr size_t kViewFeatures = 0x25B0;
+constexpr int kStereoFeature = 98;
+// Far enough that the off-axis term is noise (P20 ~ 1e-8): both eyes look straight ahead, as a headset's do.
+constexpr float kParallel = 1.0e6f;
+
+using FloatGetterFn = float(__fastcall*)(void*);
+FloatGetterFn g_orig_separation = nullptr;
+FloatGetterFn g_orig_weapon_separation = nullptr;
+FloatGetterFn g_orig_convergence = nullptr;
+
+std::atomic<int> g_rendering{-1};
+// The presents counted when MAIN was last prepared, plus one (as the loading layer's tick below); 0 never.
+std::atomic<uint64_t> g_mainPrepared{0};
 float Separation() {
     const float sep = 2.0f * GetDesiredHalfIpd();
     return sep > 0.0f && sep < 1.0f ? sep : 0.064f;
@@ -572,44 +656,6 @@ float HudDesignRatio(float width, float height) {
 
 float EyeSeparation() { return Separation(); }
 
-bool Enabled() {
-    static const bool enabled = ReadSwitch();
-    return enabled;
-}
-
-bool Requested() {
-    (void)Enabled();
-    return g_requested;
-}
-
-bool MonoLaunch() {
-    (void)Enabled();
-    return g_monoLaunch;
-}
-
-void ApplyMonoMode(bool mono) {
-    CyberpunkVR_MonoMode = mono ? 1 : 0;
-    // Engine stereo is running: this launch keeps it, and the switch takes effect at the next start
-    // (RestartPending). The port's second view does not exist here to be switched.
-    if (Enabled()) return;
-    // A launch that started in mono stays mono: the second view's machinery is installed only for a launch that
-    // may render one (SecondViewWanted), so there is nothing to go back to until the next start.
-    const bool view = mono || g_monoLaunch;
-    static int s_applied = -1;
-    if (s_applied == (view ? 1 : 0)) return;
-    s_applied = view ? 1 : 0;
-    CyberpunkVR_MonoView = view ? 1 : 0;
-    // MAIN at the head centre (the one picture is drawn from between the eyes), and the second view off. Written on
-    // the first apply as well: the VRCAM request outlives a launch in the CET bridge, and a launch in stereo after
-    // one in mono must not inherit "off".
-    // Under AFW MAIN is an eye: Hooks/PatchCamera.cpp puts it at the frame's eye.
-    CyberpunkVR_IpdInWorldPos = (view && !cvr::afw::Launch()) ? 0 : 1;
-    CyberpunkVR_SetVrcamEnabled(view ? 0u : 1u);
-    Log("[mono] %s\n", cvr::afw::Launch() ? "AFW/OSR: MAIN draws the eyes in turn, VRCAM off"
-                        : view ? "ON: one picture from the head centre for both eyes, VRCAM off"
-                               : "OFF: MAIN is one eye, VRCAM the other");
-}
-
 bool Rendering() {
     return g_rendering.load(std::memory_order_relaxed) == 1;
 }
@@ -661,3 +707,4 @@ CVR_DETOUR_IF("[engine-stereo] weapon separation sub_1422849D0", WEAPON_SEPARATI
               g_orig_weapon_separation, &Enabled)
 
 }  // namespace cvr::engine_stereo
+#endif  // CVR_RUST_VRIK

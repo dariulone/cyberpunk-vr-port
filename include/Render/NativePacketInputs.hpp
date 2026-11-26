@@ -34,6 +34,44 @@ using ReadInputs=bool(*)(void*,uint64_t,void*,size_t);
 // command program pointer moved +0x10 -> +0x08, its byte count +0x18 -> +0x10, the u32 +0x20 -> +0x18 and the
 // three flag bytes +0x24..26 -> +0x1C..1E. state[] keeps its 40 bytes; the last 8 stay zero.
 inline constexpr uint32_t StateBytes=32,StateProgram=0x08,StateProgramBytes=0x10;
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/packet_inputs.rs (tools/single_pass_tests/packet_inputs_test runs its cases against
+// them in its Rust variant). The blob stays the caller's vector, grown and truncated through ResizeBlob.
+namespace detail {
+extern "C" {
+void cvr_pkt_resolve_inputs(const Packet*,uint64_t,ReadInputs,void*,bool,Inputs*);
+bool cvr_pkt_valid_program(const uint8_t*,size_t);
+void cvr_pkt_resolve_details(const Packet*,uint64_t,const MappedInstances*,ReadInputs,void*,void*,size_t,uint8_t*,
+    uint8_t*(*)(void*,size_t,bool),bool,Inputs*);
+bool cvr_pkt_equal_geometry(const Inputs*,const uint8_t*,size_t,const Inputs*,const uint8_t*,size_t);
+}
+// Growing keeps the original amortized reservation: half again the capacity (4 KiB at first), at most the blob limit.
+inline uint8_t* ResizeBlob(void* blob,size_t size,bool growing){
+    auto& bytes=*static_cast<std::vector<uint8_t>*>(blob);
+    if(growing && size>bytes.capacity())bytes.reserve(std::min(MaxInputBlobBytes,
+        std::max(size,bytes.capacity()?bytes.capacity()+bytes.capacity()/2:size_t(4096))));
+    bytes.resize(size);return bytes.data();
+}
+}
+static_assert(sizeof(MappedInstances)==32,"mirrored by packet_inputs.rs");
+inline Inputs ResolveInputs(Packet packet,uint64_t pool,ReadInputs read,void* context=nullptr,bool geometryOnly=false) {
+    Inputs result;detail::cvr_pkt_resolve_inputs(&packet,pool,read,context,geometryOnly,&result);return result;
+}
+inline bool ValidNativeProgram(std::span<const uint8_t> program){return detail::cvr_pkt_valid_program(program.data(),program.size());}
+// Copy programs and every instance while their native input is live. A matching
+// program is not proof that all mutable objects/resources it reads also match.
+inline Inputs ResolveDetails(Packet packet,uint64_t pool,MappedInstances uploaded,ReadInputs read,void* context,
+    std::vector<uint8_t>& blob,bool geometryOnly=false) {
+    Inputs result;
+    detail::cvr_pkt_resolve_details(&packet,pool,&uploaded,read,context,&blob,blob.size(),blob.data(),detail::ResizeBlob,geometryOnly,&result);
+    return result;
+}
+// Geometry membership does not consume shader/state/program data. Those mutable
+// contracts are validated separately at each actual MAIN and peer draw.
+inline bool EqualGeometry(const Inputs& a,std::span<const uint8_t> aBlob,const Inputs& b,std::span<const uint8_t> bBlob){
+    return detail::cvr_pkt_equal_geometry(&a,aBlob.data(),aBlob.size(),&b,bBlob.data(),bBlob.size());
+}
+#else
 inline Inputs ResolveInputs(Packet packet,uint64_t pool,ReadInputs read,void* context=nullptr,bool geometryOnly=false) {
     Inputs result{};result.instances=uint32_t((packet.second>>18)&0x7fff);
     if(!pool || !read)return result;
@@ -142,6 +180,7 @@ inline bool EqualGeometry(const Inputs& a,std::span<const uint8_t> aBlob,const I
         b.instanceOffset>bBlob.size() || b.instanceBytes>bBlob.size()-b.instanceOffset)return false;
     return std::equal(aBlob.begin()+a.instanceOffset,aBlob.begin()+a.instanceOffset+a.instanceBytes,bBlob.begin()+b.instanceOffset);
 }
+#endif
 }
 extern "C" {
 __declspec(dllexport) extern std::atomic<uint32_t> CyberpunkVR_GeometryPacketResolve;

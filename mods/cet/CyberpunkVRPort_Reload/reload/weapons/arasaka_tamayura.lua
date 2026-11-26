@@ -51,6 +51,7 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_slide' },
 
     slide = {
+        ejectLiveRound = true,
         slot       = 'vrp_slide',
         which      = 1, bone = 5,        -- frame rig, `slide`
         -- MEASURED, and it is the CATCH travel: 40.0 mm, agreed by both channels -- the bone's own local Z

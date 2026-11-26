@@ -17,9 +17,16 @@ inline constexpr std::array<uint32_t,5> SelectorOffsets{0,32,80,128,160};
 // The exact PS declares t0, space1 as [32768 x Texture2D<float4>].
 inline constexpr uint32_t DescriptorCount=32768;
 
+#if CVR_RUST_VRIK
+extern "C" bool cvr_gm_matches_shaders(const char*,size_t,const char*,size_t);
+inline bool MatchesShaders(std::string_view vertex,std::string_view pixel) {
+    return cvr_gm_matches_shaders(vertex.data(),vertex.size(),pixel.data(),pixel.size());
+}
+#else
 inline bool MatchesShaders(std::string_view vertex,std::string_view pixel) {
     return vertex==VertexShaderSha256 && pixel==PixelShaderSha256;
 }
+#endif
 
 struct Inputs {
     std::span<const std::byte> material,modifiers,globalFrameSlice;
@@ -48,6 +55,32 @@ enum class Failure : uint32_t {
     None,MaterialSize,ModifierSize,GlobalFrameSize,NonFiniteModifier,NonFiniteMaterial,TextureIndex
 };
 
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/gbuffer_material.rs (tools/single_pass_tests/gbuffer_material_contract_test
+// runs its cases against them in its Rust variant). The bytes are lent.
+namespace detail {
+struct RustBytes {const std::byte* data;size_t size;};
+struct RustInputs {RustBytes material,modifiers,globalFrameSlice;};
+inline RustInputs Lend(const Inputs& input) {
+    return {{input.material.data(),input.material.size()},{input.modifiers.data(),input.modifiers.size()},
+        {input.globalFrameSlice.data(),input.globalFrameSlice.size()}};
+}
+}
+static_assert(sizeof(detail::RustInputs)==48 && sizeof(Analysis)==84 && offsetof(Analysis,sampler)==44 &&
+    offsetof(Analysis,dither)==56 && offsetof(Analysis,alphaTestEnabled)==80,"mirrored by gbuffer_material.rs");
+extern "C" {
+uint32_t cvr_gm_analyze(const detail::RustInputs*,Analysis*);
+bool cvr_gm_same_inputs(const detail::RustInputs*,const detail::RustInputs*);
+}
+inline Failure Analyze(const Inputs& input,Analysis& output) {
+    const auto lent=detail::Lend(input);
+    return Failure(cvr_gm_analyze(&lent,&output));
+}
+inline bool SameInputs(const Inputs& main,const Inputs& peer) {
+    const auto a=detail::Lend(main),b=detail::Lend(peer);
+    return cvr_gm_same_inputs(&a,&b);
+}
+#else
 namespace detail {
 inline uint32_t Word(std::span<const std::byte> bytes,size_t offset) {
     uint32_t value{};
@@ -104,4 +137,5 @@ inline bool SameInputs(const Inputs& main,const Inputs& peer) {
         std::equal(main.modifiers.begin(),main.modifiers.end(),peer.modifiers.begin()) &&
         std::equal(main.globalFrameSlice.begin(),main.globalFrameSlice.end(),peer.globalFrameSlice.begin());
 }
+#endif
 }

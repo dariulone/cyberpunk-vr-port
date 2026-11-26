@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // The first-launch setup's natives: the hand that holds the weapon, the T-pose calibration and the player's height,
 // for the lobby's pages that walk a new player through them (mods/cet/CyberpunkVRPort_Lobby modules/setup.lua).
 //
@@ -16,6 +17,12 @@
 
 #include <algorithm>
 #include <cmath>
+
+#if CVR_RUST_VRIK
+// THE NATIVES ARE RUST'S (rust/crates/cvr-ffi/src/body_setup.rs; the calibration is cvr-xr's). What they ask of the
+// C++ half: the setup's switches in the live controls' UI state, saved as the settings panel saves them.
+// 0 xr_left_handed, 1 xr_left_handed_bindings, 2 xr_body_hands_only.
+#else
 
 // VRFirstSetupNeeded() -> Bool: the setup has never been through on this install.
 void VRFirstSetupNeeded(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
@@ -124,3 +131,5 @@ void VRPlayerHeight(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, float* o
     stack->code++;
     if (out) *out = OpenXRManager::Get().GetUserHeight();
 }
+#endif
+#endif

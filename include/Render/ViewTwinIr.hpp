@@ -31,5 +31,25 @@ struct IrTwin {
 };
 // vertex: the disassembly of the vertex shader a pixel shader is linked with (its outputs complete the pixel shader's
 // inputs when that one reads a system input); nullptr for a vertex shader.
+#if CVR_RUST_VRIK
+// The rewrite: rust/crates/cvr-render/src/view_twin_ir.rs (the result copied out).
+struct CvrTwinInfo {bool ok,unchanged,linked;uint32_t loads,handles,extracts;const uint8_t* data;size_t dataLen;const char* error;size_t errorLen;};
+}
+extern "C" {
+void* cvr_view_twin_rewrite(const char* text,size_t len,const char* vertex,size_t vertexLen,bool hasVertex);
+void cvr_view_twin_ir_info(const void*,cvr::single_pass::CvrTwinInfo*);
+void cvr_view_twin_ir_free(void*);
+}
+namespace cvr::single_pass {
+inline IrTwin RewriteForViews(const std::string& disassembly,const std::string* vertex=nullptr){
+    void* result=cvr_view_twin_rewrite(disassembly.data(),disassembly.size(),vertex?vertex->data():nullptr,vertex?vertex->size():0,vertex!=nullptr);
+    CvrTwinInfo info{};cvr_view_twin_ir_info(result,&info);
+    IrTwin out;out.ok=info.ok;out.unchanged=info.unchanged;out.signature=info.linked;
+    out.loads=info.loads;out.handles=info.handles;out.extracts=info.extracts;
+    out.text.assign(reinterpret_cast<const char*>(info.data),info.dataLen);out.error.assign(info.error,info.errorLen);
+    cvr_view_twin_ir_free(result);return out;
+}
+#else
 IrTwin RewriteForViews(const std::string& disassembly,const std::string* vertex=nullptr);
+#endif
 }

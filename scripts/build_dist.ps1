@@ -6,11 +6,11 @@
 #
 # Usage:
 #   pwsh scripts\build_dist.ps1
-#   pwsh scripts\build_dist.ps1 -Version 0.2.45 -Zip
+#   pwsh scripts\build_dist.ps1 -Version 0.2.5 -Zip
 
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?$')]
-    [string]$Version = "0.2.45",
+    [string]$Version = "0.2.5",
     # The game 2.5 build tree (RED4ext.SDK game-2.5); build\ is the old 2.31 tree and its DLL is stale.
     [string]$BuildDir = "build\patchday\sdk25-build",
     [switch]$Zip,
@@ -214,6 +214,8 @@ Add-File (Need (Join-Path $RepoRoot "mods\config\UserSettings.json") "UserSettin
 foreach ($g in (Get-ChildItem (Join-Path $RepoRoot "mods\config") -Filter "CyberpunkVR_*.ini" -File | Sort-Object Name)) {
     Add-File $g.FullName "red4ext\plugins\cyberpunkvrport\grips\$($g.Name)"
 }
+# Grasps fitted per cooked prop mesh on its drawn surface (tools/grip_generator/pose_batch.cpp --pack).
+Add-File (Need (Join-Path $RepoRoot "mods\config\CyberpunkVR_MeshGrasps.bin") "baked prop grasps") "red4ext\plugins\cyberpunkvrport\grips\CyberpunkVR_MeshGrasps.bin"
 
 # ---- the OpenVR shim ---------------------------------------------------------------------------
 # engine\config\platform\pc\vrcam_cpu_tweaks.ini (streaming and culling for the second VRCAM view) is not packaged
@@ -240,19 +242,13 @@ $tweaksRoot = Join-Path $RepoRoot "mods\tweaks"
 $n = Copy-Tree $tweaksRoot (Join-Path $Out "red4ext\plugins\cyberpunkvrport\config\tweaks")
 $manifest += [pscustomobject]@{ Path = "red4ext\plugins\cyberpunkvrport\config\tweaks\  ($n files)"; Bytes = 0 }
 
-# ---- packed archives ---------------------------------------------------------------------------
-# ENUMERATED, never listed -- the same rule the grip poses above already follow, and for the same
-# reason. The hardcoded three shipped a package with no vrport_mag.archive in it, while that archive
-# sat both in mods\archive\ and in the installed game: a file present everywhere except in the
-# tester's copy, and nothing said so. Only exact *.archive names match, so the .bak_*, .holdcomp,
-# .nocollision and .nophys variants beside them stay out by shape rather than by anyone remembering
-# to exclude them. The plugin mounts every archive of its archive folder (Core/ArchiveExtensions.hpp)
-# and applies ONE manifest, config\archive.yaml -- kept out of the archive folder, where ArchiveXL
-# would apply it a second time.
+# ---- packed archive and manifest ---------------------------------------------------------------
 $archiveDir = Join-Path $RepoRoot "mods\archive"
 $packed = @(Get-ChildItem -LiteralPath $archiveDir -File | Where-Object { $_.Name -like "*.archive" })
-if ($packed.Count -eq 0) { Write-Host "[!] no archives in mods\archive -- run sync_assets.ps1 first" }
-foreach ($f in $packed) { Add-File $f.FullName "red4ext\plugins\cyberpunkvrport\archive\$($f.Name)" }
+if ($packed.Count -ne 1 -or $packed[0].Name -ne "cyberpunkvrport.archive") {
+    throw "Pack every port resource into mods\archive\cyberpunkvrport.archive (found: $($packed.Name -join ', '))"
+}
+Add-File $packed[0].FullName "red4ext\plugins\cyberpunkvrport\archive\cyberpunkvrport.archive"
 $manifests = @(Get-ChildItem -LiteralPath $archiveDir -File | Where-Object { $_.Name -like "*.archive.xl" })
 if ($manifests.Count -ne 1 -or $manifests[0].Name -ne "cyberpunkvrport.archive.xl") {
     throw "mods\archive must hold exactly one manifest, cyberpunkvrport.archive.xl (found: $($manifests.Name -join ', '))"

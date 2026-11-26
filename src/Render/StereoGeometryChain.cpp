@@ -1,4 +1,69 @@
 #include "Render/StereoGeometryChain.hpp"
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's chain is geometry_chain.rs' (no StereoGeometryChain is made)
+// THE CHAIN IS RUST'S (rust/crates/cvr-render/src/geometry_chain.rs): its storage is a Rust COM object (IUnknown) the
+// recordings keep alive; this face hands it the captured targets as their raw record.
+#include <algorithm>
+#include <iterator>
+using cvr::stereo::scene_state::detail::GeometryTargetsRaw;
+extern "C" {
+HRESULT cvr_geometry_chain_create(ID3D12Device*,UINT,UINT,void**);
+HRESULT cvr_geometry_chain_prepare_eye(void*,ID3D12GraphicsCommandList*,UINT,const GeometryTargetsRaw*);
+bool cvr_geometry_chain_clear_private_eye(void*,ID3D12GraphicsCommandList*,UINT,UINT,float,UINT8);
+bool cvr_geometry_chain_bind(void*,ID3D12GraphicsCommandList*,UINT,UINT);
+bool cvr_geometry_chain_seed_private_depth(void*,ID3D12GraphicsCommandList*,UINT,ID3D12Resource*);
+bool cvr_geometry_chain_seed_private_eye(void*,ID3D12GraphicsCommandList*,UINT,const GeometryTargetsRaw*);
+bool cvr_geometry_chain_restore_native(void*,ID3D12GraphicsCommandList*,UINT,UINT);
+bool cvr_geometry_chain_export_eye(void*,ID3D12GraphicsCommandList*,UINT);
+ID3D12Resource* cvr_geometry_chain_resource(void*,UINT);
+void cvr_geometry_chain_counts(void*,uint64_t (*)[7]);
+}
+namespace cvr::stereo {
+struct StereoGeometryChain::Storage:IUnknown {};
+namespace {
+GeometryTargetsRaw Raw(const scene_state::GeometryTargets& targets){
+    GeometryTargetsRaw raw{};
+    for(UINT i=0;i<5;++i){raw.resources[i]=targets.resources[i].Get();raw.views[i]=targets.views[i];raw.handles[i]=targets.handles[i];}
+    raw.colors=targets.colors;return raw;
+}
+}
+StereoGeometryChain::StereoGeometryChain()=default;
+StereoGeometryChain::~StereoGeometryChain()=default;
+HRESULT StereoGeometryChain::Create(ID3D12Device* device,UINT width,UINT height){
+    if(storage_)return E_INVALIDARG;
+    void* storage{};const auto hr=cvr_geometry_chain_create(device,width,height,&storage);
+    if(SUCCEEDED(hr))storage_.Attach(static_cast<Storage*>(storage));
+    return hr;
+}
+HRESULT StereoGeometryChain::PrepareEye(ID3D12GraphicsCommandList* list,UINT eye,const scene_state::GeometryTargets& targets){
+    const auto raw=Raw(targets);return cvr_geometry_chain_prepare_eye(storage_.Get(),list,eye,&raw);
+}
+bool StereoGeometryChain::ClearPrivateEye(ID3D12GraphicsCommandList* list,UINT eye,UINT colors,float depth,UINT8 stencil){
+    return cvr_geometry_chain_clear_private_eye(storage_.Get(),list,eye,colors,depth,stencil);
+}
+bool StereoGeometryChain::Bind(ID3D12GraphicsCommandList* list,UINT eyeMask,UINT colors){
+    return cvr_geometry_chain_bind(storage_.Get(),list,eyeMask,colors);
+}
+bool StereoGeometryChain::SeedPrivateDepth(ID3D12GraphicsCommandList* list,UINT eye,ID3D12Resource* source){
+    return cvr_geometry_chain_seed_private_depth(storage_.Get(),list,eye,source);
+}
+bool StereoGeometryChain::SeedPrivateEye(ID3D12GraphicsCommandList* list,UINT eye,const scene_state::GeometryTargets& baseline){
+    const auto raw=Raw(baseline);return cvr_geometry_chain_seed_private_eye(storage_.Get(),list,eye,&raw);
+}
+bool StereoGeometryChain::RestoreNative(ID3D12GraphicsCommandList* list,UINT eye,UINT colors){
+    return cvr_geometry_chain_restore_native(storage_.Get(),list,eye,colors);
+}
+bool StereoGeometryChain::ExportEye(ID3D12GraphicsCommandList* list,UINT eye){
+    return cvr_geometry_chain_export_eye(storage_.Get(),list,eye);
+}
+ID3D12Resource* StereoGeometryChain::Resource(UINT slot)const{return cvr_geometry_chain_resource(storage_.Get(),slot);}
+std::array<uint64_t,7> StereoGeometryChain::Counts()const{
+    uint64_t counts[7]{};cvr_geometry_chain_counts(storage_.Get(),&counts);
+    std::array<uint64_t,7> out{};std::copy(std::begin(counts),std::end(counts),out.begin());return out;
+}
+}
+#endif
+#else
 #include "Render/StereoTargetArray.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
@@ -164,3 +229,4 @@ bool StereoGeometryChain::ExportEye(ID3D12GraphicsCommandList* list,UINT eye){
 ID3D12Resource* StereoGeometryChain::Resource(UINT slot)const{return storage_ && slot<5?storage_->arrays[slot].Resource():nullptr;}
 std::array<uint64_t,7> StereoGeometryChain::Counts()const{return storage_?storage_->counts:std::array<uint64_t,7>{};}
 }
+#endif

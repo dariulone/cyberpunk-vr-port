@@ -1,8 +1,6 @@
 public native func VRCyberwarePoint(side: Int32, index: Int32) -> Vector4;
 public native func VRCyberwareFrame() -> array<Vector4>;
 public native func VRLauncherControllerAim() -> Bool;
-@addField(PlayerPuppet) public let vrLauncherShotRejected: Bool;
-@addField(PlayerPuppet) public let vrLauncherShotQueued: Bool;
 
 @wrapMethod(LeftHandCyberwareTransition)
 protected final func AimSnap(scriptInterface: ref<StateGameScriptInterface>) -> Void {

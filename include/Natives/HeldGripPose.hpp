@@ -42,6 +42,72 @@ inline void Rotate(const float* q,const float* v,float* out) {
                       v[2]+q[3]*t[2]+q[0]*t[1]-q[1]*t[0]};
     std::copy_n(r,3,out);
 }
+// The visual wrist may already be rotated by the body's weight. Keep its
+// reachable grip point, but retain the controller's independent angular goal;
+// feeding the corrected wrist back would cancel the torque that should turn
+// the held part toward the controller.
+inline bool DriveTarget(const float* drawnP,const float* drawnQ,const float* controlQ,
+                        const float* bodyP,const float* bodyQ,const float* grip,float* outP,float* outQ) {
+    float draw[4],control[4],relation[4];
+    std::copy_n(drawnQ,4,draw);std::copy_n(controlQ,4,control);std::copy_n(bodyQ,4,relation);
+    if(!Normalize(draw)||!Normalize(control)||!Normalize(relation))return false;
+    float inHand[3],point[3],rotatedGrip[3];Rotate(relation,grip,inHand);
+    for(int k=0;k<3;++k)inHand[k]+=bodyP[k];
+    Rotate(draw,inHand,point);Multiply(control,relation,outQ);
+    if(!Normalize(outQ))return false;
+    Rotate(outQ,grip,rotatedGrip);
+    for(int k=0;k<3;++k){outP[k]=drawnP[k]+point[k]-rotatedGrip[k];if(!std::isfinite(outP[k]))return false;}
+    return true;
+}
+// Two separated grips determine the body's swing as well as its translation.
+// Keep the average wrist twist, then align the line through the body's grips
+// with the line through the hands. Averaging wrist rotations alone left a body
+// horizontal when one hand was raised, despite both hands holding it.
+inline bool TwoHandTarget(const float* aP,const float* aQ,const float* aGrip,
+                          const float* bP,const float* bQ,const float* bGrip,
+                          float* outP,float* outQ,float* centre) {
+    float qa[4],qb[4];std::copy_n(aQ,4,qa);std::copy_n(bQ,4,qb);
+    if(!Normalize(qa)||!Normalize(qb))return false;
+    float dot=0;for(int k=0;k<4;++k)dot+=qa[k]*qb[k];
+    const float sign=dot<0 ? -1.f:1.f;
+    for(int k=0;k<4;++k)outQ[k]=qa[k]+sign*qb[k];
+    if(!Normalize(outQ))return false;
+    float ga[3],gb[3],local[3],world[3],mid[3],from[3];
+    Rotate(qa,aGrip,ga);Rotate(qb,bGrip,gb);
+    float local2=0,world2=0;
+    for(int k=0;k<3;++k) {
+        ga[k]+=aP[k];gb[k]+=bP[k];
+        centre[k]=.5f*(aGrip[k]+bGrip[k]);
+        mid[k]=.5f*(ga[k]+gb[k]);
+        local[k]=bGrip[k]-aGrip[k];world[k]=gb[k]-ga[k];
+        if(!std::isfinite(centre[k])||!std::isfinite(mid[k]))return false;
+        local2+=local[k]*local[k];world2+=world[k]*world[k];
+    }
+    if(!std::isfinite(local2)||!std::isfinite(world2))return false;
+    // Coincident/near-coincident grips cannot reliably define an axis.
+    if(local2>=.0001f && world2>=.0001f) {
+        Rotate(outQ,local,from);
+        const float il=1/std::sqrt(local2),iw=1/std::sqrt(world2);
+        dot=0;for(int k=0;k<3;++k){from[k]*=il;world[k]*=iw;dot+=from[k]*world[k];}
+        float swing[4]={from[1]*world[2]-from[2]*world[1],from[2]*world[0]-from[0]*world[2],
+                        from[0]*world[1]-from[1]*world[0],1+std::clamp(dot,-1.f,1.f)};
+        if(dot < -.999999f) {
+            // A half turn has no unique shortest axis. Choose a stable axis
+            // perpendicular to the grip line, using its least-aligned basis.
+            int axis=0;for(int k=1;k<3;++k)if(std::abs(from[k])<std::abs(from[axis]))axis=k;
+            const float basis[3]={axis==0?1.f:0.f,axis==1?1.f:0.f,axis==2?1.f:0.f};
+            swing[0]=from[1]*basis[2]-from[2]*basis[1];
+            swing[1]=from[2]*basis[0]-from[0]*basis[2];
+            swing[2]=from[0]*basis[1]-from[1]*basis[0];swing[3]=0;
+        }
+        if(!Normalize(swing))return false;
+        Multiply(swing,outQ,outQ);
+        if(!Normalize(outQ))return false;
+    }
+    float offset[3];Rotate(outQ,centre,offset);
+    for(int k=0;k<3;++k)outP[k]=mid[k]-offset[k];
+    return true;
+}
 // The held part's measured rotation and its fixed hand-relative rotation determine the wrist.
 // Use each hand's own relation, not a two-hand average's error or an angle-limited correction.
 inline bool WristRotation(const float* body,const float* bodyInHand,float* wrist) {

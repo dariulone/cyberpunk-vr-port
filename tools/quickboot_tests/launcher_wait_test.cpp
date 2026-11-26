@@ -1,4 +1,9 @@
 #include "Overlay/LauncherDialog.hpp"
+#include "Render/MonitorOutput.hpp"
+namespace cvr {
+MonitorOutput GetMonitorOutput() { return MonitorOutput::Default; }
+void SetMonitorOutput(MonitorOutput) {}
+}
 #include <windows.h>
 #include <cstdio>
 #include <stdexcept>
@@ -9,6 +14,12 @@ void SetWindowResolutionAndPersist(int,int){}int GetCurrentWindowWidth(){return 
 void SetRuntimeModeAndPersist(int){}int GetXrRuntimeMode(){return 0;}
 void SetHmdTypeAndPersist(int){}int GetCurrentHmdType(){return 3;}
 void SetLauncherDebugAndPersist(int){}int GetLauncherDebug(){return 0;}
+int GetLauncherEngineStereo(){return 1;}
+void SetLauncherCustomResolution(int){}int GetLauncherCustomResolution(){return 0;}
+void SetLauncherLobbyAndPersist(int){}int GetLauncherLobby(){return 1;}
+void SetLauncherInterfaceAndPersist(int){}int GetLauncherInterface(){return 1;}
+void SetLauncherHandPhysicsAndPersist(int){}int GetLauncherHandPhysics(){return 1;}
+void SetLauncherModes(int,int){}int GetLauncherVrEnabled(){return 1;}int GetLauncherWeaponPlane(){return 0;}
 }
 static unsigned messages{};
 static LRESULT CALLBACK WindowProc(HWND hwnd,UINT message,WPARAM w,LPARAM l){if(message==WM_APP+1){++messages;return 0;}return DefWindowProcW(hwnd,message,w,l);}

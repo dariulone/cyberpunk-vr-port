@@ -1,0 +1,10 @@
+# The visible prop follows the same rig anchor as its hand's weapon.
+AttachmentSlots.VRPortGrenadeLeft:
+  $base: AttachmentSlots.WeaponLeft
+
+AttachmentSlots.VRPortGrenadeRight:
+  $base: AttachmentSlots.WeaponRight
+
+# The third simultaneous flight also needs a slot outside both weapon slots.
+AttachmentSlots.VRPortGrenadeFlight:
+  $base: AttachmentSlots.GrenadeLeft

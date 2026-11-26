@@ -29,11 +29,26 @@ static_assert(sizeof(Record)==4616);
 constexpr unsigned Capacity=512;
 // Opt-in CPU trace for preparing a common geometry pass. No GPU work, files or
 // resource references. Camera bytes are copied only for the requested frames.
-void FrameBoundary();
 using Predict=void(*)(Record&);
-void Camera(uint32_t node,int side,uint32_t index,const void* bytes,Predict predict=nullptr);
+// The camera builder's inputs, read by unwinding this thread's stack under SEH (C++ in both builds: the guarded read).
 void CaptureNativeInputs(Record&);
+#if CVR_RUST_VRIK
+}
+// The trace: rust/crates/cvr-render/src/single_pass_trace.rs.
+extern "C" {
+void cvr_sp_trace_frame_boundary();
+void cvr_sp_trace_camera(uint32_t node,int side,uint32_t index,const void* bytes,cvr::stereo::trace::Predict predict);
+void cvr_sp_trace_list(uint32_t node,int side,const void* list);
+}
+namespace cvr::stereo::trace {
+inline void FrameBoundary(){cvr_sp_trace_frame_boundary();}
+inline void Camera(uint32_t node,int side,uint32_t index,const void* bytes,Predict predict=nullptr){cvr_sp_trace_camera(node,side,index,bytes,predict);}
+inline void List(uint32_t node,int side,const void* list){cvr_sp_trace_list(node,side,list);}
+#else
+void FrameBoundary();
+void Camera(uint32_t node,int side,uint32_t index,const void* bytes,Predict predict=nullptr);
 void List(uint32_t node,int side,const void* list);
+#endif
 }
 extern "C" {
 __declspec(dllexport) extern uint32_t CyberpunkVR_SinglePassTraceRecordBytes;

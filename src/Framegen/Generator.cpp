@@ -1,4 +1,81 @@
 #include "Framegen/Generator.hpp"
+#if CVR_RUST_VRIK
+// THE GENERATOR IS RUST'S (rust/crates/cvr-render/src/framegen_generator.rs): FidelityFX's interpolation with its own or
+// NVIDIA's optical flow, called there through the SDKs' C interfaces, and DLSS-G through DlssFrameGen.cpp's adapters.
+// This class keeps its face over the Rust object; the layouts Rust mirrors are asserted here against the pinned headers.
+#include <FidelityFX/host/backends/dx12/ffx_dx12.h>
+#include <FidelityFX/host/ffx_frameinterpolation.h>
+#include <FidelityFX/host/ffx_opticalflow.h>
+#include <nvOpticalFlowD3D12.h>
+#include <cstddef>
+
+extern "C" {
+void* cvr_framegen_generator_new();
+void cvr_framegen_generator_free(void* generator);
+}
+
+static_assert(sizeof(FfxInterface) == 232 && sizeof(FfxResourceDescription) == 32 && sizeof(FfxResource) == 176 &&
+                  offsetof(FfxResource, state) == 40 && offsetof(FfxResource, name) == 44 &&
+                  sizeof(FfxFrameInterpolationContext) == 4 * FFX_SDK_DEFAULT_CONTEXT_SIZE &&
+                  sizeof(FfxOpticalflowContext) == 4 * FFX_SDK_DEFAULT_CONTEXT_SIZE && FFX_SDK_DEFAULT_CONTEXT_SIZE == 1024 * 128,
+              "FidelityFX's resource and contexts are mirrored in rust/crates/cvr-render/src/framegen_generator.rs");
+static_assert(sizeof(FfxFrameInterpolationContextDescription) == 264 &&
+                  offsetof(FfxFrameInterpolationContextDescription, backBufferFormat) == 20 &&
+                  offsetof(FfxFrameInterpolationContextDescription, backendInterface) == 32 &&
+                  sizeof(FfxFrameInterpolationPrepareDescription) == 1000 &&
+                  offsetof(FfxFrameInterpolationPrepareDescription, commandList) == 8 &&
+                  offsetof(FfxFrameInterpolationPrepareDescription, cameraFovAngleVertical) == 56 &&
+                  offsetof(FfxFrameInterpolationPrepareDescription, depth) == 64 &&
+                  offsetof(FfxFrameInterpolationPrepareDescription, frameID) == 416 &&
+                  offsetof(FfxFrameInterpolationPrepareDescription, reconstructedPrevDepth) == 776 &&
+                  offsetof(FfxFrameInterpolationPrepareDescription, cameraPosition) == 952 &&
+                  offsetof(FfxFrameInterpolationPrepareDescription, cameraForward) == 988,
+              "FidelityFX's interpolation descriptions are mirrored in rust/crates/cvr-render/src/framegen_generator.rs");
+static_assert(sizeof(FfxFrameInterpolationDispatchDescription) == 1696 &&
+                  offsetof(FfxFrameInterpolationDispatchDescription, currentBackBuffer) == 32 &&
+                  offsetof(FfxFrameInterpolationDispatchDescription, interpolationRect) == 560 &&
+                  offsetof(FfxFrameInterpolationDispatchDescription, opticalFlowBufferSize) == 928 &&
+                  offsetof(FfxFrameInterpolationDispatchDescription, opticalFlowBlockSize) == 944 &&
+                  offsetof(FfxFrameInterpolationDispatchDescription, reset) == 968 &&
+                  offsetof(FfxFrameInterpolationDispatchDescription, backBufferTransferFunction) == 972 &&
+                  offsetof(FfxFrameInterpolationDispatchDescription, frameID) == 984 &&
+                  offsetof(FfxFrameInterpolationDispatchDescription, distortionField) == 1520 &&
+                  sizeof(FfxOpticalflowContextDescription) == 248 && offsetof(FfxOpticalflowContextDescription, flags) == 232 &&
+                  sizeof(FfxOpticalflowDispatchDescription) == 552 && offsetof(FfxOpticalflowDispatchDescription, reset) == 536 &&
+                  offsetof(FfxOpticalflowDispatchDescription, minMaxLuminance) == 544 && sizeof(FfxEffectMemoryUsage) == 16,
+              "FidelityFX's dispatch descriptions are mirrored in rust/crates/cvr-render/src/framegen_generator.rs");
+static_assert(FFX_OK == 0 && FFX_SURFACE_FORMAT_R8G8B8A8_UNORM == 10 && FFX_BACKBUFFER_TRANSFER_FUNCTION_SRGB == 0 &&
+                  FFX_RESOURCE_USAGE_READ_ONLY == 0 && FFX_RESOURCE_STATE_COMMON == 1 && FFX_RESOURCE_STATE_UNORDERED_ACCESS == 2 &&
+                  FFX_RESOURCE_STATE_COMPUTE_READ == 4 && FFX_RESOURCE_STATE_COPY_SRC == 16 &&
+                  FFX_FRAMEINTERPOLATION_ENABLE_DEPTH_INVERTED == 1 && FFX_FRAMEINTERPOLATION_ENABLE_DEPTH_INFINITE == 2 &&
+                  FFX_FRAMEINTERPOLATION_ENABLE_DISPLAY_RESOLUTION_MOTION_VECTORS == 16 &&
+                  FFX_FRAMEINTERPOLATION_ENABLE_JITTER_MOTION_VECTORS == 32,
+              "FidelityFX's constants are mirrored in rust/crates/cvr-render/src/framegen_generator.rs");
+static_assert(sizeof(NV_OF_D3D12_API_FUNCTION_LIST) == 80 && sizeof(NV_OF_INIT_PARAMS) == 64 &&
+                  offsetof(NV_OF_INIT_PARAMS, hPrivData) == 32 && offsetof(NV_OF_INIT_PARAMS, inputBufferFormat) == 56 &&
+                  sizeof(NV_OF_FENCE_POINT) == 16 && sizeof(NV_OF_REGISTER_RESOURCE_PARAMS_D3D12) == 48 &&
+                  offsetof(NV_OF_REGISTER_RESOURCE_PARAMS_D3D12, hOFGpuBuffer) == 24 &&
+                  sizeof(NV_OF_EXECUTE_INPUT_PARAMS_D3D12) == 72 && offsetof(NV_OF_EXECUTE_INPUT_PARAMS_D3D12, hPrivData) == 32 &&
+                  offsetof(NV_OF_EXECUTE_INPUT_PARAMS_D3D12, numRois) == 44 &&
+                  offsetof(NV_OF_EXECUTE_INPUT_PARAMS_D3D12, fencePoint) == 64 &&
+                  sizeof(NV_OF_EXECUTE_OUTPUT_PARAMS_D3D12) == 64 && offsetof(NV_OF_EXECUTE_OUTPUT_PARAMS_D3D12, fencePoint) == 56,
+              "NVIDIA's optical flow parameters are mirrored in rust/crates/cvr-render/src/framegen_generator.rs");
+static_assert(NV_OF_API_VERSION == 80 && NV_OF_SUCCESS == 0 && NV_OF_TRUE == 1 && NV_OF_OUTPUT_VECTOR_GRID_SIZE_4 == 4 &&
+                  NV_OF_MODE_OPTICALFLOW == 1 && NV_OF_PERF_LEVEL_FAST == 20 && NV_OF_PERF_LEVEL_MEDIUM == 10 &&
+                  NV_OF_PERF_LEVEL_SLOW == 5 && NV_OF_BUFFER_FORMAT_ABGR8 == 3,
+              "NVIDIA's optical flow constants are mirrored in rust/crates/cvr-render/src/framegen_generator.rs");
+
+namespace cvr::framegen {
+static_assert(sizeof(EyePair) == 64 && int(Backend::FidelityFX) == 0 && int(Backend::Nvidia) == 1 && int(Backend::DlssG) == 2);
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin builds one
+struct Generator::Impl {
+    void* rust;
+};
+Generator::Generator() : impl(new Impl{cvr_framegen_generator_new()}) {}
+Generator::~Generator() { cvr_framegen_generator_free(impl->rust); }
+#endif
+}  // namespace cvr::framegen
+#else
 #include "Framegen/DlssFrameGen.hpp"
 #include "Framegen/FrameCapture.hpp"
 #include <FidelityFX/host/backends/dx12/ffx_dx12.h>
@@ -17,7 +94,6 @@ extern void Log(const char*,...);
 namespace cvr::framegen {
 namespace {
 using Microsoft::WRL::ComPtr;
-dlssg::Provider ProviderOf(Backend b) {return b==Backend::Anr ? dlssg::Provider::Anr : dlssg::Provider::Nvidia;}
 constexpr auto kRead=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 constexpr auto kUav=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 constexpr auto kCopy=D3D12_RESOURCE_STATE_COPY_SOURCE;
@@ -163,9 +239,6 @@ struct Eye {
     // DLSS-G: one NGX feature per eye, a typed copy of a typeless capture, and the camera NGX's
     // history was last fed with.
     dlssg::FeaturePtr dlss;Texture backbuffer;
-    // ANR FG reads the depth and the motion vectors in COPY_DEST, the state Streamline hands DLSS-G its copies in
-    // (OptiScaler's provider proxy passes the game's through): our own copies, kept in that state.
-    Texture anrDepth,anrMotion;
     CameraData previousCamera{};bool hasPreviousCamera{};
     uint32_t width{},height{},renderWidth{},renderHeight{},flowWidth{},flowHeight{},current{};
     bool opticalFlow=true;
@@ -187,7 +260,7 @@ struct Eye {
         }
         renderWidth=std::min(inputs.width,inputs.motionWidth);renderHeight=std::min(inputs.height,inputs.motionHeight);camera=inputs.camera;
         mode=settings.backend;
-        if(NgxBackend(mode)) {
+        if(mode==Backend::DlssG) {
             if(!output.Create(device,width,height,DXGI_FORMAT_R8G8B8A8_UNORM,L"CVR_FG_Output",kCopy))return false;
             // NGX views the backbuffer in its own format, which a typeless capture does not have.
             return desc.Format!=DXGI_FORMAT_R8G8B8A8_TYPELESS ||
@@ -237,7 +310,7 @@ struct Eye {
         return !nvidia || !opticalFlow || nv.Create(device,queue,fence,packed,rawFlow,settings.quality);
     }
     uint64_t Bytes() const {
-        uint64_t bytes=0;for(const auto* t:{&packed[0],&packed[1],&rawFlow,&flow,&scd,&depth,&motion,&previousDepth,&output,&preparedDepth,&preparedMotion,&backbuffer,&anrDepth,&anrMotion})bytes+=t->bytes;
+        uint64_t bytes=0;for(const auto* t:{&packed[0],&packed[1],&rawFlow,&flow,&scd,&depth,&motion,&previousDepth,&output,&preparedDepth,&preparedMotion,&backbuffer})bytes+=t->bytes;
         if(dlss)bytes+=dlssg::Bytes(*dlss);
         FfxEffectMemoryUsage usage{};
         if(fiCreated && ffxFrameInterpolationContextGetGpuMemoryUsage(const_cast<FfxFrameInterpolationContext*>(&fi),&usage)==FFX_OK)bytes+=usage.totalUsageInBytes;
@@ -339,7 +412,7 @@ struct Generator::Impl {
             eyes[eye]=std::make_unique<Eye>();
             if(!eyes[eye]->Create(d,q,fence.Get(),colors[eye],*inputs[eye],s))return false;
         }
-        return !NgxBackend(mode) || CreateDlssFeatures(inputs);
+        return mode!=Backend::DlssG || CreateDlssFeatures(inputs);
     }
     // NGX records the features' creation into a command list; it runs before the first pair.
     bool CreateDlssFeatures(const std::shared_ptr<const Inputs> (&inputs)[2]) {
@@ -349,27 +422,14 @@ struct Generator::Impl {
         for(unsigned i=0;i<2 && created;++i) {
             auto& eye=*eyes[i];const auto& input=*inputs[i];
             eye.dlss=dlssg::Create(w.list.Get(),eye.width,eye.height,input.width,input.height,DXGI_FORMAT_R8G8B8A8_UNORM,
-                input.motion->GetDesc().Format,DXGI_FORMAT_R32_FLOAT,ProviderOf(mode));
+                input.motion->GetDesc().Format,DXGI_FORMAT_R32_FLOAT);
             created=eye.dlss!=nullptr;
         }
         const bool submitted=Submit(w.list.Get(),w);
-        if(!created)Status(mode==Backend::Anr?"ANR FG could not create its features":"DLSS Frame Generation could not create its features");
+        if(!created)Status("DLSS Frame Generation could not create its features");
         return created && submitted;
     }
     bool RecordDlss(ID3D12GraphicsCommandList* list,Eye& eye,ID3D12Resource* color,const Inputs& inputs,bool reset) {
-        ID3D12Resource* depth=inputs.depth.Get();ID3D12Resource* motion=inputs.motion.Get();
-        if(eye.mode==Backend::Anr) {
-            const auto copy=[&](Texture& own,ID3D12Resource*& source,const wchar_t* name) {
-                const auto d=source->GetDesc();
-                if(!own.resource || own.width!=d.Width || own.height!=d.Height || own.format!=d.Format) {
-                    own={};
-                    if(!own.Create(device.Get(),uint32_t(d.Width),d.Height,d.Format,name,D3D12_RESOURCE_STATE_COPY_DEST))return false;
-                }
-                Barrier(list,source,kRead,kCopy);list->CopyResource(own.resource.Get(),source);Barrier(list,source,kCopy,kRead);
-                source=own.resource.Get();return true;
-            };
-            if(!copy(eye.anrDepth,depth,L"CVR_FG_AnrDepth") || !copy(eye.anrMotion,motion,L"CVR_FG_AnrMotion"))return false;
-        }
         ID3D12Resource* backbuffer=color;
         if(eye.backbuffer.resource) {
             eye.backbuffer.To(list,D3D12_RESOURCE_STATE_COPY_DEST);list->CopyResource(eye.backbuffer.resource.Get(),color);
@@ -377,7 +437,7 @@ struct Generator::Impl {
         } else Barrier(list,color,kCopy,kRead);
         eye.output.To(list,kUav);
         // Every real frame is evaluated, resets included: NGX keeps the previous backbuffer itself.
-        dlssg::Evaluation e{};e.backbuffer=backbuffer;e.depth=depth;e.motion=motion;e.output=eye.output.resource.Get();
+        dlssg::Evaluation e{};e.backbuffer=backbuffer;e.depth=inputs.depth.Get();e.motion=inputs.motion.Get();e.output=eye.output.resource.Get();
         e.width=eye.width;e.height=eye.height;e.depthWidth=inputs.width;e.depthHeight=inputs.height;
         e.motionWidth=inputs.motionWidth;e.motionHeight=inputs.motionHeight;e.camera=&inputs.camera;
         e.reset=reset || !eye.hasPreviousCamera;e.previous=e.reset?nullptr:&eye.previousCamera;
@@ -503,11 +563,11 @@ struct Generator::Impl {
            FAILED(w.finishAllocator->Reset()) || FAILED(w.finish->Reset(w.finishAllocator.Get(),nullptr)))return false;
         w.descriptors=0;w.inputs[0]=inputs[0];w.inputs[1]=inputs[1];
         auto* list=w.list.Get();if(timed)list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4);
-        if(NgxBackend(mode)) {
+        if(mode==Backend::DlssG) {
             w.finish->Close();
             for(unsigned i=0;i<2;++i) {
                 if(!RecordDlss(list,*eyes[i],colors[i],*inputs[i],reset)) {
-                    failed=true;Status(mode==Backend::Anr?"ANR FG evaluation failed":"DLSS Frame Generation evaluation failed");Submit(list,w);return false;
+                    failed=true;Status("DLSS Frame Generation evaluation failed");Submit(list,w);return false;
                 }
             }
             if(timed) {
@@ -620,7 +680,7 @@ bool Generator::Generate(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Re
     CaptureFrame(device,queue,colors,inputs,cameras);
     Settings effective=settings;
     // DLSS-G needs an RTX 40/50 and the SDK in this build; FidelityFX runs anywhere.
-    if(NgxBackend(effective.backend) && !dlssg::Available(device,ProviderOf(effective.backend)))effective.backend=Backend::FidelityFX;
+    if(effective.backend==Backend::DlssG && !dlssg::Available(device))effective.backend=Backend::FidelityFX;
     if(effective.backend==Backend::Nvidia && (!effective.flowScale || !NvidiaOpticalFlow(device)))effective.backend=Backend::FidelityFX;
     PublishActiveBackend(effective.backend);
     if(impl && (impl->device.Get()!=device || impl->queue.Get()!=queue || !impl->Compatible(colors,inputs,effective))) {if(!Reset())return false;reset=true;}
@@ -636,3 +696,4 @@ bool Generator::Generate(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Re
     if(MetricsEnabled())SetVram(Bytes()+InputVram());return result;
 }
 }
+#endif

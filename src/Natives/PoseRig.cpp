@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // PoseRig -- natives lifted out of src/Natives/Natives.cpp, which held every family at once.
 //
 // The pose and rig natives: which bone a script may write, in what space, and the
@@ -6,6 +7,8 @@
 // The cut was placed by the seam map and then SNAPPED to the nearest point at brace depth zero.
 // Boundaries taken from line numbers alone are how a split lands in the middle of a function; the
 // check is cheap and it is the same lesson as every other generator in this restructure.
+#if !CVR_RUST_VRIK
+// The C++ build's natives; the Rust build's are in rust/crates/cvr-rig/src/vrik/pose_rig.rs.
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/GameEngine.hpp>
 #include <sstream>
@@ -1129,3 +1132,5 @@ void VRWeaponRigStatus(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFr
     if (slot < 0) { *aOut = -1; return; }
     *aOut = (slot < kWeaponPartN) ? g_WeaponPartIdx[slot] : -1;
 }
+#endif
+#endif

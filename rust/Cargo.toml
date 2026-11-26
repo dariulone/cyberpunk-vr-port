@@ -1,0 +1,30 @@
+# The port in Rust (docs/rust-migration-plan.md). One workspace, built for x86_64-pc-windows-msvc.
+#
+#   cvr-input   the shared Pico 4 / Quest 3 analog stick, keypad cursor and weapon trigger logic (stage 1)
+#   cvr-ffi     staticlib cvr_rust.lib: the Rust code the C++ DLL links while both live in one binary
+#   red4ext-abi narrow, layout-checked bindings to the pinned RED4ext.SDK (game 2.5 fork)
+#   cvr-plugin  cdylib cyberpunkvrport.dll: the RED4ext plugin itself
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.2.5"
+edition = "2021"
+license = "MIT"
+rust-version = "1.93"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[profile.release]
+# Symbols in the release build, as the C++ DLL has them (CMakeLists.txt): a tester's dump must resolve.
+debug = "full"
+split-debuginfo = "packed"
+# A panic is caught at every boundary the game calls into (cvr_plugin::guard); unwinding stays possible for that.
+panic = "unwind"
+lto = "thin"
+codegen-units = 4
+
+[profile.dev]
+panic = "unwind"

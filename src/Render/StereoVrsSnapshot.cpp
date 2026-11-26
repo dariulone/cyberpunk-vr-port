@@ -1,4 +1,6 @@
 #include "Render/StereoVrsSnapshot.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's snapshot; the Rust build's is rust/crates/cvr-gpu/src/vrs_snapshot.rs (the header calls it).
 #include "Render/CommandResources.hpp"
 #include <cstring>
 namespace cvr::stereo {
@@ -46,3 +48,4 @@ HRESULT StereoVrsSnapshot::Read(uint64_t& differences,std::array<std::array<uint
     const D3D12_RANGE none{};readback_->Unmap(0,&none);return S_OK;
 }
 }
+#endif

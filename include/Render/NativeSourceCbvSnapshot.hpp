@@ -36,6 +36,43 @@ struct Admission {
     geometry::ReadState state;
     bool sourceCurrent{},creationKnown{},initialKnown{},detailKnown{},stateKnown{},poolKnown{},allocationKnown{},allocatorKnown{},direct{},aliasFieldsEmpty{};
 };
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/source_cbv_snapshot.rs (tools/single_pass_tests/source_cbv_snapshot_test runs its
+// cases against them in its Rust variant). The records are mirrored there, the COM pointers read as addresses.
+struct PrivateCbvIdentity;
+extern "C" {
+bool cvr_scs_range(const Admission*);
+bool cvr_scs_read_mask(const geometry::ReadState*,bool);
+bool cvr_scs_recovery_mask(uint32_t,const geometry::ReadState*,uint32_t*);
+uint32_t cvr_scs_admit(const Admission*,uint32_t*);
+bool cvr_scs_reserve(uint64_t,uint64_t,const uint32_t*,size_t,uint64_t*,size_t*,uint64_t*);
+bool cvr_scs_epoch(const ReadEpochCertificate*,uint64_t,uint64_t,uint64_t);
+bool cvr_scs_recorded_copy_fields(const PreparedCopies*,const ReadEpochCertificate*,uint64_t,size_t);
+void cvr_scs_private_identity(const PrivateCbv*,PrivateCbvIdentity*);
+bool cvr_scs_recorded_private_identity(const PrivateCbvIdentity*,const PrivateCbvIdentity*,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
+bool cvr_scs_inline_upload(uint32_t,const source_cbv::SourceCbvBacking*,const ReadEpochCertificate*,uint32_t);
+}
+inline bool Range(const Admission& a)noexcept{return cvr_scs_range(&a);}
+inline bool ReadMask(geometry::ReadState state,bool copy=false)noexcept{return cvr_scs_read_mask(&state,copy);}
+inline bool RecoveryMask(uint32_t previous,geometry::ReadState current,uint32_t& required)noexcept{
+    return cvr_scs_recovery_mask(previous,&current,&required);
+}
+inline Failure Admit(const Admission& a,Kind& kind)noexcept {
+    uint32_t value{};const auto failure=Failure(cvr_scs_admit(&a,&value));kind=Kind(value);return failure;
+}
+// The end reached is written on refusal too; offsets only on success.
+inline bool Reserve(uint64_t cursor,uint64_t capacity,std::span<const uint32_t> views,std::vector<uint64_t>& offsets,uint64_t& end){
+    offsets.clear();std::array<uint64_t,MaxRequests> next{};size_t count{};
+    if(!cvr_scs_reserve(cursor,capacity,views.data(),views.size(),next.data(),&count,&end))return false;
+    offsets.assign(next.begin(),next.begin()+count);return true;
+}
+inline bool Epoch(const ReadEpochCertificate& epoch,uint64_t list,uint64_t generation,uint64_t occurrence)noexcept {
+    return cvr_scs_epoch(&epoch,list,generation,occurrence);
+}
+inline bool RecordedCopyFields(const PreparedCopies& proof,const ReadEpochCertificate& epoch,uint64_t copied,size_t count)noexcept{
+    return cvr_scs_recorded_copy_fields(&proof,&epoch,copied,count);
+}
+#else
 inline bool Range(const Admission& a)noexcept {
     if(!a.resource || !a.gpu || !a.width || a.gpu>UINT64_MAX-a.width || !a.reflectedBytes || a.reflectedBytes>65536 ||
         !a.viewBytes || a.viewBytes>65536 || (a.viewBytes&255) || a.reflectedBytes>a.viewBytes ||
@@ -93,11 +130,39 @@ inline bool RecordedCopyFields(const PreparedCopies& proof,const ReadEpochCertif
     return Epoch(epoch,proof.list,proof.generation,proof.occurrence) && copied && count && count<=MaxRequests &&
         proof.copiedBytes==copied && proof.count==count;
 }
+#endif
 struct PrivateCbvIdentity {
     uint64_t resource{},owner{},sourceOffset{},privateOffset{},copiedBytes{},gpu{};
     UINT parameter{},offset{},reflectedBytes{},paddedBytes{},viewBytes{};
     bool operator==(const PrivateCbvIdentity&)const=default;
 };
+#if CVR_RUST_VRIK
+inline PrivateCbvIdentity PrivateIdentity(const PrivateCbv& view)noexcept{
+    PrivateCbvIdentity identity;cvr_scs_private_identity(&view,&identity);return identity;
+}
+// Numeric equality/extent only. Runtime must first authenticate the receipt and
+// completed recording stage; this helper cannot manufacture copy authority.
+inline bool RecordedPrivateIdentity(const PrivateCbvIdentity& actual,const PrivateCbvIdentity& saved,
+                                    uint64_t resource,uint64_t owner,uint64_t gpu,uint64_t cursor,uint64_t capacity)noexcept{
+    return cvr_scs_recorded_private_identity(&actual,&saved,resource,owner,gpu,cursor,capacity);
+}
+inline bool InlineDirectUpload(const source_cbv::SourceCbvBacking& source,const ReadEpochCertificate& epoch,UINT bytes)noexcept {
+    return cvr_scs_inline_upload(0,&source,&epoch,bytes);
+}
+inline bool InlineTransientUpload(const source_cbv::SourceCbvBacking& source,const ReadEpochCertificate& epoch,UINT bytes)noexcept {
+    return cvr_scs_inline_upload(1,&source,&epoch,bytes);
+}
+inline bool InlineUpload(const source_cbv::SourceCbvBacking& source,const ReadEpochCertificate& epoch,UINT bytes)noexcept {
+    return cvr_scs_inline_upload(2,&source,&epoch,bytes);
+}
+using Backing=source_cbv::SourceCbvBacking;
+static_assert(sizeof(Admission)==184 && offsetof(Admission,state)==160 && sizeof(ReadEpochCertificate)==32 &&
+    sizeof(PrivateCbv)==72 && offsetof(PrivateCbv,view)==40 && offsetof(PrivateCbv,resource)==56 && sizeof(PreparedCopies)==48 &&
+    sizeof(PrivateCbvIdentity)==72 && sizeof(native_recording::Lease)==40 && sizeof(Backing)==472 &&
+    offsetof(Backing,recording)==192 && offsetof(Backing,native)==232 && offsetof(Backing,descriptorBytes)==336 &&
+    offsetof(Backing,creationRecording)==368 && offsetof(Backing,writerNonce)==408 && offsetof(Backing,writerRecording)==432,
+    "mirrored by source_cbv_snapshot.rs");
+#else
 inline PrivateCbvIdentity PrivateIdentity(const PrivateCbv& view)noexcept{
     return {reinterpret_cast<uintptr_t>(view.resource.Get()),reinterpret_cast<uintptr_t>(view.owner.Get()),
         view.sourceOffset,view.privateOffset,view.copiedBytes,view.view.BufferLocation,
@@ -138,6 +203,7 @@ inline bool InlineTransientUpload(const source_cbv::SourceCbvBacking& source,con
 inline bool InlineUpload(const source_cbv::SourceCbvBacking& source,const ReadEpochCertificate& epoch,UINT bytes)noexcept {
     return InlineDirectUpload(source,epoch,bytes) || InlineTransientUpload(source,epoch,bytes);
 }
+#endif
 }
 // Capture original retirement/signal bodies before any native detours change
 // them. The inline UPLOAD route inherits, but never extends, the original epoch.

@@ -1,0 +1,98 @@
+{
+  "report": "Cyberpunk2077-20261118-181704-7484-15532",
+  "save": "AutoSave-7",
+  "pid": 14488,
+  "deathHp": 0,
+  "restoredHp": 375.4880065918,
+  "runtime": "OpenXR Simulator, per-process override",
+  "cases": [
+    {
+      "record": "Items.Preset_Katana_Takemura",
+      "matchedInventoryItemID": true,
+      "testedShapes": 16,
+      "overlapBeforeMeters": 0,
+      "maxConfirmedOverlapMeters": 0.08400571346283,
+      "jointActive": true,
+      "confirmedPuncture": true,
+      "healthLoss": 319.66082763672,
+      "withdrawalOverlapMeters": 0,
+      "serialOnWithdrawal": 1,
+      "serialAfterNextMovement": 2
+    },
+    {
+      "record": "Items.Preset_Katana_Pimp_03",
+      "matchedInventoryItemID": true,
+      "testedShapes": 16,
+      "overlapBeforeMeters": 0,
+      "maxConfirmedOverlapMeters": 0.080580353736877,
+      "jointActive": true,
+      "confirmedPuncture": true,
+      "healthLoss": 319.15441894531,
+      "withdrawalOverlapMeters": 0.056693315505981,
+      "serialOnWithdrawal": 1,
+      "serialAfterNextMovement": 1
+    }
+  ],
+  "knifeWorkspot": {
+    "Melee": true,
+    "Ranged": false,
+    "LMG": false
+  },
+  "rangedWorkspot": {
+    "lmg": false,
+    "ranged": true,
+    "id": "Character.valentinos_grunt1_ranged1_nova_ma"
+  },
+  "controllerChecks": [
+    {
+      "case": "axial",
+      "hitSerials": [
+        0,
+        1,
+        1
+      ],
+      "hp": [
+        613.89996337891,
+        513.26995849609,
+        496.39953613281
+      ],
+      "hapticsPassed": true,
+      "originalSlashOnlyCheckPassed": false
+    },
+    {
+      "case": "reverse",
+      "hitSerials": [
+        0,
+        1,
+        1
+      ],
+      "hp": [
+        613.89996337891,
+        558.69793701172,
+        558.69793701172
+      ],
+      "hapticsPassed": true,
+      "originalSlashOnlyCheckPassed": true
+    },
+    {
+      "case": "wrist",
+      "hitSerials": [
+        0,
+        1,
+        1
+      ],
+      "hp": [
+        613.89996337891,
+        577.89990234375,
+        577.89990234375
+      ],
+      "hapticsPassed": true,
+      "originalSlashOnlyCheckPassed": true
+    }
+  ],
+  "hardwareLoader": {
+    "runtime": "VirtualDesktopXR",
+    "xrCreateInstance": 0,
+    "xrGetSystem": -35
+  }
+}

@@ -9,10 +9,54 @@ enum class TaskCompletionFailure:uint32_t {
     None,Arguments,Caller,AlreadyCaptured,MissingApi,Read,HandleAddress,Group,
     PrerequisiteAlias,References,NoCallbackToken,Changed
 };
+#if CVR_RUST_VRIK
+// The lease: rust/crates/cvr-render/src/native/task_completion.rs through graph_jobs_abi.rs
+// (tools/single_pass_tests/graph_task_completion_test runs its cases against it in its Rust variant).
+struct RustTaskLease;
+struct RustTaskState {uint64_t group,handleAddress;uint32_t failure;bool captured,originalReturned;};
+static_assert(sizeof(RustTaskState)==24,"mirrored by graph_jobs_abi.rs");
+extern "C" {
+RustTaskLease* cvr_tc_new();
+void cvr_tc_free(RustTaskLease*);
+bool cvr_tc_capture(RustTaskLease*,uint64_t,uint64_t,uint64_t,uint64_t,ReadMemory,const JobLeaseApi*);
+bool cvr_tc_step(RustTaskLease*,bool);
+void cvr_tc_state(const RustTaskLease*,RustTaskState*);
+}
+#endif
 
 // Only the audited AC4A04 scheduler callback may supply this worker context.
 // The caller proves the payload/graph and native body fingerprints separately.
 // Native reference callbacks must not throw; the caller serializes all methods.
+#if CVR_RUST_VRIK
+class TaskCompletionLease {
+public:
+    TaskCompletionLease():rust_(cvr_tc_new()){}
+    ~TaskCompletionLease(){cvr_tc_free(rust_);}
+    TaskCompletionLease(const TaskCompletionLease&)=delete;
+    TaskCompletionLease& operator=(const TaskCompletionLease&)=delete;
+    TaskCompletionLease(TaskCompletionLease&&)=delete;
+    TaskCompletionLease& operator=(TaskCompletionLease&&)=delete;
+
+    // A throwing reader unwinds through the rules (their pin releases the group) and is refused here.
+    bool CaptureBeforeCallback(uint64_t worker,uint64_t caller,uint64_t imageBase,uint64_t rootPrerequisite,
+                               ReadMemory read,JobLeaseApi api)try{
+        return cvr_tc_capture(rust_,worker,caller,imageBase,rootPrerequisite,read,&api);
+    }catch(...){return false;}
+
+    // Call only after the original callback returned normally. Cancellation,
+    // timeout or a zero count observed before this point is not completion.
+    bool MarkOriginalReturned(){return cvr_tc_step(rust_,true);}
+    bool Complete()const{return cvr_tc_step(rust_,false);}
+    bool Captured()const{return State().captured;}
+    bool OriginalReturned()const{return State().originalReturned;}
+    uint64_t Group()const{return State().group;}
+    uint64_t HandleAddress()const{return State().handleAddress;}
+    TaskCompletionFailure Rejection()const{return TaskCompletionFailure(State().failure);}
+private:
+    RustTaskState State()const{RustTaskState state{};cvr_tc_state(rust_,&state);return state;}
+    RustTaskLease* rust_;
+};
+#else
 class TaskCompletionLease {
 public:
     TaskCompletionLease()=default;
@@ -91,4 +135,5 @@ private:
     bool captured_{},originalReturned_{};
     TaskCompletionFailure failure_=TaskCompletionFailure::None;
 };
+#endif
 }

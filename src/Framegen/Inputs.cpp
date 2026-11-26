@@ -9,7 +9,6 @@
 #include "Render/ViewCameraLayout.hpp"
 #include "Render/PhysicalOpticsShaders.hpp"
 #include "Stereo/EngineStereoDlss.hpp"
-#include "Stereo/ScopeDlssState.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include <MinHook.h>
 #include <sl_core_types.h>
@@ -20,12 +19,35 @@
 #include <unordered_map>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
 extern "C" int32_t CyberpunkVR_VrcamDlssViewport;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_FramegenInputStages[10]{};
 // The view camera against Streamline's for the same eye and frame, when both exist (NVIDIA): largest
 // difference in position (m), axes, near/far, vertical FOV (rad), jitter, motion scale.
 extern "C" __declspec(dllexport) float CyberpunkVR_FramegenCameraDelta[2][6]{};
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE INPUTS ARE RUST'S (rust/crates/cvr-render/src/framegen_inputs.rs): the Streamline hooks, the records and their
+// pools, the cameras, the engine stereo halves and the submission bookkeeping. This file keeps the exports above, the
+// C++ names as forwarders, AcquireInputs' shared pointer over a Rust record (released through Rust), and the adapters
+// for what Rust cannot reach: the node pose (a C++ thread-local) and g_verboseLog.
+extern "C" {
+// cvr_cpp_framegen_node_pose: rust/crates/cvr-render/src/core_services.rs.
+}
+namespace cvr::framegen {
+static_assert(sizeof(Inputs) == 192 && offsetof(Inputs, camera) == 32 && offsetof(Inputs, poseId) == 128 &&
+                  offsetof(Inputs, frameId) == 160 && offsetof(Inputs, hasDepth) == 184 && offsetof(Inputs, native) == 188,
+              "Inputs is mirrored in rust/crates/cvr-render/src/framegen_inputs.rs");
+static_assert(sizeof(Microsoft::WRL::ComPtr<ID3D12Resource>) == sizeof(void*));
+}  // namespace cvr::framegen
+#endif
+#else
 namespace cvr::framegen {
 namespace {
 using Microsoft::WRL::ComPtr;
@@ -123,17 +145,6 @@ sl::Result Evaluate(sl::Feature feature,const sl::FrameToken& frame,const sl::Ba
     sl::Result result;
     if(!cvr::engine_stereo::dlss::Evaluate(feature,frame,inputs,count,list,originalEvaluate,originalConstants,&result))
         result=cvr::engine_stereo::dlss::EvaluateOriginal(feature,frame,inputs,count,list,originalEvaluate);
-    // A camera-scope completion is not a completed headset eye.
-    for(uint32_t i=0;inputs && i<count;++i)
-        if(inputs[i] && inputs[i]->structType==sl::ViewportHandle::s_structType &&
-           uint32_t(*static_cast<const sl::ViewportHandle*>(inputs[i]))==cvr::scope_dlss::kViewport) {
-            static std::atomic<unsigned> reports[2]{};
-            if(reports[feature==1001 ? 1 : 0].fetch_add(1,std::memory_order_relaxed)<4)
-                Log("[scope-dlss] Streamline received viewport=%08X version=%llu feature=%u frame=%u result=%d\n",
-                    cvr::scope_dlss::kViewport,static_cast<unsigned long long>(inputs[i]->structVersion),
-                    unsigned(feature),uint32_t(frame),int(result));
-            return result;
-        }
     if(!CaptureInputsEnabled())return result;
     const auto pose=cvr::camera::CurrentNodePoseIdentity();
     if(CaptureInputsEnabled() && result==sl::Result::eOk && (feature==0 || feature==1001) && pose && pose.hasRenderFrameId && pose.view>=1 && pose.view<=2 && list) {
@@ -355,14 +366,13 @@ static bool RecordInputs(const InputTag* tags,uint32_t count,void* commandList,b
     }
     return complete;
 }
-void RecordTags(const void* viewport,const void* tags,uint32_t count,void* commandList) {
+void RecordTags(const void*,const void* tags,uint32_t count,void* commandList) {
     CVR_DIAGNOSTIC(CyberpunkVR_FramegenInputStages[0].fetch_add(1,std::memory_order_relaxed));
     // Scope lenses write their velocity into this target (independent of framegen).
     if(tags && count<=32)for(uint32_t i=0;i<count;++i) {
         InputTag tag{};
         if(ReadTag(static_cast<const sl::ResourceTag*>(tags)+i,&tag) && tag.type==1)cvr::optics::MotionVectorsTagged(tag.resource);
     }
-    if(viewport && uint32_t(*static_cast<const sl::ViewportHandle*>(viewport))==cvr::scope_dlss::kViewport)return;
     if(!CaptureInputsEnabled() || !tags || count>32)return;
     std::array<InputTag,32> decoded{};
     for(uint32_t i=0;i<count;++i)
@@ -429,3 +439,4 @@ void ReleaseInputs() {
         (!r->data.readyFence || r->data.readyFence->GetCompletedValue()>=r->data.fenceValue))r.reset();
 }
 }
+#endif

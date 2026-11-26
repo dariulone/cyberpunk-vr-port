@@ -2,6 +2,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#if CVR_RUST_VRIK
+#include <cstddef>
+#include <utility>
+#endif
 #include <map>
 #include <span>
 #include <tuple>
@@ -9,6 +13,28 @@
 #include "Render/GpuQueueOrder.hpp"
 
 namespace cvr::stereo::constants {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/constant_timeline.rs (tools/single_pass_tests/constant_timeline_test runs its cases
+// against them in its Rust variant). The nested records cross by address, their layouts asserted in the class.
+namespace timeline_detail {
+struct RustTimeline;
+extern "C" {
+RustTimeline* cvr_cwt_new(const RustTimeline*);
+void cvr_cwt_free(RustTimeline*);
+void cvr_cwt_mark(RustTimeline*,uint64_t,void*);
+uint32_t cvr_cwt_write(RustTimeline*,const void*,uint64_t,uint64_t,bool,uint64_t);
+void cvr_cwt_alias(RustTimeline*,const void*,const void*);
+void cvr_cwt_set(RustTimeline*,uint32_t,uint32_t,uint64_t,const void*);
+void cvr_cwt_op(RustTimeline*,uint32_t,uint64_t,uint64_t,uint64_t);
+void cvr_cwt_submit(RustTimeline*,uint64_t,uint64_t,const uint64_t*,size_t);
+void cvr_cwt_resolve(const RustTimeline*,const void*,uint64_t,uint64_t,void*);
+void cvr_cwt_stats(const RustTimeline*,std::array<uint32_t,5>*);
+void cvr_cwt_describe(const RustTimeline*,const void*,void*);
+size_t cvr_cwt_related(const RustTimeline*,const void*,uint64_t,uint64_t,void*,size_t);
+bool cvr_cwt_could_alias(const void*,const void*);
+}
+}
+#endif
 // CPU recording order is deliberately absent from cross-list comparisons.
 // The caller supplies actual queue submission order and witnessed payload IDs.
 class ConstantWriteTimeline {
@@ -20,6 +46,48 @@ public:
     struct Context {uint64_t queue{},batch{};uint32_t index{},node{};};
     struct RelatedWrite {uint32_t id{},relation{};Position point;Context context;uint64_t payload{};};
     struct MemorySpan {uint64_t heap{},offset{},bytes{};};
+#if CVR_RUST_VRIK
+    static bool CouldAlias(MemorySpan a,MemorySpan b){return timeline_detail::cvr_cwt_could_alias(&a,&b);}
+    static constexpr uint32_t Capacity=16384;
+    ConstantWriteTimeline():rust_(timeline_detail::cvr_cwt_new(nullptr)){}
+    ConstantWriteTimeline(const ConstantWriteTimeline& other):rust_(timeline_detail::cvr_cwt_new(other.rust_)){}
+    ConstantWriteTimeline(ConstantWriteTimeline&& other)noexcept:rust_(std::exchange(other.rust_,timeline_detail::cvr_cwt_new(nullptr))){}
+    ConstantWriteTimeline& operator=(ConstantWriteTimeline other)noexcept{std::swap(rust_,other.rust_);return *this;}
+    ~ConstantWriteTimeline(){timeline_detail::cvr_cwt_free(rust_);}
+
+    Position Mark(uint64_t list){Position point;timeline_detail::cvr_cwt_mark(rust_,list,&point);return point;}
+    uint32_t Write(Position point,uint64_t address,uint64_t size,bool committed,uint64_t payload=0){
+        return timeline_detail::cvr_cwt_write(rust_,&point,address,size,committed,payload);
+    }
+    void Alias(Position point,MemorySpan memory={}){timeline_detail::cvr_cwt_alias(rust_,&point,&memory);}
+    void Payload(uint32_t write,uint64_t payload){timeline_detail::cvr_cwt_set(rust_,0,write,payload,nullptr);}
+    void Explanation(uint32_t write,Detail detail){timeline_detail::cvr_cwt_set(rust_,1,write,uint64_t(uint32_t(detail)),nullptr);}
+    void Memory(uint32_t write,MemorySpan memory){timeline_detail::cvr_cwt_set(rust_,2,write,0,&memory);}
+    void Reset(uint64_t list){timeline_detail::cvr_cwt_op(rust_,0,list,0,0);}
+    void Submit(uint64_t queue,uint64_t batch,std::span<const uint64_t> lists){
+        timeline_detail::cvr_cwt_submit(rust_,queue,batch,lists.data(),lists.size());
+    }
+    Result Resolve(Position read,uint64_t address,uint64_t bytes) const {
+        Result out;timeline_detail::cvr_cwt_resolve(rust_,&read,address,bytes,&out);return out;
+    }
+    std::array<uint32_t,5> Stats() const {std::array<uint32_t,5> out{};timeline_detail::cvr_cwt_stats(rust_,&out);return out;}
+    Context Describe(Position position) const {Context out;timeline_detail::cvr_cwt_describe(rust_,&position,&out);return out;}
+    std::vector<RelatedWrite> Related(Position read,uint64_t address,uint64_t bytes) const {
+        std::vector<RelatedWrite> result(timeline_detail::cvr_cwt_related(rust_,&read,address,bytes,nullptr,0));
+        if(!result.empty())timeline_detail::cvr_cwt_related(rust_,&read,address,bytes,result.data(),result.size());
+        return result;
+    }
+    void Fence(uint64_t fence,uint64_t completed){timeline_detail::cvr_cwt_op(rust_,2,fence,completed,0);}
+    void Signal(uint64_t queue,uint64_t fence,uint64_t value){timeline_detail::cvr_cwt_op(rust_,3,queue,fence,value);}
+    void Wait(uint64_t queue,uint64_t fence,uint64_t value){timeline_detail::cvr_cwt_op(rust_,4,queue,fence,value);}
+    void InvalidateFence(uint64_t fence){timeline_detail::cvr_cwt_op(rust_,5,fence,0,0);}
+    void FenceProgress(uint64_t fence,uint64_t completed){timeline_detail::cvr_cwt_op(rust_,6,fence,completed,0);}
+    void Clear(){timeline_detail::cvr_cwt_op(rust_,1,0,0,0);}
+private:
+    static_assert(sizeof(Position)==16 && sizeof(Result)==32 && sizeof(Context)==24 && sizeof(RelatedWrite)==56 &&
+        sizeof(MemorySpan)==24 && offsetof(Result,detail)==24 && offsetof(RelatedWrite,payload)==48,"mirrored by constant_timeline.rs");
+    timeline_detail::RustTimeline* rust_;
+#else
     static bool CouldAlias(MemorySpan a,MemorySpan b) {
         if(!a.heap || !b.heap || !a.bytes || !b.bytes || a.offset>UINT64_MAX-a.bytes || b.offset>UINT64_MAX-b.bytes)return true;
         return a.heap==b.heap && a.offset<b.offset+b.bytes && b.offset<a.offset+a.bytes;
@@ -141,6 +209,8 @@ public:
     void FenceProgress(uint64_t fence,uint64_t completed){order_.Progress(fence,completed);}
     void Clear(){current_.clear();recordings_.assign(1,{});writes_.clear();failed_=false;queues_.clear();submits_=replays_=0;order_.Clear();}
 private:
+#endif
+#if !CVR_RUST_VRIK
     struct Recording {
         uint64_t commands{},queue{},batch{};uint32_t index{},node{};
         bool submitted{},abandoned{},replayed{};
@@ -179,5 +249,6 @@ private:
     static bool Overlap(const WriteEvent& write,uint64_t address,uint64_t bytes) {
         return write.address<address+bytes && address<write.address+write.size;
     }
+#endif
 };
 }

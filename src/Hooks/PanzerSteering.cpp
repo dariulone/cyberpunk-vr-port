@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 #include "Camera/CameraState.hpp"
 #include "Camera/ExternalView.hpp"
 #include "Camera/PlayerCameraState.hpp"
@@ -8,26 +9,23 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Utils/MemorySafe.hpp"
-#include <RED4ext/Scripting/CProperty.hpp>
 #include <MinHook.h>
 #include <cstdio>
 #include <cstring>
 
-struct PanzerSteeringDebug {
-    uint64_t calls{},applied{},model{},owner{},stampUs{},poseId{};
-    float nativeTarget[3]{},target[3]{};
-    uint32_t reason{},reserved{};
-};
-static_assert(sizeof(PanzerSteeringDebug)==80);
-extern "C" {
-__declspec(dllexport) int CyberpunkVR_PanzerGazeSteering=1;
-__declspec(dllexport) PanzerSteeringDebug CyberpunkVR_PanzerSteeringDebug{};
-__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PanzerSteeringDebugSeq{};
-}
+#include "Hooks/PanzerState.hpp"
+
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/panzer.rs: the steering target.
+extern "C" bool cvr_hook_panzer_steering_install();
+CVR_HOOK("PanzerSteering",::cvr::hooks::Stage::Boot,83,cvr_hook_panzer_steering_install);
+#else
 namespace {
 using TargetFn=uintptr_t(__fastcall*)(uintptr_t);
 TargetFn original{};
 std::mutex debugMutex;
+using DirectionFn=bool(*)(float*,uint64_t*);
+DirectionFn readDirection{};
 uintptr_t MountedVehicle() {
     return CurrentMountedVehicleIdentity();
 }
@@ -39,7 +37,12 @@ void Record(const PanzerSteeringDebug& frame) {
     CyberpunkVR_PanzerSteeringDebug=next;
     CyberpunkVR_PanzerSteeringDebugSeq.fetch_add(1,std::memory_order_release);
 }
-uintptr_t __fastcall Target(uintptr_t model) {
+}
+// The bench's originals and reader (CvrPanzerBind, src/Hooks/PanzerWeaponAim.cpp).
+void CvrPanzerSteeringBind(uintptr_t steer,uintptr_t externalDirection) {
+    original=reinterpret_cast<TargetFn>(steer);readDirection=reinterpret_cast<DirectionFn>(externalDirection);
+}
+extern "C" uintptr_t CvrPanzerSteerTarget(uintptr_t model) {
     const auto result=original(model);
     PanzerSteeringDebug frame{};frame.model=model;frame.reason=1;
     do {
@@ -48,7 +51,7 @@ uintptr_t __fastcall Target(uintptr_t model) {
         uintptr_t owner{};frame.reason=2;
         if(!ReadU64Safe(model+0xE0,&owner)||!owner || owner!=MountedVehicle())break;
         frame.owner=owner;frame.reason=3;
-        if(!cvr::camera::ReadExternalMainDirection(frame.target,&frame.poseId))break;
+        if(!(readDirection ? readDirection(frame.target,&frame.poseId):cvr::camera::ReadExternalMainDirection(frame.target,&frame.poseId)))break;
         // CP2077 2.31: FixedUpdate_PreSolve calls this native TPP camera helper,
         // then compares chassis forward with model+E8/EC/F0 at +261D4B2..515.
         // Replace its planar target only. The native yaw controller, turning
@@ -62,6 +65,7 @@ uintptr_t __fastcall Target(uintptr_t model) {
     CVR_DIAGNOSTIC(frame.stampUs=XrDiagNowUs();Record(frame));
     return result;
 }
+namespace {
 bool Matches(uintptr_t base,const cvr::camera::sites::Site& site) {
     const auto* data=reinterpret_cast<const uint8_t*>(base+site.rva);
     for(size_t i=0;site.bytes[i*2];++i) {
@@ -74,8 +78,10 @@ bool Install() {
     const auto exe=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     if(!exe || !Matches(exe,cvr::camera::sites::PanzerAimUpdate)||!Matches(exe,cvr::camera::sites::PanzerAimCall))return false;
     auto* target=reinterpret_cast<void*>(exe+cvr::camera::sites::PanzerAimUpdate.rva);
-    if(MH_CreateHook(target,reinterpret_cast<void*>(&Target),reinterpret_cast<void**>(&original))!=MH_OK)return false;
+    if(MH_CreateHook(target,reinterpret_cast<void*>(&CvrPanzerSteerTarget),reinterpret_cast<void**>(&original))!=MH_OK)return false;
     return MH_EnableHook(target)==MH_OK;
 }
 CVR_HOOK("PanzerSteering",::cvr::hooks::Stage::Boot,83,Install);
 }
+#endif
+#endif

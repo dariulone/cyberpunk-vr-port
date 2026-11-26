@@ -1,20 +1,57 @@
 #include "Render/MonoCascades.hpp"
 #include "Render/CommandResources.hpp"
+#if CVR_RUST_VRIK
+#include "Render/RenderProbeScope.hpp"
+#include "Stereo/EngineStereo.hpp"
+#endif
 #include <wrl/client.h>
 #include <dxgi1_6.h>
 #include <d3d12sdklayers.h>
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
 using Microsoft::WRL::ComPtr;
 using namespace cvr::cascades;
+// The plugin's halves this test stands in for: the port's own stereo (engine stereo off, not a mono launch), so the
+// second view is wanted; the Present count of the scene
+// profile (Hooks/SwapChain.cpp).
+namespace cvr::engine_stereo { bool Enabled(){return false;} bool MonoLaunch(){return false;} }
+extern "C" std::atomic<uint64_t> CyberpunkVR_PresentTiming[8]{};
+#if CVR_RUST_VRIK
+// The plugin defines the cascades' exports in Rust and hands them over with its queries as it loads
+// (rust/crates/cvr-render/src/export_attach.rs); the test stands in for both, with the C++ definitions' values.
+extern "C" {
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_MonoCascades{1};
+__declspec(dllexport) uint32_t CyberpunkVR_MonoCascadeReportSeq=0;
+__declspec(dllexport) char CyberpunkVR_MonoCascadeReport[4096]="{}";
+void cvr_mono_cascades_attach(const void* table);
+}
+namespace {
+bool SecondViewWanted(){return cvr::engine_stereo::SecondViewWanted();}
+bool InternalCommands(){return cvr::stereo::probe::internalCommands;}
+bool SetInternalCommands(bool on){const bool previous=cvr::stereo::probe::internalCommands;cvr::stereo::probe::internalCommands=on;return previous;}
+struct CascadeAttach {
+    std::atomic<uint32_t>* mono; std::atomic<uint32_t>* reportSeq; char* report; size_t reportLength;
+    bool (*secondViewWanted)(); bool (*internalCommands)(); bool (*setInternalCommands)(bool);
+};
+const CascadeAttach kCascadeAttach{&CyberpunkVR_MonoCascades,reinterpret_cast<std::atomic<uint32_t>*>(&CyberpunkVR_MonoCascadeReportSeq),
+    CyberpunkVR_MonoCascadeReport,sizeof(CyberpunkVR_MonoCascadeReport),&SecondViewWanted,&InternalCommands,&SetInternalCommands};
+}
+#endif
 static void Check(bool v,const char* why){if(!v)throw std::runtime_error(why);}
 static void Hr(HRESULT hr){Check(SUCCEEDED(hr),"D3D12 failed");}
-int main()try{
+// "trace": a hash of every atlas byte read back and the report, so the C++ and the Rust build compare
+// (cmake/ParityTrace.cmake).
+int main(int argc,char** argv)try{
+#if CVR_RUST_VRIK
+    cvr_mono_cascades_attach(&kCascadeAttach);
+#endif
+    const bool trace=argc>1 && std::strcmp(argv[1],"trace")==0;uint64_t hash=1469598103934665603ull;
     ComPtr<ID3D12Debug> debug;Hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));debug->EnableDebugLayer();
     ComPtr<IDXGIFactory4> factory;Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));ComPtr<IDXGIAdapter> adapter;Hr(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)));
     ComPtr<ID3D12Device> device;Hr(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device)));
@@ -64,10 +101,13 @@ int main()try{
         D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;barrier.Transition={atlas.Get(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_DEPTH_WRITE,D3D12_RESOURCE_STATE_COPY_SOURCE};list->ResourceBarrier(1,&barrier);
         for(UINT i=0;i<count;++i){D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=atlas.Get();from.SubresourceIndex=i;to.pResource=readback.Get();to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=footprints[i];list->CopyTextureRegion(&to,0,0,0,&from,nullptr);}
         submit();void* data{};Hr(readback->Map(0,nullptr,&data));
+        for(size_t b=0;b<bytes;++b){hash^=static_cast<const uint8_t*>(data)[b];hash*=1099511628211ull;}
         for(UINT i=0;i<count;++i)for(UINT y=0;y<height;++y)for(UINT x=0;x<width;++x){const auto* row=reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(data)+footprints[i].Offset+y*footprints[i].Footprint.RowPitch);
             const auto expected=mismatch && i==count-1?65535u:unsigned(std::lround((.25f+i*.125f)*65535));Check(std::abs(int(row[x])-int(expected))<=1,"Atlas layer lost after quality transition or fallback");}
         readback->Unmap(0,nullptr);
     }
+    Poll();
+    if(trace){std::printf("cascade_gpu trace %016llx %s\n",static_cast<unsigned long long>(hash),CyberpunkVR_MonoCascadeReport);return 0;}
     CyberpunkVR_MonoCascades=0;ComPtr<ID3D12InfoQueue> info;Hr(device.As(&info));
     for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T bytes{};info->GetMessage(i,nullptr,&bytes);std::vector<char> storage(bytes);auto* m=reinterpret_cast<D3D12_MESSAGE*>(storage.data());info->GetMessage(i,m,&bytes);
         if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR){std::cerr<<m->pDescription<<'\n';throw std::runtime_error("GPU validation error");}}

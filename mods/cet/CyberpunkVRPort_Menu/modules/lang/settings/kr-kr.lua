@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "깔끔한 cyberpunkvrport.log를 위해 기본값은 꺼짐입니다. ClipCursor / 깊이 / 후크\n진단을 기록할 때만 켜세요.",
   ["FRAMEGEN"] = "프레임 생성",
   ["Enable frame generation"] = "프레임 생성 활성화",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "프레임 생성이 켜져 있는 동안 손 스무딩은 원래 속도의 xr_hand_lerp_framegen_scale배로 실행됩니다(1.25, 0이면 꺼짐).",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "프레임 생성이 켜져 있는 동안 손 스무딩은 원래 속도의 xr_hand_lerp_framegen_scale배로 실행됩니다(1.10, 0이면 꺼짐).",
   ["Frame generator"] = "프레임 생성기",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

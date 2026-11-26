@@ -108,11 +108,14 @@ private:
     void Store(uintptr_t address,const PoseFingerprint& fingerprint,const Payload& payload) {
         // A cached VRCAM descriptor can remain alive while thousands of MAIN
         // copies update a few other objects. Bound distinct objects, not the
-        // number of publications: activity elsewhere must not expire its ID.
+        // number of publications: activity elsewhere must not expire its ID. Records read in the same interval share
+        // a use stamp; the older publication goes first, so the choice never depends on the map's iteration order.
         if(!m_records.contains(address) && m_records.size()>=Capacity) {
-            const auto oldest=std::min_element(m_records.begin(),m_records.end(),
-                [](const auto& a,const auto& b){ return a.second.lastUse.value.load(std::memory_order_relaxed)<
-                                                        b.second.lastUse.value.load(std::memory_order_relaxed); });
+            const auto oldest=std::min_element(m_records.begin(),m_records.end(),[](const auto& a,const auto& b) {
+                const auto useA=a.second.lastUse.value.load(std::memory_order_relaxed);
+                const auto useB=b.second.lastUse.value.load(std::memory_order_relaxed);
+                return useA<useB || (useA==useB && a.second.generation<b.second.generation);
+            });
             m_records.erase(oldest);
         }
         // Stores step the clock by two, so the reads in between (clock + 1) rank above this store

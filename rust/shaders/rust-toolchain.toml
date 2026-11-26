@@ -1,0 +1,4 @@
+# rust-gpu 0.11's code generator (rustc_codegen_spirv) is built against exactly this nightly.
+[toolchain]
+channel = "nightly-2026-08-15"
+components = ["rust-src", "rustc-dev", "llvm-tools"]

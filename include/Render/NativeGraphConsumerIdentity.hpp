@@ -8,9 +8,78 @@ enum class IdentityFailure:uint32_t {
     None,Arguments,Caller,AlreadyCaptured,MissingApi,Read,References,Changed,
     NotCaptured,ConstructAlreadyChecked,ConstructIdentity,SourceNotConsumed
 };
+#if CVR_RUST_VRIK
+// The ticket: rust/crates/cvr-render/src/native/consumer_identity.rs through graph_jobs_abi.rs
+// (tools/single_pass_tests/graph_consumer_identity_test runs its cases against it in its Rust variant).
+struct RustRootTicket;
+struct RustTicketState {
+    uint64_t id,epoch,generation,imageBase,frameOwner,sourceGraph,graph,group;
+    uint32_t failure;bool captured,constructVerified,redirected;
+};
+static_assert(sizeof(RustTicketState)==72,"mirrored by graph_jobs_abi.rs");
+extern "C" {
+RustRootTicket* cvr_ci_new();
+void cvr_ci_free(RustRootTicket*);
+bool cvr_ci_capture(RustRootTicket*,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,ReadMemory,
+    const JobLeaseApi*,const FrameOwnerApi*,uint64_t);
+bool cvr_ci_verify(RustRootTicket*,uint64_t,ReadMemory);
+bool cvr_ci_match(const RustRootTicket*,uint64_t,uint64_t,uint64_t,ReadMemory,bool);
+void cvr_ci_fail_read(RustRootTicket*);
+void cvr_ci_state(const RustRootTicket*,RustTicketState*);
+}
+#endif
 
 // Native callbacks are nonthrowing; the caller serializes this object. This pins
 // identity only: neither a zero pending count nor cancellation proves completion.
+#if CVR_RUST_VRIK
+class NativeRootTicket {
+public:
+    NativeRootTicket():rust_(cvr_ci_new()){}
+    ~NativeRootTicket(){cvr_ci_free(rust_);}
+    NativeRootTicket(const NativeRootTicket&)=delete;
+    NativeRootTicket& operator=(const NativeRootTicket&)=delete;
+    NativeRootTicket(NativeRootTicket&&)=delete;
+    NativeRootTicket& operator=(NativeRootTicket&&)=delete;
+
+    // An execution override records the caller's future publication contract.
+    // This ticket neither publishes the slot nor proves storage/definition leases.
+    // A throwing reader unwinds through the rules (their pins release) and is refused with Read here.
+    bool CaptureBeforeConstruct(uint64_t ownerAddress,uint64_t graphPointerAddress,uint64_t completionHandleAddress,
+                                uint64_t caller,uint64_t imageBase,uint64_t epoch,uint64_t generation,uint64_t monotonicId,
+                                ReadMemory read,JobLeaseApi jobs,FrameOwnerApi owner,uint64_t expectedExecutionGraph=0)try{
+        return cvr_ci_capture(rust_,ownerAddress,graphPointerAddress,completionHandleAddress,caller,imageBase,epoch,generation,
+            monotonicId,read,&jobs,&owner,expectedExecutionGraph);
+    }catch(...){cvr_ci_fail_read(rust_);return false;}
+
+    // Immediate post-B56968 only: the original root's source handle is still live.
+    // No owner/graph stack addresses are retained or read by either later method.
+    bool VerifyConstruct(uint64_t destination,ReadMemory read)try{
+        return cvr_ci_verify(rust_,destination,read);
+    }catch(...){cvr_ci_fail_read(rust_);return false;}
+
+    bool MatchQueued(uint64_t payload,uint64_t graph,uint64_t caller,ReadMemory read)const try{
+        return cvr_ci_match(rust_,payload,graph,caller,read,false);
+    }catch(...){return false;}
+    bool MatchExecutionCallback(uint64_t payload,uint64_t graph,uint64_t caller,ReadMemory read)const try{
+        return cvr_ci_match(rust_,payload,graph,caller,read,true);
+    }catch(...){return false;}
+    bool Captured()const{return State().captured;}
+    bool ConstructVerified()const{return State().constructVerified;}
+    IdentityFailure Rejection()const{return IdentityFailure(State().failure);}
+    uint64_t Id()const{return State().id;}
+    uint64_t Epoch()const{return State().epoch;}
+    uint64_t Generation()const{return State().generation;}
+    uint64_t ImageBase()const{return State().imageBase;}
+    uint64_t FrameOwner()const{return State().frameOwner;}
+    uint64_t SourceGraphAddress()const{return State().sourceGraph;}
+    uint64_t GraphAddress()const{return State().graph;}
+    bool Redirected()const{return State().redirected;}
+    uint64_t Group()const{return State().group;}
+private:
+    RustTicketState State()const{RustTicketState state{};cvr_ci_state(rust_,&state);return state;}
+    RustRootTicket* rust_;
+};
+#else
 class NativeRootTicket {
 public:
     NativeRootTicket()=default;
@@ -132,4 +201,5 @@ private:
     bool captured_{},constructChecked_{},constructed_{};
     IdentityFailure failure_=IdentityFailure::None;
 };
+#endif
 }

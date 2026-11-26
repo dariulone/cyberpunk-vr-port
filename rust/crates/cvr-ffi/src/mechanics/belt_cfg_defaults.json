@@ -1,0 +1,846 @@
+{
+ "enabled": true,
+ "auto_equip": true,
+ "force_appearance": true,
+ "belt_all_in_one": false,
+ "belt_pieces": {
+  "strap": true,
+  "back": false,
+  "mag": false,
+  "mag_l": false,
+  "mag_r": false,
+  "mag_back": false,
+  "pouch_small": false,
+  "pouch_l": false,
+  "pouch_r": false,
+  "bag_front_l": false,
+  "bag_front_r": false,
+  "bag_back_l": false,
+  "bag_back_r": false,
+  "radio": false,
+  "radio_front": false,
+  "torch": false,
+  "torch_front": false,
+  "gren_front": false,
+  "gren_mid": false,
+  "gren_back": false
+ },
+ "belt_all_in_one_female": false,
+ "belt_pieces_female": {
+  "strap": true,
+  "back": false,
+  "mag": false,
+  "mag_l": false,
+  "mag_r": false,
+  "mag_back": false,
+  "pouch_small": false,
+  "pouch_l": false,
+  "pouch_r": false,
+  "bag_front_l": false,
+  "bag_front_r": false,
+  "bag_back_l": false,
+  "bag_back_r": false,
+  "radio": false,
+  "radio_front": false,
+  "torch": false,
+  "torch_front": false,
+  "gren_front": false,
+  "gren_mid": false,
+  "gren_back": false
+ },
+ "belt_chunk_off": [
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false
+ ],
+ "belt_chunk_off_female": [
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false
+ ],
+ "variants": [
+  "Items.ucbelt_d",
+  "Items.ucbelt_e",
+  "Items.ucbelt_f",
+  "Items.vrp_belt"
+ ],
+ "variant_names": [
+  "01 dark",
+  "02 khaki",
+  "03 tan",
+  "NCPD (наш)"
+ ],
+ "variant": 4,
+ "belt_variant_v": 1,
+ "appearances": [
+  "appearance_01",
+  "appearance_02",
+  "appearance_03"
+ ],
+ "slot": "AttachmentSlots.VRPortWaist",
+ "outfit_slot": "OutfitSlots.Waist",
+ "prefix": "ucbelt",
+ "render_plane_param": "renderPlane",
+ "garment_offsets": false,
+ "color_route": "item",
+ "route": "attach",
+ "elements": {},
+ "offsets_female": {
+  "ucbeltammo_shell1": {
+   "x": 0.0,
+   "y": 0.05,
+   "z": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade": {
+   "x": -0.012,
+   "y": -0.012,
+   "z": 0.016,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade_biohazard": {
+   "x": 0.0,
+   "y": -0.02,
+   "z": 0.028,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade_cutting": {
+   "x": -0.008,
+   "y": -0.016,
+   "z": 0.016,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade_emp": {
+   "x": 0.018,
+   "y": -0.026,
+   "z": 0.004,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade_flash": {
+   "x": -0.01,
+   "y": -0.01,
+   "z": 0.048,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade_incendiary": {
+   "x": -0.018,
+   "y": -0.006,
+   "z": 0.03,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade_ozob": {
+   "x": 0.004,
+   "y": -0.014,
+   "z": 0.022,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade_recon": {
+   "x": 0.01,
+   "y": -0.018,
+   "z": 0.022,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltgrenade_smoke": {
+   "x": -0.026,
+   "y": 0.01,
+   "z": 0.032,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_ashura": {
+   "x": 0.0,
+   "y": -0.014,
+   "z": 0.044,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_burya": {
+   "x": 0.0,
+   "y": -0.002,
+   "z": 0.042,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_chao": {
+   "x": 0.032,
+   "y": -0.012,
+   "z": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_copperhead": {
+   "x": 0.0,
+   "y": -0.006,
+   "z": 0.014,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_crusher": {
+   "x": -0.014,
+   "y": -0.016,
+   "z": 0.038,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_dian": {
+   "x": 0.0,
+   "y": 0.178,
+   "z": 0.038,
+   "rx": 8.5,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_grit": {
+   "x": 0.0,
+   "y": -0.012,
+   "z": 0.02,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_guillotine": {
+   "x": 0.0,
+   "y": -0.014,
+   "z": 0.024,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_kappa": {
+   "x": 0.0,
+   "y": -0.016,
+   "z": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_kenshin": {
+   "x": -0.022,
+   "y": -0.022,
+   "z": 0.026,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_kyubi": {
+   "x": -0.014,
+   "y": -0.012,
+   "z": 0.016,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_lexington": {
+   "x": -0.006,
+   "y": -0.016,
+   "z": 0.026,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_liberty": {
+   "x": -0.058,
+   "y": -0.028,
+   "z": 0.026,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -18.5
+  },
+  "ucbeltmag_masamune": {
+   "x": -0.016,
+   "y": -0.026,
+   "z": 0.03,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_metel": {
+   "x": -0.026,
+   "y": -0.034,
+   "z": 0.034,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -5.5
+  },
+  "ucbeltmag_nova": {
+   "x": -0.01,
+   "y": -0.012,
+   "z": 0.036,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_nue": {
+   "x": -0.034,
+   "y": -0.022,
+   "z": 0.054,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -11.5
+  },
+  "ucbeltmag_omaha": {
+   "x": -0.026,
+   "y": -0.01,
+   "z": 0.042,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -3.0
+  },
+  "ucbeltmag_palica": {
+   "x": 0.0,
+   "y": -0.016,
+   "z": 0.026,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_pozhar": {
+   "x": 0.006,
+   "y": -0.004,
+   "z": 0.036,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_pulsar": {
+   "x": 0.0,
+   "y": -0.012,
+   "z": 0.028,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 4.0
+  },
+  "ucbeltmag_quasar": {
+   "x": 0.006,
+   "y": -0.006,
+   "z": 0.04,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 6.0
+  },
+  "ucbeltmag_saratoga": {
+   "x": 0.0,
+   "y": -0.012,
+   "z": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -4.0
+  },
+  "ucbeltmag_satara": {
+   "x": 0.008,
+   "y": -0.014,
+   "z": 0.026,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_senkoh": {
+   "x": -0.016,
+   "y": -0.038,
+   "z": 0.022,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -6.5
+  },
+  "ucbeltmag_sidewinder": {
+   "x": 0.0,
+   "y": -0.014,
+   "z": 0.026,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_silverhand": {
+   "x": 0.0,
+   "y": -0.016,
+   "z": 0.034,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_tamayura": {
+   "x": -0.028,
+   "y": -0.028,
+   "z": 0.018,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -12.0
+  },
+  "ucbeltmag_ticon": {
+   "x": -0.032,
+   "y": -0.026,
+   "z": 0.044,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -12.0
+  },
+  "ucbeltmag_umbra": {
+   "x": 0.026,
+   "y": -0.016,
+   "z": 0.026,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  "ucbeltmag_unity": {
+   "x": -0.018,
+   "y": -0.008,
+   "z": 0.024,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": -7.0
+  },
+  "ucbeltmag_yukimura": {
+   "x": 0.004,
+   "y": -0.018,
+   "z": 0.026,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  }
+ },
+ "centres": {
+  "ucbeltmag": [
+   -0.134,
+   0.102,
+   1.065
+  ],
+  "ucbeltsoftpouch": [
+   0.171,
+   0.052,
+   1.069
+  ],
+  "ucbelthardpouch": [
+   0.079,
+   -0.019,
+   1.072
+  ],
+  "ucbeltradio": [
+   0.181,
+   -0.02,
+   1.118
+  ],
+  "ucbeltdualpouch": [
+   -0.018,
+   -0.055,
+   1.081
+  ],
+  "ucbeltbagpouch": [
+   -0.095,
+   -0.158,
+   1.086
+  ],
+  "ucbeltacc": [
+   -0.002,
+   0.003,
+   1.065
+  ],
+  "ucbeltammo_shell1": [
+   -0.1476,
+   0.0782,
+   1.0463
+  ],
+  "ucbeltammo_shell2": [
+   -0.1253,
+   0.0933,
+   1.048
+  ],
+  "ucbeltammo_shell3": [
+   -0.1029,
+   0.1084,
+   1.0496
+  ],
+  "ucbeltgrenade": [
+   0.0761,
+   0.1538,
+   1.1047
+  ],
+  "ucbeltgrenade_flash": [
+   0.0581,
+   0.1458,
+   1.106
+  ],
+  "ucbeltgrenade_incendiary": [
+   0.0701,
+   0.1498,
+   1.114
+  ],
+  "ucbeltgrenade_biohazard": [
+   0.0681,
+   0.1578,
+   1.114
+  ],
+  "ucbeltgrenade_smoke": [
+   0.0741,
+   0.1458,
+   1.13
+  ],
+  "ucbeltgrenade_recon": [
+   0.0541,
+   0.1658,
+   1.12
+  ],
+  "ucbeltgrenade_cutting": [
+   0.0661,
+   0.1598,
+   1.104
+  ],
+  "ucbeltgrenade_emp": [
+   0.0541,
+   0.1578,
+   1.128
+  ],
+  "ucbeltgrenade_ozob": [
+   0.0581,
+   0.1478,
+   1.122
+  ]
+ },
+ "offsets": {},
+ "offsets_v": 0,
+ "grenade_grab": true,
+ "grenade_grab_plane": 0,
+ "grenade_grab_pose": true,
+ "grab_trace": false,
+ "grenade_hold": {
+  "x": 0.0,
+  "y": 0.0,
+  "z": 0.0,
+  "rx": 0.0,
+  "ry": 0.0,
+  "rz": 0.0
+ },
+ "grenade_pin": true,
+ "grenade_pin_preview_m": 0.1,
+ "grenade_pin_grip_m": 0.04,
+ "grenade_pin_slide_m": 0.002,
+ "grenade_pin_axis": {
+  "x": -0.02,
+  "y": -0.83,
+  "z": 0.0
+ },
+ "grenade_lever": true,
+ "grenade_lever_speed": 8.0,
+ "grenade_lever_open": 0.0,
+ "grenade_trigger_block": true,
+ "grenade_sound": true,
+ "grenade_snd_grab": "grenade_equip",
+ "grenade_snd_stow": "grenade_unequip",
+ "grenade_snd_pin": "grenade_arm_pin",
+ "grenade_snd_button": "grenade_arm_button",
+ "grenade_snd_emitter": {
+  "emp": "gre_ent_emp"
+ },
+ "highlight_hand_off": {
+  "x": 0.0,
+  "y": 0.0,
+  "z": 0.0
+ },
+ "grenade_button_hold_s": 0.35,
+ "grenade_button_curl_deg": 22.0,
+ "grenade_hold_per_type": false,
+ "grenade_custom": {
+  "cutting": true,
+  "recon": true,
+  "emp": true
+ },
+ "grenade_pin_axis_kind": {},
+ "grenade_pin_off_kind": {
+  "frag": {
+   "x": 0.0,
+   "y": 0.0,
+   "z": 0.015
+  },
+  "ozob": {
+   "x": 0.0,
+   "y": 0.0,
+   "z": 0.012
+  },
+  "flash": {
+   "x": 0.0,
+   "y": 0.0,
+   "z": 0.007
+  },
+  "smoke": {
+   "x": 0.0,
+   "y": 0.0,
+   "z": 0.013
+  }
+ },
+ "grenade_press_mode": {
+  "recon": "swap"
+ },
+ "grenade_button_lift_deg": 22.0,
+ "grenade_hold_kind": {},
+ "grenade_snd_gap": 0.12,
+ "grenade_snd_gap_lever": 0.45,
+ "grenade_snd_lever": "w_expl_frag_grenade_foley_raise_cover",
+ "grenade_snd_leverOff": "w_expl_frag_grenade_foley_lower_cover",
+ "grenade_snd_throw": "grenade_throw",
+ "grenade_throw": true,
+ "grenade_throw_carry": 1.0,
+ "grenade_throw_gain": 2.0,
+ "grenade_throw_min": 1.5,
+ "grenade_throw_max": 45.0,
+ "grenade_throw_dir_min": 0.3,
+ "grenade_throw_window": 0.2,
+ "grenade_throw_ready": 0.15,
+ "grenade_throw_hand_r": "RightHand",
+ "grenade_throw_hand_l": "LeftHand",
+ "grenade_throw_own": true,
+ "grenade_prop_dir": "base\\vrport\\",
+ "grenade_flight_gravity": -10.5,
+ "grenade_flight_drag": 0.05,
+ "grenade_flight_bounce": 0.35,
+ "grenade_flight_spin": 0.9,
+ "grenade_flight_radius": 0.035,
+ "grenade_flight_rest_ms": 1.2,
+ "grenade_flight_soft": true,
+ "grenade_flight_soft_step": 0.05,
+ "grenade_flight_floor": true,
+ "grenade_flight_floor_lift": 0.02,
+ "grenade_flight_floor_drop": 0.05,
+ "grenade_flight_floor_probe": 50.0,
+ "grenade_fuse_s": 2.5,
+ "grenade_fuse_after_hit_s": 1.2,
+ "grenade_throw_consume": true,
+ "grenade_throw_consume_at": "throw",
+ "grenade_consume_mode": "charge",
+ "grenade_pin_pull_m": 0.06,
+ "grenade_pin_speed": 2.0,
+ "grenade_pin_off": {
+  "x": 0.0,
+  "y": 0.0,
+  "z": 0.012
+ },
+ "highlight": true,
+ "highlight_only_ours": true,
+ "highlight_rate_hz": 20,
+ "highlight_radius_m": 0.17,
+ "highlight_radius_v": 0,
+ "crouch_reach_scale": 1.2,
+ "highlight_release_m": 0.03,
+ "highlight_appearance": "appearance_03",
+ "highlight_style": "engine",
+ "highlight_type": 0,
+ "highlight_outline": 4,
+ "highlight_context": 1,
+ "highlight_through_walls": false,
+ "props": [
+  {
+   "slot": "AttachmentSlots.VRPortBeltR",
+   "item": "Items.VRPortPropR",
+   "on": false,
+   "lit": false,
+   "auto": true,
+   "up": -0.02,
+   "back": -0.02,
+   "right": 0.17,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  {
+   "slot": "AttachmentSlots.VRPortBelt6",
+   "follow": "grenade",
+   "on": false,
+   "lit": false,
+   "auto": true,
+   "up": 0.0,
+   "back": 0.0,
+   "right": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  {
+   "slot": "AttachmentSlots.VRPortBelt1",
+   "item": "Items.VRPortProp1",
+   "on": false,
+   "lit": false,
+   "auto": true,
+   "up": 0.0,
+   "back": 0.0,
+   "right": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  {
+   "slot": "AttachmentSlots.VRPortBelt2",
+   "item": "Items.VRPortProp2",
+   "on": false,
+   "lit": false,
+   "auto": true,
+   "up": 0.0,
+   "back": 0.0,
+   "right": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  {
+   "slot": "AttachmentSlots.VRPortBelt3",
+   "item": "Items.VRPortProp3",
+   "on": false,
+   "lit": false,
+   "auto": true,
+   "up": 0.0,
+   "back": 0.0,
+   "right": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  {
+   "slot": "AttachmentSlots.VRPortBelt4",
+   "item": "Items.VRPortProp4",
+   "on": false,
+   "lit": false,
+   "auto": true,
+   "up": 0.0,
+   "back": 0.0,
+   "right": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  },
+  {
+   "slot": "AttachmentSlots.VRPortBelt5",
+   "item": "Items.VRPortProp5",
+   "on": false,
+   "lit": false,
+   "auto": true,
+   "up": 0.0,
+   "back": 0.0,
+   "right": 0.0,
+   "rx": 0.0,
+   "ry": 0.0,
+   "rz": 0.0
+  }
+ ],
+ "prop_radius_m": 0.06,
+ "prop_release": 1.5,
+ "prop_follow_plane": true,
+ "prop_plane": 0,
+ "prop_mark": 1,
+ "prop_glow_level": 1,
+ "prop_rim_scale": 1.05,
+ "prop_glow_lm": 60.0,
+ "prop_glow_r": 0.35,
+ "prop_renew_s": 0.35,
+ "prop_outline": 8,
+ "prop_type": 6,
+ "prop_context": 3,
+ "highlight_proxy_push": true,
+ "highlight_push_hz": 2.0,
+ "probe_devices": false,
+ "rules": {
+  "ucbeltacc": "always",
+  "ucbeltmag": "weapon=pistol",
+  "ucbeltsoftpouch": "grenade",
+  "ucbelthardpouch": "always",
+  "ucbeltdualpouch": "always",
+  "ucbeltbagpouch": "always",
+  "ucbeltradio": "always",
+  "ucbeltammo_shell1": "weapon=pump",
+  "ucbeltammo_shell2": "weapon=pump",
+  "ucbeltammo_shell3": "weapon=pump",
+  "ucbeltgrenade": "grenade=frag",
+  "ucbeltgrenade_flash": "grenade=flash",
+  "ucbeltgrenade_incendiary": "grenade=incendiary",
+  "ucbeltgrenade_biohazard": "grenade=biohazard",
+  "ucbeltgrenade_smoke": "grenade=smoke",
+  "ucbeltgrenade_recon": "grenade=recon",
+  "ucbeltgrenade_cutting": "grenade=cutting",
+  "ucbeltgrenade_emp": "grenade=emp",
+  "ucbeltgrenade_ozob": "grenade=ozob"
+ },
+ "hide_in_scenes": true,
+ "cutscene_tier": 3,
+ "hide_in_vehicles": true,
+ "rate_hz": 4,
+ "verbose": false
+}

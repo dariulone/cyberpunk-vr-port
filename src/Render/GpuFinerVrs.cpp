@@ -1,4 +1,6 @@
 #include "Render/GpuFinerVrs.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's reduction; the Rust build's is rust/crates/cvr-gpu/src/finer_vrs.rs (the header calls it).
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
 #include <d3dcompiler.h>
@@ -128,3 +130,4 @@ HRESULT GpuFinerVrs::Read(std::vector<uint8_t>& pixels,UINT& invalidRates)const{
     if(errors>1)return E_FAIL;invalidRates=UINT(errors);pixels=std::move(output);return S_OK;
 }
 }
+#endif

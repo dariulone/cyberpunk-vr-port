@@ -6,7 +6,10 @@
 #include <intrin.h>
 
 namespace cvr::stereo::constants {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's registered queue order is rust/crates/cvr-render/src/ecl_table.rs'
 std::recursive_mutex& RegisteredQueueOrderMutex(){static std::recursive_mutex mutex;return mutex;}
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's observer: rust/crates/cvr-render/src/queue_api_observer.rs
 namespace {
 using QueueFn=HRESULT(STDMETHODCALLTYPE*)(ID3D12CommandQueue*,ID3D12Fence*,UINT64);
 using FenceFn=HRESULT(STDMETHODCALLTYPE*)(ID3D12Fence*,UINT64);
@@ -73,4 +76,5 @@ void ObserveQueueApi(ID3D12CommandQueue* queue) {
     InterlockedExchangePointer(reinterpret_cast<void* volatile*>(table+15),reinterpret_cast<void*>(&Wait));
     DWORD ignored{};VirtualProtect(table+14,2*sizeof(void*),old,&ignored);
 }
+#endif
 }

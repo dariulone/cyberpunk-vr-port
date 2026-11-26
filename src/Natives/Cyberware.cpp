@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's natives; the Rust build's are in rust/crates/cvr-rig/src/vrik/cyberware_natives.rs.
 #include "Natives/NativeFunctions.hpp"
 #include "Anim/Cyberware.hpp"
 #include "Anim/HandGestures.hpp"
@@ -178,3 +180,4 @@ void VRLauncherControllerAim(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,b
 void VRCyberwareCollisionInfo(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,RED4ext::Vector4* out,int64_t) {
     stack->code++;if(!out)return;float values[4]{};cvr::cyberware::CollisionInfo(values);*out={values[0],values[1],values[2],values[3]};
 }
+#endif

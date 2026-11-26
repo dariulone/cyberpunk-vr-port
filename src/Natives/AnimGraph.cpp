@@ -78,6 +78,8 @@
 
 // Moved to src/Natives/AnimLookup.cpp: finding the objects everything else operates on.
 
+#if !CVR_RUST_VRIK
+// The C++ build's; the Rust build's dumps are rust/crates/cvr-ffi/src/anim_dumps.rs.
 const char* GetTypeNameForDump(RED4ext::rtti::IType* aType)
 {
     if (!aType)
@@ -140,6 +142,52 @@ void DumpRootGraphVariables(RED4ext::IScriptable* aContext, RED4ext::CStackFrame
     if (aOut) *aOut = 1;
 }
 
+#endif
+
+#if CVR_RUST_VRIK
+// The Rust build's animation inputs are rust/crates/cvr-ffi/src/anim_inputs.rs (the root graph's variables, the
+// meta-rig's tracks and their live copies, the animated parameters, the features and input events, the IK target test,
+// the FPP arms' restore, UpdateVRIKAnimInputs with the overlay's activation and the persistent presets); the dumps stay
+// in rust/crates/cvr-ffi/src/anim_dumps.rs. Below: the adapter they use, and the fields they read, asserted.
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::AnimatedComponent, animParameters, 0x278);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::AnimTrackParameter, animTrackName, 0x00);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::AnimTrackParameter, parameterName, 0x08);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::AnimTrackParameter, defaultValue, 0x10);
+static_assert(sizeof(RED4ext::ent::AnimTrackParameter) == 0x30);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimGraph, variables, 0x58);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimVariableContainer, boolVariables, 0x38);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimVariableContainer, floatVariables, 0x58);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimVariableContainer, vectorVariables, 0x68);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimVariable, name, 0x30);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimVariableFloat, value, 0x38);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimVariableBool, value, 0x38);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimVariableVector, x, 0x38);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimatedObject, metaRig, 0x08);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::MetaRig, referenceTracks, 0x40);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::MetaRig, trackNames, 0x50);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::AnimTargetAddEvent, targetPositionProvider, 0x40);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::AnimTargetAddEvent, bodyPart, 0x50);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IKTargetAddEvent, outIKTargetRef, 0x58);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IKTargetAddEvent, orientationProvider, 0x68);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IKTargetAddEvent, request, 0x78);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::IKTargetRequest, weightPosition, 0x00);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::IKTargetRequest, weightOrientation, 0x04);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::IKTargetRequest, transitionIn, 0x0C);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::IKTargetRequest, transitionOut, 0x10);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::IKTargetRequest, priority, 0x14);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IPlacedComponent, localTransform, 0xC0);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IPlacedComponent, worldTransform, 0xE0);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::SkinnedMeshComponent, chunkMask, 0x248);
+
+extern "C" {
+// LoadResourceRef(animated->graph): the root graph resource, loaded when it is not.
+RED4ext::anim::AnimGraph* cvr_cpp_load_graph(RED4ext::ent::AnimatedComponent* animated) {
+    return LoadResourceRef(animated->graph);
+}
+// LoadResourceRef(animated->rig): the rig resource (the dumps).
+RED4ext::anim::Rig* cvr_cpp_load_rig(RED4ext::ent::AnimatedComponent* animated) { return LoadResourceRef(animated->rig); }
+}
+#else
 void SetRootGraphBoolVariableByName(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)
 {
     RED4EXT_UNUSED_PARAMETER(aContext);
@@ -987,6 +1035,10 @@ void ForceHideVRFppArms(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aF
     RestoreVRFppArms(aContext, aFrame, aOut, a4);
 }
 
+#endif
+
+#if !CVR_RUST_VRIK
+// The C++ build's qword helpers, scan and memory dump; the Rust build's are anim_lookup.rs and anim_dumps.rs.
 
 
 // WINE PUTS THE HEAP SOMEWHERE ELSE, and that one fact stopped VRIK from ever arming on Linux
@@ -1196,3 +1248,4 @@ void DumpAnimMemory(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
     out.close();
     if (aOut) *aOut = dumped;
 }
+#endif

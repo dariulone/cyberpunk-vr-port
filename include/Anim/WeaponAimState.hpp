@@ -32,8 +32,8 @@ inline constexpr uintptr_t kWaPhysicalRayForwardCallsite = 0x9507EC;
 
 // Published by the orientation-provider side: the frame counter the muzzle is published on, and the
 // latch that keeps one round to one hand kick across both shot paths.
-extern volatile uint32_t g_provMuzzleSeq;
-extern volatile long     g_provRecoilSeqSeen;
+extern "C" volatile uint32_t g_provMuzzleSeq;       // C linkage: rust/crates/cvr-rig/src/vrik/weapon_aim.rs
+extern "C" volatile long     g_provRecoilSeqSeen;
 
 // The aim line's hit point and surface normal, published once a frame by the weapon module from the
 // game's SpatialQueriesSystem. Read by the overlay's barrel dot; see SetVRAimHit.

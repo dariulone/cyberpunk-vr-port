@@ -19,40 +19,88 @@
 #include <mutex>
 #include <unordered_map>
 
+#if !CVR_RUST_VRIK
 extern "C" int GetMenuMode();
 extern "C" float GetGameRenderFovDeg();
 extern "C" float GetGameRenderVerticalFovDeg();
 extern "C" int CyberpunkVR_MainIsRightEye;
 extern int g_launcherWidth;
 extern int g_launcherHeight;
+#endif
 
 namespace {
+#if !CVR_RUST_VRIK   // unused by the Rust build
 struct ClearRecord { uint32_t node; int32_t side; uint32_t width, height, format, flags; float depth; uint32_t count, masked; };
+#endif
 // `before`/`after` are resource states, or barrier layouts with the top bit set for enhanced barriers.
+#if !CVR_RUST_VRIK   // unused by the Rust build
 struct BarrierRecord { uint32_t node; int32_t side; uint32_t before, after, subresource, flags, count, resets; };
+#endif
 }
 extern "C" {
 // Effective settings, also writable by live tests (an ini edit overwrites them again).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+__declspec(dllexport) extern std::atomic<uint32_t> CyberpunkVR_HiddenAreaEnabled;
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HiddenAreaEnabled{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+__declspec(dllexport) extern std::atomic<float> CyberpunkVR_HiddenAreaRadius;
+#else
 __declspec(dllexport) std::atomic<float> CyberpunkVR_HiddenAreaRadius{115.0f};
+#endif
 // Only clears inside this render-graph node (work RVA) are masked; 0 = any node. Default:
 // SetRenderTargetsGBuffer. The hologram, planar-reflection and water depths are square as well.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HiddenAreaNode{0xA00830};
 // 1 = record every distinct native depth clear into CyberpunkVR_HiddenAreaClearLog.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HiddenAreaLog{0};
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 __declspec(dllexport) ClearRecord CyberpunkVR_HiddenAreaClearLog[32]{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HiddenAreaMasked[2]{};
 // 1 = put the hidden cells back to the far plane whenever the scene depth leaves DEPTH_WRITE;
 // 2 = also back to the near plane when a G-buffer node takes it into DEPTH_WRITE again.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HiddenAreaSky{2};
 // Only barriers inside this node (work RVA) go to the far plane; 0 = every transition out of DEPTH_WRITE.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HiddenAreaSkyNode{0};
+#endif
 // With CyberpunkVR_HiddenAreaLog: every distinct barrier on a masked scene depth.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 __declspec(dllexport) BarrierRecord CyberpunkVR_HiddenAreaBarrierLog[32]{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HiddenAreaSkyResets[2]{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HiddenAreaNearResets[2]{};
+#endif
 }
 
+#if CVR_RUST_VRIK
+// The Rust build: the mask is rust/crates/cvr-render/src/hidden_area_runtime.rs. The exports stay above, and the
+// reads of the rest of the port stay here: the eye's frustum, the menu mode, engine stereo and the target's aspect.
+// The runtime table is built in Rust (rust/crates/cvr-render/src/hidden_area_table.rs).
+extern "C" {
+}
+namespace cvr::hidden_area {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's live controls set them themselves (live_controls_poll.rs)
+void SetSettings(Settings s) {
+    s=Normalize(s);
+    CyberpunkVR_HiddenAreaRadius.store(s.radius,std::memory_order_relaxed);
+    CyberpunkVR_HiddenAreaEnabled.store(uint32_t(s.enabled),std::memory_order_relaxed);
+}
+#endif
+}
+#else
 namespace cvr::hidden_area {
 namespace {
 constexpr uint32_t Cell=8, Margin=1;
@@ -417,3 +465,4 @@ void AfterEnhancedBarriers(ID3D12GraphicsCommandList* list,UINT count,const D3D1
     }
 }
 }
+#endif

@@ -10,6 +10,24 @@
 #include "Runtimes/HudFollow.hpp"
 #include "Utils/XrMath.hpp"
 
+#if CVR_RUST_VRIK
+// cvr::render::SpaceQuads in rust/crates/cvr-gpu/src/space_quad.rs (target: SpaceQuads::Target, quad: SpaceQuad).
+extern "C" {
+void* cvr_gpu_space_quads_new();
+void cvr_gpu_space_quads_free(void* quads);
+bool cvr_gpu_space_quads_fill(void* quads, ID3D12Device* device, ID3D12GraphicsCommandList* list, const void* target,
+                              const float* rgba);
+bool cvr_gpu_space_quads_solid(void* quads, ID3D12Device* device, ID3D12GraphicsCommandList* list, const void* target,
+                               const XrPosef* eye, const XrFovf* fov, const void* quad, const float* rgba);
+bool cvr_gpu_space_quads_draw(void* quads, ID3D12Device* device, ID3D12GraphicsCommandList* list, const void* target,
+                              const XrPosef* eye, const XrFovf* fov, ID3D12Resource* texture, int view, const void* quad,
+                              int blend, float opacity, float blackPoint);
+bool cvr_gpu_space_quads_resample(void* quads, ID3D12Device* device, ID3D12GraphicsCommandList* list, const void* target,
+                                  ID3D12Resource* texture, int view, UINT mip, const float* uv);
+void cvr_gpu_space_quads_shutdown(void* quads);
+}
+#endif
+
 // PICTURES HUNG IN THE TRACKING SPACE, DRAWN INTO AN EYE'S IMAGE. A quad placed in the space the eyes are tracked in is
 // drawn into one eye's image through the pose and frustum that image is submitted with: the compositor then shows it
 // where it hangs, to either eye, and the eyes fuse it at its distance -- in the headset and in the window alike, since
@@ -45,6 +63,25 @@ inline XrPosef Ahead(const XrPosef& eye, const XrQuaternionf& heading, float dis
 // A HEADING THE HEAD LOOKS ABOUT FROM. Level, and still while the head turns up to `cone` (rad) either side of it; a
 // head turned farther has it caught up, the menus' way (Runtimes/HudFollow.hpp Follow), until it is ahead again. Set by
 // the first located head (LocatedPose). One thread.
+#if CVR_RUST_VRIK
+// The one heading there is -- the intro's, cvr::lobby::intro::Heading() -- is Rust's (rust/crates/cvr-render/src/lobby_intro.rs
+// FreeLookHeading, its cone the intro's): this face forwards to it.
+extern "C" {
+void cvr_intro_heading_update(const XrPosef* head);
+bool cvr_intro_heading(XrQuaternionf* out);
+}
+class FreeLookHeading {
+public:
+    explicit FreeLookHeading(float) {}
+    void Update(const XrPosef& head) { cvr_intro_heading_update(&head); }
+    bool Valid() const { return cvr_intro_heading(nullptr); }
+    XrQuaternionf Orientation() const {
+        XrQuaternionf q{};
+        cvr_intro_heading(&q);
+        return q;
+    }
+};
+#else
 class FreeLookHeading {
 public:
     explicit FreeLookHeading(float cone) : cone_(cone) {}
@@ -69,6 +106,7 @@ private:
     std::chrono::steady_clock::time_point last_{};
     bool stamped_ = false;
 };
+#endif
 
 // How a picture meets what is under it.
 enum class Blend {
@@ -102,6 +140,16 @@ public:
                   DXGI_FORMAT view, UINT mip, const float uv[4]);
     void Shutdown();
 
+#if CVR_RUST_VRIK
+    // The drawer: rust/crates/cvr-gpu/src/space_quad.rs.
+    SpaceQuads() : rust_(cvr_gpu_space_quads_new()) {}
+    ~SpaceQuads() { cvr_gpu_space_quads_free(rust_); }
+    SpaceQuads(const SpaceQuads&) = delete;
+    SpaceQuads& operator=(const SpaceQuads&) = delete;
+
+private:
+    void* rust_;
+#else
 private:
     struct Pipelines {
         Microsoft::WRL::ComPtr<ID3D12PipelineState> fill, over, light, copy;
@@ -121,5 +169,28 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvHeap_, rtvHeap_;
     UINT srvStride_ = 0, rtvStride_ = 0, cursor_ = 0;
     bool failed_ = false;
+#endif
 };
+static_assert(sizeof(SpaceQuad) == 52 && sizeof(SpaceQuads::Target) == 32,
+              "SpaceQuad and SpaceQuads::Target are mirrored in rust/crates/cvr-gpu/src/space_quad.rs");
+#if CVR_RUST_VRIK
+inline bool SpaceQuads::Fill(ID3D12Device* device, ID3D12GraphicsCommandList* list, const Target& target, const float rgba[4]) {
+    return cvr_gpu_space_quads_fill(rust_, device, list, &target, rgba);
+}
+inline bool SpaceQuads::Solid(ID3D12Device* device, ID3D12GraphicsCommandList* list, const Target& target, const XrPosef& eye,
+                              const XrFovf& fov, const SpaceQuad& quad, const float rgba[4]) {
+    return cvr_gpu_space_quads_solid(rust_, device, list, &target, &eye, &fov, &quad, rgba);
+}
+inline bool SpaceQuads::Draw(ID3D12Device* device, ID3D12GraphicsCommandList* list, const Target& target, const XrPosef& eye,
+                             const XrFovf& fov, ID3D12Resource* texture, DXGI_FORMAT view, const SpaceQuad& quad, Blend blend,
+                             float opacity, float blackPoint) {
+    return cvr_gpu_space_quads_draw(rust_, device, list, &target, &eye, &fov, texture, static_cast<int>(view), &quad,
+                                    blend == Blend::Light ? 1 : 0, opacity, blackPoint);
+}
+inline bool SpaceQuads::Resample(ID3D12Device* device, ID3D12GraphicsCommandList* list, const Target& target,
+                                 ID3D12Resource* texture, DXGI_FORMAT view, UINT mip, const float uv[4]) {
+    return cvr_gpu_space_quads_resample(rust_, device, list, &target, texture, static_cast<int>(view), mip, uv);
+}
+inline void SpaceQuads::Shutdown() { cvr_gpu_space_quads_shutdown(rust_); }
+#endif
 }  // namespace cvr::render

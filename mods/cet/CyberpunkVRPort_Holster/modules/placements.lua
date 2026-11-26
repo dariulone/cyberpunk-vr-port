@@ -67,18 +67,19 @@ local CHEST = { comp = "ItemAttachmentSlots", slot = "Chest" }
 -- Every place for a right-handed player (the drawing hand the right one); turned over for the left. Each family a
 -- place takes: { pos, dir, face } in body words.
 local RIGHT = {
-  -- a gun at the right hip, the grip on the belt -- muzzle down, its top forward so the grip stands back for the right
-  -- hand, flat on the side; drawn up out of the holster by `pull`, grip first. Raised twice: it hung on the thigh,
+  -- A gun at the right hip sits flat against the belt and draws along `pull`, grip first.
+  -- Raised twice: it hung on the thigh,
   -- then just under the belt was still out of reach for players (asked 2026-11-04: "on the belt or a bit higher"),
   -- then 11 cm higher and 3 cm forward with a wider reach, and again 5 cm higher and 4 cm forward (asked 2026-11-05:
   -- "higher still and a little forward")
   -- (2 cm further out than first set: it went into the clothes, asked 2026-11-03)
   -- (the reach 3 cm shorter than 0.18: it drew when the hand only passed by, asked 2026-11-05)
   -- Handgun hips: 3 cm down and 2 cm forward from the previous belt placement.
-  -- Shells and reach centers derive from this same pose; rotation and reach stay unchanged.
+  -- Cant the grip 25 degrees forward about the hips' lateral axis. The muzzle points down and back.
+  -- Shells and reach centers derive from this same pose, keeping the shell on the gun.
   hip_r = { at = HIPS, reach = 0.15, pull = 0.13,
     melee = { pos = { 0.17, 0.06, 0.23 }, dir = { -1, 0.10, 0 }, face = { 0, 1, 0 } },
-    gun = { pos = { 0.14, 0.08, 0.23 }, dir = { -1, 0.10, 0 }, face = { 0, 1, 0 } } },
+    gun = { pos = { 0.14, 0.15, 0.207 }, dir = { -1, -math.tan(math.rad(25)), 0 }, face = { 0, 1, 0 } } },
   -- the left hip, the side the right hand draws across to: a blade with its handle forward and up, the blade down
   -- and back; drawn out `pull` along the handle before it leaves
   -- (3.2 cm further out from the hip than the mod's pose: it went into the clothes, asked 2026-11-03, and a blade lying
@@ -107,14 +108,15 @@ local RIGHT = {
   -- REACHED OVER THE SHOULDER, along the handle or the stock (`grab`, per family: metres out from the origin along
   -- the handle, the way it is drawn): the origin, where the hand closes, is low on the back -- a gun's grip 10 cm
   -- above Spine3 -- and a hand over the shoulder meets the stock or the pommel 20-30 cm above it, out of a reach
-  -- round the origin alone (2026-11-05: "nothing can be taken from behind the shoulder")
-  shoulder_r = { at = CHEST, reach = 0.18, grab = { gun = 0.32, melee = 0.22 },
+  -- round the origin alone (2026-11-05: "nothing can be taken from behind the shoulder"). The reach round that
+  -- line 25 cm (was 18): behind the back the hand is not seen and missed it (asked 2026-11-26).
+  shoulder_r = { at = CHEST, reach = 0.25, grab = { gun = 0.32, melee = 0.22 },
     melee = { pos = { 0.175, -0.12, 0.16 }, dir = { -0.760, 0.053, -0.648 }, face = { 0.649, 0.008, -0.761 } },
     -- the grip 12.5 cm behind Spine3: the gun's side 1.5-2 cm off the bare back (17 cm left 6 cm of air)
     gun = { pos = { 0.10, -0.125, 0.12 }, dir = { -0.90, 0, -0.43 }, face = { 0.43, 0, -0.90 } } },
   -- across the lower back, the grip at the right, the barrel or the blade to the left, flat on the back: a gun's top
-  -- up, a blade's edge down
-  lower_back = { at = HIPS, reach = 0.15,
+  -- up, a blade's edge down; reached for unseen, so 22 cm round it (was 15, asked 2026-11-26)
+  lower_back = { at = HIPS, reach = 0.22,
     gun = { pos = { 0.04, -0.15, 0.14 }, dir = { 0, 0, -1 }, face = { 1, 0, 0 } },
     melee = { pos = { 0.04, -0.15, 0.14 }, dir = { 0, 0, -1 }, face = { -1, 0, 0 } } },
   -- a knife low on the right thigh, blade down, flat on the thigh, the edge forward
@@ -124,7 +126,7 @@ local RIGHT = {
     melee = { pos = { -0.24, 0.047, 0.19 }, dir = { -1, 0, 0 }, face = { 0, 1, 0 } } },
 }
 -- the left shoulder is the right one turned over
-RIGHT.shoulder_l = { at = CHEST, reach = 0.18, grab = RIGHT.shoulder_r.grab, mirrorOf = "shoulder_r" }
+RIGHT.shoulder_l = { at = CHEST, reach = RIGHT.shoulder_r.reach, grab = RIGHT.shoulder_r.grab, mirrorOf = "shoulder_r" }
 
 -- THE HOLD OF A WEAPON IN THE HAND: the hand slot's pose in the wrist's frame with that weapon really there, right hand
 -- (measured live 2026-11-05, constant while the hand moves). It is NOT the empty hand's (p -0.088 0.042 0.022, q -0.471

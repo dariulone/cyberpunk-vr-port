@@ -3,6 +3,7 @@ local K=require("modules/ink")
 local L=require("modules/locale")
 local D=require("modules/gameplay_data")
 local R=require("modules/reference_data")
+local Pref=require("modules/preferences")
 return function(C)
 local V={}
 local W=1780
@@ -136,20 +137,59 @@ local function wire(p,from,to,color,opacity)
   for offset=-2,2,2 do for i=1,#points-1 do local a,b=points[i],points[i+1];line(p,a[1]+offset,a[2],b[1]+offset,b[2],color,opacity,1) end end
 end
 
+local function buyAttribute(kit,kind)
+  C.perform(kit,function()
+    if not D.buyAttribute(kind) then return false end
+    if not Pref.attributeUpgradeConfirmed then Pref.confirmAttributeUpgrade() end
+    return true
+  end)
+end
+
+local function confirmAttribute(kit,s,t,prompt)
+  local a=prompt.attribute
+  local w,h=1160,380
+  local x,y=(kit.CW-w)/2,(kit.CH-h)/2
+  local card=K.canvas(kit.S.layerPanel,x,y,w,h)
+  local origin=kit.at(x,y)
+  kit.S.modalGroup="attributePrompt"
+  K.roundFill(card,0,0,w,h,K.NAVY,.94,12)
+  kit.glass(card,w,h,x,y)
+  K.text(card,40,26,w-80,64,t.upgradeQuestion,46,K.WHITE,"center")
+  K.text(card,40,96,w-80,64,a.name.."   "..a.value.." → "..(a.value+1),42,K.CYAN,"center")
+  K.text(card,40,166,w-80,90,table.concat(C.wrap(t.upgradeHint,54),"\n"),32,K.TEXT,"center")
+  local function resolve(accept)
+    if s.attributePrompt~=prompt then return end
+    s.attributePrompt=nil
+    if accept then buyAttribute(kit,a.type) else C.redraw(kit) end
+  end
+  kit.action(card,"attributePrompt",origin,68,272,490,76,t.yes,true,function() resolve(true) end)
+  kit.action(card,"attributePrompt",origin,w-558,272,490,76,t.cancel,true,function() resolve(false) end)
+end
+
 function V.tree(kit,p,p2,a,d)
   local s,t=C.state(kit)
-  local hasDetails=s.perk~=nil or s.attributeInfo==true
+  if s.attributePrompt then return confirmAttribute(kit,s,t,s.attributePrompt) end
+  local hasDetails=s.perk~=nil
   local treeW,detailX,detailW=hasDetails and 1050 or W,kit.P1X+1090,690
   K.move(p2,detailX,kit.P1Y)
   kit.glass(p,treeW,1190,kit.P1X,kit.P1Y);title(p,a.name.."  "..(a.relic and d.relic or a.value),treeW)
   K.text(p,375,16,650,48,t.perkPoints..": "..d.perks.."  /  "..t.relic..": "..d.relic,26,K.YELLOW,"right")
   action(kit,p,kit.P1X,20,100,480,hasDetails and tr(kit,"< ВЕТКА","< TREE") or tr(kit,"ХАРАКТЕРИСТИКИ","ATTRIBUTES"),function()
-    if hasDetails then s.perk=nil;s.attributeInfo=false else s.attribute=nil;s.perk=nil end
+    if hasDetails then s.perk=nil else s.attribute=nil end
     s.confirm=nil;C.redraw(kit)
   end)
-  action(kit,p,kit.P1X,520,100,510,tr(kit,"ПОВЫСИТЬ +1","UPGRADE +1"),function()
-    s.attributeInfo=true;s.confirm=nil;C.redraw(kit)
-  end,not a.relic)
+  if a.type~=gamedataStatType.Espionage then
+    action(kit,p,kit.P1X,520,100,132,"+1",function()
+      if Pref.attributeUpgradeConfirmed then
+        buyAttribute(kit,a.type)
+      else
+        s.confirm=nil
+        s.attributePrompt={attribute=a}
+        C.redraw(kit)
+      end
+    end,a.canBuy,68,44)
+    K.text(p,672,100,treeW-690,68,t.points..": "..d.points,28,K.CYAN)
+  end
   -- kept between clicks (a read is ~10 ms); gameplay.lua drops it with the character read
   local perks=C.fetch(kit,"perks:"..tostring(a.type),function() return function() return true,R.perks(a) end end,math.huge,.05) or {}
   local positions={};local selected
@@ -198,7 +238,7 @@ function V.tree(kit,p,p2,a,d)
     -- a kept tree may carry the last view's hover or selection (only those nodes are reset)
     if reused and n.dirty then K.tint(n.edges,n.col,n.rest);n.bg:SetTintColor(K.color(K.BLACK));n.bg:SetOpacity(.82);n.dirty=false end
     local b=kit.button("p1",kit.at(kit.P1X,kit.P1Y),x-size/2-6,y-size/2-6,size+12,size+12,function()
-      s.perk=perk.key;s.attributeInfo=false;s.confirm=nil;C.redraw(kit)
+      s.perk=perk.key;s.confirm=nil;C.redraw(kit)
     end,function(h)
       K.tint(n.edges,h and K.WHITE or n.col,h and 1 or n.rest)
       n.bg:SetTintColor(K.color(h and K.CYAN or K.BLACK));n.bg:SetOpacity(h and .22 or .82)
@@ -228,39 +268,28 @@ function V.tree(kit,p,p2,a,d)
       end
     end
   end
-  if not hasDetails then return end
+  if not selected then return end
   kit.glass(p2,detailW,1190,detailX,kit.P1Y)
-  title(p2,selected and selected.name or a.name,detailW)
+  title(p2,selected.name,detailW)
   local rows={};local top=100
-  if selected and not s.attributeInfo then
-    if ResRef.IsValid(selected.video) then
-      local video=inkVideoWidget.new();video:SetAnchor(inkEAnchor.TopLeft);video:SetAnchorPoint(Vector2.new({X=0,Y=0}))
-      video:SetMargin(inkMargin.new({left=20,top=100,right=0,bottom=0}));video:SetSize(Vector2.new({X=detailW-40,Y=(detailW-40)*9/16}))
-      video:Reparent(p2);video:SetVideoPath(selected.video);video:SetLoop(true);video:Play()
-      s.videos[#s.videos+1]=video;top=480
-    end
-    C.textRows(kit,rows,selected.name,detailW,K.CYAN,34)
-    C.textRows(kit,rows,t.requires..": "..a.name.." "..selected.required.."  /  "..t.cost..": "..selected.cost,detailW,K.YELLOW,28)
-    for _,level in ipairs(D.perkDescription(selected)) do
-      C.textRows(kit,rows,t.level.." "..level.level.."\n"..level.text.."\n",detailW,level.level<=selected.level and K.YELLOW or K.TEXT,30)
-    end
-    C.list(kit,p2,"p2","p2",detailX,top,detailW,rows,1040-top)
-    if s.confirm then
-      action(kit,p2,detailX,18,1110,360,t.confirm,function() C.perform(kit,function() return D.changePerk(a,selected.type,s.confirm=="refund") end) end)
-      action(kit,p2,detailX,392,1110,280,t.cancel,function() s.confirm=nil;C.redraw(kit) end)
-    else
-      action(kit,p2,detailX,18,1110,300,t.buy,function() s.confirm="buy";C.redraw(kit) end,selected.canBuy)
-      action(kit,p2,detailX,336,1110,336,t.refund,function() s.confirm="refund";C.redraw(kit) end,selected.canSell)
-    end
+  if ResRef.IsValid(selected.video) then
+    local video=inkVideoWidget.new();video:SetAnchor(inkEAnchor.TopLeft);video:SetAnchorPoint(Vector2.new({X=0,Y=0}))
+    video:SetMargin(inkMargin.new({left=20,top=100,right=0,bottom=0}));video:SetSize(Vector2.new({X=detailW-40,Y=(detailW-40)*9/16}))
+    video:Reparent(p2);video:SetVideoPath(selected.video);video:SetLoop(true);video:Play()
+    s.videos[#s.videos+1]=video;top=480
+  end
+  C.textRows(kit,rows,selected.name,detailW,K.CYAN,34)
+  C.textRows(kit,rows,t.requires..": "..a.name.." "..selected.required.."  /  "..t.cost..": "..selected.cost,detailW,K.YELLOW,28)
+  for _,level in ipairs(D.perkDescription(selected)) do
+    C.textRows(kit,rows,t.level.." "..level.level.."\n"..level.text.."\n",detailW,level.level<=selected.level and K.YELLOW or K.TEXT,30)
+  end
+  C.list(kit,p2,"p2","p2",detailX,top,detailW,rows,1040-top)
+  if s.confirm then
+    action(kit,p2,detailX,18,1110,360,t.confirm,function() C.perform(kit,function() return D.changePerk(a,selected.type,s.confirm=="refund") end) end)
+    action(kit,p2,detailX,392,1110,280,t.cancel,function() s.confirm=nil;C.redraw(kit) end)
   else
-    C.textRows(kit,rows,a.description,detailW,K.TEXT,32)
-    C.list(kit,p2,"p2","p2",detailX,110,detailW,rows,850)
-    if not a.relic then
-      action(kit,p2,detailX,20,1090,detailW-40,s.confirm=="attribute" and t.confirm or t.upgrade,function()
-        if s.confirm=="attribute" then C.perform(kit,function() return D.buyAttribute(a.type) end)
-        else s.confirm="attribute";C.redraw(kit) end
-      end,a.canBuy)
-    end
+    action(kit,p2,detailX,18,1110,300,t.buy,function() s.confirm="buy";C.redraw(kit) end,selected.canBuy)
+    action(kit,p2,detailX,336,1110,336,t.refund,function() s.confirm="refund";C.redraw(kit) end,selected.canSell)
   end
 end
 
@@ -320,7 +349,7 @@ function V.character(kit,p,p2)
       icon(c,92,70,56,56,a.icon,K.CYAN)
       K.text(c,155,72,100,60,a.relic and "R" or tostring(a.value),40,K.CYAN)
       local b=kit.button("p1",kit.at(kit.P1X,kit.P1Y),x,y,290,164,function()
-        s.attribute=tostring(a.type);s.perk=nil;s.attributeInfo=false;s.confirm=nil;s.skills=false;C.redraw(kit)
+        s.attribute=tostring(a.type);s.perk=nil;s.confirm=nil;s.skills=false;C.redraw(kit)
       end,function(h)
         K.tint(edge,h and K.YELLOW or K.CYAN,h and 1 or .55);fill:SetOpacity(h and .18 or .06)
         if h then s.attributeHover=tostring(a.type);show(a) end

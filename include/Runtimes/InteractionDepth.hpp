@@ -17,7 +17,15 @@
 namespace cvr::interaction {
 
 // Distance in metres, or 0 when nothing fresh was published (no prompt, no target, the Lua mod stopped).
+#if CVR_RUST_VRIK
+// The published depth: rust/crates/cvr-xr/src/hud_natives.rs (SetVRInteractionDepth is there too).
+}
+extern "C" float cvr_interaction_target_depth(uint64_t nowMs);
+namespace cvr::interaction {
+inline float TargetDepth(uint64_t nowMs) { return cvr_interaction_target_depth(nowMs); }
+#else
 float TargetDepth(uint64_t nowMs);
+#endif
 
 // One smoothing step of the panel distance. Small changes glide (gaze crossing an edge, walking up to the
 // object); a change by more than half is a new target and snaps, so the prompt never sweeps through space.

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // The hand's reach in the game: the point the targeting looks at, and the interaction button the hand presses
 // (Natives/Reach.hpp).
 #include "Natives/Reach.hpp"
@@ -10,7 +11,14 @@
 #include <cmath>
 #include <mutex>
 
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_TwoHandActive;  // Anim/TwoHandGrip.cpp
+#endif
+
+#if CVR_RUST_VRIK
+// The state and the natives: rust/crates/cvr-rig/src/vrik/reach.rs. The C++ callers keep these names (tools/vrik_tests
+// stands in for them with its own).
+#else
 
 namespace cvr::reach {
 namespace {
@@ -85,3 +93,5 @@ void VRHandHolds(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, 
     const bool holds = cvr::reach::HandHolds(side);
     if (out) *out = holds;
 }
+#endif
+#endif

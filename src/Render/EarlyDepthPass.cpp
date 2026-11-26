@@ -10,6 +10,178 @@
 #include <algorithm>
 #include <map>
 #include <intrin.h>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The pass is Rust's: rust/crates/cvr-render/src/early_depth_object.rs (its Storage an IUnknown there, which the command
+// resources keep alive with the lists that recorded it; the state and recording in early_depth_pass.rs). What stays
+// here are the C++ objects it reaches: the texture and material reads (their leases; the single-pass tests stub them),
+// Main's family and bank, and the constant arenas' banks (StereoBindingBank over the paired-root plans).
+namespace cvr::stereo {
+struct EarlyDepthPass::Storage:IUnknown {};
+}
+namespace {
+using namespace cvr::stereo;
+static_assert(sizeof(texture_read::Lease)==48 && offsetof(texture_read::Lease,native)==8 && offsetof(texture_read::Lease,receipt)==32,
+    "mirrored by texture_lease.rs's Lease");
+static_assert(sizeof(buffer_read::Proof)==96 && sizeof(skinning::BoneRange)==16 && sizeof(InstanceRun)==8,
+    "mirrored by buffer_read.rs's Proof and early_depth_pass.rs's ranges and runs");
+struct CvrEdpAdmission {const uint8_t* masks;size_t maskCount,peerOnly;UINT bankDraw,bankDraws,bankSnapshots,alphaDepthContract,skinningReadContract,
+    nativeCameraStages,renderTargets;int32_t depthFormat,depthFunc,depthWrite;UINT samplesCount,samplesQuality;uint64_t sourceRoot;
+    bool nativeCamera,alphaReference,alphaOptimized,familyPipeline,ordinalIndependent,nativeCameraPipeline,pixelShader,fixedRaster,depthKnown,depthEnable;};
+struct CvrEdoBank {void* user;bool(*capture)(void*,void*);bool(*bind)(void*,void*,UINT);};
+struct CvrEdoReads {
+    bool(*textureValid)(const texture_read::Lease*,ID3D12CommandQueue*);
+    bool(*textureCopy)(ID3D12GraphicsCommandList*,const texture_read::Lease*,UINT,ID3D12Resource*,const D3D12_PLACED_SUBRESOURCE_FOOTPRINT*);
+    uint32_t(*textureFailure)();
+    void*(*materialClone)(const void*);
+    void(*materialFree)(void*);
+    ID3D12Resource*(*materialResource)(const void*);
+    bool(*materialCopy)(ID3D12GraphicsCommandList*,const void*,ID3D12Resource*,uint64_t,buffer_read::Proof*);
+    bool(*materialValid)(const void*,const buffer_read::Proof*,ID3D12CommandQueue*);
+    uint32_t(*materialFailure)();
+};
+static_assert(sizeof(CvrEdpAdmission)==96 && sizeof(CvrEdoBank)==24 && sizeof(CvrEdoReads)==9*8,"mirrored by early_depth_object.rs");
+}
+extern "C" {
+void cvr_edo_attach(const CvrEdoReads*);
+HRESULT cvr_edo_create(ID3D12Device*,UINT,UINT,UINT,void**);
+bool cvr_edo_capture_instances(void*,ID3D12GraphicsCommandList*,ID3D12Resource*,UINT64,UINT,int32_t,bool);
+void cvr_edo_release_instance_read(void*,ID3D12GraphicsCommandList*);
+void cvr_edo_counts(void*,uint32_t,uint64_t*);
+void cvr_edo_native_counts(void*,uint32_t*);
+bool cvr_edo_shader_source(void*,ID3D12Resource*);
+bool cvr_edo_capture_skinning(void*,ID3D12GraphicsCommandList*,ID3D12Resource*,const skinning::BoneRange*,size_t,const texture_read::Lease*,UINT);
+bool cvr_edo_capture_alpha(void*,ID3D12GraphicsCommandList*,const material_binding::Lease*,const texture_read::Lease*,const UINT*,size_t,UINT,UINT);
+bool cvr_edo_start_native(void*,ID3D12GraphicsCommandList*,const native_probe::DrawRecord*,ID3D12Resource*,ID3D12Resource*,int32_t);
+bool cvr_edo_observe_native(void*,ID3D12GraphicsCommandList*,const native_probe::DrawRecord*);
+bool cvr_edo_original(void*,ID3D12GraphicsCommandList*,const native_probe::DrawRecord*);
+bool cvr_edo_peer_remainder(void*,ID3D12GraphicsCommandList*,const native_probe::DrawRecord*,const InstanceRun*,size_t);
+bool cvr_edo_finish_native(void*,ID3D12GraphicsCommandList*,UINT);
+bool cvr_edo_commit_native(void*,bool);
+void cvr_edo_abort_native(void*,ID3D12GraphicsCommandList*,UINT);
+bool cvr_edo_main(void*,ID3D12GraphicsCommandList*,const native_probe::DrawRecord*,const CvrEdpAdmission*,const uint8_t*,size_t,const uint8_t*,size_t,
+    UINT,bool,bool,ID3D12PipelineState*,ID3D12PipelineState*,ID3D12RootSignature*,const CvrEdoBank*);
+bool cvr_edo_constants_open(void*);
+ID3D12Device* cvr_edo_device(void*);
+void* cvr_edo_arena(void*,ID3D12RootSignature*);
+UINT cvr_edo_arena_count(void*);
+void cvr_edo_adopt_arena(void*,ID3D12RootSignature*,void*);
+bool cvr_edo_peer(void*,ID3D12GraphicsCommandList*,const native_probe::DrawRecord*);
+bool cvr_edo_readback(void*,ID3D12GraphicsCommandList*);
+HRESULT cvr_edo_read(void*,DepthComparisonResult*);
+HRESULT cvr_edo_restart(void*);
+void cvr_edo_before_submit(void*,ID3D12CommandQueue*,UINT,ID3D12CommandList* const*);
+void cvr_edo_submitted(void*,ID3D12CommandQueue*,UINT,ID3D12CommandList* const*);
+void cvr_edo_reset(void*,ID3D12CommandList*);
+bool cvr_edo_failed(void*);
+}
+namespace {
+const CvrEdoReads kReads{
+    [](const texture_read::Lease* lease,ID3D12CommandQueue* queue){return texture_read::Validate(*lease,queue);},
+    [](ID3D12GraphicsCommandList* list,const texture_read::Lease* lease,UINT mip,ID3D12Resource* buffer,const D3D12_PLACED_SUBRESOURCE_FOOTPRINT* layout){
+        return mip==UINT_MAX?texture_read::Copy(list,*lease,buffer,*layout):texture_read::CopySubresource(list,*lease,mip,buffer,*layout);},
+    []{return texture_read::LastFailure();},
+    [](const void* lease)->void*{return new material_binding::Lease(*static_cast<const material_binding::Lease*>(lease));},
+    [](void* lease){delete static_cast<material_binding::Lease*>(lease);},
+    [](const void* lease){return static_cast<const material_binding::Lease*>(lease)->source.resource.Get();},
+    [](ID3D12GraphicsCommandList* list,const void* lease,ID3D12Resource* destination,uint64_t offset,buffer_read::Proof* proof){
+        return material_read::CopySnapshot(list,*static_cast<const material_binding::Lease*>(lease),destination,offset,*proof);},
+    [](const void* lease,const buffer_read::Proof* proof,ID3D12CommandQueue* queue){
+        return material_read::ValidateSnapshotSubmission(*static_cast<const material_binding::Lease*>(lease),*proof,queue);},
+    []{return material_read::LastFailure();}};   // the arenas' banks are binding_bank.rs' storage (early_depth_object.rs frees them)
+[[maybe_unused]] const bool kReadsAttached=(cvr_edo_attach(&kReads),true);
+}
+namespace cvr::stereo {
+EarlyDepthPass::EarlyDepthPass()=default;
+EarlyDepthPass::~EarlyDepthPass()=default;
+HRESULT EarlyDepthPass::Create(ID3D12Device* device,UINT width,UINT height,UINT nativeMode){
+    if(storage_)return E_INVALIDARG;
+    void* created{};const auto hr=cvr_edo_create(device,width,height,nativeMode,&created);
+    if(SUCCEEDED(hr))storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(created)));
+    return hr;
+}
+bool EarlyDepthPass::CaptureInstances(ID3D12GraphicsCommandList* list,ID3D12Resource* source,UINT64 offset,UINT bytes,D3D12_RESOURCE_STATES state,bool combinedRead){
+    return storage_ && cvr_edo_capture_instances(storage_.Get(),list,source,offset,bytes,int32_t(state),combinedRead);
+}
+void EarlyDepthPass::ReleaseInstanceRead(ID3D12GraphicsCommandList* list){if(storage_)cvr_edo_release_instance_read(storage_.Get(),list);}
+std::array<uint64_t,2> EarlyDepthPass::InstanceProofCounts()const{std::array<uint64_t,2> out{};if(storage_)cvr_edo_counts(storage_.Get(),0,out.data());return out;}
+bool EarlyDepthPass::ShaderSource(ID3D12Resource* resource)const{return storage_ && cvr_edo_shader_source(storage_.Get(),resource);}
+std::array<uint64_t,4> EarlyDepthPass::ShaderProofCounts()const{std::array<uint64_t,4> out{};if(storage_)cvr_edo_counts(storage_.Get(),2,out.data());return out;}
+bool EarlyDepthPass::CaptureSkinning(ID3D12GraphicsCommandList* list,ID3D12Resource* bones,std::span<const skinning::BoneRange> ranges,
+                                    const texture_read::Lease& texture,UINT sequence){
+    return storage_ && cvr_edo_capture_skinning(storage_.Get(),list,bones,ranges.data(),ranges.size(),&texture,sequence);
+}
+bool EarlyDepthPass::CaptureAlpha(ID3D12GraphicsCommandList* list,const material_binding::Lease& material,
+    const texture_read::Lease& texture,std::span<const UINT> mips,UINT expectedIndex,UINT sequence){
+    return storage_ && cvr_edo_capture_alpha(storage_.Get(),list,&material,&texture,mips.data(),mips.size(),expectedIndex,sequence);
+}
+std::array<uint64_t,6> EarlyDepthPass::AlphaProofCounts()const{std::array<uint64_t,6> out{};if(storage_)cvr_edo_counts(storage_.Get(),1,out.data());return out;}
+bool EarlyDepthPass::StartNative(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& d,ID3D12Resource* target,
+                                ID3D12Resource* instanceSource,D3D12_RESOURCE_STATES instanceState){
+    return storage_ && cvr_edo_start_native(storage_.Get(),list,&d,target,instanceSource,int32_t(instanceState));
+}
+bool EarlyDepthPass::ObserveNative(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& d){
+    return storage_ && cvr_edo_observe_native(storage_.Get(),list,&d);
+}
+bool EarlyDepthPass::Original(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& d){
+    return storage_ && cvr_edo_original(storage_.Get(),list,&d);
+}
+bool EarlyDepthPass::PeerRemainder(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& d,std::span<const InstanceRun> remaining){
+    return storage_ && cvr_edo_peer_remainder(storage_.Get(),list,&d,remaining.data(),remaining.size());
+}
+bool EarlyDepthPass::FinishNative(ID3D12GraphicsCommandList* list,UINT side){return storage_ && cvr_edo_finish_native(storage_.Get(),list,side);}
+std::array<uint32_t,8> EarlyDepthPass::NativeCounts()const{std::array<uint32_t,8> out{};if(storage_)cvr_edo_native_counts(storage_.Get(),out.data());return out;}
+std::array<uint64_t,4> EarlyDepthPass::NativeDifferences()const{std::array<uint64_t,4> out{};if(storage_)cvr_edo_counts(storage_.Get(),4,out.data());return out;}
+std::array<uint64_t,8> EarlyDepthPass::OptimizedCounts()const{std::array<uint64_t,8> out{};if(storage_)cvr_edo_counts(storage_.Get(),3,out.data());return out;}
+std::array<uint64_t,6> EarlyDepthPass::GpuTimes()const{std::array<uint64_t,6> out{};if(storage_)cvr_edo_counts(storage_.Get(),5,out.data());return out;}
+bool EarlyDepthPass::CommitNative(bool allow){return storage_ && cvr_edo_commit_native(storage_.Get(),allow);}
+void EarlyDepthPass::AbortNative(ID3D12GraphicsCommandList* list,UINT side){if(storage_)cvr_edo_abort_native(storage_.Get(),list,side);}
+bool EarlyDepthPass::Main(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& draw,const families::Family& family,StereoBindingBank& bank,
+    std::span<const uint8_t> masks,std::span<const uint8_t> peerOnly,UINT bankDraw,bool nativeCamera,bool alphaReference,bool alphaOptimized){
+    if(!storage_)return false;const auto& pass=family.pass;
+    const CvrEdpAdmission admission{masks.data(),masks.size(),peerOnly.size(),bankDraw,bank.DrawCount(),bank.SnapshotCount(),family.alphaDepthContract,
+        family.skinningReadContract,family.nativeCameraStages,pass.targets.NumRenderTargets,int32_t(pass.depth),int32_t(pass.depthState.DepthFunc),
+        int32_t(pass.depthState.DepthWriteMask),pass.samples.Count,pass.samples.Quality,reinterpret_cast<uintptr_t>(family.sourceRoot.Get()),nativeCamera,
+        alphaReference,alphaOptimized,family.pipeline!=nullptr,family.instanceOrdinalIndependent,family.nativeCameraPipeline!=nullptr,pass.pixelShader,
+        pass.fixedRasterState,pass.depthStateKnown,pass.depthState.DepthEnable!=FALSE};
+    const CvrEdoBank banks{&bank,
+        [](void* b,void* l){auto& bank=*static_cast<StereoBindingBank*>(b);auto* recording=static_cast<ID3D12GraphicsCommandList*>(l);
+            return bank.CapturedFor(recording) || (bank.CaptureEye(recording,0) && bank.CaptureEye(recording,1));},
+        [](void* b,void* l,UINT index){return static_cast<StereoBindingBank*>(b)->Bind(static_cast<ID3D12GraphicsCommandList*>(l),index);}};
+    return cvr_edo_main(storage_.Get(),list,&draw,&admission,masks.data(),masks.size(),peerOnly.data(),peerOnly.size(),bankDraw,nativeCamera,alphaOptimized,
+        nativeCamera?family.nativeCameraPipeline.Get():family.pipeline.Get(),family.nativeCameraPipeline.Get(),family.sourceRoot.Get(),&banks);
+}
+bool EarlyDepthPass::MainConstants(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& draw,const families::Family& family,
+    std::span<const BankPair> pairs,std::span<const uint8_t> masks,std::span<const uint8_t> extra){
+    if(!storage_ || !cvr_edo_constants_open(storage_.Get()) || !family.pairedRoot)return false;
+    const auto root=family.pairedRoot->root.Get();void* arena=cvr_edo_arena(storage_.Get(),root);
+    if(!arena){
+        if(cvr_edo_arena_count(storage_.Get())>=8)return false;
+        StereoBindingBank made;
+        if(FAILED(made.CreateArena(cvr_edo_device(storage_.Get()),root,family.pairedRoot->plan,early_depth::MaxDraws,UINT64(early_depth::MaxDraws)*4096)))
+            return false;
+        arena=made.DetachStorage();cvr_edo_adopt_arena(storage_.Get(),root,arena);   // the pass holds the bank's storage
+    }
+    StereoBindingBank bank;static_cast<IUnknown*>(arena)->AddRef();bank.AttachStorage(arena);   // a reference for this view
+    UINT index{};if(FAILED(bank.AppendConstants(family.pairedRoot->plan,pairs,index)))return false;
+    return Main(list,draw,family,bank,masks,extra,index);
+}
+UINT EarlyDepthPass::ArenaCount()const{return storage_?cvr_edo_arena_count(storage_.Get()):0;}
+bool EarlyDepthPass::Peer(ID3D12GraphicsCommandList* list,const native_probe::DrawRecord& draw){return storage_ && cvr_edo_peer(storage_.Get(),list,&draw);}
+bool EarlyDepthPass::Readback(ID3D12GraphicsCommandList* list){return storage_ && cvr_edo_readback(storage_.Get(),list);}
+void EarlyDepthPass::BeforeSubmit(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists){
+    if(storage_ && queue && lists)cvr_edo_before_submit(storage_.Get(),queue,count,lists);
+}
+void EarlyDepthPass::Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists){
+    if(storage_ && queue && lists)cvr_edo_submitted(storage_.Get(),queue,count,lists);
+}
+bool EarlyDepthPass::Failed()const{return storage_ && cvr_edo_failed(storage_.Get());}
+void EarlyDepthPass::Reset(ID3D12CommandList* list){if(storage_ && list)cvr_edo_reset(storage_.Get(),list);}
+HRESULT EarlyDepthPass::Read(DepthComparisonResult& result){return storage_?cvr_edo_read(storage_.Get(),&result):E_UNEXPECTED;}
+HRESULT EarlyDepthPass::Restart(){return storage_?cvr_edo_restart(storage_.Get()):E_UNEXPECTED;}
+}
+#endif
+#else
 
 namespace cvr::stereo {
 using Microsoft::WRL::ComPtr;
@@ -719,3 +891,4 @@ HRESULT EarlyDepthPass::Restart(){
     return S_OK;
 }
 }
+#endif

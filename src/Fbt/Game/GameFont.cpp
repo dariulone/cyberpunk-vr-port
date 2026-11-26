@@ -16,9 +16,18 @@
 #include <sstream>
 
 extern void Log(const char*, ...);
+#if CVR_RUST_VRIK
+// The language, its font and the view's texts: rust/crates/cvr-settings/src/fbt_font.rs.
+extern "C" {
+size_t cvr_fbt_text_language(char* out, size_t cap);
+const char* cvr_fbt_font_path(const char* language, size_t len);
+void cvr_fbt_view_texts(const char* language, size_t len, void* user, void (*append)(void*, const char*, size_t));
+}
+#endif
 
 namespace cvr::fbt::game {
 namespace {
+#if !CVR_RUST_VRIK  // the Rust build reads them in fbt_font.rs
 std::string ReadFile(const std::wstring& path) {
     std::ifstream f(path, std::ios::binary);
     std::ostringstream s;
@@ -71,6 +80,7 @@ std::string ViewTexts(const std::string& language) {
     return out;
 }
 
+#endif
 template <typename Ready> bool WaitFor(Ready ready, unsigned timeoutMs) {
     const ULONGLONG until = GetTickCount64() + timeoutMs;
     while (!ready()) {
@@ -83,10 +93,19 @@ template <typename Ready> bool WaitFor(Ready ready, unsigned timeoutMs) {
 
 bool ReadGameTextFont(GameTextFont* out, unsigned timeoutMs, std::string* why) {
     auto fail = [&](const char* reason) { if (why) *why = reason; return false; };
+#if CVR_RUST_VRIK
+    char language[8]{};
+    out->language.assign(language, cvr_fbt_text_language(language, sizeof(language)));
+    out->path = cvr_fbt_font_path(out->language.data(), out->language.size());
+    out->texts.clear();
+    cvr_fbt_view_texts(out->language.data(), out->language.size(), &out->texts,
+                       [](void* texts, const char* data, size_t bytes) { static_cast<std::string*>(texts)->append(data, bytes); });
+#else
     out->language = TextLanguage();
     out->path = kRajdhani;
     for (const Choice& c : kChoices) if (out->language == c.language) out->path = c.path;
     out->texts = ViewTexts(out->language);
+#endif
 
     auto* loader = RED4ext::ResourceLoader::Get();
     if (!loader) return fail("the game's resource loader is not up");

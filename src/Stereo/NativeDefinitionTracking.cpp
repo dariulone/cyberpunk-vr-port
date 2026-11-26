@@ -31,10 +31,26 @@
 #include <intrin.h>
 #include <map>
 #include <mutex>
+#if CVR_RUST_VRIK
+// The code guards: rust/crates/cvr-render/src/definition_code.rs (its tables generated from this file's and
+// BorrowedSceneSections.hpp's).
+// The cache results: rust/crates/cvr-render/src/definition_cache.rs (the root admission mirrored there).
+// The disjointness checks: rust/crates/cvr-render/src/definition_disjoint.rs (the trees as definition_tree's Rust view).
+// The native reads: rust/crates/cvr-render/src/definition_reads.rs.
+// The certified header: rust/crates/cvr-render/src/definition_header.rs (the native header mirrored there).
+// The resource replay capture: rust/crates/cvr-render/src/definition_replay.rs.
+#endif
 
 extern "C" {
+#if !CVR_RUST_VRIK
 void CvrRenderGraphCacheResultDetour();
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's are rust/crates/cvr-render/src/asm_thunks/render_graph_cache_thunk.rs'
 void* CvrRenderGraphCacheResultOriginal{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationDefinitionMode{},CyberpunkVR_PreparationDefinitionRequest{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationDefinitionCompatible{},CyberpunkVR_PreparationDefinitionSeq{};
 __declspec(dllexport) uint64_t CyberpunkVR_PreparationDefinitionStats[16]{};
@@ -68,7 +84,15 @@ __declspec(dllexport) uint64_t CyberpunkVR_OwnedStageDefinitions{},CyberpunkVR_O
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedSceneStats[8]{};
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedSceneRoots{},CyberpunkVR_OwnedSceneChildren{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_OwnedSceneSplitEnable{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SceneChildEnable{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedSceneSplitStats[24]{};
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedSceneSplitSections[12]{};
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedSceneSplitSourceNodes{},CyberpunkVR_OwnedSceneSplitSourceEdges{},CyberpunkVR_OwnedSceneSplitMappingRows{};
@@ -81,18 +105,73 @@ __declspec(dllexport) uint64_t CyberpunkVR_OwnedExecutionCache[16]{},CyberpunkVR
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedExecutionAdmission[6]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_OwnedResourceReplayEnable{};
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedResourceReplayStats[16]{},CyberpunkVR_OwnedResourceReplayRows{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) uint32_t CyberpunkVR_OwnedResourceReplayRowBytes=32;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedResourceReplayProof[8]{};
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedResourceReplayRegistration[8]{};
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedResourceReplayReset[8]{};
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedResourceReplayAsync[8]{};
 __declspec(dllexport) uint64_t CyberpunkVR_OwnedResourceReplayMismatch[16]{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
 void* CvrResourceContextOriginal{};
+#endif
+#if !CVR_RUST_VRIK
 void CvrResourceContextDetour();
+#endif
+#if !CVR_RUST_VRIK
 extern std::atomic<uint32_t> CyberpunkVR_PreparationGraphJobsEpoch;
 extern uint64_t CyberpunkVR_PreparationGraphJobsCompatibility[8];
+#endif
 }
 
+#if CVR_RUST_VRIK
+// The native definition tracking: rust/crates/cvr-render/src/definition_tracking/ (the definition writers' stamps, the
+// common allocator's boundaries, the paired root's native consumers with their generations and owned reference graph,
+// the resource replay and the scene child scopes; every detour registered there with its contract, the construct hook
+// through an assembly thunk that passes its frame). The paired frame calls it in Rust; the other C++ callers keep these
+// forwarders.
+extern "C" {
+void cvr_ndt_attach();
+void cvr_ndt_child_enter(uint64_t,uint64_t,uint32_t);
+void cvr_ndt_child_leave();
+}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin registers them in rust/crates/cvr-render/src/engine_detours.rs cvr_static_registrations
+namespace {
+const bool kDefinitionTrackingAttached=(cvr_ndt_attach(),true);
+}
+#endif
+namespace cvr::stereo::definition_tracking {
+}
+namespace cvr::stereo::scene_child {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no C++ of the plugin opens a scene child scope
+Scope::Scope(uint64_t node,uint64_t workContext,uint32_t phase)noexcept{cvr_ndt_child_enter(node,workContext,phase);}
+Scope::~Scope(){cvr_ndt_child_leave();}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's scene access trace describes it in Rust (scene_access_native.rs)
+bool DescribeCurrentAtList(ID3D12GraphicsCommandList* list,Identity& output,native_recording::Lease& recording)noexcept try{
+    output={};recording={};Identity before,after;
+    if(!list || !DescribeCurrent(before))return false;
+    const auto base=reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base);
+    const auto context=camera_upload::CurrentContext(base);native_recording::Lease lease;
+    if(context.list!=reinterpret_cast<uintptr_t>(list) || !native_recording::Capture(list,context,lease) ||
+        !native_recording::ValidateRecording(lease,list,context) || !DescribeCurrent(after) || after!=before ||
+        camera_upload::CurrentContext(base)!=context || !native_recording::ValidateRecording(lease,list,context))return false;
+    output=before;recording=std::move(lease);return true;
+}catch(...){output={};recording={};return false;}
+#endif
+}
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
+extern "C" __declspec(dllexport) void CyberpunkVR_CloseOwnedExecution()noexcept{cvr_ndt_close();}
+#endif
+#else
 namespace cvr::stereo::definition_tracking {
 namespace {
 constexpr size_t MaxTrackedOwners=4096;
@@ -325,11 +404,15 @@ bool CompareGraphSlot(uint64_t slot,uint64_t expected,uint64_t desired,uint64_t&
     __except(EXCEPTION_EXECUTE_HANDLER){return false;}
 }
 uint64_t EarlyExecutionGroup(uint64_t graphSlot){
+#if CVR_RUST_VRIK
+    return cvr_ndt_early_group(graphSlot);
+#else
     uint64_t group{},again{};int32_t refs{},pending{};
     if(graphSlot>UINT64_MAX-0xF8 || !Read(graphSlot+0xF0,&group,8) || !Read(graphSlot+0xF0,&again,8) ||
         !group || group!=again || (group&7) || group>UINT64_MAX-0x20 ||
         !Read(group+0x1c,&refs,4) || !Read(group+0x18,&pending,4) || refs<=0 || refs==INT32_MAX || pending<0)return 0;
     return group;
+#endif
 }
 bool TopVectorMatches(const graph_definition::Owner& owner){
     const auto& native=owner.move.SavedHeader();const auto base=reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base);
@@ -688,6 +771,9 @@ bool PrepareOwnedReference(Consumer& consumer,RootAdmission& admission,uint64_t 
 bool Read(uint64_t address,void* out,size_t size){SIZE_T done{};return address && ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(address),out,size,&done) && done==size;}
 bool SceneCodeCompatible(){
     static const bool compatible=[] {
+#if CVR_RUST_VRIK
+        return cvr_ndt_scene_code(reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base));
+#else
         const auto base=reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base);
         if(!base || base>UINT64_MAX-0x3BCDCA8)return false;
         std::array<uint8_t,1024> bytes{};
@@ -700,6 +786,7 @@ bool SceneCodeCompatible(){
         for(size_t i=0;i<borrowed_scene_sections::VtableTargets.size();++i){uint64_t target{};
             if(!Read(base+scene_sections::VtableRva+i*8,&target,8) || target!=base+borrowed_scene_sections::VtableTargets[i])return false;}
         return true;
+#endif
     }();
     return compatible;
 }
@@ -711,6 +798,11 @@ bool CompleteGroup(void* group){return InterlockedCompareExchange(reinterpret_ca
 bool CodeCompatible(){
     if(!GetEnvironmentVariableW(L"CVR_STEREO_PAIRED_ROOT",nullptr,0))return false;
     static const bool valid=[] {
+#if CVR_RUST_VRIK
+        const auto kernel=GetModuleHandleW(L"kernel32.dll");
+        return kernel && cvr_ndt_code(reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base),reinterpret_cast<uintptr_t>(GetProcAddress(kernel,"FlsAlloc")),
+            reinterpret_cast<uintptr_t>(GetProcAddress(kernel,"FlsSetValue")));
+#else
         constexpr struct Code {uint32_t rva,size;uint64_t hash;} code[]{
             {0x8E7AE0,0x1C7,0xC66CF9E2F355BECDull},
             {0x8E7D7C,0xBB,0xE5F14D5605358CD4ull},{0x8E7704,0x31,0xF51D36CBBCC64B9Bull},
@@ -802,6 +894,7 @@ bool CodeCompatible(){
             !Read(base+0x2FF3650,&flsAlloc,8) || flsAlloc!=reinterpret_cast<uintptr_t>(GetProcAddress(kernel,"FlsAlloc")) ||
             !Read(base+0x2FF3658,&flsSet,8) || flsSet!=reinterpret_cast<uintptr_t>(GetProcAddress(kernel,"FlsSetValue")))return false;
         return true;
+#endif
     }();CyberpunkVR_PreparationDefinitionCompatible=valid?1:2;return valid;
 }
 bool ObserveAllocatorLifecycle(void*,allocator_binding::Lifecycle& value){
@@ -910,16 +1003,30 @@ bool RelativeCall(uint32_t returned,uint32_t target){
 }
 bool WriterCallsitesCompatible(){
     static const bool valid=[] {
+#if CVR_RUST_VRIK
+        static_assert(sizeof(BuilderSite)==8);
+        return cvr_ndt_writer_callsites(reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base),&builderSites[0].begin,std::size(builderSites));
+#else
         for(const auto& site:builderSites)if(!RelativeCall(site.begin,0x8E7D7C) || !RelativeCall(site.end,0x8EAF50))return false;
         for(const auto returned:{0x8E9484u,0x8E957Au,0x8E9779u})if(!RelativeCall(returned,0x8EA438))return false;
         for(const auto returned:{0x8E7C6Du,0x8E767Bu,0x24E88ADu})if(!RelativeCall(returned,0x8E7704))return false;
         return RelativeCall(0x8E7C1C,0x8E7CA8);
+#endif
     }();return valid;
 }
 bool NativeHeaderRead(uint64_t header,retirement_deferral::NativeHeader& out){
+#if CVR_RUST_VRIK
+    static_assert(sizeof(out)==16,"mirrored by definition_header.rs");return cvr_ndt_header_read(header,&out);
+#else
     retirement_deferral::NativeHeader again{};return Read(header,&out,16) && Read(header,&again,16) && out==again;
+#endif
 }
 bool NonemptyCertifiedHeader(uint64_t header,definition_tree::Snapshot& tree){
+#if CVR_RUST_VRIK
+    const auto base=reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base);
+    std::vector<uint64_t> roots(definition_tree::MaxRoots);size_t count{};
+    if(!cvr_ndt_header_roots(base,header,roots.data(),roots.size(),&count))return false;roots.resize(count);
+#else
     const auto base=reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base);retirement_deferral::NativeHeader native{};uint64_t allocator{},callback{};
     if(!NativeHeaderRead(header,native) || !native.capacity || !native.count || native.count>native.capacity ||
         native.capacity>definition_tree::MaxRoots || native.data>UINT64_MAX-uint64_t(native.capacity)*8-8 ||
@@ -927,9 +1034,13 @@ bool NonemptyCertifiedHeader(uint64_t header,definition_tree::Snapshot& tree){
         !Read(allocator+0x20,&callback,8) || callback!=base+0x120F6F0)return false;
     std::vector<uint64_t> roots(native.count);if(!Read(native.data,roots.data(),roots.size()*8) ||
         std::none_of(roots.begin(),roots.end(),[](uint64_t value){return value!=0;}))return false;
+#endif
     return tree.Capture(roots,base,Read,true) && owned_execution::TreeCertified(tree) && tree.MatchesBefore(Read);
 }
 bool TreesDisjoint(const definition_tree::Snapshot& first,const definition_tree::Snapshot& second){
+#if CVR_RUST_VRIK
+    const auto a=first.RustRecords(),b=second.RustRecords();return cvr_ndt_trees_disjoint(&a,&b);
+#else
     for(const auto& a:first.Nodes())for(const auto& b:second.Nodes())if(a.object==b.object ||
         (a.controlBlock && a.controlBlock==b.controlBlock))return false;
     for(const auto& a:first.Arrays())for(const auto& b:second.Arrays())if(a.capacity && b.capacity &&
@@ -937,6 +1048,7 @@ bool TreesDisjoint(const definition_tree::Snapshot& first,const definition_tree:
     for(const auto& a:first.Strings())for(const auto& b:second.Strings())if(a.allocationBytes && b.allocationBytes &&
         a.data<b.data+b.allocationBytes && b.data<a.data+a.allocationBytes)return false;
     return true;
+#endif
 }
 bool InvokeSavedDestroy(void* header){
     __try{reinterpret_cast<void(*)(void*)>(reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base)+0x8E7704)(header);return true;}
@@ -1002,16 +1114,27 @@ NativeIntentResult HandleNativeIntentLocked(uint64_t header,retirement_deferral:
     return NativeIntentResult::Detached;
 }
 bool AllocationReceiptsDisjoint(const allocator_binding::Receipt& a,const allocator_binding::Receipt& b){
+#if CVR_RUST_VRIK
+    static_assert(sizeof(allocator_binding::Allocation)==40,"mirrored by native/allocator_binding.rs");
+    return cvr_ndt_allocations_disjoint(a.Allocations().data(),a.Allocations().size(),b.Allocations().data(),b.Allocations().size());
+#else
     for(const auto& first:a.Allocations())for(const auto& second:b.Allocations())
         if(first.address<second.address+second.bytes && second.address<first.address+first.bytes)return false;
     return true;
+#endif
 }
 bool SavedVectorMatches(const RetainedOwner& owner){
+#if CVR_RUST_VRIK
+    const auto& header=owner.identity.savedNative16B;
+    return cvr_ndt_saved_vector(header.data,header.capacity,header.count,owner.identity.emptyAllocator16B.data,owner.definitions.data(),
+        owner.definitions.size());
+#else
     const auto& header=owner.identity.savedNative16B;uint64_t footer{},again{};
     if(!header.capacity || !Read(header.data+uint64_t(header.capacity)*8,&footer,8) ||
         !Read(header.data+uint64_t(header.capacity)*8,&again,8) || footer!=again || footer!=owner.identity.emptyAllocator16B.data)return false;
     for(size_t i=0;i<owner.definitions.size();++i){uint64_t object{};if(!Read(header.data+i*8,&object,8) || object!=owner.definitions[i])return false;}
     return owner.definitions.size()==header.count;
+#endif
 }
 void ServiceReadyRetirements(uint64_t currentHeader,bool supportedScope,uint64_t scopeEpoch,uint32_t caller)noexcept try{
     if(!supportedScope || CyberpunkVR_OwnedExecutionClosing.load() || retirementBypass)return;
@@ -1234,6 +1357,12 @@ bool AllocatorCoverageReady(){
         g_cvrDetourReg_MiddleRangesHook.installed && g_cvrDetourReg_FallbackConstructHook.installed && g_cvrDetourReg_FallbackSetupHook.installed;
 }
 void RecordCacheResultLocked(RootAdmission& admission,uint64_t slot){
+#if CVR_RUST_VRIK
+        static_assert(sizeof(RootAdmission)==80,"mirrored by definition_cache.rs");bool miss{};
+        if(!cvr_ndt_cache_slot(&admission,slot,CyberpunkVR_OwnedExecutionCache[6],CyberpunkVR_OwnedExecutionClosing.load()!=0,&miss))return;
+        OwnedTelemetryWrite write;
+        cvr_ndt_cache_record(&admission,slot,miss,CyberpunkVR_OwnedExecutionCache,CyberpunkVR_OwnedExecutionCacheRows,CyberpunkVR_OwnedExecutionRetirementTotals);
+#else
         if(!admission.cachePending)return;admission.cachePending=false;
         const auto address=admission.cache,key=admission.key;const auto views=admission.views,use=admission.use;
         if(!CyberpunkVR_OwnedExecutionCache[6] || CyberpunkVR_OwnedExecutionCache[6]!=address || CyberpunkVR_OwnedExecutionClosing.load())return;
@@ -1251,12 +1380,17 @@ void RecordCacheResultLocked(RootAdmission& admission,uint64_t slot){
             ++stats[3];++CyberpunkVR_OwnedExecutionRetirementTotals[15];}
         if(row){row[4]=stats[0];++row[miss?6:5];}else stats[4]=1;
         ++CyberpunkVR_OwnedExecutionRetirementTotals[14];
+#endif
 }
 bool CacheResultCompatible(){
+#if CVR_RUST_VRIK
+    return CodeCompatible() && cvr_ndt_cache_code(reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base));
+#else
     const uint8_t expected[]{0x48,0x8B,0xD8,0x48,0x89,0x44,0x24,0x68,0x4C,0x8D,0x78,0x10};  // 2.5: [rsp+68h], r15
     std::array<uint8_t,sizeof(expected)> actual{};
     return CodeCompatible() && Read(reinterpret_cast<uintptr_t>(cvr::detail::g_exe_base)+0x40A1D1,actual.data(),actual.size()) &&
         std::equal(actual.begin(),actual.end(),expected);
+#endif
 }
 CVR_DETOUR_IF("[single-pass] immediate native cache result",0x40A1D1,CvrRenderGraphCacheResultDetour,CvrRenderGraphCacheResultOriginal,CacheResultCompatible)
 bool CaptureCompatible();
@@ -1295,6 +1429,16 @@ bool CaptureReplay(Consumer& consumer){
     std::array<uint32_t,resource_replay::Slots> before{},after{};
     std::vector<resource_replay::RawDeclaration> a,b;
     const auto capture=[&](auto& counts,auto& rows){
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+        static_assert(resource_replay::Slots==220 && resource_replay::RowsPerSlot==600 && resource_uses::SlotStride==0x70c0 &&
+            resource_uses::Declarations==0x48 && resource_uses::DeclarationCount==0x70c8 && sizeof(resource_replay::RawDeclaration)==48,
+            "mirrored by definition_replay.rs");
+        const uint8_t* data{};size_t length{};void* handle{};
+        if(!cvr_ndt_replay_capture(identity.pool,counts.data(),&data,&length,&handle))return false;
+        rows.resize(length);if(length)std::memcpy(rows.data(),data,length*48);cvr_ndt_replay_free(handle);return true;
+#endif
+#else
         uint8_t mode{};if(!Read(identity.pool+2,&mode,1) || mode!=1)return false;
         for(uint32_t slot=0;slot<resource_replay::Slots;++slot){
             const auto at=identity.pool+uint64_t(slot)*resource_uses::SlotStride;
@@ -1303,6 +1447,7 @@ bool CaptureReplay(Consumer& consumer){
             if(counts[slot] && !Read(at+resource_uses::Declarations,rows.data()+start,uint64_t(counts[slot])*48))return false;
         }
         return Read(identity.pool+2,&mode,1) && mode==1;
+#endif
     };
     if(!capture(before,a) || !capture(after,b) || !consumer.resourceReplay->Capture(identity,ReplayIdentity(consumer),nodes,before,after,a,b)){
         ReplayFailed(consumer,consumer.resourceReplay->Failed()?uint32_t(consumer.resourceReplay->Rejection()):100);return false;}
@@ -1312,6 +1457,11 @@ bool CaptureReplay(Consumer& consumer){
 bool ReplayGrammarUnchanged(Consumer& consumer){
     if(!consumer.resourceReplay || !consumer.resourceReplay->Captured())return false;
     const auto& replay=*consumer.resourceReplay;const auto& identity=replay.Binding();
+#if CVR_RUST_VRIK
+    const auto& expected=replay.Declarations();std::array<uint32_t,resource_replay::Slots> declared{};
+    for(uint32_t slot=0;slot<resource_replay::Slots;++slot)declared[slot]=replay.DeclaredCount(slot);
+    return cvr_ndt_replay_unchanged(identity.pool,declared.data(),expected.data(),expected.size());
+#else
     const auto& expected=replay.Declarations();size_t index{};uint8_t state{};
     if(!Read(identity.pool+2,&state,1) || state!=2)return false;
     for(uint32_t slot=0;slot<resource_replay::Slots;++slot){
@@ -1328,6 +1478,7 @@ bool ReplayGrammarUnchanged(Consumer& consumer){
         if(!Read(at+resource_uses::DeclarationCount,&again,4) || again!=count)return false;
     }
     return index==expected.size() && Read(identity.pool+2,&state,1) && state==2;
+#endif
 }
 using ResourceCommand=uintptr_t(*)(void*,const void*,uint8_t);
 ResourceCommand originalResourceCommand{};
@@ -2373,3 +2524,4 @@ extern "C" void CvrResourceContextAfter(void* destination,const void* source,uin
     if(!CyberpunkVR_OwnedResourceReplayEnable.load(std::memory_order_relaxed))return;
     try{cvr::stereo::definition_tracking::ObserveResourceContext(destination,source,caller);}catch(...){}
 }
+#endif

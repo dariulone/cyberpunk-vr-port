@@ -131,10 +131,12 @@ end
 
 -- The panel's frame at a place on the arc (0 the middle, -1 the left, +1 coming in from the right): its centre, right
 -- and up in the world and its size. In the lobby's frame X is right, Y forward, Z up; the panel faces the eyes.
--- A screen w x h m on the arc at bearing b (radians, from the player's heading), its centre at `height`.
-local function frameOn(b, height, w, h)
+-- A screen w x h m on the arc at bearing b (radians, from the player's heading), its centre at `height`; `dist` m away
+-- (the arc's own when not given).
+local function frameOn(b, height, w, h, dist)
   local H = S.spec
-  local c = { H.dist * math.sin(b), H.dist * math.cos(b), height }
+  dist = dist or H.dist
+  local c = { dist * math.sin(b), dist * math.cos(b), height }
   local n = norm({ -c[1], -c[2], EYE - c[3] })
   local r = norm(cross({ 0, 0, 1 }, n))
   return place(c, r, cross(n, r), w, h)
@@ -207,7 +209,11 @@ local DIMMED = { 0.62, 0.62, 0.62 }      -- a poster not chosen and not pointed 
 -- hall's warm cast (blue a little higher): fitted on the headset image against the save's screenshot.png, 2026-11-01.
 local PHOTO = { 0.37, 0.39, 0.43 }
 
+-- What a row that draws itself (row.draw) is given to draw in: the panels' colours.
+local PALETTE = { glyph = WHITE, text = TEXT, dim = DIM, red = RED, line = RED_DIM, white = WHITE }
+
 local function rowHeight(row)
+  if row.height ~= nil then return row.height end
   if row.image ~= nil then return IMAGE_ROW_H end
   if row.icon ~= nil then return ICON_ROW_H end
   if row.cards ~= nil then return row.poster and POSTER_ROW_H or CARDS_ROW_H end
@@ -312,6 +318,11 @@ local function drawRow(P, c, row, hitY)
     if row.go ~= nil then hit(P, ROW_X, hitY, ROW_W, ROW_H, id, "main", true) end
   elseif row.text then
     Ink.text(c, 20, 0, ROW_W - 40, ROW_H, row.label, 60, row.warn and RED or TEXT, "left", true)
+    return
+  elseif row.draw ~= nil then
+    -- a row that draws itself (row.draw(canvas, width, height, PALETTE), row.height px tall): nothing to press
+    local ok, err = pcall(row.draw, c, ROW_W, rowHeight(row), PALETTE)
+    if not ok then M.lastError = tostring(err) end
     return
   elseif row.picture ~= nil then
     -- one picture (row.picture: { atlas, part }) in the row's middle, as tall as the row; nothing to press
@@ -576,7 +587,7 @@ local function build(P)
   if P.index ~= nil and P.index > 1 then
     local look = { row = { key = "__back" }, button = true }
     look.field = Ink.rect(layer, ROW_X, FOOT_Y, 620, FOOT_H, RED_DIM, 0.8)
-    look.label = Ink.text(layer, ROW_X, FOOT_Y, 620, FOOT_H, "< " .. S.texts.back, 72, WHITE, "centre")
+    look.label = Ink.text(layer, ROW_X, FOOT_Y, 620, FOOT_H, "< " .. (page.back or S.texts.back), 72, WHITE, "centre")
     hit(P, ROW_X, FOOT_Y, 620, FOOT_H, "__back", "main")
     P.looks.__back = look
     restyle(look, (P.hover ~= nil and P.hover.row == "__back") and "main" or nil)
@@ -704,6 +715,48 @@ local function animate(P, dt)
     pcall(function() P.root:SetOpacity(P.alpha) end)
     P.shownAlpha = P.alpha
   end
+end
+
+---------------------------------------------------------------- a board standing in the hall
+
+-- A screen of its own away from the arc, standing while the menu is open (M.board): a panel's screen at `spot`
+-- (bearing in degrees from the menu's heading, dist and height in metres), turned to the eyes, its face drawn by
+-- draw(layer, cw, ch, PALETTE) over the panels' glass. Nothing on it is pressed; it fades in once drawn.
+local function spawnBoard(spot, draw)
+  local H = S.spec
+  local B = { board = true, draw = draw, alpha = 0.0, L = PANEL }
+  B.frame = frameOn(math.rad(spot.bearing), spot.height, H.panel[1], H.panel[2], spot.dist)
+  B.id = Spawner.spawn(ENT, transformFor(B.frame), TAG)
+  return B
+end
+
+local function updateBoard(B, dt)
+  if not resolve(B) then return end
+  if not B.built then
+    pcall(function()
+      Game.VREntitySetWorldTransform(B.entity, transformFor(B.frame))
+      -- The display mesh is hidden until Ready sees a completed ink draw.
+      -- Keep its canvas paintable while that first draw is pending.
+      B.root:SetOpacity(1.0)
+    end)
+    local glass = Ink.canvas(B.root, 0, 0, B.L.cw, B.L.ch)
+    buildGlass(glass, B.L)
+    B.layer = Ink.canvas(B.root, 0, 0, B.L.cw, B.L.ch)
+    B.built = true
+  end
+  local language = Ink.language() or "en-us"
+  if B.language ~= language then
+    if B.language ~= nil then
+      B.layer:RemoveAllChildren()
+      M.refresh() -- the Controls entry can still be visible behind the language settings
+    end
+    B.language = language
+    local ok, err = pcall(B.draw, B.layer, B.L.cw, B.L.ch, PALETTE)
+    if not ok then M.lastError = tostring(err) end
+  end
+  if not ready(B) then return end
+  B.alpha = approach(B.alpha, 1.0, FADE, dt)
+  pcall(function() B.root:SetOpacity(B.alpha) end)
 end
 
 ---------------------------------------------------------------- the preview window
@@ -1141,6 +1194,13 @@ end
 
 function M.isOpen() return S.anchor ~= nil end
 
+-- A board standing in the hall while the menu is open (see spawnBoard), after M.open; closed with the menu.
+function M.board(spot, draw)
+  if S.anchor == nil or spot == nil or draw == nil then return end
+  if S.board ~= nil then despawn(S.board) end
+  S.board = spawnBoard(spot, draw)
+end
+
 -- Per hand (1 left, 2 right), how far along its pointer a panel takes it this frame (0 for a fingertip on one), or
 -- nil: nothing behind a panel is the hand's to point at.
 function M.pointing()
@@ -1264,7 +1324,7 @@ function M.close()
   capture(false)
   Spawner.clear(TAG)
   Beams.close()
-  S.stack, S.leaving, S.anchor, S.preview, S.closing = {}, {}, nil, nil, nil
+  S.stack, S.leaving, S.anchor, S.preview, S.closing, S.board = {}, {}, nil, nil, nil, nil
   S.hands = { {}, {} }
 end
 
@@ -1306,6 +1366,7 @@ function M.update(dt)
   end
   pointers()
   updatePreview(dt)
+  if S.board ~= nil then updateBoard(S.board, dt) end
 end
 
 function M.state()
@@ -1318,7 +1379,8 @@ function M.state()
   local pv = S.preview
   return { open = S.anchor ~= nil, pages = pages, leaving = #S.leaving, captured = S.captured, error = M.lastError,
            preview = pv and { ready = pv.ready == true, alpha = pv.alpha, text = pv.row and pv.row.previewText,
-                              found = pv.entity ~= nil, root = pv.root ~= nil, built = pv.built == true } }
+                              found = pv.entity ~= nil, root = pv.root ~= nil, built = pv.built == true },
+           board = S.board and { ready = S.board.ready == true, alpha = S.board.alpha, built = S.board.built == true } }
 end
 
 -- For tests: what a press at canvas pixel (x, y) of the top panel would press.

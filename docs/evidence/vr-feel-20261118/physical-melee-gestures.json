@@ -1,0 +1,883 @@
+{
+  "narrow-stock": {
+    "pid": 19568,
+    "item": "Items.Preset_Katana_Takemura",
+    "cases": {
+      "swing": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": null,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": false,
+          "damage": false,
+          "mesh_mark": false,
+          "slash": false,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 0.0,
+        "maxControllerSpeed": 10.16,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "reverse": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": null,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": false,
+          "damage": false,
+          "mesh_mark": false,
+          "slash": false,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 0.0,
+        "maxControllerSpeed": 8.36,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "arc": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": null,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": false,
+          "damage": false,
+          "mesh_mark": false,
+          "slash": false,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 0.0,
+        "maxControllerSpeed": 3.57,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "thrust": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": null,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": false,
+          "damage": false,
+          "mesh_mark": false,
+          "lodged_hold": false,
+          "idle": true,
+          "released": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 0.0,
+        "maxControllerSpeed": 4.86,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      }
+    }
+  },
+  "oblique1": {
+    "pid": 14956,
+    "item": "Items.Preset_Katana_Takemura",
+    "cases": {
+      "swing": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": -20.0,
+        "roll": 34.0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 347.39,
+        "maxControllerSpeed": 11.56,
+        "receiptShapes": [
+          "RightArm"
+        ],
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 18,
+        "jointAtHoldEnd": false
+      },
+      "reverse": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": -20.0,
+        "roll": 34.0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 208.6,
+        "maxControllerSpeed": 9.22,
+        "receiptShapes": [
+          "LeftArm"
+        ],
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 50,
+        "jointAtHoldEnd": false
+      },
+      "arc": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": -20.0,
+        "roll": 34.0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 231.44,
+        "maxControllerSpeed": 3.96,
+        "receiptShapes": [
+          "RightArm"
+        ],
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 55,
+        "jointAtHoldEnd": false
+      }
+    }
+  },
+  "oblique2": {
+    "pid": 27532,
+    "item": "Items.Preset_Katana_Takemura",
+    "cases": {
+      "thrust": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 18.0,
+        "roll": -28.0,
+        "targetSpeed": 0.005,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "released": true,
+          "reentry": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 385.25,
+        "maxControllerSpeed": 4.65,
+        "receiptShapes": [
+          "Belly"
+        ],
+        "markTypes": [
+          2,
+          3
+        ],
+        "inkTriangles": 175,
+        "jointAtHoldEnd": true,
+        "observedJointSeconds": 0.816
+      },
+      "swing": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 18.0,
+        "roll": -28.0,
+        "targetSpeed": 0.005,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 318.73,
+        "maxControllerSpeed": 11.13,
+        "receiptShapes": [
+          "RightShoulder"
+        ],
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 40,
+        "jointAtHoldEnd": false
+      },
+      "reverse": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 18.0,
+        "roll": -28.0,
+        "targetSpeed": 0.005,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 315.99,
+        "maxControllerSpeed": 8.84,
+        "receiptShapes": [
+          "LeftArm"
+        ],
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 36,
+        "jointAtHoldEnd": false
+      },
+      "arc": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 18.0,
+        "roll": -28.0,
+        "targetSpeed": 0.005,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 307.78,
+        "maxControllerSpeed": 3.85,
+        "receiptShapes": [
+          "RightArm"
+        ],
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 140,
+        "jointAtHoldEnd": false
+      }
+    }
+  },
+  "edge07": {
+    "pid": 27532,
+    "item": "Items.Preset_Katana_Takemura",
+    "cases": {
+      "edge-press": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "targetSpeed": 0.005,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "press_from_joint": true,
+          "edge_only": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 254.29,
+        "maxControllerSpeed": 5.01,
+        "receiptShapes": [
+          "Belly"
+        ],
+        "markTypes": [
+          2,
+          3
+        ],
+        "inkTriangles": 61,
+        "jointAtHoldEnd": true,
+        "observedJointSeconds": 0.781,
+        "strength": 20,
+        "initialJoint": 1,
+        "followJoint": 1,
+        "followInk": 118
+      },
+      "flat-press": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "targetSpeed": 0.005,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "press_from_joint": true,
+          "edge_only": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 338.27,
+        "maxControllerSpeed": 4.87,
+        "receiptShapes": [
+          "Belly"
+        ],
+        "markTypes": [
+          2,
+          3
+        ],
+        "inkTriangles": 65,
+        "jointAtHoldEnd": true,
+        "observedJointSeconds": 0.753,
+        "strength": 20,
+        "initialJoint": 2,
+        "followJoint": null,
+        "followInk": 0
+      },
+      "thrust": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "targetSpeed": 0.005,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "released": true,
+          "reentry": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 339.42,
+        "maxControllerSpeed": 5.35,
+        "receiptShapes": [
+          "LeftTorso"
+        ],
+        "markTypes": [
+          2,
+          3
+        ],
+        "inkTriangles": 623,
+        "jointAtHoldEnd": true,
+        "observedJointSeconds": 0.817
+      }
+    }
+  },
+  "club-live": {
+    "pid": 9920,
+    "item": "Items.Preset_Dildo_Stout",
+    "cases": {
+      "swing": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 83.44,
+        "maxControllerSpeed": 9.7,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "reverse": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 145.38,
+        "maxControllerSpeed": 10.07,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "arc": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 65.47,
+        "maxControllerSpeed": 3.57,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      }
+    }
+  },
+  "katana-live": {
+    "pid": 31036,
+    "item": "Items.Preset_Katana_Takemura",
+    "cases": {
+      "swing": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 519.55,
+        "maxControllerSpeed": 10.23,
+        "receiptShapes": [
+          "RightShoulder"
+        ],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "reverse": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 221.56,
+        "maxControllerSpeed": 8.59,
+        "receiptShapes": [
+          "LeftArm"
+        ],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "arc": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 206.7,
+        "maxControllerSpeed": 4.06,
+        "receiptShapes": [
+          "RightArm"
+        ],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "thrust": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0,
+        "roll": 0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": false,
+          "lodged_hold": false,
+          "no_static_repeat": true,
+          "idle": true,
+          "released": true,
+          "reentry": false
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 340.09,
+        "maxControllerSpeed": 4.65,
+        "receiptShapes": [
+          "Belly"
+        ],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false,
+        "observedJointSeconds": 0.032
+      }
+    }
+  },
+  "edge06": {
+    "pid": 27532,
+    "item": "Items.Preset_Katana_Takemura",
+    "cases": {
+      "edge-press": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": false,
+          "target_hit": false,
+          "damage": false,
+          "mesh_mark": false,
+          "lodged_hold": false,
+          "no_static_repeat": false,
+          "idle": true,
+          "press_from_joint": false,
+          "edge_only": false
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 0.0,
+        "maxControllerSpeed": 4.79,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false,
+        "strength": 20,
+        "initialJoint": null,
+        "followJoint": null,
+        "followInk": 0
+      },
+      "thrust": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": false,
+          "target_hit": false,
+          "damage": false,
+          "mesh_mark": false,
+          "lodged_hold": false,
+          "no_static_repeat": false,
+          "idle": true,
+          "released": true,
+          "reentry": false
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 0.0,
+        "maxControllerSpeed": 4.87,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false
+      },
+      "flat-press": {
+        "initialOccupancy": 0,
+        "shapes": 16,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "targetSpeed": 1.0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": false,
+          "target_hit": false,
+          "damage": false,
+          "mesh_mark": false,
+          "lodged_hold": false,
+          "no_static_repeat": false,
+          "idle": true,
+          "press_from_joint": false,
+          "edge_only": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "hpLoss": 0.0,
+        "maxControllerSpeed": 4.79,
+        "receiptShapes": [],
+        "markTypes": [],
+        "inkTriangles": 0,
+        "jointAtHoldEnd": false,
+        "strength": 20,
+        "initialJoint": null,
+        "followJoint": null,
+        "followInk": 0
+      }
+    }
+  },
+  "fanged-axe": {
+    "pid": 28344,
+    "item": "Items.Preset_Fanged_Axe_Default",
+    "cases": {
+      "swing": {
+        "yaw": 15.0,
+        "roll": -18.0,
+        "targetSpeed": 1.0,
+        "shapes": 16,
+        "initialDepth": 0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 55,
+        "hpLoss": 613.29
+      },
+      "reverse": {
+        "yaw": 15.0,
+        "roll": -18.0,
+        "targetSpeed": 1.0,
+        "shapes": 16,
+        "initialDepth": 0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 37,
+        "hpLoss": 427.31
+      },
+      "arc": {
+        "yaw": 15.0,
+        "roll": -18.0,
+        "targetSpeed": 1.0,
+        "shapes": 16,
+        "initialDepth": 0,
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "markTypes": [
+          1
+        ],
+        "inkTriangles": 55,
+        "hpLoss": 613.29
+      }
+    }
+  }
+}

@@ -3,6 +3,9 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#if CVR_RUST_BODY
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::body {
 // THE ONE NECK (2026-11-07). The eyes over the point the head turns about, in the head's axes (OpenXR: +Y up, -Z
@@ -10,7 +13,8 @@ namespace cvr::body {
 // about it (Camera/AnchorTranslation.hpp) and the bend tracker below follows it. The tracker had its own, 8 cm up and
 // 15 cm ahead: a head turned on the spot then moved its neck along an arc the roomscale neck did not move, the
 // difference was taken for a hinge and handed to roomscale -- after a few quick turns the capsule stood 13-18 mm off
-// the head and kept wandering (simulator, after a few turns). One model, as BONELAB has (one skull-to-neck offset).
+// the head and kept wandering (simulator, user: "сходит с орбиты своей после нескольких поворотов"). One model, as
+// Into the Radius 2 (its camera shifted back) and BONELAB (one skull-to-neck offset) have.
 inline constexpr float EyeAboveNeck=.10f,EyeAheadOfNeck=.09f;
 // How far a player's own eyes may sit off that model: neck travel a turn of the head explains within it is no hinge.
 inline constexpr float TurnLeverSlack=.04f;
@@ -30,6 +34,12 @@ inline constexpr float BendStillTravel=.003f;
 inline constexpr int BendSteadyUpdates=12;
 // At the calibrated height (a drop within BendDropNoise) a hinge held from noise bleeds away by this share an update.
 inline constexpr float BendNoiseBleed=.02f;
+#if CVR_RUST_BODY
+// rust/crates/cvr-body/src/bend.rs
+inline float SmoothRange(float value,float from,float to) { return cvr_body_smooth_range(value,from,to); }
+inline float BendWeight(float angle) { return cvr_body_bend_weight(angle); }
+inline float HingeDrop(float angle) { return cvr_body_hinge_drop(angle); }
+#else
 inline float SmoothRange(float value,float from,float to) {
     const float t=std::clamp((value-from)/(to-from),0.0f,1.0f);
     return t*t*(3-2*t);
@@ -40,6 +50,7 @@ inline float BendWeight(float angle) {
 inline float HingeDrop(float angle) {
     return std::isfinite(angle) ? BendReach*(1-std::cos(std::clamp(angle,0.0f,MaxBend))):0;
 }
+#endif
 struct BendSample {
     float right{},forward{}; // fixed recenter axes, metres
     float angle{};          // physical hinge, radians
@@ -51,6 +62,18 @@ struct BendSample {
 // Run once under the frame-sample lock and carry the result with that pose.
 class BendTracker {
 public:
+#if CVR_RUST_BODY
+    // rust/crates/cvr-body/src/bend.rs; this class's fields are its layout.
+    float NeckDrop() const {return cvr_bend_tracker_neck_drop(this);}
+    float MeasuredAngle() const {return m_measuredAngle;}
+    void SetSquatDepth(float depth) {cvr_bend_tracker_set_squat_depth(this,depth);}
+    BendSample Update(const std::array<float,3>& head,const std::array<float,4>& q,uint64_t origin,bool swimming=false,
+                      bool walking=false) {
+        BendSample s;
+        cvr_bend_tracker_update(this,head.data(),q.data(),origin,swimming,walking,&s);
+        return s;
+    }
+#else
     float NeckDrop() const {return std::max(0.f,-m_neck[1]);}
     float MeasuredAngle() const {return m_measuredAngle;}
     // The height loss that is a squat (the physical crouch's threshold, PhysicalCrouch.hpp CrouchThreshold): the floor
@@ -133,7 +156,8 @@ public:
         // every step, and near the top of the arc a 2 cm drop explains 16 cm of forward travel: the bob's descent was
         // taken out of the movement sample as a hinge and its rise gave it back, and the body's walk surged and sagged
         // with every step. A hinge grows while walking only past the bob.
-        // A HEIGHT THAT ONLY TREMBLES HANDS NOTHING TO THE HINGE (2026-11-07). Near the top of the arc a fraction of a millimetre of drop explains centimetres of travel, so with the
+        // A HEIGHT THAT ONLY TREMBLES HANDS NOTHING TO THE HINGE (2026-11-07, user: "в конце тело дергалось вперед
+        // назад"). Near the top of the arc a fraction of a millimetre of drop explains centimetres of travel, so with the
         // drop a hair above the accepted one the whole travel since the last acceptance was the hinge's, and a hair below
         // it was walking again: standing still after fast turns (the neck estimate a few mm off and a centimetre low),
         // the hinge's XY flipped by that travel at the frame rate -- 5 mm in game, up to 31 mm in the test -- and
@@ -185,7 +209,7 @@ public:
         // neck descent plus downward gaze supplies that cue; gaze alone cannot
         // bend the body, and a vertical crouch looking ahead remains a crouch.
         const float down=std::clamp(2*(y*z-w*x),-1.0f,1.0f);
-        // FROM THE LEAN INTO THE SQUAT (2026-11-07). Going
+        // FROM THE LEAN INTO THE SQUAT (2026-11-07, user: "а возможен плавный переход с наклона в присед?"). Going
         // lower than a reach, the knees take over: the inferred hinge gives way as the drop nears the squat's depth and
         // is gone there. It used to stand at 55-70 degrees until the physical crouch came on and was then dropped in a
         // frame -- the torso stood up and the hips jumped from half a metre behind the head to under it. A function of
@@ -197,6 +221,7 @@ public:
         m_sample={right,forward,std::max(measured,inferred*reach)};
         return m_sample;
     }
+#endif
 private:
     std::array<float,3> m_head{},m_lever{},m_neck{};
     std::array<float,3> m_acceptedNeck{};
@@ -211,4 +236,7 @@ private:
     bool m_initialized{};
     BendSample m_sample{};
 };
+#if CVR_RUST_BODY
+static_assert(sizeof(BendSample) == 12 && sizeof(BendTracker) == 128);
+#endif
 }

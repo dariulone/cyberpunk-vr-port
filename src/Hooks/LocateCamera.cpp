@@ -54,6 +54,41 @@
 #include "Overlay/LiveControlsUi.hpp"   // AdsCameraTelemetryUiState
 #include "Lobby/MenuLobby.hpp"
 
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/locate_camera.rs: the callback and its stub, the ADS zoom sync, the braindance push, the
+// scene comfort and the ADS telemetry. The rest of the plugin keeps calling them by their C++ names.
+extern "C" void cvr_locate_bd_push_transform_once(uintptr_t comp,float qx,float qy,float qz,float qw,bool secondEye,
+                                                  const int32_t* base,const OpenXRHeadPose* pose,uint64_t poseId);
+extern "C" bool cvr_scene_comfort_apply(const float* raw,float* out);
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void BdPushTransformOnce(uintptr_t comp,float qx,float qy,float qz,float qw,bool secondEye,const int32_t* base,
+                         const OpenXRHeadPose* pose,uint64_t poseId) {
+    cvr_locate_bd_push_transform_once(comp,qx,qy,qz,qw,secondEye,base,pose,poseId);
+}
+bool SceneComfortApply(const float* raw,float* out) { return cvr_scene_comfort_apply(raw,out); }
+#endif
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("LocateCamera", ::cvr::hooks::Stage::Boot, 10, cvr_hook_locate_camera_install);
+#endif
+#else
+// OpenXR's pose samples, the player state and the clock through src/Hooks/HookServices.cpp, as the Rust port reads
+// them, so tools/vrik_tests can run both against the same script.
+extern "C" {
+void cvr_cpp_refresh_player_camera_state();
+int cvr_cpp_xr_render_eye_index();
+bool cvr_cpp_xr_acquire_camera_pose_frame(OpenXRHeadPose* head,cvr::roomscale::Vec2* consumed,uint64_t* sequence);
+bool cvr_cpp_xr_get_head_pose(OpenXRHeadPose* out);
+void cvr_cpp_xr_push_render_head_pose(const OpenXRHeadPose* pose);
+void cvr_cpp_xr_store_render_eye_pose(int eye,const OpenXRHeadPose* pose,uint32_t seq);
+void cvr_cpp_xr_camera_offset(float* out);
+bool cvr_cpp_xr_hand_pose(int hand,OpenXRHeadPose* out);
+}
+// The clock the tests can set (VRIK_ClockQpc, 1 MHz), QueryPerformanceCounter otherwise.
+static void LocateQpc(LARGE_INTEGER& now,LARGE_INTEGER& freq) {
+    if(g_VRIKClockQpc) { now.QuadPart=g_VRIKClockQpc();freq.QuadPart=1000000;return; }
+    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
+}
+
 // MAIN's live ADS magnification, recovered from its own projection by the stereo module.
 extern "C" float CyberpunkVR_MainAdsZoomFactor;
 // The optics mod's sight zoom: the ADS zoom raised by the eye on a sight, without aiming.
@@ -78,9 +113,9 @@ extern "C" int32_t CyberpunkVR_SightZoom;
 // two offsets were found on someone else's build: a weight that is not in [0,1] or a zoom that is
 // not a positive finite number means the field is not the field, and the honest response is to leave
 // the engine alone and say so once, rather than to write a float into whatever is really there.
-extern "C" __declspec(dllexport) int32_t  CyberpunkVR_AdsWeaponZoomSync = 1;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugAdsZoomWrites = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugAdsZoomRejects = 0;
+// (Defined in src/Camera/CameraLinkState.cpp, both builds.)
+extern "C" int32_t  CyberpunkVR_AdsWeaponZoomSync;
+extern "C" uint64_t CyberpunkVR_DebugAdsZoomWrites,CyberpunkVR_DebugAdsZoomRejects;
 
 // The telemetry snapshot lives here, next to the only place that can produce it: this hook is where
 // the engine's own camera residual is visible before VR adds anything to it.
@@ -177,7 +212,7 @@ static void SyncAdsWeaponZoomToWorld() {
 // The rotation composed earlier in the call, held until MAIN's own position for the frame is known.
 // A plain local would do if the push happened where it is composed; it does not, and this keeps the
 // two halves of one frame's pose together rather than recomputing either.
-float g_bdPushQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+// g_bdPushQuat is defined in src/Camera/CameraLinkState.cpp (both builds).
 
 // The game's own image, from its headers, once: a live component's vtable and its slots point into it.
 static bool InGameImage(uintptr_t at) {
@@ -239,146 +274,12 @@ void BdPushTransformOnce(uintptr_t comp, float qx, float qy, float qz, float qw,
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-namespace {std::atomic<uintptr_t> s_mountedVehicleIdentity{};}
-uintptr_t CurrentMountedVehicleIdentity() {return s_mountedVehicleIdentity.load(std::memory_order_acquire);}
-
-void RefreshPlayerCameraState() {
-    static std::mutex refreshMutex;
-    std::unique_lock guard(refreshMutex,std::try_to_lock);
-    if(!guard.owns_lock())return;
-    // 1. Inizializza la cache RTTI solo al primissimo frame
-    if (!g_isRTTIInitialized) {
-        InitializeMountedVehicleCache();
-    }
-
-  
-    // 2. Player-state refresh (in-vehicle / aiming / weapon flags). PERF (audit,
-    // session 3): GetPlayer + 3 RTTI property reads used to run on EVERY locate
-    // call (2-3+ per frame). These are gameplay-rate flags, so refresh them once
-    // per entity tick (Lua push seq [99] bump), with an every-32nd-call fallback
-    // for sessions where the VRIK Lua entity push is not running.
-    {
-        static float s_lastEntSeqForPlayer = -1.0f;
-        static uint32_t refreshCalls=0;
-        bool refreshPlayer = ((refreshCalls++ & 31) == 0);
-        if (float* shSeq = GetShotShared()) {
-            const float seq = shSeq[99];
-            if (seq != s_lastEntSeqForPlayer) { s_lastEntSeqForPlayer = seq; refreshPlayer = true; }
-        }
-        if (refreshPlayer) {
-            RED4ext::ScriptGameInstance gameInstance;
-            RED4ext::Handle<RED4ext::IScriptable> playerHandle;
-            const bool playerQueried = RED4ext::ExecuteGlobalFunction("GetPlayer;GameInstance", &playerHandle, gameInstance);
-            if (playerQueried) cvr::roomscale::SetPlayer(reinterpret_cast<uintptr_t>(playerHandle.instance));
-
-            g_isInVehicle=false;
-            bool mountedCar=false,mountedBike=false;
-            uintptr_t mountedIdentity=0;
-            if (playerHandle && g_mountedVehicleProp) {
-                auto mountedVehicle = g_mountedVehicleProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
-                const auto mounted=mountedVehicle.Lock();
-                mountedIdentity=reinterpret_cast<uintptr_t>(mounted.GetPtr());
-                g_isInVehicle = mountedIdentity!=0;
-                if(mounted) {
-                    static const auto* carClass=RED4ext::CRTTISystem::Get()->GetClass("vehicleCarBaseObject");
-                    static const auto* bikeClass=RED4ext::CRTTISystem::Get()->GetClass("vehicleBikeBaseObject");
-                    mountedCar=carClass && mounted->GetType()->IsA(carClass);
-                    mountedBike=bikeClass && mounted->GetType()->IsA(bikeClass);
-                }
-            }
-            cvr::anim::WheelSetMountedCar(mountedCar);
-            cvr::anim::WheelSetMountedBike(mountedBike);
-            s_mountedVehicleIdentity.store(mountedIdentity,std::memory_order_release);
-
-            // PlayerPuppet::vehicleState mirrors PSM.Vehicle. Combat is passenger
-            // window combat; DriverCombat is a separate state. A missing IsDriver
-            // function must never classify every mounted passenger as the driver.
-            int vehicleState=-1;
-            if(playerHandle && g_vehicleStateProp)
-                vehicleState=static_cast<int>(g_vehicleStateProp->GetValue<RED4ext::game::PSMVehicle>(playerHandle.instance));
-            g_vehicleState.store(vehicleState,std::memory_order_relaxed);
-            bool driving = false;
-            if (g_isInVehicle) {
-                if(vehicleState>=0) {
-                    driving=cvr::anim::IsDrivingVehicleState(vehicleState);
-                } else if (g_isDriverFunc && playerHandle) {
-                    RED4ext::ScriptGameInstance gi;
-                    bool isDriver = false;
-                    RED4ext::StackArgs_t args;
-                    args.emplace_back(nullptr, &gi);
-                    args.emplace_back(nullptr, &playerHandle);
-                    // The cast picks the (void* instance) overload: a bare nullptr is ambiguous
-                    // against the (CClass* context) one, and a static function wants no instance.
-                    if (RED4ext::ExecuteFunction(static_cast<void*>(nullptr), g_isDriverFunc, &isDriver, args))
-                        driving = isDriver;
-                }
-            }
-            g_isDriving.store(driving, std::memory_order_relaxed);
-
-            if (playerHandle && g_isAimingProp) {
-                g_isAiming = g_isAimingProp->GetValue<bool>(playerHandle.instance);
-            }
-
-            if (playerHandle && g_equippedWeaponProp) {
-                auto equippedWeapon = g_equippedWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
-                g_hasRightWeaponEquipped = (equippedWeapon.instance != nullptr);
-            }
-            if (playerHandle && g_equippedLeftWeaponProp) {
-                auto equippedWeapon = g_equippedLeftWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
-                g_hasLeftWeaponEquipped = (equippedWeapon.instance != nullptr);
-            }
-            // A WEAPON IN HAND is the right hand's -- or, left-handed, the left hand's alone: everything that asks
-            // "is a weapon out" (the trigger, the buttons it owns, the hands' poses and filters) asks it of both.
-            g_hasWeaponEquipped = g_hasRightWeaponEquipped || cvr::anim::WeaponInLeftHand();
-
-            // Weapon flag lives in [144]. It used to be written to [126], COLLIDING with
-            // the OpenXR HMD position publish ([124..126] -- [126] is the HMD Z!) that
-            // VRIK reads as its head base and the overlay laser gate read as a weapon
-            // flag (audit find).
-            OpenXRManager::Get().SetSharedSlot(144, g_hasWeaponEquipped ? 1.0f : 0.0f);
-            // In-vehicle flag [31]: the VRIK hook disables the whole BODY chain
-            // (PlaceBodyUnderHMD / torso dampen / girdle pins / legs) while seated --
-            // the vehicle drives the puppet, body IK fights it and breaks the
-            // character/camera position. Arms-only in vehicles.
-            OpenXRManager::Get().SetSharedSlot(31, g_isInVehicle ? 1.0f : 0.0f);
-            // CUTSCENE SUSPEND, producer half (PR #40 in substance, RTTI instead of CET).
-            //
-            // The player's own scene tier, read as a property: PlayerPuppet carries
-            // `sceneTier : GameplayTier` (0 = Undefined, 1 = Tier1_FullGameplay,
-            // 4 = Tier4_FPPCinematic, 5 = Tier5_Cinematic). The upstream PR had
-            // the VRIK CET mod walk the PlayerStateMachine blackboard and push the number through a
-            // native; this reads it beside the three player flags above and needs no script tick.
-            //
-            // IT GOES IN A GLOBAL, NOT A SHARED SLOT, and that is the bug fix. Published first into
-            // slots [157]/[158] it measurably never arrived: XInput.cpp writes those same two slots
-            // every input tick with the right-B and left-Y pressed flags, so both the tier and the
-            // threshold were overwritten with 0 before the pose hook could read them. The slot map
-            // exists to cross to the CET mods; nothing that stays inside this DLL belongs in it.
-            // (An earlier note here blamed SetSharedSlot for writing a different pointer. That was
-            // wrong: the write landed, the button publish erased it.)
-            if (playerHandle && g_sceneTierProp) {
-                // GameplayTier is int32_t in the SDK, but read by the property own size so a future
-                // widening cannot silently read three bytes of something else.
-                const void* tp = g_sceneTierProp->GetValuePtr<void>(playerHandle.instance);
-                const uint32_t sz = g_sceneTierProp->type ? g_sceneTierProp->type->GetSize() : 4u;
-                int tier = 0;
-                if (tp) {
-                    if (sz == 1)      tier = *static_cast<const int8_t*>(tp);
-                    else if (sz == 2) tier = *static_cast<const int16_t*>(tp);
-                    else              tier = *static_cast<const int32_t*>(tp);
-                }
-                g_sceneTier.store(tier, std::memory_order_relaxed);
-            }
-        }
-    }
-}
-
 // SCENE CAMERA COMFORT (Camera/SceneCameraComfort.hpp): one filter for the scene camera MAIN is composed
 // onto. The correction it applied is kept here for the other sites that compose from the same scene camera.
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugSceneComfortLagDeg = 0.0f;
-extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugSceneComfortCuts = 0;
-// Scene camera pose labels published from this site (diagnostics only).
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSceneLabelPublished = 0;
+// (Defined in src/Camera/CameraLinkState.cpp, both builds, with the scene label count.)
+extern "C" float CyberpunkVR_DebugSceneComfortLagDeg;
+extern "C" uint32_t CyberpunkVR_DebugSceneComfortCuts;
+extern "C" uint64_t CyberpunkVR_DebugSceneLabelPublished;
 namespace {
 cvr::camera::SceneCameraComfort s_sceneComfort;
 int64_t s_sceneComfortQpc{};
@@ -388,7 +289,7 @@ bool s_sceneComfortValid{};
 
 float SceneComfortDt() {
     LARGE_INTEGER now{},freq{};
-    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
+    LocateQpc(now,freq);
     float dt=0.0f;
     if(s_sceneComfortQpc && freq.QuadPart>0)
         dt=static_cast<float>(static_cast<double>(now.QuadPart-s_sceneComfortQpc)/static_cast<double>(freq.QuadPart));
@@ -406,7 +307,7 @@ void SceneComfortStop() {
 // raw: the scene camera orientation chosen as MAIN's base this frame; position: that camera's, metres.
 void SceneComfortFilter(float& x,float& y,float& z,float& w,const float* position) {
     const float deadDeg=g_liveControls.xrSceneCamComfortDeg;
-    // Never in a vehicle (2026-11-06: "in the car it is not needed"): a scene there turns with the car, and
+    // Never in a vehicle (user, 2026-11-06: "in the car it is not needed"): a scene there turns with the car, and
     // holding its camera back would hold the car's own turning back with it. The FPP path excludes mounts too.
     if(!(deadDeg>0.0f) || g_isInVehicle) { SceneComfortStop();return; }
     cvr::camera::SceneComfortSettings settings{};
@@ -498,7 +399,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
 
     SyncAdsWeaponZoomToWorld();
 
-    RefreshPlayerCameraState();
+    cvr_cpp_refresh_player_camera_state();
 
 
     // SNAP HOLDBACK REMOVED. It held the view yaw one snap-delta back for the locates of a snap
@@ -638,7 +539,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // left/right renders (the body/hands jitter seen even on the flat mirror).
     OpenXRHeadPose xrPose{};
     cvr::roomscale::Vec2 xrConsumed{};
-    const int renderEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
+    const int renderEye = cvr_cpp_xr_render_eye_index();
     // POSE PAIR LOCKING: in AER, READ the frozen snapshot the engine ALREADY built
     // this pair's skeleton from (published in OnPresent at the pair boundary, before
     // the animation pass). LocateCamera runs DURING render, AFTER animation, so it
@@ -661,8 +562,8 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // at once. See AcquireFrameHeadSample.
     uint64_t cameraPoseSequence{};
     const bool hasXR = CyberpunkVR_OneSamplePerFrame
-        ? OpenXRManager::Get().AcquireCameraPoseFrame(&xrPose,&xrConsumed,&cameraPoseSequence)
-        : OpenXRManager::Get().GetHeadPose(&xrPose);
+        ? cvr_cpp_xr_acquire_camera_pose_frame(&xrPose,&xrConsumed,&cameraPoseSequence)
+        : cvr_cpp_xr_get_head_pose(&xrPose);
     const bool composeAtWrite = (CyberpunkVR_CamWriteInPatch && CyberpunkVR_CamComposeAtWrite);
     OpenXRHeadPose takeoverPose{};
     uint64_t takeoverPoseId{};
@@ -686,7 +587,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         // compositor reprojected against a pose the image was never rendered from -- invisible
         // on the flat monitor, which has no compositor, and a rare jerk in the headset.
         if (!composeAtWrite || BdPushOwnsComposition()) {
-            OpenXRManager::Get().PushRenderHeadPose(xrPose);
+            cvr_cpp_xr_push_render_head_pose(&xrPose);
         }
 
         uint32_t currentSeq = g_lastLocateSeq + 1;
@@ -695,8 +596,8 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
             sh[94] = static_cast<float>(renderEye);
             sh[95] = GetDesiredHalfIpd();
         }
-        OpenXRManager::Get().StoreRenderEyePose(0, xrPose, currentSeq);
-        OpenXRManager::Get().StoreRenderEyePose(1, xrPose, currentSeq);
+        cvr_cpp_xr_store_render_eye_pose(0, &xrPose, currentSeq);
+        cvr_cpp_xr_store_render_eye_pose(1, &xrPose, currentSeq);
 
         // NOTE: shared-memory hands/head ([0..19],[89],[90]) are NO LONGER flushed
         // here. The VRIK plugin reads them during the engine's ANIMATION pass, which
@@ -1099,22 +1000,17 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         // and [120..123] below carries the same (bake-less) total, so the hands stay
         // consistent with the view. Manual Tracking-Camera sliders stay live.
         float camBake[3] = { 0.0f, 0.0f, 0.0f };
-        if (allowGameCameraTranslation && !g_isInVehicle) OpenXRManager::Get().GetCameraOffset(camBake);
+        if (allowGameCameraTranslation && !g_isInVehicle) cvr_cpp_xr_camera_offset(camBake);
         // THE IN-VEHICLE OFFSET, the other half of the same argument: the bakes above are dropped
         // when seated because they are standing measurements, and the manual Head sliders are the
         // same measurement by hand -- so the seat gets its own trio, added on top and live only
         // while mounted. Folded in HERE, with the bakes, so every consumer below (the three local
         // components AND the total published in [120..122] that the hand targets are kept
         // consistent with) sees one number and they cannot drift apart.
-        // On a motorcycle its own trio replaces the car's (a rider does not sit where a driver does).
         float vehOff[3] = { 0.0f, 0.0f, 0.0f };
         if (allowGameCameraTranslation && g_isInVehicle) {
-            const bool bike=cvr::anim::WheelMountedBike();
             const auto active=cvr::camera::ActiveVehicleCameraOffset(
-                bike ? cvr::camera::AnchorVector{g_liveControls.xrBikeHeadOffsetX,g_liveControls.xrBikeHeadOffsetY,
-                                                 g_liveControls.xrBikeHeadOffsetZ}
-                     : cvr::camera::AnchorVector{g_liveControls.xrVehHeadOffsetX,g_liveControls.xrVehHeadOffsetY,
-                                                 g_liveControls.xrVehHeadOffsetZ},
+                {g_liveControls.xrVehHeadOffsetX,g_liveControls.xrVehHeadOffsetY,g_liveControls.xrVehHeadOffsetZ},
                 cvr::anim::IsPassengerWindowCombat(g_vehicleState.load(std::memory_order_relaxed)));
             vehOff[0]=active.x;vehOff[1]=active.y;vehOff[2]=active.z;
         }
@@ -1301,8 +1197,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
             // when the solve consumes it IS the distance the hands trail the view.
             {
                 LARGE_INTEGER c{}, f{};
-                QueryPerformanceCounter(&c);
-                QueryPerformanceFrequency(&f);
+                LocateQpc(c, f);
                 const double ms = (f.QuadPart > 0)
                     ? (double)c.QuadPart * 1000.0 / (double)f.QuadPart : 0.0;
                 shView[68] = (float)fmod(ms, 100000.0);
@@ -1537,7 +1432,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // nodes had no pose identity, the image had no label, and framegen found no depth and motion vectors belonging
     // to the submitted pose. It sat at "Waiting for matching depth and motion vectors in both eyes" for the whole
     // scene (measured 2026-11-06 in the montage: input stage 2 = 0 of 1210 calls, 482 unlabelled captures in 3 s).
-    // "framegen does not work in bd/scene cam".
+    // User: "framegen does not work in bd/scene cam".
     //
     // Published here, after the last write to the buffer (the half-IPD above), so the fingerprint is what the
     // engine copies on. The blender and MainRead carry it to the view like any other, the same chain as the
@@ -1625,7 +1520,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     if (hasXR) {
         if (float* sh = GetShotShared()) {
             OpenXRHeadPose handPose{};
-            const bool hasHand = OpenXRManager::Get().GetHandPose(1, &handPose) && handPose.valid;
+            const bool hasHand = cvr_cpp_xr_hand_pose(1, &handPose) && handPose.valid;
             if (hasHand) {
                 const float gameYaw2 = atan2f(-bodyGameForwardX, bodyGameForwardY);
                 const float cy2 = cosf(gameYaw2 * 0.5f);
@@ -1775,3 +1670,4 @@ bool InstallLocateCameraHook() {
 }
 
 CVR_HOOK("LocateCamera", ::cvr::hooks::Stage::Boot, 10, InstallLocateCameraHook);
+#endif

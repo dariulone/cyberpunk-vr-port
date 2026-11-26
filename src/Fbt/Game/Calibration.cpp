@@ -16,6 +16,65 @@
 #include <mutex>
 #include <string>
 
+#if CVR_RUST_VRIK
+// The calibration's steps, cross, texts and file are Rust's (rust/crates/cvr-render/src/fbt_calibration.rs). The IK
+// library's skeleton and calibrator (wrpuppets' C++ classes) stay here behind its services, where the body solve
+// (Body.cpp) takes them; the body solve's and the natives' C++ names forward to it.
+static_assert(sizeof(wrpuppets::fbt::RoomPose) == 36 && offsetof(wrpuppets::fbt::RoomPose, rot) == 16 &&
+              offsetof(wrpuppets::fbt::RoomPose, wrist) == 32, "mirrored by RoomPose in fbt_calibration.rs");
+static_assert(sizeof(wrpuppets::fbt::Calibration) == 216, "mirrored by cvr-settings' fbt_calibration_file.rs");
+extern "C" {
+bool cvr_cpp_fbt_calibrating();
+bool cvr_fbt_prepare_calibrator();
+bool cvr_fbt_read_calibration(wrpuppets::fbt::Calibration* out);
+void cvr_fbt_to_room(bool valid, const XrPosef* pose, wrpuppets::fbt::RoomPose* out);
+}
+namespace {
+wrpuppets::fbt::Skeleton g_skeleton;
+wrpuppets::fbt::Calibrator g_calibrator;
+}
+extern "C" {
+// V's skeleton read from `path` and the calibrator set over it: its bone count; -1 unreadable (why in `error`, the
+// skeleton kept), -2 lacking the bones the calibration needs.
+int cvr_cpp_fbt_load_rig(const char* path, char* error, size_t size) {
+    std::string why;
+    wrpuppets::fbt::Skeleton sk;
+    if (!sk.Load(path, &why)) {
+        if (error && size) strncpy_s(error, size, why.c_str(), _TRUNCATE);
+        return -1;
+    }
+    g_skeleton = std::move(sk);
+    if (!g_calibrator.Init(g_skeleton)) return -2;
+    return g_skeleton.Count();
+}
+float cvr_cpp_fbt_avatar_arm(int side) { return g_calibrator.AvatarArmLength(side); }
+bool cvr_cpp_fbt_measure_arms_out(wrpuppets::fbt::Calibration* c, const wrpuppets::fbt::RoomPose* head,
+                                  const wrpuppets::fbt::RoomPose* devices) {
+    return g_calibrator.MeasureArmsOut(*c, *head, devices);
+}
+bool cvr_cpp_fbt_capture(const wrpuppets::fbt::RoomPose* head, const wrpuppets::fbt::RoomPose* devices,
+                         wrpuppets::fbt::Calibration* out, const char** why) {
+    return g_calibrator.Capture(*head, devices, out, why);
+}
+}
+namespace cvr::fbt::game {
+bool Calibrating() { return cvr_cpp_fbt_calibrating(); }
+bool ReadCalibration(Calibration* out) { return cvr_fbt_read_calibration(out); }
+bool Rig(const wrpuppets::fbt::Skeleton** skeleton, const wrpuppets::fbt::Calibrator** calibrator) {
+    static std::mutex m;
+    std::lock_guard lock(m);
+    if (!cvr_fbt_prepare_calibrator()) return false;
+    if (skeleton) *skeleton = &g_skeleton;
+    if (calibrator) *calibrator = &g_calibrator;
+    return true;
+}
+wrpuppets::fbt::RoomPose ToRoom(bool valid, const XrPosef& pose) {
+    wrpuppets::fbt::RoomPose r;
+    cvr_fbt_to_room(valid, &pose, &r);
+    return r;
+}
+}  // namespace cvr::fbt::game
+#else
 extern void Log(const char*, ...);
 
 using namespace wrpuppets::fbt;   // the IK library (externals/wrpuppets-fbt-ik)
@@ -96,7 +155,9 @@ float HeadPitchDeg(const XrQuaternionf& q) {
 constexpr float kCrossAhead = 1.8f;
 // The marks, metres: the head on the top (sideways, height), a hand on its arm (height, out along it as a share of the
 // arm's half length, forward of the body); "near" (yellow) is twice the tolerance, half the reach.
+#if !CVR_RUST_VRIK
 constexpr float kHeadSide = 0.10f, kHeadHeight = 0.07f, kHandHeight = 0.08f, kHandOut = 0.75f, kHandDepth = 0.30f;
+#endif
 struct Cross {
     XrVector3f spot{}, fwd{}, right{}, base{};
     float tipY = 0, barY = 0, halfSpan = 0;
@@ -109,8 +170,12 @@ CrossView g_crossView;          // the last frame's, for the helpers
 ULONGLONG g_holdStart = 0;      // when all three marks were reached (0 = not held)
 float g_bestArm = 0;            // the widest span's arm length over this hold (V's scale; 0 = none yet)
 
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 float Dot3(const XrVector3f& a, const XrVector3f& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+#endif
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 XrVector3f Sub3(const XrVector3f& a, const XrVector3f& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+#endif
 
 // The cross for step 3 from step 1's head and the calibration step 2 took; false without V's reference.
 bool SetUpCross(const Calibration& c, const Pose& leftFoot, const Pose& rightFoot) {
@@ -510,3 +575,4 @@ bool Rig(const wrpuppets::fbt::Skeleton** skeleton, const wrpuppets::fbt::Calibr
 wrpuppets::fbt::RoomPose ToRoom(bool valid, const XrPosef& pose) { return ToRoomImpl(valid, pose); }
 
 }  // namespace cvr::fbt::game
+#endif

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Natives/NativeFunctions.hpp"
 #include "Hooks/KeypadInput.hpp"
 #include "Core/VrCoreShared.hpp"
@@ -16,14 +17,29 @@
 #include <memory>
 #include <mutex>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) uint64_t CyberpunkVR_KeypadRoot{};
 __declspec(dllexport) uint64_t CyberpunkVR_KeypadLayer{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_KeypadHeadHits{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_KeypadHeldHits{};
 __declspec(dllexport) float CyberpunkVR_KeypadCursor[2]{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The cursor hook, the panel's scope and VRKeypadUpdate are rust/crates/cvr-rig/src/vrik/keypad.rs; the exports above,
+// the registration and the C++ names the XInput merge calls (through src/Hooks/InputServices.cpp) stay.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("KeypadCursor", ::cvr::hooks::Stage::Boot, 87, cvr_hook_keypad_cursor_install);
+#endif
+#else
 namespace {
 using namespace RED4ext;
 using Clock = std::chrono::steady_clock;
@@ -194,3 +210,5 @@ void VRKeypadUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t*
     );
     if (out) *out = active ? 1 : 0;
 }
+#endif
+#endif

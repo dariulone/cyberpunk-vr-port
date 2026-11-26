@@ -1,0 +1,172 @@
+{
+  "pid": 27532,
+  "runtime": "OpenXR Simulator",
+  "source_directory": "build/physical-melee/right-gun-ik",
+  "taps": [
+    {
+      "source": "unity-taps.json",
+      "item": "Items.Preset_Unity_Default",
+      "presses": 5,
+      "requested_period_s": 0.25,
+      "period_source": "operator",
+      "effective_cycle_s": 0.3,
+      "ammo_before": 12,
+      "ammo_after": 9,
+      "event_windows_s": [
+        [
+          0.062000002712011,
+          0.078000001609325
+        ],
+        [
+          0.57800000905991,
+          0.59400004148483
+        ],
+        [
+          1.0620000362396,
+          1.0780000686646
+        ]
+      ],
+      "peak_hand_deg": 8.236550331115723,
+      "final_hand_deg": 0.0
+    },
+    {
+      "source": "Unity-0.36-taps.json",
+      "item": "Items.Preset_Unity_Default",
+      "presses": 5,
+      "requested_period_s": 0.36,
+      "period_source": "telemetry",
+      "effective_cycle_s": 0.3,
+      "ammo_before": 9,
+      "ammo_after": 4,
+      "event_windows_s": [
+        [
+          93.922004699707,
+          93.937004089355
+        ],
+        [
+          94.281005859375,
+          94.297004699707
+        ],
+        [
+          94.656005859375,
+          94.672004699707
+        ],
+        [
+          94.984001159668,
+          95.015007019043
+        ],
+        [
+          95.359001159668,
+          95.390007019043
+        ]
+      ],
+      "peak_hand_deg": 8.221441268920898,
+      "final_hand_deg": 0.0
+    },
+    {
+      "source": "Nue-0.45-taps.json",
+      "item": "Items.Preset_Nue_Default",
+      "presses": 5,
+      "requested_period_s": 0.45,
+      "period_source": "telemetry",
+      "effective_cycle_s": 0.35,
+      "ammo_before": 10,
+      "ammo_after": 5,
+      "event_windows_s": [
+        [
+          99.906005859375,
+          99.922004699707
+        ],
+        [
+          100.34400177002,
+          100.37500762939
+        ],
+        [
+          100.78100585938,
+          100.81200408936
+        ],
+        [
+          101.25000762939,
+          101.28100585938
+        ],
+        [
+          101.71900177002,
+          101.73400115967
+        ]
+      ],
+      "peak_hand_deg": 11.191617012023926,
+      "final_hand_deg": 0.0
+    }
+  ],
+  "unity_far": {
+    "source": "mag-B-far.json",
+    "samples": {
+      "before": {
+        "b": 0,
+        "leftGrip": 0,
+        "ammo": 4
+      },
+      "down": {
+        "b": 1,
+        "leftGrip": 0,
+        "ammo": 0,
+        "want": "out"
+      },
+      "up": {
+        "b": 0,
+        "leftGrip": 0,
+        "ammo": 0,
+        "want": "out"
+      }
+    }
+  },
+  "unity_catch": {
+    "source": "catch.txt",
+    "samples": {
+      "initial": {
+        "ammo": 7,
+        "button": 0,
+        "left_grip": 0,
+        "supported": false,
+        "mag_state": "in",
+        "route": "-",
+        "carrier_hand": null,
+        "carried": null,
+        "reach_distance_m": 0.657
+      },
+      "ready": {
+        "ammo": 7,
+        "button": 0,
+        "left_grip": 0,
+        "supported": false,
+        "mag_state": "in",
+        "route": "-",
+        "carrier_hand": null,
+        "carried": null,
+        "reach_distance_m": 0.037
+      },
+      "pressed": {
+        "ammo": 0,
+        "button": 1,
+        "left_grip": 1,
+        "supported": false,
+        "mag_state": "hand",
+        "route": "carrier",
+        "carrier_hand": 0,
+        "carried": 7,
+        "reach_distance_m": 0.037
+      },
+      "B up, before grip release": {
+        "ammo": 0,
+        "button": 0,
+        "left_grip": 1,
+        "supported": false,
+        "mag_state": "hand",
+        "route": "carrier",
+        "carrier_hand": 0,
+        "carried": 7,
+        "reach_distance_m": 0.038
+      }
+    }
+  }
+}

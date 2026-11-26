@@ -3,6 +3,37 @@
 #include <cmath>
 #include <cstdint>
 
+#if CVR_RUST_VRIK
+// The yaw-follow in Rust (rust/crates/cvr-xr/src/hud.rs): the structs keep their layout and call it.
+extern "C" {
+float cvr_hud_head_yaw(float x, float y, float z, float w, float fallback);
+float cvr_hud_clock_step(void* clock, int64_t time);
+float cvr_hud_follow_update(void* follow, float head, float cone, float dt, bool delayedCatchup);
+}
+namespace cvr::hud {
+inline float HeadYaw(float x,float y,float z,float w,float fallback) { return cvr_hud_head_yaw(x,y,z,w,fallback); }
+struct DisplayClock {
+    int64_t last=0;
+    float elapsed=0;
+    void Reset() { last=0; elapsed=0; }
+    float Step(int64_t time) { return cvr_hud_clock_step(this, time); }
+};
+struct Follow {
+    float yaw = 0;
+    bool valid = false;
+    bool following = false;
+    bool delayPending = false;
+    float stillYaw = 0;
+    double stillSeconds = 0;
+    void ResetDelay() { delayPending=false; stillSeconds=0; }
+    void Reset() { valid = following = false; ResetDelay(); }
+    float Update(float head, float cone, float dt, bool delayedCatchup=false) {
+        return cvr_hud_follow_update(this, head, cone, dt, delayedCatchup);
+    }
+};
+static_assert(sizeof(DisplayClock) == 16 && sizeof(Follow) == 24, "mirrored by rust/crates/cvr-xr/src/hud.rs");
+}
+#else
 namespace cvr::hud {
 inline float HeadYaw(float x,float y,float z,float w,float fallback) {
     const float n=x*x+y*y+z*z+w*w;
@@ -63,3 +94,4 @@ struct Follow {
     }
 };
 }
+#endif

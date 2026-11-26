@@ -62,20 +62,42 @@
 
 namespace cvr {
 namespace detail {
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_OpticsDataProbe=0;
 __declspec(dllexport) uint8_t CyberpunkVR_OpticsViewData[3][4096]{};
 __declspec(dllexport) uint8_t CyberpunkVR_OpticsGradeData[3][688]{};
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsDataSeq[3]{};
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsGradeSeq[3]{};
 __declspec(dllexport) int32_t CyberpunkVR_OpticsGradeMirror=1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_OpticsMaterialProbe=0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) float CyberpunkVR_OpticsMaterialData[3][84]{};
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsMaterialSize[3]{};
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsMaterialSeq[3]{};
 __declspec(dllexport) float CyberpunkVR_OpticsShadowData[3][232]{};
 __declspec(dllexport) uint32_t CyberpunkVR_OpticsShadowSeq[3]{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+// THE BUFFER UPLOADER, ITS NOTES AND THE OPTICS SNAPSHOTS ARE RUST'S (rust/crates/cvr-render/src/grading_uploads.rs).
+extern "C" {
+}
+void optics_material_snapshot(uint32_t size, const void* source);   // rust/crates/cvr-render/src/cpp_services.rs (cpp_forwards)
+#else
 static int optics_data_side();
 static void optics_shadow_snapshot(uint32_t size,const void* source) {
     if(!CyberpunkVR_OpticsDataProbe || !source || size!=928 ||
@@ -108,6 +130,7 @@ static void optics_grade_snapshot(void* src) {
     cloud_cb_raw_copy(CyberpunkVR_OpticsGradeData[side],src,688);
     InterlockedIncrement(reinterpret_cast<volatile LONG*>(&CyberpunkVR_OpticsGradeSeq[side]));
 }
+#endif
 
 // ================================================================================================
 // WHY CLOTH FLAGS STAND STILL IN THE SECOND EYE -- the second view's clock is zero.
@@ -237,6 +260,9 @@ static void optics_grade_snapshot(void* src) {
 // Mode 4 on request: the second view gets MAIN's whole frame-constants block. Worth
 // knowing which lever is which -- the cable's shadow stopped differing in the same build where this
 // went the other way, from 4 to 1 with the mask narrowed, so if it comes back this is the knob.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_SwayTimeFix = 4;
 // Which fields to hold, as a bitmask over kSwayTimeFields. Default: the three clocks (bits 0-2), the
 // dither pair (bits 5-6) and the second clock pair (bits 7-8). The two slow accumulators (3-4) and
@@ -270,6 +296,7 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_SwayDitherConst = 12345;
 // DEFAULT 0: a mutex and a 120-float compare on every frame-constants upload. It found the frozen
 // clock and the dither difference; neither needs watching now.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SwayDiff = 0;
+#endif
 
 // ---- THE GENERIC BLOCK DIFF, retargetable live --------------------------------------------------
 //
@@ -328,11 +355,18 @@ extern "C" __declspec(dllexport) const char* CyberpunkVR_ProfNodeName(uint32_t r
 //
 // So this stays a probe, at 0, and the write stays disarmed. Better a named structural limit than a knob
 // that pretends to fix it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CheckerPhaseFix = 0;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CheckerProbe = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CheckerSize = 56;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCheckerFixes = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// THE FIELD-BY-FIELD PROBES ARE RUST'S (rust/crates/cvr-render/src/grading_probes.rs).
+#else
 namespace {
 constexpr uint32_t kCheckerMax = 64;
 uint8_t g_checker[kCheckerMax] = {};      // the first view's copy
@@ -476,6 +510,7 @@ bool checker_note(const void* src, void* dst, bool vrcam, uint32_t size) {
     return patched;
 }
 }  // namespace
+#endif
 // ON, aimed at the SAMPLING side of the shadow cascades.
 //
 // Where this stands: the two views were measured to fit the sun cascade 9-12 cm (casc0) and 27 cm (casc1)
@@ -492,7 +527,11 @@ bool checker_note(const void* src, void* dst, bool vrcam, uint32_t size) {
 // field diff says which of it differs.
 // DEFAULT 0 AND LIVE, like every other measurement here: `xr_block_diff`, with
 // `xr_block_diff_node` (HEX work-RVA) and `xr_block_diff_size` aiming it. It shipped at 1.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_BlockDiff = 0;
+#endif
 // Node 0 = the other direction: which NODES upload a block of BlockDiffSize, per view. Aimed at 416
 // bytes, because that is both b8 (26 float4, the wind parameters the cascade vertex shader sways foliage
 // with) and the exact size AdvanceSpeedTreeWind uploads -- and that pass is behind the once-per-frame
@@ -501,13 +540,25 @@ extern "C" __declspec(dllexport) int32_t  CyberpunkVR_BlockDiff = 0;
 // upload and whose contents differ, one per view per frame, so the (node, size) key is fine enough
 // -- unlike 848B@RenderShadowCascade in the same list, which mixes cascade 0 and cascade 1 and is
 // therefore guaranteed to read as "differs" whatever the truth is.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_BlockDiffNode = VOLUMETRIC_FOG_NODE_RVA;
+#endif
 // 848 = 53 float4 = b1, which the census confirms the cascade node uploads for both views (4156 against
 // 4602 in one interval) and which the shader's height-mask grid origin [36].xyz lives in. The 448-byte
 // rows in the same census are b7, 28 float4, where that shader's dither threshold comes from.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_BlockDiffSize = 384;
+#endif
 
+#if !CVR_RUST_VRIK
 namespace {
+#endif
+#if CVR_RUST_VRIK
+#else
 constexpr uint32_t kSwayDiffFloats = 120;        // 480 bytes = 30 float4
 struct SwayDiffBlk {
     float    last[kSwayDiffFloats];
@@ -776,6 +827,7 @@ void blk_note(const void* src, uint32_t size, int32_t side) {
     }
     blk_report(bytes / 4);
 }
+#endif
 
 // ---- THE GRID ORIGIN, the one field the height mask is addressed by ------------------------------
 //
@@ -790,6 +842,9 @@ void blk_note(const void* src, uint32_t size, int32_t side) {
 // that the field is one value per view per frame rather than varying across those 24 blocks -- because
 // mirroring it is only meaningful if it is.
 // DEFAULT 0: this one locks on an 848-byte upload that happens two dozen times a frame per view.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_GridProbe = 0;
 
 // ---- KILL THE HEIGHT-MASK DISCARD, in both eyes --------------------------------------------------
@@ -818,8 +873,11 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_GridProbe = 0;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_MaskKill = 0;
 extern "C" __declspec(dllexport) float   CyberpunkVR_MaskKillOrigin = 1.0e9f;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMaskKills = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 namespace {
+#endif
 // THREE candidate fields, all read by the same cascade pixel shader, all watched with their spread
 // beside them so the probe says whether its own key is fine enough before its numbers are believed:
 //
@@ -829,6 +887,8 @@ namespace {
 // [36] already measured a spread of 2.85 and 10.02 units WITHIN one view, so it is per block rather
 // than per frame and comparing "the last one" says nothing -- that is recorded here rather than
 // forgotten. [51].z should be per frame if it is a counter, and its spread will say so.
+#if CVR_RUST_VRIK
+#else
 struct GridOrigin {
     float    v[3];
     float    lo[3];
@@ -1005,8 +1065,13 @@ void grid_note(const void* src, bool vrcam) {
     }
     grid_report();
 }
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace
+#endif
 
+#if CVR_RUST_VRIK
+#else
 void sway_diff_note(const void* src, bool vrcam) {
     float cur[kSwayDiffFloats];
     if (!sway_diff_copy(src, cur)) return;
@@ -1021,9 +1086,17 @@ void sway_diff_note(const void* src, bool vrcam) {
     }
     sway_diff_report();
 }
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace
+#endif
 
+#if !CVR_RUST_VRIK
 namespace {
+#endif
+#if CVR_RUST_VRIK
+// THE LENDS ARE RUST'S (rust/crates/cvr-render/src/grading_lends.rs); the upload detours call them by these names.
+#else
 // Float indices into the block. Bits of CyberpunkVR_SwayTimeMask address this table in order.
 //   0: [0].z  clock, seconds          3: [9].z  accumulator      6: [28].y dither slice index
 //   1: [1].z  the same, prev frame    4: [9].w  accumulator      7: [0].x  second clock
@@ -1152,12 +1225,22 @@ bool sway_frame_apply(const void* src, void* dst, bool vrcam, uint32_t frame_id)
     sway_time_write(dst, use);
     return true;
 }
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace
+#endif
 
 // The buffer uploader, which is where these blocks actually pass. Every node calls it, so the filter
 // is one integer compare before anything else happens.
+#if !CVR_RUST_VRIK   // unused by the Rust build
 using BufUploadFn = int64_t(__fastcall*)(uint32_t, uint32_t, void*);
+#endif
+#if CVR_RUST_VRIK
+// The buffer and constant uploaders' trampolines are Rust's (grading_uploads.rs's cvr_grading_upload_originals,
+// registered from engine_detours.rs); the forwards below call through them.
+#else
 static BufUploadFn g_orig_buf_upload = nullptr;
+#endif
 // Mode 5's content filter: is this 480-byte block the frame constants? The clock at [0].z runs into the
 // hundreds of thousands of seconds, so "greater than a thousand" separates it from every other block of
 // that size seen in the census -- one of which carried 1.0f there and render-target dimensions further
@@ -1175,12 +1258,19 @@ static BufUploadFn g_orig_buf_upload = nullptr;
 // differ. The first 64 bytes are enough to detect a difference and cheap enough to compare on a hot path.
 // Rows where the two views disagree are where a per-view value lives, and the shadow sampling matrices --
 // whatever node owns them -- have to appear among them.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_WideCensus = 1;
 // The per-field temporal detector rides on the same census; see the long note at kTFields.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_TemporalScan = 1;
+#endif
 extern "C" __declspec(dllexport) const char* CyberpunkVR_ProfNodeName(uint32_t rva);
 #define CyberpunkVR_ProfNodeName2 CyberpunkVR_ProfNodeName
+#if !CVR_RUST_VRIK
 namespace {
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t kWideHead = 64;
 // ---- and the TEMPORAL FIELD DETECTOR, which is the generalisation of everything above -------------
 //
@@ -1229,7 +1319,10 @@ struct WideRow {
 WideRow g_wide[192];
 uint32_t g_wide_n = 0;
 std::mutex g_wide_mtx;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 bool wide_copy(const void* src, void* dst) {
     __try { memcpy(dst, src, kWideHead); }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
@@ -1394,7 +1487,10 @@ void wide_report() {
     log("[wide] uploads >=128 B that BOTH views make and whose contents differ, by (node, size): %s",
         used ? line : "(none yet)");
 }
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace
+#endif
 
 // ---- THE VOLUMETRIC FOG'S JITTER, put in step between the eyes -----------------------------------
 //
@@ -1438,11 +1534,17 @@ void wide_report() {
 // DEFAULT 0. Re-arming it needs a CONTENT filter, not a tighter node: the player's block is the one whose
 // camera position matches the world position the player view carries, and a basis that is not axis-aligned.
 // Until the probe can separate the instances, nothing measured here about per-view fog jitter is established.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_FogJitterFix = 0;
 // Gated: the player view's 384-byte volumetric-fog block, per side (MAIN, VRCAM), as last uploaded.
 extern "C" __declspec(dllexport) float CyberpunkVR_FogBlockDump[2][96] = {};
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFogJitterFixes = 0;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 namespace {
 constexpr uint32_t kFogBlockBytes = 384;
 // Float indices: [10].x/[10].y/[10].z = 40/41/42, [11].z = 46.
@@ -1511,6 +1613,7 @@ bool fog_block_here(uint32_t size, const void* src) {
     return fog_block_is_player_view(src);
 }
 }  // namespace
+#endif
 
 // ---- THE PROJECTION JITTER, put in step between the eyes -----------------------------------------
 //
@@ -1549,10 +1652,16 @@ bool fog_block_here(uint32_t size, const void* src) {
 // So: whatever advances in them every frame, they carry geometry, and forcing them across the eyes is not
 // available. DEFAULT 0, and it stays 0 -- kept only because the four field indices and their measured values
 // are the record of what was ruled out.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_JitterFix = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugJitterFixes = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugJitterUnstable = 0;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 namespace {
 constexpr uint32_t kCamBlockBytes = 848;
 constexpr uint32_t kJitterFields[] = { 3, 18, 67, 115 };
@@ -1591,6 +1700,7 @@ bool jitter_apply(const void* src, void* dst) {
     return true;
 }
 }  // namespace
+#endif
 
 // ---- THE CASCADE SAMPLING MATRIX: the half of the shadow setup the fit lend never reached --------
 //
@@ -1633,11 +1743,25 @@ bool jitter_apply(const void* src, void* dst) {
 // FAILURE MODE, written down before the test. If these matrices are not what samples the atlas, MAIN's shadows
 // will move wholesale rather than settle -- a visible slide, or a constant offset in one eye. That is the shape
 // CyberpunkVR_JitterFix produced above, and the remedy is the same: set this to 0.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascSampleLend = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascSampleProbe = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascSampleLends = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascSampleSkips = 0;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 namespace {
 constexpr uint32_t kCascSampleBytes = 928;      // CSConstants, as the mask pixel shader declares it
 constexpr uint32_t kCascMatFloat = 24;          // cascadeMatrix[0] begins at byte 96
@@ -1864,6 +1988,7 @@ bool cascs_apply(const void* src, void* dst, int slot) {
     return true;
 }
 }  // namespace
+#endif
 
 // ---- ONE CASCADE CAMERA FOR BOTH VIEWS, which is where the evidence ended up pointing -------------
 //
@@ -1899,9 +2024,15 @@ bool cascs_apply(const void* src, void* dst, int slot) {
 // forced only at the cascade node, whose consumers are the shadow rasterisation, so the blast radius should be
 // the shadow map alone. If it is not, the recognisable failure is shadows drawn from visibly the wrong place
 // or missing outright, not a shifted image; set this to 0.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CascRenderLend = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCascRenderLends = 0;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 namespace {
 constexpr int kCascRenderSlots = 8;
 
@@ -1973,13 +2104,17 @@ void cascr_report(bool first) {
     g_cascr_pairs = 0;
 }
 }  // namespace
+#endif
 
+#if CVR_RUST_VRIK
+#else
 static bool looks_like_frame_consts(const void* src) {
     float clock = 0.0f;
     __try { memcpy(&clock, reinterpret_cast<const uint8_t*>(src) + 2 * 4, sizeof(clock)); }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     return clock > 1000.0f;
 }
+#endif
 
 // ---- THE DITHER LOCK, on BOTH uploaders ----------------------------------------------------------
 //
@@ -2015,13 +2150,19 @@ static bool looks_like_frame_consts(const void* src) {
 // everything.
 //
 // DEFAULT 0: a locked slice means static noise, which is a real visual cost for no benefit.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_DitherLock = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugDitherLockBuf = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugDitherLockCb = 0;
+#endif
 
 // Fills `out` (480 bytes) when this upload is a frame-constants block that should ship with the slice
 // locked. It carries mode 4/1's mirroring itself: returning through its own buffer bypasses the path
 // further down that would otherwise apply it, and the flags fix must not be a casualty of this test.
+#if CVR_RUST_VRIK
+#else
 static bool dither_lock_build(const void* src, void* out) {
     if (!CyberpunkVR_DitherLock || !src || !g_exe_base) return false;
     if (!looks_like_frame_consts(src)) return false;
@@ -2036,7 +2177,13 @@ static bool dither_lock_build(const void* src, void* out) {
     sway_dither_force(out);
     return true;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The peer camera's prediction and the camera uploads' trace: rust/crates/cvr-render/src/peer_camera.rs. The stereo
+// state, the native-input capture and the early depth's and paired geometry's camera hooks are lent to it.
+// The peer camera's table is built in rust/crates/cvr-render/src/peer_camera.rs.
+#else
 static bool ReadSinglePassProbe(uintptr_t address,void* out,size_t size) {
     SIZE_T bytes{};
     return address && ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<const void*>(address),out,size,&bytes) && bytes==size;
@@ -2134,6 +2281,7 @@ static void TraceCameraUpload(uint32_t index,uint32_t size,const void* src) {
         std::memcpy(row.camera.data(),src,row.camera.size());cvr::stereo::trace::CaptureNativeInputs(row);
         cvr::stereo::paired_geometry::Camera(row);}
 }
+#endif
 // THE ENGINE'S HUD WARP, OFF UNDER THE ASYMMETRIC PROJECTION. The HUD composite bends the HUD about
 // each image's own centre (b6 r3.xy: x moves by cy^2*cx*k.x, y by 2*cx^2*cy*k.y, cx/cy from the centre).
 // The eyes' windows are mirror images, so one world point sits at another column in each eye and the
@@ -2153,10 +2301,19 @@ static void TraceCameraUpload(uint32_t index,uint32_t size,const void* src) {
 //  - the shadow (r3.zw, 0.0008 of the target both ways: 4.2 x 2.3 eye pixels down and right) is the black copy of
 //    every icon beside it (2026-10-24: the outline sits right of the icon). CyberpunkVR_HudShadowOffset
 //    scales it; 0 puts it under the HUD.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_HudFlatInEye = 1;
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HudFlatInEyeBlocks{0};
 extern "C" __declspec(dllexport) float CyberpunkVR_HudShadowOffset = 0.0f;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" float CyberpunkVR_HudEngineCurvature[2];
+#endif
+#if CVR_RUST_VRIK
+// The Rust build's flatten is rust/crates/cvr-render/src/block_rewrites.rs.
+#else
 static bool FlattenHudComposite(uint32_t size,const void* src,uint8_t* out) {
     const bool engineStereo=size==432 && cvr::engine_stereo::Enabled();
     if(!src || !(engineStereo || (size==512 && cvr::projection::Active()))) return false;
@@ -2183,6 +2340,8 @@ static bool FlattenHudComposite(uint32_t size,const void* src,uint8_t* out) {
     CVR_DIAGNOSTIC(CyberpunkVR_HudFlatInEyeBlocks.fetch_add(1,std::memory_order_relaxed));
     return true;
 }
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 static int64_t ForwardBufUpload(uint32_t idx,uint32_t size,void* src) {
     optics_shadow_snapshot(size,src);
     optics_material_snapshot(size,src);
@@ -2190,17 +2349,28 @@ static int64_t ForwardBufUpload(uint32_t idx,uint32_t size,void* src) {
     if(size==848 || size==1584)cvr::stereo::ObserveFogConstants(size,src);
     TraceCameraUpload(idx,size,src);
     cvr::stereo::source_cbv::UploadWriterScope writer(idx,size);
+#if CVR_RUST_VRIK
+    const auto result=reinterpret_cast<BufUploadFn>(cvr_grading_upload_originals[0])(idx,size,src);
+#else
     const auto result=g_orig_buf_upload(idx,size,src);
+#endif
     writer.CompleteNormalReturn();
     return result;
 }
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 static __int64 ForwardCbUpload(unsigned int size,void* src) {
     optics_shadow_snapshot(size,src);
     optics_material_snapshot(size,src);
     if(size==848 || size==1584)cvr::stereo::ObserveFogConstants(size,src);
     TraceCameraUpload(UINT32_MAX,size,src);
+#if CVR_RUST_VRIK
+    return reinterpret_cast<CbUploadFn>(cvr_grading_upload_originals[1])(size,src);
+#else
     return g_orig_cb_upload(size,src);
+#endif
 }
+#endif
 
 // THE CONE AO'S PROJECTION CENTRE, written into its own block. The cone AO (node DrawConeAO) rebuilds view
 // positions with its block's symmetric tangents, and nothing else it binds knows the asymmetric projection's
@@ -2214,9 +2384,20 @@ static __int64 ForwardCbUpload(unsigned int size,void* src) {
 // build) and CyberpunkVR_AsymAoPatch is on, which also switches the correction in the hidden-area twin.
 // CyberpunkVR_DebugAsymAoUploads says what the node uploads: [i] = size (| 0x80000000 on the constant
 // uploader), [8 + i] = count.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_AsymAoBlockSize = cvr::ssr_merge::kAoBlockBytes;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugAsymAoUploads[16] = {};
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugAsymAoBlock[2][64] = {};   // last engine block per view
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugAsymAoPatched[3] = {};  // MAIN, second view, neither
 // ENGINE STEREO (render feature 98): the engine runs the cone AO over the side-by-side frame with the node's
 // two-halves mode (row 14.y) off, as one picture with the centre's tangents, and the AO thinned out along both
@@ -2225,13 +2406,24 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugAsymAoPatched[3] = {}
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoAoHalves{1};
 // [0] blocks turned to two halves, [1] left alone (the eyes' tangents in rows 12/13 unusable).
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoAo[2] = {};
+#endif
+#if !CVR_RUST_VRIK
 extern "C" std::atomic<uint32_t> CyberpunkVR_AsymAoPatch;         // Render/HiddenAreaShaders.cpp
 extern "C" std::atomic<uint32_t> CyberpunkVR_AsymAoPatchLoaded;
+#endif
+#if !CVR_RUST_VRIK
 namespace {
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t kAoCentreRow = 12;
 constexpr uint32_t kAoCentreTag = 0x41734331u;   // asym_ao_shaders.py MAGIC
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t kAoStereoTag = 0x41735331u;   // asym_ao_shaders.py STEREO_MAGIC
 constexpr uint32_t kAoBlockMax = 1024;
+#endif
+#if CVR_RUST_VRIK
+#else
 bool ao_node_now() {
     if (!g_exe_base) return false;
     const uintptr_t base = reinterpret_cast<uintptr_t>(g_exe_base);
@@ -2250,6 +2442,8 @@ void ao_upload_note(uint32_t size, bool cbPath, const void* src) {
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 }
+#endif
+#if !CVR_RUST_VRIK
 uint32_t ao_fixed(float v) {
     float q = std::round(v * 16384.0f);
     q = q < -32768.0f ? -32768.0f : (q > 32767.0f ? 32767.0f : q);
@@ -2308,7 +2502,12 @@ bool ao_centre_write(uint32_t size, const void* src, uint8_t* out) {
     }
     return true;
 }
+#else
+// The Rust build's rewrite is rust/crates/cvr-render/src/block_rewrites.rs.
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace
+#endif
 
 // THE AUTO-EXPOSURE'S VIEW CENTRE, written into its luminance image's block (node HistogramUpdate). The
 // meter samples the scene through a magnifier centred on the middle of the screen; the twins in asym_expo\
@@ -2319,17 +2518,43 @@ bool ao_centre_write(uint32_t size, const void* src, uint8_t* out) {
 // arrives on the buffer uploader is left alone. CyberpunkVR_DebugExpoUploads says what the node uploads:
 // [i] = size (| 0x80000000 on the constant uploader), [8 + i] = count; CyberpunkVR_DebugExpoCentred counts
 // the blocks written for MAIN, the second view and neither.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ExpoCentreBlockSize = 24;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugExpoUploads[16] = {};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExpoCentred[3] = {};
+#endif
 // The node's last blocks as uploaded by the engine, per view: [side][0] the luminance image's 24 bytes,
 // [1] the 28-byte blocks (last of them), [2] the adaptation's 56 bytes. 16 floats each.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugExpoBlocks[2][3][16] = {};
+#endif
+#if !CVR_RUST_VRIK
 extern "C" std::atomic<uint32_t> CyberpunkVR_ExposureCentre;          // Render/HiddenAreaShaders.cpp
 extern "C" std::atomic<uint32_t> CyberpunkVR_ExposureCentreLoaded;
+#endif
+#if !CVR_RUST_VRIK
 namespace {
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t kExpoCentreTag = 0x41734531u;   // asym_expo_shaders.py MAGIC
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t kExpoBlockMax = 256;
+#endif
+#if CVR_RUST_VRIK
+#else
 bool expo_node_now() {
     if (!g_exe_base) return false;
     const uintptr_t base = reinterpret_cast<uintptr_t>(g_exe_base);
@@ -2349,6 +2574,8 @@ void expo_upload_note(uint32_t size, bool cbPath, const void* src) {
         }
     }
 }
+#endif
+#if !CVR_RUST_VRIK
 // True with the block to ship in `out` and its size in `ship`.
 bool expo_centre_write(uint32_t size, const void* src, bool cbPath, uint8_t* out, uint32_t* ship) {
     if (!src || size != CyberpunkVR_ExpoCentreBlockSize || size < 24 || size > kExpoBlockMax) return false;
@@ -2371,7 +2598,12 @@ bool expo_centre_write(uint32_t size, const void* src, bool cbPath, uint8_t* out
     ++CyberpunkVR_DebugExpoCentred[(t_view_side == 0 || t_view_side == 1) ? t_view_side : 2];
     return true;
 }
+#else
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace
+#endif
+
 
 // THE AUTO-EXPOSURE'S ENVIRONMENT METER (tools/asym_tests/asym_expo_shaders.py has the reasoning): the light of
 // every direction the meter has seen, kept in cells around the player (u16), and the exposure set for the
@@ -2387,6 +2619,9 @@ bool expo_centre_write(uint32_t size, const void* src, bool cbPath, uint8_t* out
 // MAIN alone meters (the second view takes MAIN's exposure, xr_expo_mirror) and has the cells bound; every other
 // view's grown blocks carry zeros -- written either way, so a constant slot never keeps a tag from an earlier
 // upload.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ExposureMemory{1};
 // 0 = the environment; diagnostics: 1 = the meter's own reading (the cells still learn), 2 = without the view's own part.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ExposureMemoryMode = 0;
@@ -2410,10 +2645,20 @@ extern "C" __declspec(dllexport) float CyberpunkVR_ExposureGazeLimit = 0.3f;    
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExpoEnv[8] = {};
 // The last MAIN block: forward xyz, write rate, fade, metres moved, dt (s).
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugExpoEnvParams[8] = {};
+#endif
+#if !CVR_RUST_VRIK
 namespace {
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t kExpoEnvTag = 0x41734532u;   // asym_expo_shaders.py ENV_MAGIC
 constexpr uint32_t kExpoAccTag = 0x41734533u;   // asym_expo_shaders.py ENV_ACC_MAGIC
+#endif
+#if !CVR_RUST_VRIK
 constexpr uint32_t kExpoAdaptBytes = 56, kExpoAdaptEnvBytes = 112, kExpoEnvBytes = 96;
+#endif
+#if CVR_RUST_VRIK
+// The Rust build's environment meter blocks are rust/crates/cvr-render/src/block_rewrites.rs.
+#else
 struct ExpoEnvClock { LARGE_INTEGER last{}; float position[3]{}; bool have = false; } g_expo_env;
 // The view's scene camera descriptor (Render/ViewCameraLayout.hpp): position in 1/131072 units, orientation
 // quaternion (x, y, z, w) at +16; the
@@ -2524,12 +2769,25 @@ bool expo_env_write(uint32_t size, const void* src, bool cbPath, uint8_t* out, u
     ++CyberpunkVR_DebugExpoEnv[0];
     return true;
 }
+#endif
+#if !CVR_RUST_VRIK
 }  // namespace
+#endif
+
+#if CVR_RUST_VRIK
+// The block rewrites' switches and debug rows are attached by rust/crates/cvr-render/src/export_attach.rs.
+#endif
 
 // What the reflection nodes upload, as CyberpunkVR_DebugAsymAoUploads for the cone AO: [i] = size
 // (| 0x80000000 on the constant uploader, | 0x40000000 in the planar node), [8 + i] = count; the last block of
 // the size the merge takes is in CyberpunkVR_DebugSsrBlocks / DebugSsprBlocks once Prepare accepts it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugSsrUploads[16] = {};
+#endif
+#if CVR_RUST_VRIK
+#else
 static void ssr_upload_note(uint32_t size, bool cbPath) {
     if (!g_exe_base || t_current_node_work <= reinterpret_cast<uintptr_t>(g_exe_base)) return;
     const auto node = t_current_node_work - reinterpret_cast<uintptr_t>(g_exe_base);
@@ -2542,12 +2800,23 @@ static void ssr_upload_note(uint32_t size, bool cbPath) {
         }
     }
 }
+#endif
 
 // Diagnostics: the camera blocks (CameraShaderConsts: 852 bytes in 2.5, uploaded as 864) the uploaders were handed, each with
 // the render node that uploaded it and the view side, in a ring (CyberpunkVR_DebugCamBlockNext counts every one).
+#if !CVR_RUST_VRIK   // unused by the Rust build
 struct CamBlockNote { uint32_t node; int32_t side; uint32_t seq; uint32_t pad; uint8_t block[864]; };
+#endif
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 extern "C" __declspec(dllexport) CamBlockNote CyberpunkVR_DebugCamBlocks[64] = {};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_DebugCamBlockNext{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 static void cam_block_note(uint32_t size, const void* src) {
     if (size != sizeof(CamBlockNote::block) || !src || !g_exe_base || !cvr::RuntimeDiagnosticsEnabled()) return;
     const uint32_t seq = CyberpunkVR_DebugCamBlockNext.fetch_add(1, std::memory_order_relaxed);
@@ -2558,7 +2827,17 @@ static void cam_block_note(uint32_t size, const void* src) {
     __try { std::memcpy(note.block, src, sizeof(note.block)); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     note.seq = seq + 1;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The uploads' table is built in rust/crates/cvr-render/src/grading_uploads.rs; these are its C++ services.
+#if !CVR_RUST_VRIK   // the Rust build's forwards are rust/crates/cvr-render/src/grading_uploads.rs's
+extern "C" int64_t cvr_cpp_grading_forward_buf_upload(uint32_t idx, uint32_t size, void* src) {
+    return ForwardBufUpload(idx, size, src);
+}
+extern "C" int64_t cvr_cpp_grading_forward_cb_upload(uint32_t size, void* src) { return ForwardCbUpload(size, src); }
+#endif
+#else
 static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* src) {
     cam_block_note(size, src);
     ssr_upload_note(size, false);
@@ -2802,14 +3081,18 @@ static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* sr
     }
     return ForwardBufUpload(idx, size, src);
 }
+#endif
 
 // Declared here because the upload detour below counts into them; they are DEFINED beside the
 // mirror further down, next to the offsets they explain.
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeMainUploads;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeVrcamUploads;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeOtherView;
+#if !CVR_RUST_VRIK   // the Rust build's registers from rust/crates/cvr-render/src/engine_detours.rs
 CVR_DETOUR("[sway] buffer uploader sub_140334328", BUF_UPLOAD_RVA, Detour_BufUpload, g_orig_buf_upload)
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's is grading_uploads.rs's cvr_grading_ps_b6_upload, registered from engine_detours.rs
 // The pixel stage's b6 uploader (sub_14041A56C: allocate, copy, bind as PS b6). In the shadow mask node its
 // block is the contact-shadow settings, whose padding carries the wide merge's stamp and tag
 // (Render/SsrWideMerge.cpp, kShadowMask).
@@ -2828,7 +3111,9 @@ static void __fastcall Detour_PsB6Upload(size_t size, void* src) {
     g_orig_ps_b6_upload(size, src);
 }
 CVR_DETOUR("[wide-merge] pixel-stage b6 uploader sub_14041A56C", PS_B6_UPLOAD_RVA, Detour_PsB6Upload, g_orig_ps_b6_upload)
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's probes are rust/crates/cvr-render/src/single_pass_probes.rs
 using BindCameraFn=__int64(__fastcall*)(uint32_t,uint32_t,uint32_t);
 static BindCameraFn g_original_bind_camera{};
 static __int64 __fastcall BindCameraProbe(uint32_t binding,uint32_t handle,uint32_t stages) {
@@ -2908,6 +3193,14 @@ static __int64 __fastcall RenderPacketsInner(void* renderer,const void* argument
     cvr::stereo::packets::End(ticket);
     return result;
 }
+#if CVR_RUST_VRIK
+extern "C" bool cvr_packets_prologue(uint64_t base);   // rust/crates/cvr-render/src/code_tables.rs
+static bool WantNativePacketsProbe() {
+    const bool compatible=cvr_packets_prologue(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+    CyberpunkVR_GeometryPacketHookCompatible.store(compatible?1u:2u,std::memory_order_release);
+    return compatible;
+}
+#else
 static bool WantNativePacketsProbe() {
     // CPU packet observation must not depend on the three hand-picked GPU
     // shader variants. Recording still takes the disabled fast path by default.
@@ -2920,8 +3213,13 @@ static bool WantNativePacketsProbe() {
     CyberpunkVR_GeometryPacketHookCompatible.store(compatible?1u:2u,std::memory_order_release);
     return compatible;
 }
+#endif
 CVR_DETOUR_IF("[single-pass] bounded native geometry packets",0x334CC0,RenderPacketsProbe,g_original_render_packets,WantNativePacketsProbe)
+#endif
 
+#if CVR_RUST_VRIK
+// The constant uploader's hook is Rust's (grading_uploads.rs's cvr_grading_cb_upload, registered from engine_detours.rs).
+#else
 static __int64 __fastcall Detour_CbUpload(unsigned int size, void* src) {
     if (size == 512 || size == 432) {
         alignas(16) uint8_t flat[512];
@@ -3096,10 +3394,22 @@ static __int64 __fastcall Detour_CbUpload(unsigned int size, void* src) {
     if (!CyberpunkVR_GradeMirrorMask || !g_gcu_seen[0]) return ForwardCbUpload(size, src);
     return grade_up_mirror_call(size, src);
 }
+#endif
 
+#if !CVR_RUST_VRIK
 using GradingComposeFn = void (__fastcall*)(void*, void*, uint8_t, float, void*, uint8_t*);
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's is grading_lut.rs's cvr_grading_lut_originals[0]
 static GradingComposeFn g_orig_grading_compose = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_GradingProbe = 1;   // OFF: composed grading block dump (scanner tint, parked)
+#endif
+#if CVR_RUST_VRIK
+// THE COMPOSER'S PROBE AND THE LUT BUILD ARE RUST'S (rust/crates/cvr-render/src/grading_lut.rs).
+#else
 static uint8_t  g_grade_out[2][40];
 static uint8_t  g_grade_a3[2]  = {0, 0};
 static float    g_grade_a4[2]  = {0.f, 0.f};
@@ -3164,16 +3474,28 @@ static void __fastcall Detour_GradingCompose(void* a1, void* a2, uint8_t a3, flo
     }
     grading_probe_report();
 }
+#endif
 
 // Live-settable so the field can be A/B-ed without a rebuild. 0x640 = viewData+1600, the
 // grading-settings pointer sub_140C944A4 reads EVERYTHING out of (+224..+248). 0xF88 was
 // the first guess and is measurably not it: lending it fired 6776 times and changed
 // nothing, because sub_140C944A4 does `if (!v9) a4 = -1.0f` and throws that float away.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_GradingSrcOff = 0x640;
+#endif
+#if !CVR_RUST_VRIK
 using TonemapLutFn = __int64(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's is grading_lut.rs's cvr_grading_lut_originals[1]
 static TonemapLutFn g_orig_tonemap_lut = nullptr;
+#endif
 // Parked at 0 while the composer probe says what actually differs: 0x640 is the same
 // object for both views and 0xF88 is thrown away by the composer.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_GradingSrcLend = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradingLends = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradingSrcMain = 0;
@@ -3182,6 +3504,10 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradingSrcVrcam = 0;
 // 0x640 IS populated for the second view -- with its own ungraded settings -- so filling alone
 // would do nothing here; the whole point is to substitute, scoped to the one call.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_GradingSrcDisplace = 1;
+#endif
+#if CVR_RUST_VRIK
+// The LUT's table is built in rust/crates/cvr-render/src/grading_lut.rs.
+#else
 static std::atomic<uintptr_t> g_main_grading_src{0};
 
 // SEH only -- no C++ objects in here (C2712), and the restore has to survive an exception.
@@ -3270,11 +3596,14 @@ static __int64 __fastcall Detour_TonemapLut(void* a1, void* a2) {
     CVR_DIAGNOSTIC(InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugGradingLends)));
     return tonemap_call_lent(a1, a2, slot, lend);
 }
+#endif
 
 // ---- registered where they are defined ---------------------------------------------------------
+#if !CVR_RUST_VRIK   // the Rust build's register from rust/crates/cvr-render/src/engine_detours.rs
 CVR_DETOUR("[gradeup] constant uploader sub_14041A780", CB_UPLOAD_RVA, Detour_CbUpload, g_orig_cb_upload)
 CVR_DETOUR("[grade] grading composer sub_140C944A4", GRADING_COMPOSE_RVA, Detour_GradingCompose, g_orig_grading_compose)
 CVR_DETOUR("[grading] GenerateTonemappingLUT sub_140F60474 (vrcam borrows main grading source)", TONEMAP_LUT_RVA, Detour_TonemapLut, g_orig_tonemap_lut)
+#endif
 
 // ================================================================================================
 // THE GRADING SOURCE, moved out of the monolith.
@@ -3335,6 +3664,10 @@ CVR_DETOUR("[grading] GenerateTonemappingLUT sub_140F60474 (vrcam borrows main g
 // place they are visible is CreateConstantBufferView, which hands over the GPU address, and the
 // ring is already mapped. Capture every CBV created while GenerateTonemappingLUT is on the
 // stack, in creation order, per view, and diff.
+#if CVR_RUST_VRIK
+// The grading-CB capture (its tables, the commit, the report and CyberpunkVR_GradeCbProbe) is Rust's:
+// rust/crates/cvr-render/src/grading_lut.rs, fed by Capture.cpp's CreateCBV hook.
+#else
 thread_local int      t_grade_cb_view = -1;   // 0 = main, 1 = vrcam, -1 = not in the node
 thread_local uint32_t t_grade_cb_idx  = 0;
 // GRADE_CB_SLOTS moved to Stereo/StereoInternal.hpp.
@@ -3388,6 +3721,7 @@ void grade_cb_report() {
     }
     log("[gradecb] MAIN %u cbv / VRCAM %u cbv: %s", na, nb, line);
 }
+#endif
 
 // ---- the 688-byte constant block the LUT build uploads --------------------------------------
 // Located in sub_14077A36C's main flow:
@@ -3401,10 +3735,19 @@ void grade_cb_report() {
 // fields +140/+160/+164 were transient-target indices). So the choice between grading LUT
 // Resource_345 (green, MAIN) and Resource_2123 (ordinary, VRCAM) is very plausibly a field in
 // this block. Capture it per view and diff -- exactly the workflow that solved the clouds.
+#if !CVR_RUST_VRIK
 constexpr uint32_t  GRADE_CB_BYTES  = 0x2B0;      // 688
+#endif
 using CbUploadFn = __int64(__fastcall*)(unsigned int, void*);
+#if !CVR_RUST_VRIK   // the Rust build's is grading_uploads.rs's cvr_grading_upload_originals[1]
 CbUploadFn g_orig_cb_upload = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_GradeUpProbe = 1;   // OFF: grading upload-ring capture (scanner tint, parked)
+#endif
+#if !CVR_RUST_VRIK
 static uint8_t  g_gcu[2][GRADE_CB_BYTES];
 bool     g_gcu_seen[2] = {false, false};
 static std::mutex g_gcu_mtx;
@@ -3447,6 +3790,7 @@ void grade_up_report() {
     }
     log("[gradeup] 688B grading block, %d differing dwords: %s", diffs, u ? line : "(none)");
 }
+#endif
 
 // Mirror selected dwords of MAIN's block into VRCAM's, scoped to the one upload.
 //
@@ -3485,6 +3829,7 @@ void grade_up_report() {
 //
 // This is why bits 0-7 never delivered the tint no matter which of them were set: they are all
 // descriptor indices and unidentified words, and not one of them is a grading value.
+#if !CVR_RUST_VRIK
 static const uint32_t kGradeMirrorOff[] = {
     0x230, 0x238, 0x220, 0x248, 0x258, 0x1B8, 0x1E0, 0x270,
     0x010, 0x014, 0x018, 0x024, 0x028, 0x04C, 0x074,
@@ -3532,6 +3877,7 @@ static const uint32_t kGradeMirrorOff[] = {
 };
 static const uint32_t kGradeMirrorCount =
     static_cast<uint32_t>(sizeof(kGradeMirrorOff) / sizeof(kGradeMirrorOff[0]));
+#endif
 // DEFAULT IS BACK TO THE DESCRIPTOR-INDEX PAIR, and bits 8-14 are retired rather than merely off.
 //
 // Those seven bits substituted MAIN's grading values into the finished 688-byte constant block. It
@@ -3545,14 +3891,28 @@ static const uint32_t kGradeMirrorCount =
 //
 // The bits are left in the table, not deleted: they are measured-correct offsets and cost nothing
 // while clear, and they are the only route left if the viewData mirror ever has to be turned off.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's mask is rust/crates/cvr-render/src/render_moved_exports.rs'
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_GradeMirrorMask = (1u << 0) | (1u << 1);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradeMirrors = 0;
+#endif
 // So "it did not help" and "it never saw that view" can never be confused again.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeMainUploads;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeVrcamUploads;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeOtherView;
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradeMainUploads  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradeVrcamUploads = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradeOtherView    = 0;
+#endif
 
 
+#if !CVR_RUST_VRIK
 __int64 grade_up_mirror_call(unsigned int size, void* src) {   // SEH only
     // ONE SLOT PER TABLE ENTRY, CHECKED. This was `saved[16]` beside a table of seventeen, so bit 16
     // -- one of the two descriptor indices that ship in the default mask -- wrote its saved dword
@@ -3593,6 +3953,7 @@ bool grade_up_capture(void* src, int v) {
     std::lock_guard<std::mutex> lk(g_gcu_mtx);
     return grade_up_store(src, v);
 }
+#endif
 
 }  // namespace detail
 }  // namespace cvr

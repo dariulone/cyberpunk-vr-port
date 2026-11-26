@@ -13,7 +13,7 @@ if(MSVC)
 endif()
 foreach(case identical_pose owner_generation changed_during_copy untracked_copy bounded_ledger cached_camera_lifetime
              submission reset_before_submit image_reuse latest_write object_lifetime reservations eye_rebase
-             camera_blend camera_blend_reject camera_blend_stale)
+             camera_blend camera_blend_reject camera_blend_stale capture_frontier capture_eye_origin runtime_frusta)
     add_test(NAME pose_id_${case} COMMAND pose_identity_tests ${case})
 endforeach()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)

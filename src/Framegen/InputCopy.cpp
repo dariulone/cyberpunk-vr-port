@@ -1,5 +1,19 @@
 #include "Framegen/InputCopy.hpp"
 
+#include <memory>
+
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// THE COPY IS RUST'S (rust/crates/cvr-gpu/src/input_copy.rs): the tag and the fields of Inputs it fills are handed
+// over (a ComPtr is one owning pointer, which the Rust side assigns as such).
+extern "C" {
+}
+namespace cvr::framegen {
+static_assert(sizeof(Microsoft::WRL::ComPtr<ID3D12Resource>) == sizeof(void*));
+static_assert(sizeof(InputTag) == 32);
+}  // namespace cvr::framegen
+#endif
+#else
 namespace cvr::framegen {
 namespace {
 using Microsoft::WRL::ComPtr;
@@ -65,3 +79,4 @@ bool CopyInput(ID3D12GraphicsCommandList* list,const InputTag& tag,Inputs& out) 
     return true;
 }
 }
+#endif

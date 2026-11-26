@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/NativeDescriptorArena.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
@@ -5,6 +6,11 @@
 #include <atomic>
 #include <mutex>
 #include <optional>
+#if CVR_RUST_VRIK
+// The native descriptor arena is Rust (rust/crates/cvr-render/src/native_descriptor_arena.rs: the camera
+// heap placement, the engine ring, the owner, Bind and ValidateSubmission); its only user, the retained
+// geometry capture, calls it there.
+#else
 
 namespace cvr::stereo::native_descriptors {
 namespace {
@@ -201,3 +207,5 @@ bool ValidateSubmission(const Tables& tables,ID3D12CommandQueue* queue){const au
         std::all_of(owner->borrowedRings.begin(),owner->borrowedRings.end(),RingAlive);}
 Failure LastFailure(){return failure;}
 }
+#endif
+#endif

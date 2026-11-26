@@ -3,31 +3,9 @@
 #include <cmath>
 
 namespace cvr::anim {
-inline constexpr float WheelFullLockMin=15.f;
+inline constexpr float WheelFullLockMin=30.f;
 inline constexpr float WheelFullLockMax=180.f;
 inline constexpr float WheelFullLockDefault=180.f;
-// A MOTORCYCLE'S BARS: full lock is reached after this many degrees of yaw of the line between the hands. Small, because
-// arms only push and pull so far: hands 50 cm apart at 40 degrees are about 16 cm forward and 16 cm back. 40 is what
-// felt right in game (2026-11-12); the first estimate was 25.
-inline constexpr float BikeBarLockMin=15.f;
-inline constexpr float BikeBarLockMax=60.f;
-inline constexpr float BikeBarLockDefault=40.f;
-// LEANING THE BODY ON A BIKE. Share of full lock that a sideways lean of BikeLeanFullM adds to the arms' steering; 0 is off.
-inline constexpr float BikeBodyLeanDefault=.5f;
-inline constexpr float BikeLeanDeadM=.03f;
-inline constexpr float BikeLeanFullM=.15f;
-inline float BikeBodyLeanShare(float value) {
-    return std::isfinite(value) && value>=0 ? std::min(value,1.f):BikeBodyLeanDefault;
-}
-// Degrees of steering for a sideways lean in metres, right positive. Never more than one full lock.
-inline float BikeLeanDegrees(float sideways,float share,float limit) {
-    if(!std::isfinite(sideways))return 0;
-    const float amount=std::max(std::abs(sideways)-BikeLeanDeadM,0.f)/(BikeLeanFullM-BikeLeanDeadM);
-    return std::copysign(std::min(amount*BikeBodyLeanShare(share)*limit,limit),sideways);
-}
-inline float BikeBarLockDegrees(float value) {
-    return std::isfinite(value) && value>0 ? std::clamp(value,BikeBarLockMin,BikeBarLockMax):BikeBarLockDefault;
-}
 
 // Physical hand travel from the grab reference to one full steering lock.
 // This normalizes input only; cabin wheel travel is authored in vehicle graphs.
@@ -39,7 +17,7 @@ inline float WheelFullLockDegrees(float value) {
 // model's turn input, not in proportion to it: at the game's post-deadzone input n (0..1) the wheel stands at
 // 89.9 n + 40.1 n^3 degrees -- measured 2026-11-05 on the Porsche 911 and the Thorton Mackinaw, within 0.2 degrees at
 // every tenth of the range (docs/wheel-range-20261011.md), with the graph's gain (mulFactor) at 2: full lock 130 = the
-// native 65 doubled. The gain is 2.5 since 2026-11-05 ("the wheel is too sharp, a little less";
+// native 65 doubled. The gain is 2.5 since 2026-11-05 (players: "the wheel is too sharp, a little less";
 // tools/driving_tests/wheel_ratio_graph.py): the cabin wheel, and the hands holding it, turn 25 % further for the same
 // road-wheel angle, full lock 162.5. The curve scales with the gain.
 inline constexpr float CarCabinGain=2.5f;

@@ -1,6 +1,7 @@
 #pragma once
 #include "Render/NativeSourceCbvBinding.hpp"
 #include <climits>
+#include <cstddef>
 
 namespace cvr::stereo::source_cbv_details {
 enum class Observation:uint32_t {Unknown,Known,Absent,NotApplicable,Unreadable,Changed,Mismatch,UnknownAbi,Unsupported};
@@ -62,6 +63,44 @@ template<size_t N>Observation RefCountedBytes(geometry::MemoryReader read,void* 
     for(size_t i=0;i<N;++i)if((i<8 || i>=12) && output[i]!=again[i])return Observation::Changed;
     output=again;return Observation::Known;
 }
+#if CVR_RUST_VRIK
+// The readers below: rust/crates/cvr-render/src/source_cbv_details.rs (tools/single_pass_tests/source_cbv_details_test
+// runs its cases against them in its Rust variant). Bytes, RefCountedBytes and Field stay templates here.
+static_assert(sizeof(Context)==48 && sizeof(Record)==192 && sizeof(Alias)==112 && sizeof(Pool)==64 && sizeof(Allocation)==192 &&
+    sizeof(Allocator)==64 && sizeof(geometry::ReadState)==12 && sizeof(geometry::NativeBuffer)==48 &&
+    offsetof(Allocation,raw)==85 && offsetof(Allocator,raw)==38 && offsetof(Alias,raw)==56 && offsetof(Pool,occupied)==56,
+    "mirrored by rust/crates/cvr-render/src/source_cbv_details.rs");
+extern "C" {
+bool cvr_scd_state_value_known(const geometry::ReadState*);
+bool cvr_scd_matches_record(const std::array<uint8_t,0xB0>*,const geometry::NativeBuffer*);
+void cvr_scd_read_record(geometry::MemoryReader,void*,const geometry::NativeBuffer*,Record*);
+void cvr_scd_read_context(geometry::MemoryReader,void*,uint64_t,uint64_t,Context*);
+void cvr_scd_read_allocation(geometry::MemoryReader,void*,uint64_t,uint64_t,Allocation*);
+void cvr_scd_read_allocator(geometry::MemoryReader,void*,uint64_t,uint64_t,const Allocation*,Allocator*);
+void cvr_scd_read_alias(geometry::MemoryReader,void*,uint64_t,uint64_t,Alias*);
+void cvr_scd_read_pool(geometry::MemoryReader,void*,uint64_t,const geometry::NativeBuffer*,const Record*,uint64_t,uint64_t,Pool*);
+}
+inline bool StateValueKnown(geometry::ReadState state)noexcept{return cvr_scd_state_value_known(&state);}
+inline bool MatchesRecord(const std::array<uint8_t,0xB0>& bytes,const geometry::NativeBuffer& native)noexcept{return cvr_scd_matches_record(&bytes,&native);}
+inline Record ReadRecord(geometry::MemoryReader read,void* user,const geometry::NativeBuffer& native){
+    Record out;cvr_scd_read_record(read,user,&native,&out);return out;
+}
+inline Context ReadContext(geometry::MemoryReader read,void* user,uint64_t address,uint64_t list){
+    Context out;cvr_scd_read_context(read,user,address,list,&out);return out;
+}
+inline Allocation ReadAllocation(geometry::MemoryReader read,void* user,uint64_t base,uint64_t address){
+    Allocation out;cvr_scd_read_allocation(read,user,base,address,&out);return out;
+}
+inline Allocator ReadAllocator(geometry::MemoryReader read,void* user,uint64_t base,uint64_t registry,const Allocation& allocation){
+    Allocator out;cvr_scd_read_allocator(read,user,base,registry,&allocation,&out);return out;
+}
+inline Alias ReadAlias(geometry::MemoryReader read,void* user,uint64_t payload,uint64_t control){
+    Alias out;cvr_scd_read_alias(read,user,payload,control,&out);return out;
+}
+inline Pool ReadPool(geometry::MemoryReader read,void* user,uint64_t base,const geometry::NativeBuffer& native,const Record& record,uint64_t gpu,uint64_t width){
+    Pool out;cvr_scd_read_pool(read,user,base,&native,&record,gpu,width,&out);return out;
+}
+#else
 inline bool StateValueKnown(geometry::ReadState state)noexcept{return state.status==1 || state.status==2 || state.status==8 || state.status==9;}
 inline bool MatchesRecord(const std::array<uint8_t,0xB0>& bytes,const geometry::NativeBuffer& native)noexcept {
     if((bytes[6]&15)!=6 || bytes[6]>>4!=native.kind || Field<uint32_t>(bytes,0)!=native.bytes)return false;
@@ -143,6 +182,7 @@ inline Pool ReadPool(geometry::MemoryReader read,void* user,uint64_t base,const 
     out.resource=Field<uint64_t>(entry,0);out.owner=Field<uint64_t>(entry,8);out.occupiedWord=Field<uint64_t>(entry,16+uint64_t(out.slot/64)*8);out.occupied=(out.occupiedWord&(uint64_t(1)<<(out.slot%64)))!=0;
     if(out.resource!=native.resource || !out.owner || !out.occupied)out.observation=Observation::Mismatch;return out;
 }
+#endif
 inline bool SameSource(const source_cbv::SourceCbvBacking& a,const source_cbv::SourceCbvBacking& b){
     return a.resource==b.resource && a.originOwner==b.originOwner && a.stamp.gpu==b.stamp.gpu && a.stamp.heap==b.stamp.heap && a.stamp.value==b.stamp.value &&
         a.recording.token==b.recording.token && a.recording.generation==b.recording.generation && a.recording.context==b.recording.context &&

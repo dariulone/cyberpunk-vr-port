@@ -25,10 +25,11 @@
 #include "im3d.h"
 #include "Overlay/OverlayInternal.hpp"
 
+#if !CVR_RUST_VRIK
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 extern void Log(const char* fmt, ...);
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-extern volatile float g_lastLocateQuat[4];
+extern "C" volatile float g_lastLocateQuat[4];
 extern "C" int   CyberpunkVR_StereoModuleEnable;   // vr_core.cpp: did we install at all
 extern "C" int   CyberpunkVR_StereoModuleLoaded;
 extern "C" int32_t CyberpunkVR_StereoLog;
@@ -53,7 +54,11 @@ extern "C" uint64_t CyberpunkVR_DebugMirrorRtvHits;
 extern "C" int CyberpunkVR_IsVrcamViewActive();
 extern "C" float CyberpunkVR_DebugMainProjYY;
 extern "C" float CyberpunkVR_DebugMainCamFov;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" float CyberpunkVR_MainAdsZoomFactor;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" float CyberpunkVR_DebugVrcamWantFov;
 extern "C" float CyberpunkVR_DebugVrcamBaseFov;
 extern "C" int32_t  CyberpunkVR_ProfEnable;
@@ -63,21 +68,35 @@ extern "C" double   CyberpunkVR_ProfDispVrcamMs;
 extern "C" uint32_t CyberpunkVR_ProfDispMainNodes;
 extern "C" uint32_t CyberpunkVR_ProfDispVrcamNodes;
 extern "C" void     CyberpunkVR_ProfDumpNodes();
+#endif
 extern "C" int      CyberpunkVR_ProfSnapshotNodes(uint32_t* rva, double* msv, double* msm,
                                                   uint32_t* cv, uint32_t* cm, int maxn);
+#if !CVR_RUST_VRIK
 extern "C" const char* CyberpunkVR_ProfNodeName(uint32_t rva);
 extern "C" uint64_t CyberpunkVR_DebugViewKeyMainNodes;
 extern "C" uint64_t CyberpunkVR_DebugViewKeyOtherNodes;
-extern volatile int32_t g_lastLocatePosFP[3];
+extern "C" volatile int32_t g_lastLocatePosFP[3];
 extern "C" float CyberpunkVRPort_HalfIpd();
+#endif
 extern "C" float GetGameRenderFovDeg();
 extern "C" int CyberpunkVR_MainIsRightEye;
+#if !CVR_RUST_VRIK
 extern "C" UINT GetForcedDisplayModeWidth();
 extern "C" UINT GetForcedDisplayModeHeight();
+#endif
 
+#if CVR_RUST_VRIK
+// The projection math: rust/crates/cvr-camera/src/overlay_projection.rs.
+#if CVR_RUST_VRIK
+#endif
+#endif
 namespace overlay {
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void MapAbstractHandPoint(bool isLeftHand, float hx, float hy, float hz, float* cx, float* cy, float* cz) {
+#if CVR_RUST_VRIK
+    float v[3];cvr_ovp_map_hand(isLeftHand,hx,hy,hz,v);*cx=v[0];*cy=v[1];*cz=v[2];
+#else
     if (isLeftHand) {
         *cx = -hz;
     } else {
@@ -85,10 +104,16 @@ void MapAbstractHandPoint(bool isLeftHand, float hx, float hy, float hz, float* 
     }
     *cy = -hy;
     *cz = -hx;
+#endif
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void RotateVectorByQuaternion(float vx, float vy, float vz, float qx, float qy, float qz, float qw,
     float* outX, float* outY, float* outZ) {
+#if CVR_RUST_VRIK
+    float v[3];cvr_ovp_rotate(vx,vy,vz,qx,qy,qz,qw,v);*outX=v[0];*outY=v[1];*outZ=v[2];
+#else
     const float tx = 2.0f * (qy * vz - qz * vy);
     const float ty = 2.0f * (qz * vx - qx * vz);
     const float tz = 2.0f * (qx * vy - qy * vx);
@@ -96,7 +121,9 @@ void RotateVectorByQuaternion(float vx, float vy, float vz, float qx, float qy, 
     *outX = vx + qw * tx + (qy * tz - qz * ty);
     *outY = vy + qw * ty + (qz * tx - qx * tz);
     *outZ = vz + qw * tz + (qx * ty - qy * tx);
+#endif
 }
+#endif
 
 // GAME-RENDER projection tans (tan of half-FOV per NDC unit). The overlay draws
 // INTO the game's back buffer, so a mark lands on the same pixel as a game-rendered
@@ -131,8 +158,19 @@ extern "C" int CyberpunkVR_MainIsRightEye;
 // ahead direction is not the middle of the picture: it sits at NDC (centreX, centreY), the engine's
 // own shift. The half spans are the window's, and the ADS zoom scales them exactly as before -- the
 // engine multiplies the perspective by the zoom BEFORE it adds the shift, so the shift stays put.
+#if !CVR_RUST_VRIK   // unused by the Rust build
 bool GetOverlayProjWindow(const ImVec2& displaySize, float* tanHalfX, float* tanHalfY,
     float* centreX, float* centreY) {
+#if CVR_RUST_VRIK
+    // rust/crates/cvr-render/src/eye_windows.rs overlay_window: the main eye's asymmetric window, or the game's or the
+    // runtime's horizontal FOV.
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) return false;
+    *centreX = *centreY = 0.0f;
+    RustOverlayWindow result{};
+    if (!cvr_overlay_proj_window(displaySize.x, displaySize.y, &result)) return false;
+    *tanHalfX = result.tanX;*tanHalfY = result.tanY;*centreX = result.centreX;*centreY = result.centreY;
+    return true;
+#else
     if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) return false;
     float tx = 0.0f, ty = 0.0f;
     *centreX = *centreY = 0.0f;
@@ -188,16 +226,30 @@ bool GetOverlayProjWindow(const ImVec2& displaySize, float* tanHalfX, float* tan
     *tanHalfX = tx;
     *tanHalfY = ty;
     return true;
+#endif
 }
+#endif
+#if !CVR_RUST_VRIK
 bool GetOverlayProjTans(const ImVec2& displaySize, float* tanHalfX, float* tanHalfY) {
     float cx = 0.0f, cy = 0.0f;
     return GetOverlayProjWindow(displaySize, tanHalfX, tanHalfY, &cx, &cy);
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 bool ProjectXrPointToScreen(const OpenXRHeadPose& headPose, float pointX, float pointY, float pointZ,
     const ImVec2& displaySize, ImVec2* outScreen) {
     if (!outScreen || displaySize.x <= 1.0f || displaySize.y <= 1.0f) return false;
 
+#if CVR_RUST_VRIK
+    float tanHalfX = 0.0f, tanHalfY = 0.0f, centreX = 0.0f, centreY = 0.0f;
+    if (!GetOverlayProjWindow(displaySize, &tanHalfX, &tanHalfY, &centreX, &centreY)) return false;
+    const float head[7]{headPose.posX, headPose.posY, headPose.posZ, headPose.oriX, headPose.oriY, headPose.oriZ, headPose.oriW};
+    const RustOverlayWindow window{tanHalfX, tanHalfY, centreX, centreY};float screen[2]{};
+    if (!cvr_ovp_project(true, head, pointX, pointY, pointZ, displaySize.x, displaySize.y, &window, screen)) return false;
+    outScreen->x = screen[0];outScreen->y = screen[1];
+    return true;
+#else
     const float deltaX = pointX - headPose.posX;
     const float deltaY = pointY - headPose.posY;
     const float deltaZ = pointZ - headPose.posZ;
@@ -225,12 +277,23 @@ bool ProjectXrPointToScreen(const OpenXRHeadPose& headPose, float pointX, float 
     outScreen->x = (ndcX * 0.5f + 0.5f) * displaySize.x;
     outScreen->y = (-ndcY * 0.5f + 0.5f) * displaySize.y;
     return true;
+#endif
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 bool ProjectHeadSpacePointToScreen(float pointX, float pointY, float pointZ,
     const ImVec2& displaySize, ImVec2* outScreen) {
     if (!outScreen || displaySize.x <= 1.0f || displaySize.y <= 1.0f) return false;
 
+#if CVR_RUST_VRIK
+    float tanHalfX = 0.0f, tanHalfY = 0.0f, centreX = 0.0f, centreY = 0.0f;
+    if (!GetOverlayProjWindow(displaySize, &tanHalfX, &tanHalfY, &centreX, &centreY)) return false;
+    const RustOverlayWindow window{tanHalfX, tanHalfY, centreX, centreY};float screen[2]{};
+    if (!cvr_ovp_project(false, nullptr, pointX, pointY, pointZ, displaySize.x, displaySize.y, &window, screen)) return false;
+    outScreen->x = screen[0];outScreen->y = screen[1];
+    return true;
+#else
     const float forward = -pointZ;
     if (forward <= 0.01f) return false;
 
@@ -243,8 +306,11 @@ bool ProjectHeadSpacePointToScreen(float pointX, float pointY, float pointZ,
     outScreen->x = (ndcX * 0.5f + 0.5f) * displaySize.x;
     outScreen->y = (-ndcY * 0.5f + 0.5f) * displaySize.y;
     return true;
+#endif
 }
+#endif
 
+#if !CVR_RUST_VRIK
 Im3d::Vec3 AbstractHandPointToHeadSpace(const OpenXRHeadPose& handPose, bool isLeftHand, float hx, float hy, float hz) {
     float cx = 0.0f;
     float cy = 0.0f;
@@ -260,11 +326,22 @@ Im3d::Vec3 AbstractHandPointToHeadSpace(const OpenXRHeadPose& handPose, bool isL
 
     return Im3d::Vec3(handPose.posX + dx, handPose.posY + dy, handPose.posZ + dz);
 }
+#endif
 
+#if !CVR_RUST_VRIK
 bool ProjectIm3dPointToScreen(const Im3d::Vec3& point, const ImVec2& displaySize, ImVec2* outScreen) {
     return ProjectHeadSpacePointToScreen(point.x, point.y, point.z, displaySize, outScreen);
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The hand proxy's geometry -- its boxes and axes through the hand, in Im3d's colours -- is
+// rust/crates/cvr-camera/src/overlay_projection.rs (hand_proxy); Im3d's calls stay here, a begin and end per box as
+// EmitHandBox made them. RenderIm3dToDrawList is rust/crates/cvr-render/src/overlay_hands.rs's.
+struct RustProxyVertex {float x,y,z;uint32_t color;};
+static_assert(sizeof(RustProxyVertex)==16 && sizeof(Im3d::Color)==4);
+
+#else
 ImU32 ToImU32(const Im3d::Color& color) {
     return static_cast<ImU32>(color.getABGR());
 }
@@ -372,6 +449,8 @@ void EmitHandProxyIm3d(const OpenXRHeadPose& handPose, bool isLeftHand, float sc
     }
 }
 
+#endif
+#if !CVR_RUST_VRIK
 bool ProjectHandLocalPoint(const OpenXRHeadPose& headPose, const OpenXRHeadPose& handPose,
     float localX, float localY, float localZ, const ImVec2& displaySize, ImVec2* outScreen) {
     (void)headPose;
@@ -389,7 +468,9 @@ bool ProjectHandLocalPoint(const OpenXRHeadPose& headPose, const OpenXRHeadPose&
         displaySize,
         outScreen);
 }
+#endif
 
+#if !CVR_RUST_VRIK
 void DrawProjectedBone(ImDrawList* drawList, const OpenXRHeadPose& headPose, const OpenXRHeadPose& handPose,
     float ax, float ay, float az, float bx, float by, float bz,
     const ImVec2& displaySize, ImU32 color, float thickness) {
@@ -399,6 +480,7 @@ void DrawProjectedBone(ImDrawList* drawList, const OpenXRHeadPose& headPose, con
     if (!ProjectHandLocalPoint(headPose, handPose, bx, by, bz, displaySize, &b)) return;
     drawList->AddLine(a, b, color, thickness);
 }
+#endif
 
 }  // namespace overlay
 using namespace overlay;

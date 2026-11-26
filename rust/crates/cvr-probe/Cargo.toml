@@ -1,0 +1,17 @@
+[package]
+name = "cvr-probe"
+description = "Stage 1 experiment: a minimal RED4ext plugin in Rust -- Main/Query/Supports, a real script native, the script compiler hand-off, an RTTI natives dump and a clean exit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "cvr_rust_probe"
+crate-type = ["cdylib"]
+
+[dependencies]
+red4ext-abi = { path = "../red4ext-abi" }
+cvr-host = { path = "../cvr-host" }
+
+[lints]
+workspace = true

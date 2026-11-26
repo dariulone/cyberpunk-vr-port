@@ -33,6 +33,93 @@ struct Token {
     bool operator==(const Token&)const=default;
 };
 
+#if CVR_RUST_VRIK
+// The receipt: rust/crates/cvr-render/src/resource_replay.rs (tools/single_pass_tests/resource_replay_test runs its cases
+// against it in its Rust variant). This face owns the Rust receipt; Declarations() lends its copied rows. It does not
+// fail on allocation, where the C++ one reported Allocation.
+namespace detail {
+struct Observation {
+    const NodeBinding* nodes;size_t nodeCount;const uint32_t* countsBefore;size_t countsBeforeLen;
+    const uint32_t* countsAfter;size_t countsAfterLen;const RawDeclaration* rowsBefore;size_t rowsBeforeLen;
+    const RawDeclaration* rowsAfter;size_t rowsAfterLen;
+};
+extern "C" {
+uint32_t cvr_rr_bytes(uint32_t,uint32_t);
+void* cvr_rr_new();
+void cvr_rr_free(void*);
+bool cvr_rr_capture(void*,const Identity*,const Identity*,const Observation*,uint32_t);
+bool cvr_rr_before(void*,const Identity*,const NodeBinding*,uint32_t,uint32_t,const uint8_t*,size_t,Token*);
+bool cvr_rr_after(void*,const Token*,const Identity*,const NodeBinding*,uint32_t,uint8_t);
+uint64_t cvr_rr_query(const void*,uint32_t,const Identity*,const NodeBinding*,uint32_t);
+const void* cvr_rr_address(const void*,uint32_t);
+}
+}
+static_assert(sizeof(Identity)==48 && sizeof(NodeBinding)==16 && sizeof(Token)==88,"mirrored by resource_replay.rs");
+inline uint32_t PayloadBytes(uint32_t kind)noexcept{return detail::cvr_rr_bytes(0,kind);}
+inline uint32_t CommandBytes(uint32_t kind)noexcept{return detail::cvr_rr_bytes(1,kind);}
+// The copied rows lent by the Rust receipt: a span, comparable with a vector of rows.
+struct DeclarationView:std::span<const RawDeclaration> {
+    using std::span<const RawDeclaration>::span;
+    bool operator==(const std::vector<RawDeclaration>& other)const{return std::equal(begin(),end(),other.begin(),other.end());}
+};
+
+// Pure copied grammar/cursor receipt for guarded 1F0ED0/1F0F80. Rows are ALL
+// per-slot declarations, flattened in slot/index order, not only serialized use
+// IDs. Root supplies two coherent pre-compiler observations and frozen graph
+// identity. No native pointers are followed, no native counters changed, and no
+// allocator lifetime, access direction, alias safety or GPU completion is proved.
+// Caller serializes methods. Original native emitter must still run exactly once.
+class Receipt {
+public:
+    Receipt():receipt_(detail::cvr_rr_new()){}
+    ~Receipt(){detail::cvr_rr_free(receipt_);}
+    Receipt(const Receipt&)=delete;
+    Receipt& operator=(const Receipt&)=delete;
+    Receipt(Receipt&&)=delete;
+    Receipt& operator=(Receipt&&)=delete;
+
+    bool Capture(const Identity& before,const Identity& after,std::span<const NodeBinding> nodes,
+                 std::span<const uint32_t> countsBefore,std::span<const uint32_t> countsAfter,
+                 std::span<const RawDeclaration> rowsBefore,std::span<const RawDeclaration> rowsAfter,
+                 Kind13Policy policy=Kind13Policy::RecordRequestDifference){
+        const detail::Observation observation{nodes.data(),nodes.size(),countsBefore.data(),countsBefore.size(),
+            countsAfter.data(),countsAfter.size(),rowsBefore.data(),rowsBefore.size(),rowsAfter.data(),rowsAfter.size()};
+        return detail::cvr_rr_capture(receipt_,&before,&after,&observation,uint32_t(policy));
+    }
+    // Called BEFORE the original increments native slot+40. A small command may
+    // contain only 8+PayloadBytes(kind) readable bytes. Padding2/3 and inactive
+    // payload bytes are never read as semantic equality.
+    bool Before(const Identity& identity,const NodeBinding& node,uint32_t mode,uint32_t oldCursor,
+                std::span<const uint8_t> command,Token& output)noexcept{
+        return detail::cvr_rr_before(receipt_,&identity,&node,mode,oldCursor,command.data(),command.size(),&output);
+    }
+    // Native result is AL. Only kind13 has the audited recorded-decision result;
+    // other kinds' native return values are not guessed as success/visibility.
+    bool After(const Token& token,const Identity& identity,const NodeBinding& node,uint32_t cursorAfter,
+               uint8_t nativeResult)noexcept{
+        return detail::cvr_rr_after(receipt_,&token,&identity,&node,cursorAfter,nativeResult);
+    }
+    bool Complete()const noexcept{return Query(0)!=0;}
+    bool Captured()const noexcept{return Query(1)!=0;}
+    bool Failed()const noexcept{return Query(2)!=0;}
+    Failure Rejection()const noexcept{return Failure(Query(3));}
+    const Identity& Binding()const noexcept{return *static_cast<const Identity*>(detail::cvr_rr_address(receipt_,0));}
+    bool MatchesIdentity(const Identity& identity)const noexcept{return detail::cvr_rr_query(receipt_,4,&identity,nullptr,0)!=0;}
+    bool MatchesNode(const NodeBinding& node)const noexcept{return detail::cvr_rr_query(receipt_,5,nullptr,&node,0)!=0;}
+    uint64_t CompletedCalls()const noexcept{return Query(6);}
+    uint64_t RequestDifferences()const noexcept{return Query(7);}
+    uint32_t Cursor(uint32_t slot)const noexcept{return uint32_t(Query(8,slot));}
+    uint32_t DeclaredCount(uint32_t slot)const noexcept{return uint32_t(Query(9,slot));}
+    bool Pending(uint32_t slot)const noexcept{return Query(10,slot)!=0;}
+    // Captured once; the rows stay at this address while the receipt lives.
+    DeclarationView Declarations()const noexcept{
+        return {static_cast<const RawDeclaration*>(detail::cvr_rr_address(receipt_,1)),size_t(Query(11))};
+    }
+private:
+    uint64_t Query(uint32_t which,uint32_t slot=0)const noexcept{return detail::cvr_rr_query(receipt_,which,nullptr,nullptr,slot);}
+    void* receipt_;
+};
+#else
 inline uint32_t PayloadBytes(uint32_t kind)noexcept{
     switch(kind){
     case 0:case 3:case 5:case 6:case 10:return 0;
@@ -198,4 +285,5 @@ private:
     uint64_t nextNonce_{},completed_{},requestDifferences_{};
     bool attempted_{},captured_{},failed_{};Failure failure_=Failure::None;
 };
+#endif
 }

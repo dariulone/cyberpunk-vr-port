@@ -1,9 +1,16 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // DlssRes -- one hook, one file. Installed from the registry it registers itself with at the
 // bottom; see Hooks/Hook.hpp for why the order is declared here rather than in a boot function.
 //
 // The DLSS render/target sizes, as the engine decides them. Read-only; the override it used to
 // apply is gone, so this reports what the engine chose and nothing else.
 
+#include "Hooks/Hook.hpp"
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/dlss_res.rs: the size log (OnDLSSResCallback, called from src/Stereo/Dlss.cpp).
+extern "C" bool cvr_hook_dlss_res_install();
+CVR_HOOK("DlssRes", ::cvr::hooks::Stage::Boot, 90, cvr_hook_dlss_res_install);
+#else
 #include "Core/VrCoreShared.hpp"
 #include "Hooks/Hook.hpp"
 #include "Utils/MemorySafe.hpp"
@@ -83,3 +90,5 @@ bool InstallDLSSResHook() {
 }
 
 CVR_HOOK("DlssRes", ::cvr::hooks::Stage::Boot, 90, InstallDLSSResHook);
+#endif
+#endif

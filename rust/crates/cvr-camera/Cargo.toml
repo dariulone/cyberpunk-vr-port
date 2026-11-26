@@ -1,0 +1,13 @@
+[package]
+name = "cvr-camera"
+description = "The view's placement (stage 3): anchor composition and body orbit, eye-centre ledger, hand view frame, native camera pair, rendered pose history, scene and vehicle headings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cvr-body = { path = "../cvr-body" }
+cvr-host = { path = "../cvr-host" }
+
+[lints]
+workspace = true

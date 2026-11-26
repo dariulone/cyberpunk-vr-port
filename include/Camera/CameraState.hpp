@@ -46,19 +46,19 @@ extern RED4ext::CBaseFunction* g_isDriverFunc;
 // with the B and Y button flags, so the tier and the threshold were stomped to 0 between every
 // write and every read. Atomic because the writer is the camera thread and the reader is the
 // animation thread.
-extern std::atomic<int> g_sceneTier;
+extern "C" std::atomic<int> g_sceneTier;
 // The look axis as the game receives it, published by the XInput merge and consumed by the camera
 // composition. -1..1, right positive.
-extern std::atomic<float> g_lookStickX;
+extern "C" std::atomic<float> g_lookStickX;
 // True on the frames where the port supplies the view's yaw itself, because the game supplies none.
 bool SceneStickYawArmed();
 // MAIN's camera object, latched by the PatchCamera owner classification. Needed outside that
 // classification by the ADS weapon-zoom sync in LocateCamera.cpp.
-extern std::atomic<uintptr_t> g_camObjMain;
+extern "C" std::atomic<uintptr_t> g_camObjMain;
 // And VRCAM's, which the ADS weapon-zoom sync needs for the same reason it needs MAIN's: the
 // weapon layer is magnified per camera object, so writing one eye and not the other is a
 // difference between the eyes.
-extern std::atomic<uintptr_t> g_camObjVrcam;
+extern "C" std::atomic<uintptr_t> g_camObjVrcam;
 
 // ---- the PatchCamera fast path ----------------------------------------------------------------
 //
@@ -104,8 +104,8 @@ extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugTakeoverPush;
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_DevCamAnyName;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_DevCamTolM;
 extern std::atomic<uint64_t> g_takeoverEntityId;
-extern std::atomic<uintptr_t> g_lensComp;
-extern std::atomic<uintptr_t> g_takeoverEntity;
+extern "C" std::atomic<uintptr_t> g_lensComp;
+extern "C" std::atomic<uintptr_t> g_takeoverEntity;
 // Find the taken-over entity's `cameraComponent` and bind it as the lens. 0 when it carries none.
 uintptr_t BindLensFromEntity(uintptr_t entity);
 // Drop the lens, the entity and the device latch when a takeover ends.
@@ -122,7 +122,7 @@ extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugLensHeadWrites
 void RefreshLensFromComponent();
 // LocateCamera's composition for the current frame, kept so the write site can use it
 // instead of making a second one. See CyberpunkVR_BdOneComposition.
-extern float g_bdPushQuat[4];
+extern "C" float g_bdPushQuat[4];
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_BdEditorAlign;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugBdEditorAlign;
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_BdBaseFromLocate;
@@ -209,8 +209,8 @@ extern "C" __declspec(dllexport) extern int CyberpunkVR_YawCatchUpOnSharedEpoch;
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugYawCaughtUp;
 // The yaw the VIEW was composed with, published by PatchCamera at the instant it uses it and consumed by
 // LocateCamera in the same frame (PatchCamera writes the camera; LocateCamera runs downstream of it).
-extern volatile float g_viewYawUsedRad;
-extern volatile int   g_viewYawUsedValid;
+extern "C" volatile float g_viewYawUsedRad;
+extern "C" volatile int   g_viewYawUsedValid;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVrikNativePairUsed;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVrikLuaPairFallback;
 // 1 = keep the fresh XR orientation for the head bone only; arms and model/world conversion use
@@ -241,9 +241,9 @@ extern "C" __declspec(dllexport) extern int      CyberpunkVR_EngineCamPosValid;
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_VrcamPosFromMain;
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_BdIpdInLocate;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugBdIpdLocate;
-extern std::atomic<int32_t> g_locatePosFP[3];
-extern std::atomic<int32_t> g_locatePosValid;
-extern std::atomic<int32_t> g_locateCenterFP[3];
+extern "C" std::atomic<int32_t> g_locatePosFP[3];
+extern "C" std::atomic<int32_t> g_locatePosValid;
+extern "C" std::atomic<int32_t> g_locateCenterFP[3];
 extern std::atomic<float> g_bdSceneFov;
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_BdQuatFromWriteSite;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugBdQuatFromWriteSite;
@@ -260,17 +260,17 @@ extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugYawWritesPlaye
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugHeadingLedComps;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugDeltaRebuilt;
 extern "C" extern int CyberpunkVR_MainIsRightEye;
-extern float g_dbgEntryYaw;
-extern std::atomic<int32_t> g_headDeltaFP[3];
-extern std::atomic<uint32_t> g_headDeltaValid;
-extern std::atomic<uint64_t> g_camComposedForPresent;
-extern uint64_t g_finalCameraHits;
-extern uint64_t g_locateCameraHits;
-extern uint64_t g_patchCameraHits;
-extern volatile float g_engineCamQuat[4];
-extern volatile float g_headQuatComposed[4];
-extern volatile float g_headingCy;
-extern volatile float g_headingSy;
+extern "C" float g_dbgEntryYaw;   // C linkage: rust/crates/cvr-rig/src/vrik/locate_camera.rs
+extern "C" std::atomic<int32_t> g_headDeltaFP[3];
+extern "C" std::atomic<uint32_t> g_headDeltaValid;
+extern "C" std::atomic<uint64_t> g_camComposedForPresent;
+extern "C" uint64_t g_finalCameraHits;   // C linkage: rust/crates/cvr-rig/src/vrik/final_camera.rs
+extern "C" uint64_t g_locateCameraHits;
+extern "C" uint64_t g_patchCameraHits;
+extern "C" volatile float g_engineCamQuat[4];
+extern "C" volatile float g_headQuatComposed[4];
+extern "C" volatile float g_headingCy;
+extern "C" volatile float g_headingSy;
 // The GAME's own camera pitch, in radians, and the pitch quaternion (s,0,0,c) built from it.
 //
 // Published by the pitch hook and consumed by both compose sites. Zero whenever
@@ -278,24 +278,25 @@ extern volatile float g_headingSy;
 // game's pitch also drives a constrained pivot offset that moves the head relative to the body.
 // With the option OFF these carry the game pitch so that mouse and right-stick Y look up and down
 // again, composed with the HMD orientation rather than replacing it (dabinn, TofuExpress 11974ee5).
-extern volatile float g_gamePitchRadians;
-extern volatile float g_headingPitchS;
-extern volatile float g_headingPitchC;
-extern volatile float g_lastLocateQuat[4];
-extern volatile int32_t g_lastIpdShiftFP[3];
-extern volatile int32_t g_lastLocatePosFP[3];
-extern volatile uint32_t g_engineCamQuatValid;
-extern volatile uint32_t g_headingValid;
-extern volatile uint32_t g_lastLocateSeq;
-extern volatile uint32_t g_renderedSeq;
+extern "C" volatile float g_gamePitchRadians;   // C linkage: rust/crates/cvr-rig/src/vrik/camera_pitch.rs
+// (C linkage: the Rust VRIK solve reads these two and g_headingValid.)
+extern "C" volatile float g_headingPitchS;
+extern "C" volatile float g_headingPitchC;
+extern "C" volatile float g_lastLocateQuat[4];   // C linkage: locate_camera.rs
+extern "C" volatile int32_t g_lastIpdShiftFP[3];
+extern "C" volatile int32_t g_lastLocatePosFP[3];
+extern "C" volatile uint32_t g_engineCamQuatValid;
+extern "C" volatile uint32_t g_headingValid;
+extern "C" volatile uint32_t g_lastLocateSeq;   // C linkage: final_camera.rs
+extern "C" volatile uint32_t g_renderedSeq;
 
 // Declarators the generator could not see because they share a line with a sibling -- and one
 // (g_headQuatValid) shared a line with a whole second DEFINITION, which is exactly why this split
 // is done by symbol and not by line range. That line is now two lines.
-extern float g_dbgEntryPosX;
-extern float g_dbgEntryPosY;
-extern float g_dbgEntryPosZ;
-extern volatile uint32_t g_headQuatValid;
+extern "C" float g_dbgEntryPosX;
+extern "C" float g_dbgEntryPosY;
+extern "C" float g_dbgEntryPosZ;
+extern "C" volatile uint32_t g_headQuatValid;
 
 // ---- shared helpers ----
 bool IsPlausibleCameraSpan(const float* a, const float* b);
@@ -352,16 +353,16 @@ void StampDeviceCam();
 // The device camera's own aim and place, latched once per takeover in ClassifyPatchCameraOwner's
 // neighbourhood and consumed by the camera writer: the base the head pose is composed onto, and the
 // position the second eye is moved to.
-extern float g_devCamBase[4];
-extern std::atomic<int> g_devCamBaseValid;
-extern std::atomic<int32_t> g_devCamPosFP[3];
-extern std::atomic<int> g_devCamPosValid;
+extern "C" float g_devCamBase[4];
+extern "C" std::atomic<int> g_devCamBaseValid;
+extern "C" std::atomic<int32_t> g_devCamPosFP[3];
+extern "C" std::atomic<int> g_devCamPosValid;
 // The gate and the target the script side publishes: 1 while the player controls a remote camera, and
 // BRAINDANCE. The gate and the FOV the script sees for the game's active camera, published by the
 // VRBraindance native. The plugin latches the camera component whose own fov equals that number, which
 // is the only identity script can hand over for a camera that belongs to a scene rather than to a
 // device the player took over. Milli-degrees, so one atomic int carries it.
-extern std::atomic<int> g_bdActive;
+extern "C" std::atomic<int> g_bdActive;
 extern std::atomic<int> g_bdWantFovMilli;
 // A BRAINDANCE AND NOTHING ELSE: BraindanceSystem.GetIsInBraindance, published by script every frame through
 // VRInBraindance (Natives/RemoteCamera.cpp). g_bdActive above opens for any scene that takes the camera, a
@@ -374,9 +375,9 @@ bool InBraindance();
 // camera -- it is the only DESCRIPTION of the camera either side can obtain -- and the plugin matches a
 // patched object against it to find the object itself. Position in the same 1/131072 m fixed point the
 // camera components store theirs in, so the comparison needs no conversion.
-extern std::atomic<int32_t> g_bdScenePosFP[3];
-extern float g_bdSceneQuat[4];
-extern std::atomic<int> g_bdScenePoseValid;
+extern "C" std::atomic<int32_t> g_bdScenePosFP[3];
+extern "C" float g_bdSceneQuat[4];
+extern "C" std::atomic<int> g_bdScenePoseValid;
 // THE SCENE CAMERA AS THE HEADSET IS GIVEN IT (Camera/SceneCameraComfort.hpp). LocateCamera filters the
 // scene camera's orientation it composes MAIN onto. Every other site that composes from the scene camera
 // (PatchCamera's component write and its second eye) passes its own copy through here, so all of them sit on
@@ -404,21 +405,21 @@ void BraindanceCameraRelease();
 // that camera's world position in 1/131072 m. Written by the VRRemoteCamera native.
 // The head-steering experiment for a device camera: off by default, see src/Core/VrCore.cpp for why.
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_DeviceCamOrient;
-extern float g_devCamLastWritten[4];
-extern float g_devCamViewQuat[4];
-extern std::atomic<int> g_devCamViewValid;
+extern "C" float g_devCamLastWritten[4];
+extern "C" float g_devCamViewQuat[4];
+extern "C" std::atomic<int> g_devCamViewValid;
 // The lens heading, as yaw and pitch, published by the device camera's own write and consumed by every
 // camera's composition while a takeover is live -- one base for all three, which is what stops the
 // per-epoch composer race from handing one camera another's base.
 extern "C" __declspec(dllexport) extern float CyberpunkVR_DevCamOffsetX;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_DevCamOffsetY;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_DevCamOffsetZ;
-extern float g_devCamAimYaw;
-extern float g_devCamAimPitch;
-extern std::atomic<int> g_devCamAimValid;
+extern "C" float g_devCamAimYaw;
+extern "C" float g_devCamAimPitch;
+extern "C" std::atomic<int> g_devCamAimValid;
 // The camera's authored FOV and whether it has been saved, so the object is handed back unchanged.
-extern float g_devCamFovOrig;
-extern std::atomic<int> g_devCamFovSaved;
+extern "C" float g_devCamFovOrig;
+extern "C" std::atomic<int> g_devCamFovSaved;
 void DeviceCamRestoreFov();
 // How many times a device camera has been patched, so its rate can be compared against the other two in
 // the census line -- a view that is not patched in a frame keeps whatever the engine left in it.

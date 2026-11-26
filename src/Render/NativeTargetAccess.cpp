@@ -3,6 +3,211 @@
 #include "Render/NativeSceneAccess.hpp"
 #include <algorithm>
 #include <mutex>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+// The query's checks: rust/crates/cvr-render/src/target_access_query.rs (target_access.rs's mirrors; a source's final
+// states read at the target stride).
+// The journal's events: rust/crates/cvr-render/src/target_access_events.rs (target_access.rs's Event mirrored; holding
+// and appending stay here).
+// The observer's counters: rust/crates/cvr-render/src/target_access_observer.rs (the names below are references to them,
+// guarded by the observer lock; the two switches are atomics).
+struct CvrTaCounters {
+    std::atomic<bool> observing,unavailable;bool finished;cvr::stereo::target_access::Failure failure;uint32_t nextProof;
+    uint64_t epoch,generation,rows,markers,resets,closes,sourceCount,exits,queries,qualified,finishedRecordings,finishedResources,
+        metadataVersion;
+};
+static_assert(sizeof(CvrTaCounters)==120 && offsetof(CvrTaCounters,epoch)==16 && offsetof(CvrTaCounters,metadataVersion)==112,
+    "mirrored by Counters in rust/crates/cvr-render/src/target_access_observer.rs");
+extern "C" CvrTaCounters* cvr_ta_counters();
+extern "C" void cvr_ta_publish_stats();
+// THE JOURNAL IS RUST'S (rust/crates/cvr-render/src/target_access_observer.rs): the recordings, the held resources, the
+// counters, the observer lock and the detours' events. What needs the C++ half stays here, under that lock -- the
+// breadcrumb resolver of the immediate writes, the writable identities, the residency scope and the receipt's data.
+extern "C" void cvr_ta_lock(bool);
+extern "C" void cvr_ta_receipt_status(uint64_t queue,uint64_t thread,uint64_t scope,uint32_t frame,uint64_t list0,uint64_t list1,
+                                      void* out);
+extern "C" void cvr_ta2_clear();
+extern "C" void cvr_ta2_arm();
+extern "C" void cvr_ta2_finish();
+extern "C" bool cvr_ta_mark_source(uint64_t list,uint64_t token,uint64_t generation,uint64_t context,uint64_t leaseList,
+                                   uint64_t registry,uint32_t frame,uint32_t side);
+struct CvrTaQueryTarget {
+    cvr::stereo::target_access::detail::Resource observed;uint32_t planes,expected;uint32_t finals[2];
+    uint64_t token,generation,context,list,registry;
+};
+struct CvrTaQuerySource {uint64_t token,generation,context,list,registry;uint32_t frame,side;CvrTaQueryTarget targets[4];};
+extern "C" bool cvr_ta_query(ID3D12CommandQueue* queue,const CvrTaQuerySource* sources,const void* boundary,
+                             bool (*validateIdentity)(void* ctx,uint32_t side,uint32_t target),void* ctx);
+namespace cvr::stereo::target_access {
+struct Receipt::Data {
+    std::array<target_handoff::SourceSnapshot,2> sources;
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+    submission_frontier::Boundary boundary;
+    queue_residency::Scope scope;queue_residency::Invocation invocation;
+    detail::ReceiptKey key;
+    bool Live(ID3D12CommandQueue*,uint32_t)const;
+};
+namespace {
+using Microsoft::WRL::ComPtr;
+struct RustMutex {void lock(){cvr_ta_lock(true);}void unlock(){cvr_ta_lock(false);}} mutex;
+std::atomic<bool>& observing=cvr_ta_counters()->observing;std::atomic<bool>& unavailable=cvr_ta_counters()->unavailable;
+struct Publish {
+    Publish(){CyberpunkVR_TargetAccessSeq.fetch_add(1,std::memory_order_acq_rel);}
+    ~Publish(){cvr_ta_publish_stats();CyberpunkVR_TargetAccessSeq.fetch_add(1,std::memory_order_release);}
+};
+uint64_t Address(const void* value){return reinterpret_cast<uintptr_t>(value);}
+bool SameLease(const native_recording::Lease& a,const native_recording::Lease& b){
+    return a.token && a.token==b.token && a.generation==b.generation && a.context==b.context && a.list==b.list && a.registry==b.registry;
+}
+bool SameSources(const std::array<target_handoff::SourceSnapshot,2>& a,const std::array<target_handoff::SourceSnapshot,2>& b){
+    for(uint32_t side=0;side<2;++side){
+        if(!SameLease(a[side].recording,b[side].recording) || a[side].frame!=b[side].frame || a[side].side!=b[side].side)return false;
+        for(uint32_t i=0;i<4;++i){const auto& left=a[side].targets[i];const auto& right=b[side].targets[i];
+            if(!texture_read::detail::SameWritableIdentityMetadata(left.identity,right.identity) ||
+                left.slot!=right.slot || left.planes!=right.planes || left.finalStates!=right.finalStates ||
+                std::memcmp(&left.view,&right.view,sizeof(left.view)))return false;
+        }
+    }
+    return true;
+}
+std::array<uint64_t,2> SourceLists(const std::array<target_handoff::SourceSnapshot,2>& sources){
+    return {sources[0].recording.list,sources[1].recording.list};
+}
+bool SameInvocation(const queue_residency::Invocation& a,const queue_residency::Invocation& b){
+    return a.thread==b.thread && a.queue==b.queue && a.listsAddress==b.listsAddress && a.lists==b.lists;
+}
+// The journal mutex is held by the caller. No pending-token validation is used:
+// submitted prefix tokens may be consumed while these exact closed rows remain.
+// The journal mutex is held by the caller.
+detail::ReceiptStatus ReceiptStatusLocked(ID3D12CommandQueue* queue,uint32_t frame,const queue_residency::Scope& scope,
+                                        const std::array<target_handoff::SourceSnapshot,2>& sources){
+    detail::ReceiptStatus status;
+    cvr_ta_receipt_status(uint64_t(queue),GetCurrentThreadId(),uint64_t(scope.proof.get()),frame,sources[0].recording.list,
+                          sources[1].recording.list,&status);
+    return status;
+}
+detail::Resource Observed(const texture_read::WritableTargetIdentity& identity){
+    const auto& value=identity.creation;
+    return {uint64_t(value.resource.Get()),{uint64_t(value.heap.Get()),value.heapOffset,value.allocationBytes,value.kind},uint32_t(identity.resourceDesc.Flags)};
+}
+}
+bool Receipt::Data::Live(ID3D12CommandQueue* actualQueue,uint32_t frame)const{
+    if(!actualQueue || actualQueue!=queue.Get() || !frame || frame!=key.frame || GetCurrentThreadId()!=key.thread)return false;
+    {
+        std::lock_guard lock(mutex);
+        if(!detail::ReceiptMatches(key,ReceiptStatusLocked(actualQueue,frame,scope,sources)))return false;
+    }
+    queue_residency::Invocation current;
+    if(!queue_residency::DescribeInvocation(scope,current) || !SameInvocation(invocation,current) ||
+        !detail::ReceiptBoundary(boundary,current,SourceLists(sources)))return false;
+    for(const auto& source:sources)for(const auto& target:source.targets)
+        if(!texture_read::ValidateWritableIdentity(target.identity))return false;
+    if(!queue_residency::Validate(scope))return false;
+    std::lock_guard lock(mutex);
+    return detail::ReceiptMatches(key,ReceiptStatusLocked(actualQueue,frame,scope,sources));
+}
+bool Observing()noexcept{return observing.load(std::memory_order_acquire);}
+void Clear(){cvr_ta2_clear();}   // target_access_observer.rs' events
+void Arm(){cvr_ta2_arm();}
+void Finish(){cvr_ta2_finish();}
+// ImmediateWrite: target_access_observer.rs' events::immediate_write (the list detour calls it).
+extern "C" {
+void cvr_ta2_observer_unavailable();
+void cvr_ta2_reset(ID3D12GraphicsCommandList*);
+void cvr_ta2_close(ID3D12GraphicsCommandList*,HRESULT);
+void cvr_ta2_read(ID3D12GraphicsCommandList*,ID3D12Resource*,uint32_t,UINT,uint64_t,uint64_t);
+void cvr_ta2_written(ID3D12GraphicsCommandList*,ID3D12Resource*,uint32_t,UINT,uint64_t,uint64_t);
+void cvr_ta2_barriers(ID3D12GraphicsCommandList*,UINT,const D3D12_RESOURCE_BARRIER*);
+void cvr_ta2_targets(ID3D12GraphicsCommandList*,UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,bool,const D3D12_CPU_DESCRIPTOR_HANDLE*);
+void cvr_ta2_shader(ID3D12GraphicsCommandList*,bool);
+void cvr_ta2_clear_view(ID3D12GraphicsCommandList*,size_t,bool);
+void cvr_ta2_unknown(ID3D12GraphicsCommandList*,uint32_t);
+}
+void ObserverUnavailable(){cvr_ta2_observer_unavailable();}
+void Reset(ID3D12GraphicsCommandList* list){cvr_ta2_reset(list);}
+void Close(ID3D12GraphicsCommandList* list,HRESULT result){cvr_ta2_close(list,result);}
+void Read(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,uint32_t kind,UINT subresource,uint64_t offset,uint64_t bytes){
+    cvr_ta2_read(list,resource,kind,subresource,offset,bytes);}
+void Written(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,uint32_t kind,UINT subresource,uint64_t offset,uint64_t bytes){
+    cvr_ta2_written(list,resource,kind,subresource,offset,bytes);}
+void Barriers(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RESOURCE_BARRIER* barriers){cvr_ta2_barriers(list,count,barriers);}
+void Targets(ID3D12GraphicsCommandList* list,UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE* colors,BOOL contiguous,const D3D12_CPU_DESCRIPTOR_HANDLE* depth){
+    cvr_ta2_targets(list,count,colors,contiguous!=FALSE,depth);}
+void Shader(ID3D12GraphicsCommandList* list,bool graphics){cvr_ta2_shader(list,graphics);}
+void ClearView(ID3D12GraphicsCommandList* list,D3D12_CPU_DESCRIPTOR_HANDLE handle,bool depth){cvr_ta2_clear_view(list,handle.ptr,depth);}
+void Unknown(ID3D12GraphicsCommandList* list,uint32_t kind){cvr_ta2_unknown(list,kind);}
+bool MarkSource(ID3D12GraphicsCommandList* list,const native_recording::Lease& lease,uint32_t frame,uint32_t side){
+    if(!Observing())return false;std::lock_guard lock(mutex);if(!Observing())return false;Publish publish;
+    return cvr_ta_mark_source(Address(list),Address(lease.token.Get()),lease.generation,lease.context,lease.list,lease.registry,frame,side);
+}
+// MarkExit and the diagnostic proof scope are rust/crates/cvr-render/src/target_access_observer.rs' events (the seal's).
+bool Query(ID3D12CommandQueue* queue,const std::array<target_handoff::SourceSnapshot,2>& sources,const submission_frontier::Boundary& boundary){
+    if(!Observing() && !unavailable.load(std::memory_order_acquire))return false;
+    std::lock_guard lock(mutex);
+    if(!Observing() && !unavailable.load(std::memory_order_relaxed))return false;Publish publish;
+    static_assert(sizeof(submission_frontier::Boundary)==104,"mirrored by target_access.rs");
+    static_assert(sizeof(CvrTaQueryTarget)==104 && sizeof(CvrTaQuerySource)==464,"mirrored by QuerySource in target_access_observer.rs");
+    CvrTaQuerySource flat[2]{};
+    for(uint32_t side=0;side<2;++side){const auto& source=sources[side];auto& out=flat[side];const auto& lease=source.recording;
+        out.token=Address(lease.token.Get());out.generation=lease.generation;out.context=lease.context;out.list=lease.list;
+        out.registry=lease.registry;out.frame=source.frame;out.side=source.side;
+        for(uint32_t t=0;t<4;++t){const auto& target=source.targets[t];auto& value=out.targets[t];const auto& own=target.identity.recording;
+            value.observed=Observed(target.identity);value.planes=target.planes;value.expected=uint32_t(target.identity.expectedWritableState);
+            value.finals[0]=uint32_t(target.finalStates[0]);value.finals[1]=uint32_t(target.finalStates[1]);
+            value.token=Address(own.token.Get());value.generation=own.generation;value.context=own.context;value.list=own.list;
+            value.registry=own.registry;
+        }
+    }
+    struct Context {ID3D12CommandQueue* queue;const std::array<target_handoff::SourceSnapshot,2>* sources;} context{queue,&sources};
+    return cvr_ta_query(queue,flat,&boundary,[](void* value,uint32_t side,uint32_t target){
+        const auto* c=static_cast<const Context*>(value);
+        return texture_read::ValidateWritableIdentity((*c->sources)[side].targets[target].identity,c->queue);
+    },&context);
+}
+bool Query(ID3D12CommandQueue* queue,const std::array<target_handoff::SourceSnapshot,2>& supplied,
+           const submission_frontier::Boundary& boundary,const queue_residency::Scope& scope,Receipt& output)try{
+    output={};const auto frame=supplied[0].frame;
+    if(!queue || !scope || !frame || supplied[1].frame!=frame)return false;
+    queue_residency::Invocation invocation;
+    if(!queue_residency::DescribeInvocation(scope,invocation) || invocation.queue!=uint64_t(queue) ||
+        invocation.thread!=GetCurrentThreadId() || !detail::ReceiptBoundary(boundary,invocation,SourceLists(supplied)))return false;
+    std::array<target_handoff::SourceSnapshot,2> authenticated;
+    if(!target_handoff::SnapshotSources(queue,frame,authenticated) || !SameSources(supplied,authenticated))return false;
+    for(const auto& source:authenticated)if(!queue_residency::ContainsRecording(scope,source.recording))return false;
+    detail::ReceiptKey before;
+    {
+        std::lock_guard lock(mutex);const auto state=ReceiptStatusLocked(queue,frame,scope,authenticated);
+        if(!detail::ReceiptMatches(state.key,state))return false;before=state.key;
+    }
+    if(!Query(queue,authenticated,boundary))return false;
+    queue_residency::Invocation current;
+    if(!queue_residency::DescribeInvocation(scope,current) || !SameInvocation(invocation,current))return false;
+    std::array<target_handoff::SourceSnapshot,2> confirmed;
+    if(!target_handoff::SnapshotSources(queue,frame,confirmed) || !SameSources(authenticated,confirmed))return false;
+    for(const auto& source:confirmed)if(!queue_residency::ContainsRecording(scope,source.recording))return false;
+    auto proof=std::make_shared<Receipt::Data>();proof->sources=std::move(confirmed);proof->queue=queue;
+    proof->boundary=boundary;proof->scope=scope;proof->invocation=std::move(invocation);proof->key=before;
+    {
+        std::lock_guard lock(mutex);
+        if(!detail::ReceiptMatches(before,ReceiptStatusLocked(queue,frame,scope,proof->sources)))return false;
+    }
+    if(!proof->Live(queue,frame))return false;
+    output.data_=std::move(proof);return true;
+}catch(...){output={};return false;}
+bool Validate(const Receipt& receipt,ID3D12CommandQueue* queue,uint32_t frame)try{
+    return receipt.data_ && receipt.data_->Live(queue,frame);
+}catch(...){return false;}
+bool Describe(const Receipt& receipt,ID3D12CommandQueue* queue,uint32_t frame,std::array<target_handoff::SourceSnapshot,2>& output)try{
+    output={};if(!Validate(receipt,queue,frame))return false;
+    auto next=receipt.data_->sources;
+    if(!Validate(receipt,queue,frame))return false;
+    output=std::move(next);return true;
+}catch(...){output={};return false;}
+}
+#endif
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_TargetAccessSeq{0};
@@ -12,6 +217,13 @@ __declspec(dllexport) uint64_t CyberpunkVR_TargetAccessChecks[32]{};
 __declspec(dllexport) uint64_t CyberpunkVR_TargetAccessFailureEvent[8]{};
 __declspec(dllexport) uint64_t CyberpunkVR_TargetAccessBreadcrumbStats[8]{};
 }
+// The query's checks: rust/crates/cvr-render/src/target_access_query.rs (target_access.rs's mirrors; a source's final
+// states read at the target stride).
+extern "C" bool cvr_taq_frontier(const void*,uint64_t);
+extern "C" bool cvr_taq_final_states(void*,const void*,const uint8_t*,size_t,uint32_t,bool);
+extern "C" void cvr_taq_seed(void*,const uint8_t*,size_t);
+extern "C" void cvr_taq_merge(void*,const void*,bool);
+extern "C" void cvr_taq_row(uint32_t,const void*,bool,uint64_t*);
 namespace cvr::stereo::target_access {
 struct Receipt::Data {
     std::array<target_handoff::SourceSnapshot,2> sources;
@@ -485,3 +697,4 @@ bool Describe(const Receipt& receipt,ID3D12CommandQueue* queue,uint32_t frame,st
     output=std::move(next);return true;
 }catch(...){output={};return false;}
 }
+#endif

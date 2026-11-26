@@ -33,6 +33,10 @@ namespace cvr::camera { struct PoseIdentity; }
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_DebugVrcamConfigLoaded;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVrcamNodeHits;
 
+#include "Stereo/RenderTls.hpp"   // the Rust build's render thread state
+#if CVR_RUST_VRIK
+#include "Utils/SrwMutex.hpp"   // the Rust build's locks both halves take
+#endif
 namespace cvr {
 namespace detail {
 using CloudsNodeFn = char(__fastcall*)(void*, void*);
@@ -106,7 +110,7 @@ constexpr uint64_t  DLSS_EVAL_FLAG_BIT = (1ull << 6);// flag 0x46 (bit 6 of that
 constexpr uint64_t  BUILD_FLAG65_BIT   = (1ull << 1);// group 65 (bit 1 of that qword; 2.31: group 64, bit 0)
 constexpr uintptr_t DLSS_CACHE_OFF = 0x3C8;   // a1+968 .. +0x3E7 (changed-detection cache)
 
-constexpr uintptr_t DLSS_VP_OFF     = 0x4A0;   // CP2.5: handle480 + BaseStructure32; 498 is structVersion
+constexpr uintptr_t DLSS_VP_OFF     = 0x498;   // viewport id inside the DLSS state (a1)
 constexpr uintptr_t DLSS_JITTER_OFF = 0x1E0;   // jitterX @ +0x1E0, jitterY @ +0x1E4, live-verified
 
 // The COM vtable signatures the command-list hook record is written in terms of. Multi-line
@@ -291,13 +295,13 @@ extern uint8_t* g_exe_base;
 // The four coupled fields the selection resolves TOGETHER, plus the hash every "is this the second
 // eye?" test compares against. Resolving one of them alone is how the render target and the
 // component came to disagree, which is why they are declared as a group rather than one by one.
-extern char g_vrcam_component[96];
-extern char g_vrcam_camera[96];
-extern std::atomic<uint32_t> g_vrcam_sel_w;
-extern std::atomic<uint32_t> g_vrcam_sel_h;
-extern std::atomic<uint64_t> g_vrcam_ctx_key;
+extern "C" char g_vrcam_component[96];
+extern "C" char g_vrcam_camera[96];
+extern "C" std::atomic<uint32_t> g_vrcam_sel_w;
+extern "C" std::atomic<uint32_t> g_vrcam_sel_h;
+extern "C" std::atomic<uint64_t> g_vrcam_ctx_key;
 // True once the launcher resolution has decided the pick, so a later file read cannot undo it.
-extern bool g_vrcam_pick_authoritative;
+extern "C" bool g_vrcam_pick_authoritative;
 
 // Resolves all of the above from vrcam.json and the launcher ini. Called at init, and again by the
 // watcher when the answer changes.
@@ -311,6 +315,8 @@ void vrcam_active_watcher();
 extern "C" __declspec(dllexport) double   CyberpunkVR_ProfFrameMs;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_ProfEnable;
 extern LARGE_INTEGER g_qpc_freq;
+// C linkage: the profiler's work is rust/crates/cvr-render/src/stereo_profiler.rs, which reads and drains these.
+extern "C" {
 extern double        g_qpc_to_ms;
 extern std::atomic<int64_t>  g_prof_build_main_ticks;
 extern std::atomic<int64_t>  g_prof_build_vrcam_ticks;
@@ -324,6 +330,7 @@ extern std::atomic<uint64_t> g_prof_disp_vrcam_nodes;
 extern std::atomic<uint64_t> g_prof_frames;
 extern std::atomic<uint64_t> g_prof_top_main;
 extern std::atomic<uint64_t> g_prof_top_vrcam;
+}
 int64_t prof_now();
 // The node timeline (Profiler.cpp): one span per top-level node, graph build and Present.
 struct ProfSpan { int64_t start; int64_t end; uint32_t rva; uint32_t kind; uint32_t thread; uint32_t reserved; };
@@ -480,8 +487,12 @@ extern volatile int32_t g_vrcam_dlss_rw;
 extern volatile int32_t g_vrcam_dlss_rh;
 extern thread_local ID3D12GraphicsCommandList* t_hud_rt_list;
 extern thread_local ID3D12Resource* t_hud_rt_bound;
+#if !CVR_RUST_VRIK
 extern thread_local UINT t_cur_rt_h;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local UINT t_cur_rt_w;
+#endif
 
 // The viewport hook lives with the DLSS band that upscales through it; the vtable patch that
 // installs it does not.
@@ -498,16 +509,22 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_GradeUpProbe;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_GradeMirrorMask;
 extern CbUploadFn g_orig_cb_upload;
 extern bool     g_gcu_seen[2];
+#if !CVR_RUST_VRIK
 extern thread_local bool t_vrcam_node_active;
+#endif
 // The same question with three answers instead of two: 0 = MAIN, 1 = the second eye, -1 = neither.
 // Reading the flag above as "not vrcam, therefore MAIN" put reflection-probe cubemap faces into
 // MAIN's column and made five separate census readings mixtures. Any per-view comparison must
 // ignore -1.
+#if !CVR_RUST_VRIK
 extern thread_local int32_t t_view_side;
+#endif
 // Which shadow cascade the pass currently executing is for, published by Detour_CascadeNode so a probe on
 // the constant uploads can key on it. -1 outside the cascade pass. See the note at that detour: keying too
 // coarsely is what invalidated three earlier measurements.
+#if !CVR_RUST_VRIK
 extern thread_local int32_t t_cascade_idx;
+#endif
 extern thread_local int      t_grade_cb_view;
 extern thread_local uint32_t t_grade_cb_idx;
 void grade_cb_commit(int kind, uint32_t n);
@@ -566,7 +583,7 @@ extern D3D12_CPU_DESCRIPTOR_HANDLE g_own_rtv;
 extern DXGI_FORMAT           g_d12_fmt;
 extern ID3D12CommandAllocator*    g_d12_copy_alloc[4];
 extern ID3D12DescriptorHeap*       g_own_rtv_heap;
-extern ID3D12Device* g_game_device;
+extern "C" ID3D12Device* g_game_device;
 extern ID3D12Fence*          g_d12_fence;
 extern ID3D12GraphicsCommandList* g_d12_copy_list;
 extern ID3D12Resource*             g_own_target;
@@ -586,19 +603,24 @@ extern std::atomic<bool>   g_stable_fresh;
 extern std::atomic<bool> g_mirror_copy_armed;
 extern std::atomic<uint64_t> g_mirror_armed_serial;
 extern std::atomic<uint64_t> g_mirror_vrcam_serial;
+#if CVR_RUST_VRIK
+// SRW locks defined in Rust (rust/crates/cvr-render/src/stereo_shared.rs), which takes them too.
+extern "C" cvr::SrwMutex g_own_target_mtx, g_d12_copy_mtx, g_d12_mtx, g_stable_mtx;
+#else
 extern std::mutex                  g_own_target_mtx;
 extern std::mutex                 g_d12_copy_mtx;
 extern std::mutex            g_d12_mtx;
 extern std::mutex          g_stable_mtx;
+#endif
 extern uint32_t                   g_d12_copy_frame;
-extern uint32_t g_visdump_w;
-extern uint32_t g_visdump_h;
-extern uint32_t g_visdump_pitch;
+extern "C" uint32_t g_visdump_w;
+extern "C" uint32_t g_visdump_h;
+extern "C" uint32_t g_visdump_pitch;
 extern uint64_t                   g_d12_copy_slot_fence[4];
-extern uint8_t*                 g_ti_map[4];
-extern uint8_t*        g_cb_map[4];
-extern uint8_t*        g_luma_map[4];
-extern void*    g_visdump_map;
+extern "C" uint8_t*                 g_ti_map[4];
+extern "C" uint8_t*        g_cb_map[4];
+extern "C" uint8_t*        g_luma_map[4];
+extern "C" void*    g_visdump_map;
 void cb_probe_collect(uint32_t idx, double L);
 void d12_submit_mirror_copy(ID3D12CommandQueue* queue);
 void ti_probe_collect(uint32_t idx, double L);
@@ -617,10 +639,10 @@ extern "C" unsigned long long CyberpunkVR_DebugBarrelDotDraws;
 using CreateRTVFn = void (STDMETHODCALLTYPE*)(ID3D12Device*, ID3D12Resource*,
     const D3D12_RENDER_TARGET_VIEW_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE);
 extern CreateRTVFn g_orig_CreateRTV;
-extern ID3D12Resource*          g_ti_rb[4];
-extern ID3D12Resource*          g_ti_src[4][24];
-extern ID3D12Resource* g_cb_rb[4];
-extern ID3D12Resource* g_luma_rb[4];
+extern "C" ID3D12Resource*          g_ti_rb[4];
+extern "C" ID3D12Resource*          g_ti_src[4][24];
+extern "C" ID3D12Resource* g_cb_rb[4];
+extern "C" ID3D12Resource* g_luma_rb[4];
 PFN_ExecuteCommandLists command_queue_original_execute(ID3D12CommandQueue*);
 // The tonemap input-capture record. A complete type rather than a forward declaration, because the
 // mirror's luma probe indexes the array and reads its members.
@@ -634,16 +656,16 @@ extern std::atomic<ID3D12Resource*> g_cb_last_res;
 extern std::atomic<ID3D12Resource*> g_cb_res;
 extern std::atomic<ID3D12Resource*> g_expo_main;
 extern std::atomic<ID3D12Resource*> g_expo_vrcam;
-extern std::atomic<bool>            g_cb_reset_pending;
+extern "C" std::atomic<bool>            g_cb_reset_pending;
 extern std::atomic<uint32_t>    g_tm_in_n;
 extern std::atomic<uint32_t>    g_tm_in_rva[24];
 extern std::atomic<uint64_t>        g_cb_off;
-extern uint32_t                 g_ti_count[4];
-extern uint32_t                 g_ti_fmt[4][24];
-extern uint32_t                 g_ti_tag[4][24];
-extern uint32_t        g_luma_finidx[4];
-extern uint32_t        g_luma_frame[4];
-extern uint32_t        g_luma_parity[4];
+extern "C" uint32_t                 g_ti_count[4];
+extern "C" uint32_t                 g_ti_fmt[4][24];
+extern "C" uint32_t                 g_ti_tag[4][24];
+extern "C" uint32_t        g_luma_finidx[4];
+extern "C" uint32_t        g_luma_frame[4];
+extern "C" uint32_t        g_luma_parity[4];
 void d12_append_mirror_copy(const CommandListVtableHook* e, ID3D12GraphicsCommandList* list, ID3D12Resource* dtex, D3D12_RESOURCE_STATES after);
 void d12_present_thread();
 
@@ -663,12 +685,26 @@ extern std::array<LightDst, 24> g_light_dsts;
 extern std::atomic<ID3D12Resource*> g_frame_cb;
 extern std::atomic<ID3D12Resource*> g_hud_cb;
 extern std::atomic<bool> g_hud_cb_from_ring;
+#if CVR_RUST_VRIK
+extern "C" cvr::SrwMutex g_hud_snap_mtx;   // defined in Rust (stereo_shared.rs)
+#else
 extern std::mutex g_hud_snap_mtx;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local UINT t_last_disp[3];
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local bool t_2rt_cb_armed;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local bool t_in_vrcam_2rt;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local uintptr_t t_current_node_work;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local uintptr_t t_current_node_view;
+#endif
 extern uint32_t g_light_dst_n;
 
 // ---- the command-list hooks the census owns -------------------------------------------------
@@ -782,11 +818,15 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionMap;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionPick;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CbvDumpNode;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VisionNode;
-extern std::atomic<uint32_t> g_vrcam_view_h;
-extern std::atomic<uint32_t> g_vrcam_view_w;
-extern std::atomic<uint64_t> g_cc_big;
+extern "C" std::atomic<uint32_t> g_vrcam_view_h;
+extern "C" std::atomic<uint32_t> g_vrcam_view_w;
+extern "C" std::atomic<uint64_t> g_cc_big;
+#if !CVR_RUST_VRIK
 extern thread_local int32_t   t_vision_ord;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local uintptr_t t_vision_node;
+#endif
 void camcb_note(const uint8_t* cp, bool vrcam);
 void camcb_stages();
 void cbv_dump_note(const uint8_t* p, bool vrcam);
@@ -825,25 +865,55 @@ extern std::atomic<uint64_t> g_eye_node_hits;
 extern std::atomic<uint64_t> g_stable_tick;
 extern std::atomic<uint64_t> g_stable_tick_us;
 extern std::mutex g_gcb_mtx;
+#if !CVR_RUST_VRIK
 extern thread_local DXGI_FORMAT t_mirror_copy_rtv_format;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local ID3D12GraphicsCommandList* t_mirror_copy_list;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local ID3D12GraphicsCommandList* t_tm_rt0_list;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local ID3D12Resource* t_mirror_copy_rtv;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local ID3D12Resource* t_tm_rt0;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local bool t_mirror_copy_node_active;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local bool t_tm_consumed;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local uint32_t t_mirror_src_state;
+#endif
 // True only once hk_ResourceBarrier has seen a transition of that exact resource on this
 // thread. A foreign resource is never given a barrier on a seeded or guessed state.
+#if !CVR_RUST_VRIK
 extern thread_local bool t_mirror_src_state_seen;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local bool t_tm_rt0_state_seen;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local uint32_t t_tm_rt0_state;
+#endif
 // The finished-frame path's per-thread slot -- see the note beside CyberpunkVR_FinalGrab in
 // Capture.cpp for why these are thread_local and not globals.
+#if !CVR_RUST_VRIK
 extern thread_local bool t_tm_from_final;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local ID3D12Resource*            t_final_res;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local uint32_t                   t_final_state;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local ID3D12GraphicsCommandList* t_final_list;
+#endif
 extern thread_local uint32_t                   t_final_writes;
 void final_frame_copy_now();
 extern uint32_t g_gcb_len[2][GRADE_CB_SLOTS];
@@ -909,8 +979,13 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudNodeVrcam;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugNodeCutSkips;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_HudCapBits;
 extern HudViewDataFn g_hud_viewdata_get;
+// C linkage: read by rust/crates/cvr-render/src/stereo_profiler.rs (layouts mirrored there).
+extern "C" {
 extern ProfNode g_prof_nodes[512];
 extern ProfPass g_prof_scenepass[256];
+extern std::atomic<uint32_t> g_prof_ord_main;
+extern std::atomic<uint32_t> g_prof_ord_vrcam;
+}
 extern ViewFeatureCheckFn g_view_feature_check_orig;
 extern bool g_hud_mask_dumped_main;
 extern bool g_hud_mask_dumped_vrcam;
@@ -918,8 +993,6 @@ extern const uint32_t DRAWHUD_WORK_RVA;
 extern const uint32_t SCENE_DRIVER_WORK_RVA;
 extern const uintptr_t HUD_REQUIRED_MASK_RVA;
 extern const uintptr_t VIEW_FEATURE_CHECK_RVA;
-extern std::atomic<uint32_t> g_prof_ord_main;
-extern std::atomic<uint32_t> g_prof_ord_vrcam;
 extern void* g_hud_block_main;
 void hud_dump_capability_mask(uint8_t* work_context, bool vrcam);
 void hud_grant_capability(uintptr_t ctx);
@@ -974,10 +1047,18 @@ extern WaitOnAddressFn         g_wait_on_address;
 extern WakeByAddressAllFn      g_wake_by_address_all;
 extern std::atomic<bool>       g_node_dispatch_hooked;
 extern std::atomic<bool> g_have_tonemap_source;
+#if !CVR_RUST_VRIK
 extern thread_local bool     t_active_view_known;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local int t_prof_disp_depth;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local int64_t t_prof_child_ticks;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local uint64_t t_active_view_key;
+#endif
 
 // WHICH VIEW IS RECORDING, ANSWERED THE ONLY WAY THAT HOLDS. The hash at ctx+0x28 reads 0 for
 // MAIN and g_vrcam_ctx_key for the port's VRCAM; a reflection-probe face and the flat 960x540

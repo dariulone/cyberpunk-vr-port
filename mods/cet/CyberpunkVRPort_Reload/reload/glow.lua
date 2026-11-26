@@ -156,6 +156,8 @@ local function off()
         if S.look[side] then show(side, S.mesh[side], nil) end
     end
 end
+-- Hide without dropping component caches on a transient tracking/equip miss.
+M.hide = off
 
 local reach = nil
 local function markRack(side, weaponSlots, slotName, on)

@@ -5,6 +5,16 @@ import struct
 import time
 
 
+def _port(game):
+    """The port's folder: CVR_PORT_DIR, at the game's root with its own loader, else RED4ext's plugin folder."""
+    import os
+    from pathlib import Path as _P
+    if os.environ.get('CVR_PORT_DIR'):
+        return _P(os.environ['CVR_PORT_DIR'])
+    root = _P(game) / 'cyberpunkvrport'
+    return root if (root / 'cyberpunkvrport.dll').exists() else _P(game) / 'red4ext/plugins/cyberpunkvrport'
+
+
 class StableHud:
     def __init__(self, milliseconds=1000, frames=30):
         self.duration, self.frames = milliseconds, frames
@@ -52,7 +62,7 @@ def wait_for_stable_hud(pid, game, timeout, check, on_sample=None):
     names = ['CyberpunkVR_RuntimeDiagnostics', 'g_menuModeValue', 'CyberpunkVR_HudPoseDebug',
              'CyberpunkVR_HudPoseDebugSeq', 'CyberpunkVR_HudSubmittedFrames']
     deadline = time.monotonic() + timeout
-    symbols = resolve(pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', names)
+    symbols = resolve(pid, _port(game)/'cyberpunkvrport.dll', names)
     reader = Reader(pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
     handle = None
     original = None

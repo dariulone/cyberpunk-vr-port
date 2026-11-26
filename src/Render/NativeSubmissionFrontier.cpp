@@ -10,6 +10,9 @@
 #include <mutex>
 
 extern "C" {
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SubmissionFrontierEnable{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SubmissionFrontierInstalled{},CyberpunkVR_SubmissionFrontierState{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SubmissionFrontierFailure{},CyberpunkVR_SubmissionFrontierSeq{};
@@ -17,10 +20,38 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SubmissionFrontierBounda
 __declspec(dllexport) uint64_t CyberpunkVR_SubmissionFrontierStats[16]{},CyberpunkVR_SubmissionFrontierDetails[16]{};
 __declspec(dllexport) uint64_t CyberpunkVR_SubmissionFrontierRanges{},CyberpunkVR_SubmissionFrontierSlots{},CyberpunkVR_SubmissionFrontierSubmits{};
 __declspec(dllexport) uint32_t CyberpunkVR_SubmissionFrontierRangeCount{},CyberpunkVR_SubmissionFrontierSlotCount{},CyberpunkVR_SubmissionFrontierSubmitCount{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) uint32_t CyberpunkVR_SubmissionFrontierRangeBytes=24*8,CyberpunkVR_SubmissionFrontierSlotBytes=20*8,CyberpunkVR_SubmissionFrontierSubmitBytes=16*8;
+#endif
+#if !CVR_RUST_VRIK
 extern std::atomic<uint32_t> CyberpunkVR_OwnedExecutionSeq;
 extern uint64_t CyberpunkVR_OwnedExecutionStats[24];
+#endif
 }
+#if CVR_RUST_VRIK
+// The owner: rust/crates/cvr-render/src/submission_frontier_owner.rs (its rules submission_frontier.rs); the hook's
+// frame, the graph identity, ObserveSubmit and the runtime: submission_frontier_host.rs. FindBoundary's sources are
+// C++ leases, so it stays here.
+extern "C" bool cvr_sfo_find_boundary(uint64_t,uint32_t,uint64_t,const std::array<cvr::stereo::submission_frontier::detail::BoundarySource,2>*,
+    const cvr::stereo::native_recording::Lease* const (*)[2],bool,cvr::stereo::submission_frontier::Boundary*);
+namespace cvr::stereo::submission_frontier {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool FindBoundary(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists,const std::array<Source,2>& sources,Boundary& output)noexcept{
+    std::array<detail::BoundarySource,2> numeric{};
+    for(UINT side=0;side<2;++side){const auto& lease=sources[side].recording;const auto& parent=sources[side].parent;
+        numeric[side]={lease.list,lease.context,lease.generation,reinterpret_cast<uintptr_t>(lease.token.Get()),lease.registry,
+            parent.fingerprint,parent.work,parent.name,parent.slot,parent.handle,parent.viewIndex,parent.status};
+    }
+    const native_recording::Lease* const leases[2]{&sources[0].recording,&sources[1].recording};
+    return cvr_sfo_find_boundary(reinterpret_cast<uintptr_t>(queue),count,reinterpret_cast<uintptr_t>(lists),&numeric,&leases,
+        probe::internalCommands,&output);
+}
+#endif
+}
+#else
 namespace cvr::stereo::submission_frontier {
 namespace {
 using Native=uint64_t(__fastcall*)(void*,void*,uint32_t,void*,uint32_t,void*);
@@ -65,6 +96,10 @@ void Reject(detail::Failure reason){
 }
 bool Code(std::array<uint64_t,16>& diagnostic){
     const auto base=Base();diagnostic={};diagnostic[0]=base;if(!base || !native_recording::Compatible())return false;
+#if CVR_RUST_VRIK
+    static_assert(sizeof(native_recording::detail::Code)==16,"mirrored by code_tables.rs's Row");
+    return cvr_nsfr_code(base,detail::Contract.data(),detail::Contract.size(),diagnostic.data()+1);
+#else
     std::array<uint8_t,512> bytes{};
     for(const auto code:detail::Contract){
         diagnostic[1]=code.rva;diagnostic[2]=code.hash;diagnostic[3]=0;
@@ -72,7 +107,13 @@ bool Code(std::array<uint64_t,16>& diagnostic){
         diagnostic[3]=native_recording::detail::Fingerprint({bytes.data(),code.bytes});if(diagnostic[3]!=code.hash)return false;
     }
     return true;
+#endif
 }
+#if CVR_RUST_VRIK
+bool SyncFrame(uint64_t base,uint64_t& contextAddress,uint64_t& definition){
+    return cvr_nsfr_sync_frame(base,detail::CallerReturn,&contextAddress,&definition);
+}
+#else
 bool SyncFrame(uint64_t base,uint64_t& contextAddress,uint64_t& definition){
     contextAddress=definition=0;const auto* tib=reinterpret_cast<const NT_TIB*>(NtCurrentTeb());
     const auto low=reinterpret_cast<uintptr_t>(tib->StackLimit),high=reinterpret_cast<uintptr_t>(tib->StackBase);
@@ -93,6 +134,7 @@ bool SyncFrame(uint64_t base,uint64_t& contextAddress,uint64_t& definition){
     }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     return false;
 }
+#endif
 struct GraphIdentity {
     uint32_t status=1;uint64_t consumer{},graphEpoch{},pair{},frameOwner{},fingerprint{},context{},definition{};
     graph_parent::Receipt sync;graph_snapshot::Snapshot graph;
@@ -100,8 +142,12 @@ struct GraphIdentity {
 GraphIdentity Graph(uint64_t base,uint32_t end,uint32_t mode){
     GraphIdentity result;std::array<uint64_t,24> before{},after{};
     const auto sequence=CyberpunkVR_OwnedExecutionSeq.load(std::memory_order_acquire);
+#if CVR_RUST_VRIK
+    if(!cvr_nsfr_owned(reinterpret_cast<uintptr_t>(CyberpunkVR_OwnedExecutionStats),sequence,before.data()))return result;
+#else
     if((sequence&1) || !GraphRead(reinterpret_cast<uintptr_t>(CyberpunkVR_OwnedExecutionStats),before.data(),sizeof(before)) ||
         (before[0]!=2 && before[0]!=3) || !before[1] || !before[2] || !before[3] || !before[6])return result;
+#endif
     result.consumer=before[1];result.graphEpoch=before[2];result.pair=before[3];result.frameOwner=before[6];result.status=2;
     if(!definition_tracking::CopyOwnedDeclarationSnapshot(result.consumer,result.graph))return result;
     result.status=3;if(!SyncFrame(base,result.context,result.definition))return result;
@@ -327,3 +373,4 @@ bool FindBoundary(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const*
 }catch(...){output={};return BoundaryReject(detail::BoundaryFailure::Exception);}
 uint32_t LastBoundaryFailure()noexcept{return uint32_t(boundaryFailure);}
 }
+#endif

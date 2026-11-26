@@ -35,6 +35,21 @@ enum class Failure:uint32_t {
     None,Arguments,Layout,Tracking,Read,Changed,Globals,Component,Bounds,Tree,Header,
     FreeRoute,ExtentFacts,UnsupportedPointer,ExtentOverflow,ExtentCrossesRegion,Overlap,Allocation
 };
+#if CVR_RUST_VRIK
+// The receipt's rules: rust/crates/cvr-render/src/native/allocator_binding.rs through definition_tree_abi.rs
+// (tools/single_pass_tests/allocator_binding_test runs its cases against them in its Rust variant).
+struct RustIdentity {std::array<uint64_t,3> globals;uint64_t vptr;Bounds bounds;};
+struct RustAllocations;
+extern "C" {
+bool cvr_ab_capture(uint64_t,const LayoutFacts*,const Lifecycle*,ReadMemory,ObserveLifecycle,void*,RustIdentity*,uint32_t*);
+RustAllocations* cvr_ab_bind_saved(bool,uint64_t,const RustIdentity*,const LayoutFacts*,const definition_tree::NativeVector16*,
+    bool,uint64_t,const definition_tree::RustView*,const ExtentFact*,size_t,uint32_t*);
+const Allocation* cvr_ab_allocations(const RustAllocations*,size_t*);
+void cvr_ab_free(RustAllocations*);
+uint32_t cvr_ab_classify_pointer(const Bounds*,bool,uint64_t);
+uint32_t cvr_ab_classify_span(const Bounds*,bool,uint64_t,uint64_t);
+}
+#endif
 
 // Structural identity/range receipt only. Version guards and lifecycle samples
 // come from the caller's allocator gate. Neither readable globals nor a live
@@ -42,6 +57,18 @@ enum class Failure:uint32_t {
 // Node/control sizes are parsed minimums unless an audited exact fact is supplied.
 class Receipt {
 public:
+#if CVR_RUST_VRIK
+    bool Capture(uint64_t imageBase,LayoutFacts facts,Lifecycle expected,ReadMemory read,
+                 ObserveLifecycle observe,void* trackingContext)try{
+        static_assert(sizeof(Identity)==sizeof(RustIdentity) && sizeof(Identity)==64 && sizeof(Lifecycle)==24 &&
+            sizeof(Allocation)==40 && sizeof(ExtentFact)==24,"mirrored by allocator_binding.rs");
+        *this=Receipt{};uint32_t failure=0;Identity identity;
+        const bool captured=cvr_ab_capture(imageBase,&facts,&expected,read,observe,trackingContext,
+            reinterpret_cast<RustIdentity*>(&identity),&failure);
+        failure_=Failure(failure);if(!captured)return false;
+        imageBase_=imageBase;identity_=identity;lifecycle_=expected;facts_=facts;captured_=true;return true;
+    }catch(...){*this=Receipt{};failure_=Failure::Allocation;return false;}
+#else
     bool Capture(uint64_t imageBase,LayoutFacts facts,Lifecycle expected,ReadMemory read,
                  ObserveLifecycle observe,void* trackingContext)try{
         *this=Receipt{};failure_=Failure::Arguments;
@@ -58,9 +85,26 @@ public:
         imageBase_=imageBase;identity_=first;lifecycle_=expected;facts_=facts;captured_=true;
         failure_=Failure::None;return true;
     }catch(...){*this=Receipt{};failure_=Failure::Allocation;return false;}
+#endif
 
     // Caller supplies the exact retained owner header whose validated entry
     // slots produced this tree. Matching count is not an entry/ownership proof.
+#if CVR_RUST_VRIK
+    bool BindSaved(definition_tree::NativeVector16 header,const definition_tree::Snapshot& tree,
+                   std::span<const ExtentFact> exactExtents={})try{
+        savedBound_=false;savedHeader_={};allocations_.clear();uint32_t failure=0;
+        const definition_tree::RustView view{tree.Roots().data(),tree.Roots().size(),tree.Nodes().data(),tree.Nodes().size(),
+            tree.Handles().data(),tree.Handles().size(),tree.Arrays().data(),tree.Arrays().size(),
+            tree.Strings().data(),tree.Strings().size(),tree.Allocators().data()};
+        const auto bound=cvr_ab_bind_saved(captured_,imageBase_,reinterpret_cast<const RustIdentity*>(&identity_),&facts_,
+            &header,tree.Ready(),tree.ImageBase(),&view,exactExtents.data(),exactExtents.size(),&failure);
+        failure_=Failure(failure);if(!bound)return false;
+        struct Release{RustAllocations* bound;~Release(){cvr_ab_free(bound);}}release{bound};
+        size_t count=0;const auto allocations=cvr_ab_allocations(bound,&count);
+        allocations_.assign(allocations,allocations+count);
+        savedHeader_=header;savedBound_=true;failure_=Failure::None;return true;
+    }catch(...){allocations_.clear();savedBound_=false;failure_=Failure::Allocation;return false;}
+#else
     bool BindSaved(definition_tree::NativeVector16 header,const definition_tree::Snapshot& tree,
                    std::span<const ExtentFact> exactExtents={})try{
         savedBound_=false;savedHeader_={};allocations_.clear();failure_=Failure::Tree;
@@ -114,6 +158,7 @@ public:
         failure_=Failure::ExtentFacts;if(!facts.empty())return false;
         savedHeader_=header;allocations_=std::move(next);savedBound_=true;failure_=Failure::None;return true;
     }catch(...){allocations_.clear();savedBound_=false;failure_=Failure::Allocation;return false;}
+#endif
 
     bool MatchesBefore(ReadMemory read,ObserveLifecycle observe,void* trackingContext)const{
         if(!captured_ || failure_!=Failure::None)return false;
@@ -128,6 +173,11 @@ public:
         return true;
     }
     // Mirrors 14455C's free-pointer route; not a statement about object extents.
+#if CVR_RUST_VRIK
+    Region ClassifyPointer(uint64_t address)const noexcept{
+        return Region(cvr_ab_classify_pointer(&identity_.bounds,captured_,address));
+    }
+#else
     Region ClassifyPointer(uint64_t address)const noexcept{
         if(!captured_ || !address)return Region::Unsupported;
         const auto& bounds=identity_.bounds;
@@ -135,6 +185,12 @@ public:
         if(address>=bounds.middleBegin && address<bounds.middleEnd)return Region::Middle;
         return Region::Unsupported;
     }
+#endif
+#if CVR_RUST_VRIK
+    Region ClassifySpan(uint64_t address,uint64_t bytes)const noexcept{
+        return Region(cvr_ab_classify_span(&identity_.bounds,captured_,address,bytes));
+    }
+#else
     Region ClassifySpan(uint64_t address,uint64_t bytes)const noexcept{
         if(!bytes || address>UINT64_MAX-bytes)return Region::Unsupported;
         const auto region=ClassifyPointer(address);const auto end=address+bytes;
@@ -142,6 +198,7 @@ public:
         if(region==Region::Middle && end<=identity_.bounds.middleEnd)return region;
         return Region::Unsupported;
     }
+#endif
     bool Captured()const noexcept{return captured_;}
     bool SavedBound()const noexcept{return savedBound_;}
     bool AllExactExtents()const noexcept{
@@ -162,6 +219,7 @@ private:
         std::array<uint64_t,3> globals{};uint64_t vptr{};Bounds bounds;
         bool operator==(const Identity&)const=default;
     };
+#if !CVR_RUST_VRIK
     static bool Address(uint64_t address,uint64_t bytes)noexcept{
         return address && address<=UINT64_MAX-bytes && address<=std::numeric_limits<uintptr_t>::max();
     }
@@ -202,6 +260,7 @@ private:
         for(const auto& allocation:next)if(address<allocation.address+allocation.bytes && allocation.address<address+bytes)return false;
         next.push_back({kind,region,extent,address,bytes,minimum});return true;
     }
+#endif
     uint64_t imageBase_{};Identity identity_;Lifecycle lifecycle_;LayoutFacts facts_;
     definition_tree::NativeVector16 savedHeader_;
     std::vector<Allocation> allocations_;

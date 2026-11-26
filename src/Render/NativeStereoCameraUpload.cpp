@@ -13,10 +13,59 @@
 #include <cstring>
 #include <optional>
 using Microsoft::WRL::ComPtr;
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassTwinUpload{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassTwinAllocations{0},CyberpunkVR_SinglePassTwinBindings{0},CyberpunkVR_SinglePassTwinFailures{0};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+// The upload checks: rust/crates/cvr-render/src/camera_upload_checks.rs (the native calls and the cached results stay
+// here).
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The camera upload: rust/crates/cvr-render/src/camera_upload.rs. The descriptor audit's lookups, the constant upload
+// registry and the native probe's state are lent to it here.
+struct CvrCameraUploadRuntime {
+    std::atomic<uint32_t>* twinUpload;std::atomic<uint32_t>* twinAllocations;std::atomic<uint32_t>* twinBindings;
+    std::atomic<uint32_t>* twinFailures;std::atomic<uint32_t>* traceState;std::atomic<uint32_t>* pipelineCount;
+    const cvr::stereo::native_probe::PipelineRecord* pipelines;
+    bool(*probeEnabled)();
+};
+static_assert(sizeof(CvrCameraUploadRuntime)==64 && sizeof(cvr::stereo::descriptors::CbvBinding)==32 &&
+    sizeof(cvr::stereo::native_probe::PipelineRecord)==80 && sizeof(cvr::stereo::camera_upload::Result)==24 &&
+    sizeof(cvr::stereo::ShaderCamera)==848,"mirrored by camera_upload.rs");
+extern "C" {
+void cvr_ncu_attach(const CvrCameraUploadRuntime*);
+void cvr_ncu_current(uint64_t,cvr::stereo::camera_upload::Context*);
+void cvr_ncu_current_binding(cvr::stereo::camera_upload::Result*);
+bool cvr_ncu_begin_stages(bool,uint64_t,uint32_t,const void*,const void*,const void*,void**,cvr::stereo::camera_upload::Result*,uint32_t,
+    cvr::stereo::camera_upload::BindingScope*);
+bool cvr_ncu_end_stages(bool,uint64_t,cvr::stereo::camera_upload::BindingScope*);
+void cvr_ncu_diagnostics(std::array<uint64_t,16>*);
+}
+namespace cvr::stereo::camera_upload {
+namespace {
+bool ProbeEnabled(){return native_probe::Enabled();}
+const CvrCameraUploadRuntime kRuntime{&CyberpunkVR_SinglePassTwinUpload,&CyberpunkVR_SinglePassTwinAllocations,&CyberpunkVR_SinglePassTwinBindings,
+    &CyberpunkVR_SinglePassTwinFailures,&CyberpunkVR_SinglePassTraceState,&CyberpunkVR_NativeStereoPipelineCount,CyberpunkVR_NativeStereoPipelines,
+    &ProbeEnabled};
+const bool kAttached=(cvr_ncu_attach(&kRuntime),true);
+void** Heap(ComPtr<ID3D12DescriptorHeap>& heap){return reinterpret_cast<void**>(heap.GetAddressOf());}
+}
+Context CurrentContext(uintptr_t base){Context context;cvr_ncu_current(base,&context);return context;}
+std::array<uint64_t,16> BindingDiagnostics(){std::array<uint64_t,16> value;cvr_ncu_diagnostics(&value);return value;}
+Result CurrentBinding(){Result result;cvr_ncu_current_binding(&result);return result;}
+}
+#endif
+#else
 namespace cvr::stereo::camera_upload {
 namespace {
 std::mutex mutex;
@@ -41,6 +90,9 @@ bool Read(uintptr_t address,void* output,size_t bytes) {
 }
 bool NativeCompatible(uintptr_t base){
     if(!base)return false;
+#if CVR_RUST_VRIK
+    static const bool compatible=cvr_ncu_native_code(base);return compatible;
+#else
     static const bool compatible=[&]{
         struct Code {uint32_t rva,bytes;uint64_t hash;};
         constexpr Code expected[]{{0x333B88,0xAD,0x76EEBB3582ED71F9ull},{0x336D3C,0xF1,0x6B6B9044CD5F18EAull},{0x337230,0x33,0x96D1A06A9C2CBA7Full}};
@@ -50,13 +102,18 @@ bool NativeCompatible(uintptr_t base){
             if(hash!=c.hash)return false;}
         return true;
     }();return compatible;
+#endif
 }
 Context Current(uintptr_t base){
     if(!NativeCompatible(base))return {};
     using Get=void*(*)();Context result;
     result.context=reinterpret_cast<uintptr_t>(reinterpret_cast<Get>(base+0x337230)());
+#if CVR_RUST_VRIK
+    if(!cvr_ncu_context(result.context,&result.list,&result.state))return {};
+#else
     if(!result.context || result.context>UINT64_MAX-0x68 ||
         !Read(result.context+0x30,&result.list,8) || !Read(result.context+0x60,&result.state,8))return {};
+#endif
     return result;
 }
 bool AllocateNative(uintptr_t base,Context context,const ShaderCamera& main,const ShaderCamera& peer,ComPtr<ID3D12DescriptorHeap>& heap,Result& output){
@@ -74,7 +131,12 @@ bool AllocateNative(uintptr_t base,Context context,const ShaderCamera& main,cons
     Result result;result.cpuDescriptor=heap->GetCPUDescriptorHandleForHeapStart().ptr;
     using Upload=void(*)(uint32_t,const void*,D3D12_CPU_DESCRIPTOR_HANDLE);
     {ResultCapture capture(result);reinterpret_cast<Upload>(base+0x333B88)(UINT(bytes.size()),bytes.data(),{result.cpuDescriptor});}
+#if CVR_RUST_VRIK
+    static_assert(sizeof(bytes)==2048,"the pair cvr_ncu_uploaded checks");
+    if(!cvr_ncu_uploaded(result.bytes,result.gpuAddress))return false;
+#else
     if(result.bytes!=bytes.size() || !result.gpuAddress || (result.gpuAddress&255))return false;
+#endif
     output=result;return true;
 }
 }
@@ -101,18 +163,27 @@ static bool BeginStages(uintptr_t base,uint32_t nativeCameraHandle,const ShaderC
         // BufUpload camera handles can name DEFAULT buffers, which are not
         // readable through the CPU upload registry. Both stages using the
         // caller's freshly uploaded/bound handle share its exact camera input.
+#if CVR_RUST_VRIK
+        if(cvr_ncu_trusted(resolved,binding.bytes,nativeCameraHandle,scope.original[stage].handle,binding.address,trustedAddress,trustedBytes)){
+#else
         if(resolved && binding.bytes>=current.size() && nativeCameraHandle && scope.original[stage].handle==nativeCameraHandle &&
             (!trustedAddress || (binding.address==trustedAddress && binding.bytes==trustedBytes))){
+#endif
             trustedAddress=binding.address;trustedBytes=binding.bytes;
             bindingDiagnostics[10]=2;bindingDiagnostics[11]=nativeCameraHandle;bindingDiagnostics[15]=2;continue;
         }
         const bool first=resolved && binding.bytes>=current.size() && constants::ReadUpload(binding.address,before.data(),before.size());
         const bool second=first && constants::ReadUpload(binding.address,again.data(),again.size());
         bindingDiagnostics[10]=first;bindingDiagnostics[11]=second;bindingDiagnostics[12]=UINT64_MAX;
+#if CVR_RUST_VRIK
+        static_assert(sizeof(ShaderCamera)==848,"mirrored by camera_upload_checks.rs");
+        if(first)cvr_ncu_first_difference(current.data(),before.data(),bindingDiagnostics.data()+12);
+#else
         if(first)for(size_t i=0;i<current.size();i+=4)if(std::memcmp(current.data()+i,before.data()+i,4)){
             uint32_t actual{},expected{};std::memcpy(&actual,before.data()+i,4);std::memcpy(&expected,current.data()+i,4);
             bindingDiagnostics[12]=i/4;bindingDiagnostics[13]=actual;bindingDiagnostics[14]=expected;break;
         }
+#endif
         bindingDiagnostics[15]=first && second && before==again;
         if(!first || !second || before!=current || again!=current){scope={};return false;}
     }
@@ -160,6 +231,9 @@ struct FlushReceipt {
 thread_local std::optional<FlushReceipt> pairFlush;
 bool FlushCompatible(uintptr_t base){
     if(!base)return false;
+#if CVR_RUST_VRIK
+    static const bool compatible=cvr_ncu_flush_code(base);return compatible;
+#else
     static const bool compatible=[&]{
         struct Code {uint32_t rva,bytes;uint64_t hash;};
         constexpr Code expected[]{{0x335C3C,0x4DC,0x20371793713C127Full},{0x2457F84,0xD3,0xFDEFCB6798D5CC8Bull}};
@@ -170,6 +244,7 @@ bool FlushCompatible(uintptr_t base){
             if(hash!=code.hash)return false;}
         return true;
     }();return compatible;
+#endif
 }
 bool SameBindings(const scene_state::Bindings& before,ID3D12GraphicsCommandList* list){
     scene_state::Bindings after;
@@ -301,7 +376,12 @@ Result Prepare(uintptr_t base,uint32_t nativeHandle,const ShaderCamera& first,co
     using Upload=void(*)(uint32_t,const void*,D3D12_CPU_DESCRIPTOR_HANDLE);
     const auto upload=reinterpret_cast<Upload>(base+0x333B88);
     {ResultCapture capture(result);upload(UINT(data.size()),data.data(),{result.cpuDescriptor});}
+#if CVR_RUST_VRIK
+    static_assert(sizeof(data)==2048,"the pair cvr_ncu_uploaded checks");
+    if(!cvr_ncu_uploaded(result.bytes,result.gpuAddress)) {++CyberpunkVR_SinglePassTwinFailures;return {};}
+#else
     if(result.bytes!=data.size() || !result.gpuAddress || (result.gpuAddress&255)) {++CyberpunkVR_SinglePassTwinFailures;return {};}
+#endif
     ++CyberpunkVR_SinglePassTwinAllocations;pending={nativeHandle,result};return result;
 }
 void CreatedCbv(const D3D12_CONSTANT_BUFFER_VIEW_DESC* desc,D3D12_CPU_DESCRIPTOR_HANDLE destination) {
@@ -324,3 +404,4 @@ void AfterNativeBind(uintptr_t base,uint32_t binding,uint32_t nativeHandle,uint3
 }
 Result CurrentBinding(){return CyberpunkVR_SinglePassTwinUpload.load(std::memory_order_relaxed) && CyberpunkVR_SinglePassTraceState.load(std::memory_order_relaxed)==1?currentBinding:Result{};}
 }
+#endif

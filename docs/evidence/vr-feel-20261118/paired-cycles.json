@@ -1,0 +1,977 @@
+[
+  {
+    "pid": 24920,
+    "sourceSha256": "cb7c8e7027b845972a59c7ebdd479f1efa4efa9e13d66266982729b3cf1d0b50",
+    "takes": [
+      {
+        "id": "Items.Preset_Tech_Sniper_Rifle_Default",
+        "kind": "matched",
+        "nativeScaleControl": false,
+        "idOnDraw": "Items.Preset_Tech_Sniper_Rifle_Default",
+        "profileScale": 0.60000002384186,
+        "mode": "gamedataTriggerMode : SemiAuto (4)",
+        "take": {
+          "lastState": 4,
+          "entity": "10643504ULL",
+          "item": "Items.Preset_Tech_Sniper_Rifle_Default",
+          "remaining": 0,
+          "cycle": 1.2000000476837,
+          "ratio": 0.60000002384186,
+          "prevTime": 3.2030000686646,
+          "original": 3,
+          "events": [
+            {
+              "delta": 1,
+              "left": 2,
+              "lo": 0.1870000064373,
+              "hi": 0.20300000905991
+            },
+            {
+              "delta": 1,
+              "left": 1,
+              "lo": 1.0780000686646,
+              "hi": 1.0940001010895
+            },
+            {
+              "delta": 1,
+              "left": 0,
+              "lo": 1.9690001010895,
+              "hi": 1.9840000867844
+            }
+          ],
+          "maxGap": 0.032000064849854,
+          "frames": 145,
+          "psm": [
+            {
+              "state": 5,
+              "lo": 0,
+              "hi": 0.015000000596046
+            },
+            {
+              "state": 8,
+              "lo": 0.14000000059605,
+              "hi": 0.17200000584126
+            },
+            {
+              "state": 5,
+              "lo": 0.87500005960464,
+              "hi": 0.89000004529953
+            },
+            {
+              "state": 8,
+              "lo": 1.0310000181198,
+              "hi": 1.0470000505447
+            },
+            {
+              "state": 5,
+              "lo": 1.7650001049042,
+              "hi": 1.7810001373291
+            },
+            {
+              "state": 8,
+              "lo": 1.9220000505447,
+              "hi": 1.9370000362396
+            },
+            {
+              "state": 4,
+              "lo": 2.0150001049042,
+              "hi": 2.0310001373291
+            }
+          ],
+          "begin": 0
+        },
+        "peakDeg": 13.300667762756348
+      },
+      {
+        "id": "Items.Preset_Tech_Sniper_Rifle_Default",
+        "kind": "matched",
+        "nativeScaleControl": true,
+        "idOnDraw": "Items.Preset_Tech_Sniper_Rifle_Default",
+        "profileScale": 0.60000002384186,
+        "mode": "gamedataTriggerMode : SemiAuto (4)",
+        "take": {
+          "lastState": 5,
+          "entity": "10643621ULL",
+          "item": "Items.Preset_Tech_Sniper_Rifle_Default",
+          "remaining": 1,
+          "cycle": 1.2000000476837,
+          "ratio": 0,
+          "prevTime": 13.562000274658,
+          "original": 3,
+          "events": [
+            {
+              "delta": 1,
+              "left": 2,
+              "lo": 10.54700088501,
+              "hi": 10.578000068665
+            },
+            {
+              "delta": 1,
+              "left": 1,
+              "lo": 12.328001022339,
+              "hi": 12.359000205994
+            }
+          ],
+          "maxGap": 0.032000541687012,
+          "frames": 145,
+          "psm": [
+            {
+              "state": 5,
+              "lo": 10.344000816345,
+              "hi": 10.359000205994
+            },
+            {
+              "state": 8,
+              "lo": 10.515000343323,
+              "hi": 10.531000137329
+            },
+            {
+              "state": 5,
+              "lo": 11.734000205994,
+              "hi": 11.750000953674
+            },
+            {
+              "state": 8,
+              "lo": 12.281000137329,
+              "hi": 12.312000274658
+            },
+            {
+              "state": 5,
+              "lo": 13.500000953674,
+              "hi": 13.515000343323
+            }
+          ],
+          "begin": 10.344000816345
+        },
+        "peakDeg": 12.413309097290039
+      },
+      {
+        "id": "Items.Preset_Grad_Default",
+        "kind": "ready",
+        "nativeScaleControl": false,
+        "idOnDraw": "Items.Preset_Grad_Default",
+        "profileScale": 0.42592594027519,
+        "mode": "gamedataTriggerMode : SemiAuto (4)",
+        "take": {
+          "lastState": 5,
+          "entity": "10643680ULL",
+          "item": "Items.Preset_Grad_Default",
+          "remaining": 3,
+          "cycle": 2.7000000476837,
+          "ratio": 0.42592594027519,
+          "prevTime": 24.562000274658,
+          "original": 4,
+          "events": [
+            {
+              "delta": 1,
+              "left": 3,
+              "lo": 20.828001022339,
+              "hi": 20.859001159668
+            }
+          ],
+          "maxGap": 0.032001495361328,
+          "frames": 175,
+          "psm": [
+            {
+              "state": 5,
+              "lo": 20.687000274658,
+              "hi": 20.703001022339
+            },
+            {
+              "state": 8,
+              "lo": 20.828001022339,
+              "hi": 20.859001159668
+            },
+            {
+              "state": 5,
+              "lo": 21.984001159668,
+              "hi": 22.000001907349
+            }
+          ],
+          "begin": 20.687000274658
+        },
+        "peakDeg": 14.88143539428711
+      },
+      {
+        "id": "Items.Preset_Grad_Default",
+        "kind": "ready",
+        "nativeScaleControl": true,
+        "idOnDraw": "Items.Preset_Grad_Default",
+        "profileScale": 0.42592594027519,
+        "mode": "gamedataTriggerMode : SemiAuto (4)",
+        "take": {
+          "lastState": 5,
+          "entity": "10643711ULL",
+          "item": "Items.Preset_Grad_Default",
+          "remaining": 3,
+          "cycle": 2.7000000476837,
+          "ratio": 0,
+          "prevTime": 35.562000274658,
+          "original": 4,
+          "events": [
+            {
+              "delta": 1,
+              "left": 3,
+              "lo": 31.828001022339,
+              "hi": 31.859001159668
+            }
+          ],
+          "maxGap": 0.032001495361328,
+          "frames": 175,
+          "psm": [
+            {
+              "state": 5,
+              "lo": 31.687002182007,
+              "hi": 31.703001022339
+            },
+            {
+              "state": 8,
+              "lo": 31.828001022339,
+              "hi": 31.859001159668
+            },
+            {
+              "state": 5,
+              "lo": 34.54700088501,
+              "hi": 34.562000274658
+            }
+          ],
+          "begin": 31.687002182007
+        },
+        "peakDeg": 14.310323715209961
+      },
+      {
+        "id": "Items.Preset_Nekomata_Default",
+        "kind": "charge",
+        "nativeScaleControl": false,
+        "idOnDraw": "Items.Preset_Nekomata_Default",
+        "profileScale": 0.75,
+        "mode": "gamedataTriggerMode : Charge (1)",
+        "take": {
+          "lastState": 8,
+          "entity": "10643790ULL",
+          "item": "Items.Preset_Nekomata_Default",
+          "remaining": 3,
+          "cycle": 0.60000002384186,
+          "ratio": 0.75,
+          "prevTime": 80.140007019043,
+          "original": 4,
+          "events": [
+            {
+              "delta": 1,
+              "left": 3,
+              "lo": 79.781005859375,
+              "hi": 79.812004089355
+            }
+          ],
+          "maxGap": 0.031997680664063,
+          "frames": 65,
+          "psm": [
+            {
+              "state": 5,
+              "lo": 78.703002929688,
+              "hi": 78.71900177002
+            },
+            {
+              "state": 1,
+              "lo": 78.859001159668,
+              "hi": 78.875
+            },
+            {
+              "state": 8,
+              "lo": 79.75,
+              "hi": 79.765007019043
+            }
+          ],
+          "begin": 78.703002929688
+        },
+        "peakDeg": 14.019953727722168
+      },
+      {
+        "id": "Items.Preset_Osprey_Default",
+        "kind": "continuous",
+        "nativeScaleControl": false,
+        "idOnDraw": "Items.Preset_Osprey_Default",
+        "profileScale": 0.85000002384186,
+        "mode": "gamedataTriggerMode : FullAuto (2)",
+        "take": {
+          "lastState": 5,
+          "entity": "10643808ULL",
+          "item": "Items.Preset_Osprey_Default",
+          "remaining": 8,
+          "cycle": 0.34999999403954,
+          "ratio": 0.85000002384186,
+          "prevTime": 88.812004089355,
+          "original": 12,
+          "events": [
+            {
+              "delta": 1,
+              "left": 11,
+              "lo": 87.297004699707,
+              "hi": 87.312004089355
+            },
+            {
+              "delta": 1,
+              "left": 10,
+              "lo": 87.609001159668,
+              "hi": 87.625007629395
+            },
+            {
+              "delta": 1,
+              "left": 9,
+              "lo": 87.922004699707,
+              "hi": 87.937004089355
+            },
+            {
+              "delta": 1,
+              "left": 8,
+              "lo": 88.234001159668,
+              "hi": 88.250007629395
+            }
+          ],
+          "maxGap": 0.031997680664063,
+          "frames": 75,
+          "psm": [
+            {
+              "state": 5,
+              "lo": 87.140007019043,
+              "hi": 87.172004699707
+            },
+            {
+              "state": 8,
+              "lo": 87.297004699707,
+              "hi": 87.312004089355
+            },
+            {
+              "state": 5,
+              "lo": 88.547004699707,
+              "hi": 88.562004089355
+            }
+          ],
+          "begin": 87.140007019043
+        },
+        "peakDeg": 13.59644889831543
+      },
+      {
+        "id": "Items.Preset_Osprey_Default",
+        "kind": "continuous",
+        "nativeScaleControl": true,
+        "idOnDraw": "Items.Preset_Osprey_Default",
+        "profileScale": 0.85000002384186,
+        "mode": "gamedataTriggerMode : FullAuto (2)",
+        "take": {
+          "lastState": 5,
+          "entity": "10643826ULL",
+          "item": "Items.Preset_Osprey_Default",
+          "remaining": 8,
+          "cycle": 0.34999999403954,
+          "ratio": 0,
+          "prevTime": 97.578002929688,
+          "original": 12,
+          "events": [
+            {
+              "delta": 1,
+              "left": 11,
+              "lo": 96.078002929688,
+              "hi": 96.09400177002
+            },
+            {
+              "delta": 1,
+              "left": 10,
+              "lo": 96.422004699707,
+              "hi": 96.453002929688
+            },
+            {
+              "delta": 1,
+              "left": 9,
+              "lo": 96.781005859375,
+              "hi": 96.812004089355
+            },
+            {
+              "delta": 1,
+              "left": 8,
+              "lo": 97.140007019043,
+              "hi": 97.156005859375
+            }
+          ],
+          "maxGap": 0.031997680664063,
+          "frames": 75,
+          "psm": [
+            {
+              "state": 5,
+              "lo": 95.922004699707,
+              "hi": 95.937004089355
+            },
+            {
+              "state": 8,
+              "lo": 96.078002929688,
+              "hi": 96.09400177002
+            },
+            {
+              "state": 5,
+              "lo": 97.500007629395,
+              "hi": 97.515007019043
+            }
+          ],
+          "begin": 95.922004699707
+        },
+        "peakDeg": 13.618889808654785
+      }
+    ]
+  },
+  {
+    "pid": 12364,
+    "sourceSha256": "da27989f63bc1ffb9d1e5bde6629e7bbd9634c55ed26f54dad118c94051630a4",
+    "takes": [
+      {
+        "id": "Items.Preset_Lexington_Default",
+        "kind": "continuous",
+        "nativeScaleControl": false,
+        "idOnDraw": "Items.Preset_Lexington_Default",
+        "profileScale": 0.77999997138977,
+        "mode": "gamedataTriggerMode : FullAuto (2)",
+        "take": {
+          "psm": [
+            {
+              "lo": 0,
+              "hi": 0.016000000759959,
+              "state": 5
+            },
+            {
+              "lo": 0.17200000584126,
+              "hi": 0.20300000905991,
+              "state": 8
+            },
+            {
+              "lo": 1.6250001192093,
+              "hi": 1.6410000324249,
+              "state": 5
+            }
+          ],
+          "original": 20,
+          "item": "Items.Preset_Lexington_Default",
+          "entity": "10643506ULL",
+          "lastState": 5,
+          "remaining": 7,
+          "frames": 85,
+          "ratio": 0.77999997138977,
+          "prevTime": 1.8910000324249,
+          "cycle": 0.125,
+          "events": [
+            {
+              "lo": 0.17200000584126,
+              "hi": 0.20300000905991,
+              "delta": 1,
+              "left": 19
+            },
+            {
+              "lo": 0.28100001811981,
+              "hi": 0.31300002336502,
+              "delta": 1,
+              "left": 18
+            },
+            {
+              "lo": 0.39100003242493,
+              "hi": 0.42200002074242,
+              "delta": 1,
+              "left": 17
+            },
+            {
+              "lo": 0.51600003242493,
+              "hi": 0.53100001811981,
+              "delta": 1,
+              "left": 16
+            },
+            {
+              "lo": 0.625,
+              "hi": 0.64100003242493,
+              "delta": 1,
+              "left": 15
+            },
+            {
+              "lo": 0.73500001430511,
+              "hi": 0.75000005960464,
+              "delta": 1,
+              "left": 14
+            },
+            {
+              "lo": 0.84400004148483,
+              "hi": 0.86000001430511,
+              "delta": 1,
+              "left": 13
+            },
+            {
+              "lo": 0.95300006866455,
+              "hi": 0.96900004148483,
+              "delta": 1,
+              "left": 12
+            },
+            {
+              "lo": 1.0630000829697,
+              "hi": 1.0940001010895,
+              "delta": 1,
+              "left": 11
+            },
+            {
+              "lo": 1.1720000505447,
+              "hi": 1.2030000686646,
+              "delta": 1,
+              "left": 10
+            },
+            {
+              "lo": 1.2810000181198,
+              "hi": 1.3130000829697,
+              "delta": 1,
+              "left": 9
+            },
+            {
+              "lo": 1.3910000324249,
+              "hi": 1.4220000505447,
+              "delta": 1,
+              "left": 8
+            },
+            {
+              "lo": 1.5160000324249,
+              "hi": 1.5310000181198,
+              "delta": 1,
+              "left": 7
+            }
+          ],
+          "maxGap": 0.032000064849854,
+          "begin": 0
+        },
+        "peakDeg": 6.496351718902588
+      },
+      {
+        "id": "Items.Preset_Lexington_Default",
+        "kind": "continuous",
+        "nativeScaleControl": true,
+        "idOnDraw": "Items.Preset_Lexington_Default",
+        "profileScale": 0.77999997138977,
+        "mode": "gamedataTriggerMode : FullAuto (2)",
+        "take": {
+          "psm": [
+            {
+              "lo": 9,
+              "hi": 9.0160007476807,
+              "state": 5
+            },
+            {
+              "lo": 9.1560001373291,
+              "hi": 9.1720008850098,
+              "state": 8
+            },
+            {
+              "lo": 10.625000953674,
+              "hi": 10.641000747681,
+              "state": 5
+            }
+          ],
+          "original": 20,
+          "item": "Items.Preset_Lexington_Default",
+          "entity": "10643566ULL",
+          "lastState": 5,
+          "remaining": 9,
+          "frames": 85,
+          "ratio": 0,
+          "prevTime": 10.891000747681,
+          "cycle": 0.125,
+          "events": [
+            {
+              "lo": 9.1560001373291,
+              "hi": 9.1720008850098,
+              "delta": 1,
+              "left": 19
+            },
+            {
+              "lo": 9.2810001373291,
+              "hi": 9.3130006790161,
+              "delta": 1,
+              "left": 18
+            },
+            {
+              "lo": 9.4220008850098,
+              "hi": 9.4380006790161,
+              "delta": 1,
+              "left": 17
+            },
+            {
+              "lo": 9.5470008850098,
+              "hi": 9.5780000686646,
+              "delta": 1,
+              "left": 16
+            },
+            {
+              "lo": 9.6880006790161,
+              "hi": 9.7030000686646,
+              "delta": 1,
+              "left": 15
+            },
+            {
+              "lo": 9.8130006790161,
+              "hi": 9.8440008163452,
+              "delta": 1,
+              "left": 14
+            },
+            {
+              "lo": 9.9530000686646,
+              "hi": 9.9690008163452,
+              "delta": 1,
+              "left": 13
+            },
+            {
+              "lo": 10.094000816345,
+              "hi": 10.110000610352,
+              "delta": 1,
+              "left": 12
+            },
+            {
+              "lo": 10.219000816345,
+              "hi": 10.235000610352,
+              "delta": 1,
+              "left": 11
+            },
+            {
+              "lo": 10.360000610352,
+              "hi": 10.375000953674,
+              "delta": 1,
+              "left": 10
+            },
+            {
+              "lo": 10.485000610352,
+              "hi": 10.516000747681,
+              "delta": 1,
+              "left": 9
+            }
+          ],
+          "maxGap": 0.032000541687012,
+          "begin": 9
+        },
+        "peakDeg": 6.821763515472412
+      },
+      {
+        "id": "Items.Preset_Ticon_Default",
+        "kind": "burst",
+        "nativeScaleControl": false,
+        "idOnDraw": "Items.Preset_Ticon_Default",
+        "profileScale": 0.75,
+        "mode": "gamedataTriggerMode : Burst (0)",
+        "take": {
+          "psm": [
+            {
+              "lo": 18,
+              "hi": 18.016000747681,
+              "state": 5
+            },
+            {
+              "lo": 18.17200088501,
+              "hi": 18.203001022339,
+              "state": 8
+            },
+            {
+              "lo": 18.59400177002,
+              "hi": 18.625,
+              "state": 5
+            },
+            {
+              "lo": 18.81300163269,
+              "hi": 18.84400177002,
+              "state": 8
+            },
+            {
+              "lo": 19.25,
+              "hi": 19.266000747681,
+              "state": 5
+            }
+          ],
+          "original": 21,
+          "item": "Items.Preset_Ticon_Default",
+          "entity": "10643615ULL",
+          "lastState": 5,
+          "remaining": 15,
+          "frames": 85,
+          "ratio": 0.75,
+          "prevTime": 19.891000747681,
+          "cycle": 0.30000001192093,
+          "events": [
+            {
+              "lo": 18.17200088501,
+              "hi": 18.203001022339,
+              "delta": 1,
+              "left": 20
+            },
+            {
+              "lo": 18.266000747681,
+              "hi": 18.281000137329,
+              "delta": 1,
+              "left": 19
+            },
+            {
+              "lo": 18.360000610352,
+              "hi": 18.375,
+              "delta": 1,
+              "left": 18
+            },
+            {
+              "lo": 18.81300163269,
+              "hi": 18.84400177002,
+              "delta": 1,
+              "left": 17
+            },
+            {
+              "lo": 18.906000137329,
+              "hi": 18.93800163269,
+              "delta": 1,
+              "left": 16
+            },
+            {
+              "lo": 19,
+              "hi": 19.016000747681,
+              "delta": 1,
+              "left": 15
+            }
+          ],
+          "maxGap": 0.032001495361328,
+          "begin": 18
+        },
+        "peakDeg": 8.204316139221191
+      },
+      {
+        "id": "Items.Preset_Ticon_Default",
+        "kind": "burst",
+        "nativeScaleControl": true,
+        "idOnDraw": "Items.Preset_Ticon_Default",
+        "profileScale": 0.75,
+        "mode": "gamedataTriggerMode : Burst (0)",
+        "take": {
+          "psm": [
+            {
+              "lo": 27.016000747681,
+              "hi": 27.031002044678,
+              "state": 5
+            },
+            {
+              "lo": 27.156002044678,
+              "hi": 27.17200088501,
+              "state": 8
+            },
+            {
+              "lo": 27.68800163269,
+              "hi": 27.703001022339,
+              "state": 5
+            },
+            {
+              "lo": 27.81300163269,
+              "hi": 27.84400177002,
+              "state": 8
+            },
+            {
+              "lo": 28.360000610352,
+              "hi": 28.375001907349,
+              "state": 5
+            }
+          ],
+          "original": 21,
+          "item": "Items.Preset_Ticon_Default",
+          "entity": "10643636ULL",
+          "lastState": 5,
+          "remaining": 15,
+          "frames": 85,
+          "ratio": 0,
+          "prevTime": 28.891000747681,
+          "cycle": 0.30000001192093,
+          "events": [
+            {
+              "lo": 27.156002044678,
+              "hi": 27.17200088501,
+              "delta": 1,
+              "left": 20
+            },
+            {
+              "lo": 27.266000747681,
+              "hi": 27.281002044678,
+              "delta": 1,
+              "left": 19
+            },
+            {
+              "lo": 27.375001907349,
+              "hi": 27.391000747681,
+              "delta": 1,
+              "left": 18
+            },
+            {
+              "lo": 27.81300163269,
+              "hi": 27.84400177002,
+              "delta": 1,
+              "left": 17
+            },
+            {
+              "lo": 27.93800163269,
+              "hi": 27.953001022339,
+              "delta": 1,
+              "left": 16
+            },
+            {
+              "lo": 28.04700088501,
+              "hi": 28.06300163269,
+              "delta": 1,
+              "left": 15
+            }
+          ],
+          "maxGap": 0.031999588012695,
+          "begin": 27.016000747681
+        },
+        "peakDeg": 8.144866943359375
+      },
+      {
+        "id": "Items.Preset_Kenshin_Default",
+        "kind": "burst",
+        "nativeScaleControl": false,
+        "idOnDraw": "Items.Preset_Kenshin_Default",
+        "profileScale": 0.81999999284744,
+        "mode": "gamedataTriggerMode : Burst (0)",
+        "take": {
+          "psm": [
+            {
+              "lo": 36,
+              "hi": 36.016002655029,
+              "state": 5
+            },
+            {
+              "lo": 36.17200088501,
+              "hi": 36.203002929688,
+              "state": 8
+            },
+            {
+              "lo": 36.46900177002,
+              "hi": 36.485000610352,
+              "state": 5
+            },
+            {
+              "lo": 36.828002929688,
+              "hi": 36.84400177002,
+              "state": 8
+            },
+            {
+              "lo": 37.110000610352,
+              "hi": 37.125,
+              "state": 5
+            }
+          ],
+          "original": 20,
+          "item": "Items.Preset_Kenshin_Default",
+          "entity": "10643651ULL",
+          "lastState": 5,
+          "remaining": 16,
+          "frames": 85,
+          "ratio": 0.81999999284744,
+          "prevTime": 37.891002655029,
+          "cycle": 0.20000000298023,
+          "events": [
+            {
+              "lo": 36.17200088501,
+              "hi": 36.203002929688,
+              "delta": 1,
+              "left": 19
+            },
+            {
+              "lo": 36.281002044678,
+              "hi": 36.313003540039,
+              "delta": 1,
+              "left": 18
+            },
+            {
+              "lo": 36.828002929688,
+              "hi": 36.84400177002,
+              "delta": 1,
+              "left": 17
+            },
+            {
+              "lo": 36.938003540039,
+              "hi": 36.953002929688,
+              "delta": 1,
+              "left": 16
+            }
+          ],
+          "maxGap": 0.032001495361328,
+          "begin": 36
+        },
+        "peakDeg": 7.5722551345825195
+      },
+      {
+        "id": "Items.Preset_Kenshin_Default",
+        "kind": "burst",
+        "nativeScaleControl": true,
+        "idOnDraw": "Items.Preset_Kenshin_Default",
+        "profileScale": 0.81999999284744,
+        "mode": "gamedataTriggerMode : Burst (0)",
+        "take": {
+          "psm": [
+            {
+              "lo": 45.000003814697,
+              "hi": 45.016002655029,
+              "state": 5
+            },
+            {
+              "lo": 45.156002044678,
+              "hi": 45.17200088501,
+              "state": 8
+            },
+            {
+              "lo": 45.485000610352,
+              "hi": 45.500003814697,
+              "state": 5
+            },
+            {
+              "lo": 45.813003540039,
+              "hi": 45.84400177002,
+              "state": 8
+            },
+            {
+              "lo": 46.17200088501,
+              "hi": 46.203002929688,
+              "state": 5
+            }
+          ],
+          "original": 20,
+          "item": "Items.Preset_Kenshin_Default",
+          "entity": "10643662ULL",
+          "lastState": 5,
+          "remaining": 16,
+          "frames": 85,
+          "ratio": 0,
+          "prevTime": 46.891002655029,
+          "cycle": 0.20000000298023,
+          "events": [
+            {
+              "lo": 45.156002044678,
+              "hi": 45.17200088501,
+              "delta": 1,
+              "left": 19
+            },
+            {
+              "lo": 45.281002044678,
+              "hi": 45.313003540039,
+              "delta": 1,
+              "left": 18
+            },
+            {
+              "lo": 45.813003540039,
+              "hi": 45.84400177002,
+              "delta": 1,
+              "left": 17
+            },
+            {
+              "lo": 45.953002929688,
+              "hi": 45.96900177002,
+              "delta": 1,
+              "left": 16
+            }
+          ],
+          "maxGap": 0.032001495361328,
+          "begin": 45.000003814697
+        },
+        "peakDeg": 7.741833209991455
+      }
+    ]
+  }
+]

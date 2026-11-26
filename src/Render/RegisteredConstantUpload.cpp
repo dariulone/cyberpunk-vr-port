@@ -10,6 +10,186 @@
 #include <cstring>
 #include <cstddef>
 #include <algorithm>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The exported state is Rust's (rust/crates/cvr-render/src/native_state_exports.rs), declared in the header.
+// The creation receipts (rust/crates/cvr-render/src/creation_receipts.rs) and the copy ledger
+// (rust/crates/cvr-render/src/registered_copies.rs); tools/single_pass_tests/resource_creation_info_test and
+// constant_capture_test run their cases against them in their Rust variants.
+extern "C" {
+void cvr_crc_created(ID3D12Resource*,bool,ID3D12Heap*,uint64_t,uint64_t,bool,uint32_t);
+bool cvr_crc_query(ID3D12Resource*,uint32_t*,bool*,uint32_t*,void**,uint64_t*,uint64_t*);
+extern std::atomic<bool> cvr_rc_active;
+void cvr_rc_trace(uint64_t,const uint64_t*);
+void cvr_rc_resolve(const void*,uint64_t,void*,void*,uint64_t,uint8_t*,size_t,void*);
+bool cvr_rc_capture_intent(uint64_t,void*,void*,uint64_t,uint8_t*,size_t,uint64_t*,uint64_t*,void*);
+void cvr_rc_freeze();
+void cvr_rc_refresh_fences();
+void cvr_rc_clear(const void*,bool);
+// The entry points (registered_copies.rs' entries): the host this file lends them and the intent switch.
+void cvr_rc2_attach(const void*);
+bool cvr_rc2_intent_configured();
+bool cvr_rc2_intent_observed_take();
+void cvr_rc2_clear_registered(bool);
+}
+namespace cvr::stereo::constants {
+using Microsoft::WRL::ComPtr;
+namespace {
+bool IntentConfigured(){return cvr_rc2_intent_configured();}
+// The exported counters the ledger updates, lent per call (registered_copies.rs Counters).
+struct RustCounters {
+    std::atomic<uint32_t>* count,*rejected,*changed,*unscoped,*pendingReads,*orderRejected;std::atomic<uint64_t>* reads;
+    std::atomic<uint32_t>* timelineResults,*timelineStats,*signals,*waits,*cpuSignals,*traceSeq,*traceCount,*traceOverflow;
+    uint64_t* traceData;std::atomic<uint32_t>* registeredTypes;
+};
+static_assert(sizeof(RustCounters)==136 && sizeof(ConstantWriteTimeline::Result)==32 && sizeof(ConstantWriteTimeline::Position)==16,
+    "mirrored by registered_copies.rs");
+const RustCounters counters{&CyberpunkVR_RegisteredCopyCount,&CyberpunkVR_RegisteredCopyRejected,&CyberpunkVR_RegisteredCopyChanged,
+    &CyberpunkVR_RegisteredCopyUnscoped,&CyberpunkVR_RegisteredCopyPendingReads,&CyberpunkVR_RegisteredCopyOrderRejected,
+    &CyberpunkVR_RegisteredCopyReads,CyberpunkVR_RegisteredCopyTimelineResults,CyberpunkVR_RegisteredCopyTimelineStats,
+    &CyberpunkVR_RegisteredCopySignals,&CyberpunkVR_RegisteredCopyWaits,&CyberpunkVR_RegisteredCopyCpuSignals,
+    &CyberpunkVR_RegisteredCopyTraceSeq,&CyberpunkVR_RegisteredCopyTraceCount,&CyberpunkVR_RegisteredCopyTraceOverflow,
+    &CyberpunkVR_RegisteredCopyTraceData,CyberpunkVR_ConstantRegisteredTypes};
+// Queue Signal can run while the command resources hold their own mutex: the ledger calls this before taking its own.
+bool Keep(void* list,void* source,void* destination)noexcept{
+    try{return gpu::KeepCommandResources(static_cast<ID3D12GraphicsCommandList*>(list),
+        {static_cast<ID3D12Resource*>(source),static_cast<ID3D12Resource*>(destination)});}catch(...){return false;}
+}
+// What the entries take from the program: the counters and switches, the command resources' keep, the owned uploads'
+// read, the registered uploads' source and the source intent (registered_copies.rs' Host).
+struct RustEntriesHost {
+    const RustCounters* counters;const std::atomic<uint32_t>* captureEnable;const std::atomic<uint32_t>* intentEnable;
+    bool(*keep)(void*,void*,void*)noexcept;bool(*readUpload)(uint64_t,void*,size_t);ID3D12Resource*(*registeredSource)(uint32_t,uint32_t);
+    bool(*intentCopy)(ID3D12GraphicsCommandList*,ID3D12Resource*,uint64_t,ID3D12Resource*,uint64_t,uint64_t,const std::atomic<uint32_t>*);
+    void(*intentInvalidate)(ID3D12Resource*);void(*intentClear)();
+};
+const RustEntriesHost entriesHost{&counters,&CyberpunkVR_ConstantCaptureEnable,&CyberpunkVR_RegisteredIntentEnable,&Keep,
+    [](uint64_t address,void* output,size_t bytes){return ReadUpload(address,output,bytes);},
+    [](uint32_t handle,uint32_t size){return RegisteredSource(handle,size);},
+    [](ID3D12GraphicsCommandList* list,ID3D12Resource* resource,uint64_t offset,ID3D12Resource* source,uint64_t sourceOffset,uint64_t bytes,
+        const std::atomic<uint32_t>* enabled){return source_resource_intent::ObserveCopy(list,resource,offset,source,sourceOffset,bytes,enabled);},
+    [](ID3D12Resource* resource){source_resource_intent::Invalidate(resource);},[]{source_resource_intent::Clear();}};
+[[maybe_unused]] const bool entriesAttached=(cvr_rc2_attach(&entriesHost),true);
+}
+void RegisteredResourceCreated(ID3D12Resource* resource,bool placed,ID3D12Heap* heap,uint64_t offset,uint64_t allocationBytes,
+                               std::optional<D3D12_RESOURCE_STATES> initialState) {
+    if(probe::internalCommands || !native_probe::ObserveBindings() || !families::Enabled() || !resource)return;
+    cvr_crc_created(resource,placed,heap,offset,allocationBytes,initialState.has_value(),initialState?UINT(*initialState):0);
+}
+bool QueryResourceCreation(const ComPtr<ID3D12Resource>& heldResource,ResourceCreationInfo& output) {
+    // The held resource may be the output's own (an aliased query): keep it before clearing the output.
+    ComPtr<ID3D12Resource> resource=heldResource;output={};
+    uint32_t kind{},state{};bool known{};void* heap{};uint64_t offset{},bytes{};
+    if(!cvr_crc_query(resource.Get(),&kind,&known,&state,&heap,&offset,&bytes))return false;
+    ResourceCreationInfo result;result.kind=kind;result.initialStateKnown=known;
+    if(known)result.initialState=D3D12_RESOURCE_STATES(state);
+    result.resource=resource;result.heap.Attach(static_cast<ID3D12Heap*>(heap));result.heapOffset=offset;result.allocationBytes=bytes;
+    output=std::move(result);return true;
+}
+void RegisteredReadDraw(uint64_t position,uint32_t sequence,uint64_t family,uint32_t side,uint32_t frame) {
+    const uint64_t args[5]{position,sequence,family,side,frame};cvr_rc_trace(uint64_t(TraceOp::Draw),args);
+}
+void RegisteredReadBinding(uint64_t position,uint32_t visibility,uint32_t shaderRegister,uint64_t address,uint32_t bytes) {
+    const uint64_t args[5]{position,visibility,shaderRegister,address,bytes};cvr_rc_trace(uint64_t(TraceOp::Binding),args);
+}
+ConstantWriteTimeline::Result ResolveRegisteredResourceRead(uint64_t position,ID3D12CommandList* list,
+    const ComPtr<ID3D12Resource>& expectedDestination,uint64_t address,void* output,size_t bytes){
+    if(!expectedDestination)return {ConstantWriteTimeline::Status::UnknownWrite};
+    ConstantWriteTimeline::Result result;
+    cvr_rc_resolve(&counters,position,list,expectedDestination.Get(),address,static_cast<uint8_t*>(output),bytes,&result);return result;
+}
+struct RegisteredResourceIntent::Data {
+    ConstantWriteTimeline::Position producer;ComPtr<ID3D12CommandList> consumer;ComPtr<ID3D12Resource> destination;
+    uint64_t position{},payload{},offset{},address{};std::vector<uint8_t> bytes;
+};
+uint64_t RegisteredResourceIntent::Payload()const noexcept{return data_?data_->payload:0;}
+uint64_t RegisteredResourceIntent::Offset()const noexcept{return data_?data_->offset:0;}
+uint64_t RegisteredResourceIntent::ReadPosition()const noexcept{return data_?data_->position:0;}
+ConstantWriteTimeline::Position RegisteredResourceIntent::ProducerPosition()const noexcept{return data_?data_->producer:ConstantWriteTimeline::Position{};}
+std::span<const uint8_t> RegisteredResourceIntent::Bytes()const noexcept{return data_?std::span<const uint8_t>(data_->bytes):std::span<const uint8_t>{};}
+RegisteredResourceIntent::operator bool()const noexcept{return bool(data_);}
+bool CaptureRegisteredResourceIntent(uint64_t position,ID3D12CommandList* list,
+    const ComPtr<ID3D12Resource>& destination,uint64_t address,size_t bytes,RegisteredResourceIntent& output)try{
+    if(output || !position || !list || !destination || !address || !bytes || bytes>65536 || address>UINT64_MAX-bytes)return false;
+    auto data=std::make_shared<RegisteredResourceIntent::Data>();data->bytes.resize(bytes);
+    if(!cvr_rc_capture_intent(position,list,destination.Get(),address,data->bytes.data(),bytes,&data->payload,&data->offset,&data->producer))return false;
+    data->consumer=list;data->destination=destination;data->position=position;data->address=address;output.data_=std::move(data);return true;
+}catch(...){return false;}
+bool ValidateRegisteredResourceIntent(const RegisteredResourceIntent& intent,ConstantWriteTimeline::Result* resolution)try{
+    if(resolution)*resolution={};if(!intent.data_)return false;const auto& data=*intent.data_;
+    std::vector<uint8_t> actual(data.bytes.size());const auto result=ResolveRegisteredResourceRead(data.position,data.consumer.Get(),
+        data.destination,data.address,actual.data(),actual.size());if(resolution)*resolution=result;
+    return result.status==ConstantWriteTimeline::Status::Ready && result.payload==data.payload && result.offset==data.offset && actual==data.bytes;
+}catch(...){return false;}
+void FreezeRegistered(){cvr_rc_freeze();}
+bool RegisteredIntentTracking(){return IntentConfigured();}
+}
+namespace cvr::stereo::constants {
+void PollRegisteredIntent(){
+    static bool enabled{};const bool requested=IntentConfigured();
+    const bool cleanup=!requested && cvr_rc2_intent_observed_take();
+    if(cleanup){source_resource_intent::Clear();if(!CyberpunkVR_ConstantCaptureEnable.load(std::memory_order_relaxed))ClearRegistered();}
+    if(enabled || requested || cleanup){const auto stats=source_resource_intent::GetStatistics();
+        const uint64_t values[]{stats.currentBytes,stats.rangeCount,stats.livePayloadBytes,stats.livePayloads,stats.ownerCount,
+            stats.copySequence,stats.evictions,stats.captures,stats.rejected,uint64_t(requested)};
+        std::copy(std::begin(values),std::end(values),CyberpunkVR_RegisteredIntentCacheStats);
+        CyberpunkVR_RegisteredStructuredIntentStats[0]=stats.structuredBytes;CyberpunkVR_RegisteredStructuredIntentStats[1]=stats.structuredRanges;
+    }
+    enabled=requested;
+}
+void RefreshRegisteredFences(){cvr_rc_refresh_fences();}
+void ClearRegistered(bool publish){cvr_rc2_clear_registered(publish);}   // over the entries' counters
+}
+extern "C" {
+bool cvr_rc2_scope_enter(ID3D12Resource*,uint32_t,const void*);
+bool cvr_rc2_scope_enter_handle(uint32_t,uint32_t,const void*);
+void cvr_rc2_scope_leave();
+void cvr_rc2_observe_copy(ID3D12GraphicsCommandList*,ID3D12Resource*,uint64_t,ID3D12Resource*,uint64_t,uint64_t);
+void cvr_rc2_observe_resource_copy(ID3D12GraphicsCommandList*,ID3D12Resource*,ID3D12Resource*);
+void cvr_rc2_invalidate(ID3D12GraphicsCommandList*,ID3D12Resource*);
+void cvr_rc2_barriers(ID3D12GraphicsCommandList*,UINT,const D3D12_RESOURCE_BARRIER*);
+void cvr_rc2_reset(ID3D12GraphicsCommandList*);
+void cvr_rc2_submit(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*);
+bool cvr_rc2_read(ID3D12CommandList*,uint64_t,void*,size_t,uint64_t*);
+bool cvr_rc2_validate(uint64_t,ID3D12CommandList*,uint64_t,const void*,size_t);
+uint64_t cvr_rc2_mark_read(ID3D12CommandList*);
+cvr::stereo::constants::ConstantWriteTimeline::Result cvr_rc2_resolve(uint64_t,ID3D12CommandList*,uint64_t,void*,size_t);
+bool cvr_rc2_tracking();
+void cvr_rc2_register_fence(ID3D12Fence*);
+void cvr_rc2_signal(ID3D12CommandQueue*,ID3D12Fence*,uint64_t);
+void cvr_rc2_wait(ID3D12CommandQueue*,ID3D12Fence*,uint64_t);
+void cvr_rc2_cpu_signal(ID3D12Fence*,uint64_t,uint64_t,uint32_t);
+}
+namespace cvr::stereo::constants {
+struct RegisteredUploadScope::Data {};
+RegisteredUploadScope::RegisteredUploadScope(uint32_t handle,uint32_t bytes,const void* source){
+    if(cvr_rc2_scope_enter_handle(handle,bytes,source))data_=std::make_unique<Data>();}
+RegisteredUploadScope::RegisteredUploadScope(ID3D12Resource* destination,uint32_t size,const void* source){
+    if(cvr_rc2_scope_enter(destination,size,source))data_=std::make_unique<Data>();}
+RegisteredUploadScope::~RegisteredUploadScope(){if(data_)cvr_rc2_scope_leave();}
+void ObserveRegisteredCopy(ID3D12GraphicsCommandList* list,ID3D12Resource* destination,uint64_t offset,ID3D12Resource* source,uint64_t sourceOffset,uint64_t size){
+    cvr_rc2_observe_copy(list,destination,offset,source,sourceOffset,size);}
+void ObserveRegisteredResourceCopy(ID3D12GraphicsCommandList* list,ID3D12Resource* destination,ID3D12Resource* source){
+    cvr_rc2_observe_resource_copy(list,destination,source);}
+void InvalidateRegistered(ID3D12GraphicsCommandList* list,ID3D12Resource* destination){cvr_rc2_invalidate(list,destination);}
+void RegisteredBarriers(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RESOURCE_BARRIER* barriers){cvr_rc2_barriers(list,count,barriers);}
+void ResetRegistered(ID3D12GraphicsCommandList* list){cvr_rc2_reset(list);}
+void SubmitRegistered(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists){cvr_rc2_submit(queue,count,lists);}
+bool ReadRegistered(ID3D12CommandList* list,uint64_t address,void* output,size_t bytes,uint64_t* receipt){
+    return cvr_rc2_read(list,address,output,bytes,receipt);}
+bool ValidateRegistered(uint64_t receipt,ID3D12CommandList* list,uint64_t address,const void* expectedBytes,size_t bytes){
+    return cvr_rc2_validate(receipt,list,address,expectedBytes,bytes);}
+uint64_t MarkRegisteredRead(ID3D12CommandList* list){return cvr_rc2_mark_read(list);}
+ConstantWriteTimeline::Result ResolveRegisteredRead(uint64_t position,ID3D12CommandList* list,uint64_t address,void* output,size_t bytes){
+    return cvr_rc2_resolve(position,list,address,output,bytes);}
+bool RegisteredTracking(){return cvr_rc2_tracking();}
+void RegisterFence(ID3D12Fence* fence){cvr_rc2_register_fence(fence);}
+void RegisteredSignal(ID3D12CommandQueue* queue,ID3D12Fence* fence,uint64_t value){cvr_rc2_signal(queue,fence,value);}
+void RegisteredWait(ID3D12CommandQueue* queue,ID3D12Fence* fence,uint64_t value){cvr_rc2_wait(queue,fence,value);}
+void RegisteredCpuSignal(ID3D12Fence* fence,uint64_t value,uint64_t caller,uint32_t nested){cvr_rc2_cpu_signal(fence,value,caller,nested);}
+}
+#endif
+#else
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_RegisteredIntentEnable{};
 __declspec(dllexport) uint64_t CyberpunkVR_RegisteredIntentCacheStats[10]{};
@@ -490,3 +670,4 @@ void ClearRegistered(bool publish){std::lock_guard lock(mutex);
     trace.clear();traceOverflow=false;copies.clear();history.clear();submissions.clear();readPositions.clear();
     fences.clear();queueOwners.clear();timeline.Clear();frozen=false;timelineFailed=false;ownedBytes=0;haveCopies=false;}
 }
+#endif

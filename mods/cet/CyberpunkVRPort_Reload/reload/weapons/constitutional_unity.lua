@@ -60,6 +60,7 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_slide' },
 
     slide = {
+        ejectLiveRound = true,
         slot       = 'vrp_slide',
         which      = 1, bone = 5,        -- frame rig, `slide`
         -- MEASURED: 44.5 mm and 44.0 mm from the slide slot's travel in the two takes, 44.7 / 44.2 from the rig

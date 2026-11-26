@@ -3,8 +3,8 @@
 // Codeware added script methods to engine classes the port's scripts and Lua mods call: an entity's components and
 // world transform, a mesh component's resource and appearance, the ink system's layers, the weather. These are the
 // same operations as natives of the plugin under the port's own names (VR*), so nothing collides with Codeware when
-// it is installed for other mods. The layer natives hand out the game's own inkLayerWrapper. Native
-// SpawnFromExternal only searches declared dependencies; MenuTooltip.cpp supplies the menu's tooltip libraries.
+// it is installed for other mods. What 2.5 already has natively (inkLayerWrapper, SpawnFromExternal, CallbackSystem,
+// ScriptableService) is used as the game has it: the layer natives hand out the game's own inkLayerWrapper.
 //
 // The lobby's exposure (mods/redscript/CyberpunkVRPort_EngineStereo/vrport_lobby_exposure.reds) is here too: the
 // script registers for the environment resources as they load and hands them over; the settings themselves are
@@ -37,8 +37,85 @@
 #include <string>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's natives are rust/crates/cvr-ffi/src/engine_objects.rs (the entities' components and transform, the
+// mesh components' resource, appearance and dissolve, the ink system's layers, the weather, the lobby's exposure);
+// this file keeps the narrow adapter below -- the SDK's job queue for a component's reload, the world widget
+// components' virtual getters, the script call to the weather system -- and the fields the Rust half reads, asserted.
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::Entity, components, 0xA0);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::Entity, transformComponent, 0xB0);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IComponent, name, 0x40);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IComponent, owner, 0x50);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::MeshComponent, mesh, 0x150);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::MeshComponent, meshAppearance, 0x190);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::MorphTargetSkinnedMeshComponent, morphResource, 0x200);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::MorphTargetSkinnedMeshComponent, meshAppearance, 0x238);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::SkinnedMeshComponent, mesh, 0x228);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::SkinnedMeshComponent, meshAppearance, 0x230);
+
+namespace {
+using RED4ext::Handle;
+
+// A mesh component's resource and appearance loads (2.5 vtable, as Codeware has it).
+constexpr size_t kLoadResourceSlot = 0x260;      // uint64_t (IComponent::*)(JobQueue&)
+constexpr size_t kRefreshAppearanceSlot = 0x280; // void (IComponent::*)()
+
+void RefreshAppearance(RED4ext::ent::IComponent* component) {
+    auto** table = *reinterpret_cast<void***>(component);
+    reinterpret_cast<void (*)(RED4ext::ent::IComponent*)>(table[kRefreshAppearanceSlot / sizeof(void*)])(component);
+}
+}  // namespace
+
+extern "C" {
+
+// The component's resource loaded anew and its appearance rebuilt once it is in; with `wait`, the call returns once
+// that is done (5 s at most), so the caller's next frame already shows it.
+bool cvr_cpp_component_reload(const Handle<RED4ext::ent::IComponent>* handle, bool wait) {
+    const Handle<RED4ext::ent::IComponent>& component = *handle;
+    if (!component || !component->owner) return false;
+    auto** table = *reinterpret_cast<void***>(component.instance);
+    using LoadResourceFn = uint64_t (*)(RED4ext::ent::IComponent*, RED4ext::JobQueue&);
+    RED4ext::JobQueue queue;
+    reinterpret_cast<LoadResourceFn>(table[kLoadResourceSlot / sizeof(void*)])(component.instance, queue);
+    RED4ext::WeakHandle<RED4ext::ent::IComponent> weak(component);
+    queue.Dispatch([weak] {
+        if (auto held = weak.Lock(); held && held->owner) RefreshAppearance(held.instance);
+    });
+    if (wait) {
+        struct Done {
+            std::mutex lock;
+            std::condition_variable signal;
+            bool done = false;
+        };
+        auto done = std::make_shared<Done>();
+        queue.Dispatch([done] {
+            std::lock_guard<std::mutex> guard(done->lock);
+            done->done = true;
+            done->signal.notify_all();
+        });
+        std::unique_lock<std::mutex> guard(done->lock);
+        done->signal.wait_for(guard, std::chrono::seconds(5), [&] { return done->done; });
+    }
+    return true;
+}
+
+// The game controllers of a world layer's widget components that have a window, as weak handles.
+// The world widget components' game controllers: rust/crates/cvr-ffi/src/engine_objects.rs.
+
+// The world's weather system behind the script interface GameInstance.GetWeatherSystem hands out (+0x40: 2.5, as
+// Codeware has it). The interface is no game system of the instance's map: the script getter is the way to it. The
+// getter (sub_1413A9A10) reads the weather off the runtime scene (instance +0x78) without asking whether there is one,
+// and between two sessions there is none: the lobby's once-a-second look at the weather while a new game took over
+// from the main menu read address 0x280 (crash 20261102-094655).
+// The weather system behind GameInstance.GetWeatherSystem: rust/crates/cvr-ffi/src/engine_objects.rs.
+}
+
+// The ink system's layer of this native type (inkMenuLayer, inkHUDLayer ...), for the lobby (Lobby/MenuLobby.cpp).
+#else
 namespace {
 
 using RED4ext::CName;
@@ -497,3 +574,4 @@ void VRLobbyExposureCount(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, in
     std::lock_guard<std::mutex> guard(g_exposureLock);
     if (out) *out = static_cast<int32_t>(g_exposure.size());
 }
+#endif

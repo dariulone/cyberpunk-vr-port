@@ -17,6 +17,8 @@ local StashVisit = require("modules/stash_visit")
 local LoadData = require("modules/load_data")
 local Appearance = require("modules/appearance")
 local AppearanceView = require("modules/appearance_view")
+local Glamdoc = require("modules/glamdoc_data")
+local GlamdocView = require("modules/glamdoc_view")
 local PICS = require("modules/pictures")
 local L = require("modules/locale")
 local Space = require("modules/space")
@@ -478,7 +480,7 @@ local function buttonAt(x, y)
     local by = b.y
     if b.view ~= nil then by = b.view.y + b.y - b.view.offset end
     local visible = b.visible ~= false and (b.group == "col" or S.time >= S.panelInteractiveAt)
-      and (S.modalGroup==nil or b.group==S.modalGroup or b.group=="col")
+      and (S.modalGroup==nil or b.group==S.modalGroup or (S.modalGroup=="sort" and b.group=="col"))
     if visible and x >= b.x and x <= b.x + b.w and y >= by and y <= by + b.h
       and (b.view == nil or b.view:visibleAt(x, y)) then
       if b.blocker then return nil end
@@ -978,7 +980,7 @@ end
 -- What the settings module draws with.
 local kit = {
   S = S, T = T, PAD = PAD, HEAD = HEAD, ROW = ROW, ARROW_H = ARROW_H, LIST_H = LIST_H, R_CELL = R_CELL,
-  P1X = P1X, P1Y = P1Y, P1W = P1W, P2X = P2X, P2W = P2W, GLYPH = GLYPH,
+  CW = CW, CH = CH, P1X = P1X, P1Y = P1Y, P1W = P1W, P2X = P2X, P2W = P2W, GLYPH = GLYPH,
   at = at, button = button, clearButtons = clearButtons, dropView = dropView, slider = slider, stepButton = stepButton,
   arrowBar = arrowBar, chevron = chevron, glass = glass, header = header, slideIn = slideIn,
   glyph = glyph,
@@ -996,7 +998,7 @@ local function groupOf(key)
 end
 
 local function openSection(key,keepOpen)
-  if S.section=="appearance" then return end
+  if S.section=="appearance" or S.section=="glamdoc" then return end
   if not S.open or S.menu == nil or not S.menu.built then return end
   if S.section == "contacts" then Msg.leave(kit) end
   Gameplay.leave(kit)
@@ -1017,7 +1019,7 @@ end
 local function openGroup(group)
   if groupOf(S.section)==group then openSection(nil,true);return end
   local visit=VendorVisit.current(M.shared)
-  local key=group=="person" and (visit and (visit.ripperdoc==false and "trade" or "cyberware") or "inventory") or "journal"
+  local key=group=="person" and (visit and VendorVisit.section(visit) or "inventory") or "journal"
   if group=="person" and StashVisit.current(M.shared) then key="stash" end
   openSection(key,true)
 end
@@ -1417,6 +1419,7 @@ function build.panels(anim1, anim2)
   clearButtons("sethead")
   clearButtons("tabs")
   clearButtons("sort")
+  clearButtons("attributePrompt")
   S.modalGroup=nil
   dropAnims("p1")
   dropAnims("p2")
@@ -1449,7 +1452,9 @@ function build.panels(anim1, anim2)
   else
     local p1 = K.canvas(L, P1X, P1Y, P1W, CH - P1Y)
     local p2 = K.canvas(L, P2X, P1Y, Msg.THREAD_W, CH - P1Y)
-    if S.section == "appearance" then
+    if S.section == "glamdoc" then
+      GlamdocView.draw(kit,K.canvas(L,710,P1Y,1780,CH-P1Y))
+    elseif S.section == "appearance" then
       -- Beside the mirror the menu opened centred on, on the side of the dominant hand.
       local left = type(VRLeftHanded) == "function" and VRLeftHanded() == true
       local ax = left and CW - P2X - P1W or P2X
@@ -1503,7 +1508,7 @@ function build.all()
     S.pressFX[i]={host=fx}
   end
   -- The mirror's appearance editor stands alone: none of the column's sections can be reached from it.
-  if S.section=="appearance" then
+  if S.section=="appearance" or S.section=="glamdoc" then
     clearButtons("col");S.icons={};S.moneyWidget,S.weightWidget,S.resourceRect=nil,nil,nil
   else
     build.column()
@@ -1530,6 +1535,8 @@ function M.open(cam,initialSection)
   if not Availability.enabled() then return false end
   if S.waitTransition or preGame() then return false end
   if Appearance.current() and initialSection~="appearance" then return false end
+  if Glamdoc.current() and not Glamdoc.current().closed and initialSection~="glamdoc" then return false end
+  if initialSection=="glamdoc" and Glamdoc.current() and Glamdoc.current().closed and Glamdoc.current().pending then return false end
   -- Not while full-body tracking calibrates: the steps move the hands (an accidental grip swipe opened it)
   if S.fbtCalibrating then return false end
   if type(VRMenuSurfaceReady) ~= "function" then return false end
@@ -1543,6 +1550,7 @@ function M.open(cam,initialSection)
   end
   S.anchor = anchorFor(cam)
   S.open, S.section, S.items, S.vehicle, S.toast, S.closeAt = true, initialSection, nil, nil, nil, nil
+  if type(VRMenuModOpen) == "function" then VRMenuModOpen(true) end
   local column=initialSection and 0 or COL_HOME
   S.columnOffset, S.columnTarget, S.columnMove = column, column, nil
   S.panelStart, S.panelInteractiveAt, S.openAnimAt = S.time, S.time, nil
@@ -1574,11 +1582,13 @@ function M.close()
   S.columnAction=nil
   if not S.open then return end
   if S.section=="appearance" then Appearance.cancel() end
+  if S.section=="glamdoc" then Glamdoc.finish(false) end
   local visit=M.shared and M.shared.ripperSession
   if visit and visit.active then VendorVisit.closeSession(visit);M.shared.ripperSession=nil end
   local stash=M.shared and M.shared.stashSession
   if stash and stash.active then M.shared.stashSession=nil end
   S.open = false
+  if type(VRMenuModOpen) == "function" then VRMenuModOpen(false) end
   S.summaryRect = nil
   S.summaryVisible=false
   S.resourceRect = nil
@@ -1610,7 +1620,7 @@ function M.openTrade()
 end
 
 function M.openMap()
-  if S.section=="appearance" then return false end
+  if S.section=="appearance" or S.section=="glamdoc" then return false end
   if not D.openMap(M.shared and M.shared.menuController) then toast(T.blocked);return false end
   M.close()
   return true
@@ -2009,7 +2019,7 @@ local function tick(dt)
   if S.slow > 0.25 then
     S.slow = 0
     local visit=M.shared and M.shared.ripperSession
-    if (S.section~="appearance" and (armed() or sceneTier() >= 3)) or (S.anchor.vehicle == true) ~= (D.mounted() ~= nil) then
+    if (S.section~="appearance" and S.section~="glamdoc" and (armed() or sceneTier() >= 3)) or (S.anchor.vehicle == true) ~= (D.mounted() ~= nil) then
       M.close()
       return
     end
@@ -2069,6 +2079,10 @@ local function tick(dt)
     end)
   end
   if S.section == "appearance" then Appearance.present(kit) end
+  if S.section == "glamdoc" then
+    GlamdocView.update(kit)
+    if not S.open then return end
+  end
   if S.section == "settings" then Set.update(dt) end
   if S.section == "contacts" then Msg.update(kit, dt) end
   if S.section == "load" or S.section == "stash" or S.section == "trade" or S.section == "cyberware" or S.section == "crafting" or S.section == "inventory" or S.section == "character" or S.section == "journal" or S.section == "codex" or S.section == "shards" or S.section == "tarot" or S.section == "timeskip" then
@@ -2089,6 +2103,7 @@ function M.init(shared)
   StashVisit.bind(shared)
   LoadData.bind(shared)
   Appearance.bind(shared,Availability.enabled)
+  Glamdoc.bind(shared)
   kit.menuController = function() return shared.menuController end
   kit.ripperSession = function() return shared.ripperSession end
   kit.vendorSession = function() return VendorVisit.current(shared) end
@@ -2119,6 +2134,8 @@ function M.update(dt)
   end
   S.interfaceDisabled=false
   S.time = S.time + (dt or 0)
+  local glamOk,glamError=pcall(Glamdoc.poll,dt)
+  if not glamOk then print("[VRMenu] Glamdoc update failed: "..tostring(glamError)) end
   if Appearance.poll(dt) and not S.open then M.openCentred("appearance") end
   if S.open and S.section=="appearance" and not Appearance.current() then M.close() end
   -- Full-body tracking calibration started from the settings: the menu gets out of the way (VRFbtCalibrating).
@@ -2180,7 +2197,7 @@ function M.update(dt)
         -- Build the requested shop before the surface's first GPU-ready check.
         -- Opening the empty column first exposed glass before its panel pixels.
         visit.active=true
-        if M.openCentred(visit.ripperdoc==false and "trade" or "cyberware") then
+        if M.openCentred(VendorVisit.section(visit)) then
           VendorVisit.openSession(visit)
           visit.pending=false;visit.controller=nil
         else visit.active=false end
@@ -2201,6 +2218,7 @@ function M.update(dt)
     if S.open then
       pcall(Gameplay.leave,kit)
       S.open = false
+      if type(VRMenuModOpen) == "function" then VRMenuModOpen(false) end
       capture(false)
     end
     S.menu, S.beams, S.anchor, S.glass = nil, { {}, {} }, nil, {}
@@ -2219,6 +2237,7 @@ end
 -- Everything this module holds in the world goes: the screen, the beams, the held-back buttons.
 function M.release()
   Appearance.release()
+  Glamdoc.finish(false)
   if type(VRMenuVendorPoll)=="function" then pcall(VRMenuVendorPoll,false) end
   Hud.restore()
   VendorVisit.restorePresentation(M.shared)
@@ -2246,6 +2265,7 @@ function M.state()
 end
 
 function M.appearance() return Appearance.state() end
+function M.glamdoc() return Glamdoc.state() end
 function M.isOpen() return S.open end
 function M.section(key) openSection(key) end
 function M.debugRoot() return S.menu and S.menu.root end

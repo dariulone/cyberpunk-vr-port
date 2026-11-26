@@ -1,0 +1,47 @@
+[package]
+name = "cvr-ffi"
+description = "cvr_rust.lib: the Rust half of the DLL while C++ still links it -- the plugin's entry points, and the C ABI the C++ half calls (include/Rust/CvrRust.h)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "cvr_rust"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+cvr-input = { path = "../cvr-input" }
+cvr-body = { path = "../cvr-body" }
+cvr-camera = { path = "../cvr-camera" }
+cvr-rig = { path = "../cvr-rig" }
+cvr-physhands = { path = "../cvr-physhands" }
+cvr-settings = { path = "../cvr-settings" }
+cvr-xr = { path = "../cvr-xr" }
+cvr-gpu = { path = "../cvr-gpu" }
+cvr-render = { path = "../cvr-render" }
+cvr-crt = { path = "../cvr-crt" }
+cvr-host = { path = "../cvr-host" }
+cvr-engine = { path = "../cvr-engine" }
+red4ext-abi = { path = "../red4ext-abi" }
+serde_json = "1"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_Environment", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+[features]
+# The plugin's entry points (src/plugin.rs): only the DLL links them -- they call the C++ half's seams, which a test
+# program linking cvr_rust.lib does not have.
+plugin = ["cvr-render/stereo"]
+# The player's solve (rust/crates/cvr-rig, CVR_RUST_VRIK): it uses the C++ half's globals, so only a binary defining
+# them (the DLL, tools/vrik_tests) enables it.
+rig = ["cvr-rig/engine"]
+# The Rust build of the DLL: the solve and the render modules that replace C++ files the reference build still compiles
+# (cvr-render's rust-build, whose stereo parts read the DLL's exports -- which tools/vrik_tests, built with `rig` alone,
+# does not define).
+vrik = ["rig", "cvr-render/rust-build"]
+# The single-pass probe test's Rust variant (tools/single_pass_tests' native_probe_test_rust, its own cvr_rust build):
+# the exported state the Rust build defines and the reservation hooks' runtimes, without the plugin's entry points.
+probe-test = ["cvr-render/probe-exports"]
+# tools/vrik_tests' Rust variants: the solve with the exported state it reaches by name (cvr-render's rig_test_exports.rs).
+rig-exports = ["rig", "cvr-render/rig-exports"]
+
+[lints]
+workspace = true

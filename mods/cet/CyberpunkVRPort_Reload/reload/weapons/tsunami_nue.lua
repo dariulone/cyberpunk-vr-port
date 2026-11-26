@@ -35,6 +35,7 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_slide' },
 
     slide = {
+        ejectLiveRound = true,
         slot       = 'vrp_slide',
         which      = 1, bone = 5,
         -- The same numbers as the Tamayura, and not by assumption: rest and lock are properties of the RIG's bind

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // VRLobbySaveLooks() -> String: the looks the player's playthroughs stand at, for the lobby's engrams
 // (mods/cet/CyberpunkVRPort_Lobby/modules/engrams.lua) -- one per playthrough, from its newest save.
 //
@@ -26,6 +27,7 @@
 // (the game's wardrobe). One wear line per clothing area that shows something. EquipmentEx (a mod's outfits) keeps
 // its own: EquipmentEx.OutfitState, while m_active its m_parts (an item and the slot it goes in) are what shows.
 #include "Lobby/SaveFile.hpp"
+#include "Natives/NativeFunctions.hpp"  // the natives defined here, with C linkage in the Rust build
 #include "Lobby/SavePackage.hpp"
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Utils.hpp>
@@ -41,6 +43,9 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 
+// The Rust build's native and the save readers are rust/crates/cvr-rig/src/vrik/save_looks.rs and save_file.rs (the
+// headers stay for tools/saves/savdump.cpp).
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
 
 namespace cvr::lobby::looks {
@@ -335,3 +340,5 @@ void VRLobbySaveLooks(RED4ext::IScriptable*, RED4ext::CStackFrame* f, RED4ext::C
     }
     if (out) *out = RED4ext::CString(text.c_str());
 }
+#endif
+#endif

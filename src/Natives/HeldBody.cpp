@@ -24,6 +24,7 @@
 #include "Anim/GraspPose.hpp"
 #include "Core/GameBuild.hpp"
 #include "Core/LiveControls.hpp"
+#include "Core/Paths.hpp"
 #include "Hooks/Hook.hpp"
 #include "MinHook.h"
 #include <RED4ext/RED4ext.hpp>
@@ -34,6 +35,8 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <string>
+#include <thread>
 
 extern void Log(const char* fmt, ...);
 extern "C" {
@@ -467,7 +470,7 @@ bool GraspShape(void* actor,int& shape,float* half,float* local,float* points=nu
 }
 // THE DRAWN SHAPE OF A ROUND PROP. A bottle's collider is a capsule round the whole of it (a can's, a cup's too): it has no
 // neck, and it is thicker than the glass. Where the neck is and how thin, and how thick the body really is, are the drawn
-// mesh's: their radius profiles, made from the game's cooked meshes by tools/grasp_tests/profiles (profilegen.exe), by the
+// mesh's: their radius profiles, made from the game's cooked meshes by tools/grip_generator, by the
 // mesh's depot path's hash. The mesh is the instance's CMesh (a RED object among those it points at: its weak self handle
 // at +8, its table in the game's image, its class a CMesh; CResource's path at +0x30). Its frame is the body's: the
 // instance's record is the body's pose (a bottle's capsule lies along the mesh's Z, from its base at 0 to its mouth).
@@ -477,8 +480,12 @@ const MeshProfile kMeshProfiles[]={
 };
 const MeshProfile* ProfileOf(uint64_t hash) {
     if(!hash)return nullptr;
-    for(const MeshProfile& m:kMeshProfiles)if(m.hash==hash)return &m;
-    return nullptr;
+    // The generated table is sorted and unique. It now covers thousands of
+    // props, so a lookup must not scan the whole catalog for each new hold.
+    const auto* end=std::end(kMeshProfiles);
+    const auto* at=std::lower_bound(std::begin(kMeshProfiles),end,hash,
+        [](const MeshProfile& profile,uint64_t value){return profile.hash<value;});
+    return at!=end && at->hash==hash ? at:nullptr;
 }
 uint8_t* InstanceOf(uint32_t proxy);
 uint64_t MeshOf(uint32_t proxy) {
@@ -555,6 +562,15 @@ void EaseFingers() {
     }
 }
 void Unseat(Slot& s);
+// THE BAKED GRASPS (tools/grip_generator/pose_batch.cpp): per cooked prop mesh, grasps fitted on its drawn surface against
+// the FPP hand's skin. Read on a thread of its own at load; the first grab waits for it only if it comes first.
+const std::string& BakedGraspsPath() {
+    static const std::string path=cvr::paths::FileA(cvr::paths::Folder::Grips,"CyberpunkVR_MeshGrasps.bin");
+    return path;
+}
+int BakedGrasps() {
+    return cvr::anim::GraspLoadBaked(BakedGraspsPath().c_str());
+}
 // Seated for its grasp, or not: the slot's hand and its offset and turn (the caller holds the lock).
 void SeatFor(Slot& s,float dt) {
     const int side=s.bone==g_VRRightBoneIdx?1:s.bone==g_VRLeftBoneIdx?0:-1;
@@ -578,11 +594,16 @@ void SeatFor(Slot& s,float dt) {
         int ends=15;
         bool part=false;
         cvr::anim::GraspPart gp;
-        float skin[3],mz=0.f,hl=half[2],widest=0.f;
-        uint64_t mesh=0;
-        if(shape==2 && hullN<6) {
-            mesh=MeshOf(s.proxy);
-            if(const MeshProfile* mp=ProfileOf(mesh))hullN=ProfilePoints(*mp,local,half,hull,mz,hl,widest);
+        float skin[3],gripAt[3]{},mz=0.f,hl=half[2],widest=0.f;
+        const uint64_t mesh=MeshOf(s.proxy);
+        if(shape==2) {
+            // A convex collider fills a glass stem's waist. Prefer a validated
+            // visible-mesh profile even when the collider supplies hull points.
+            if(const MeshProfile* mp=ProfileOf(mesh)) {
+                float profileMiddle=0.f,profileHalf=hl,profileRadius=0.f;
+                const int profileN=ProfilePoints(*mp,local,half,hull,profileMiddle,profileHalf,profileRadius);
+                if(profileN>=6){hullN=profileN;mz=profileMiddle;hl=profileHalf;widest=profileRadius;}
+            }
         }
         if(shape==2 && hullN>=6 && cvr::anim::GraspPalm(side,skin)) {
             const float rel[3]={skin[0]-p[0],skin[1]-p[1],skin[2]-p[2]};
@@ -590,7 +611,21 @@ void SeatFor(Slot& s,float dt) {
             float hand[3];
             Rotate(inv,rel,hand);
             hand[2]-=mz;
-            const bool found=cvr::anim::GraspPartOf(hull,hullN,hl,hand,gp);
+            std::copy_n(hand,3,gripAt);
+            bool found=cvr::anim::GraspPartOf(hull,hullN,hl,hand,gp);
+            // A GLASS ON A STEM is held by its stem from below, wherever the hand closed on it (its bowl too): the stem
+            // found along its axis, the palm put beside it
+            if(!(found && gp.stem)) {
+                const float out=std::max(std::max(half[0],half[1]),widest)+.025f;
+                for(int k=0;k<24;++k) {
+                    const float probe[3]={out,0.f,-hl+(k+.5f)*(2.f*hl/24.f)};
+                    cvr::anim::GraspPart stem;
+                    if(cvr::anim::GraspPartOf(hull,hullN,hl,probe,stem) && stem.stem) {
+                        gp=stem;found=true;
+                        break;
+                    }
+                }
+            }
             float dz[3]={0.f,0.f,mz};
             if(found) {
                 dz[2]+=gp.z;
@@ -610,7 +645,7 @@ void SeatFor(Slot& s,float dt) {
         float seatP[3],seatQ[4];
         int kind=-1;
         const bool lathe=gp.lathe.knots>=2 && (part || widest>0.f);
-        if(!cvr::anim::GraspTake(side,shape,half,p,q,seatP,seatQ,&kind,ends,part,lathe?&gp.lathe:nullptr)) {
+        if(!cvr::anim::GraspTake(side,shape,half,p,q,seatP,seatQ,&kind,ends,part,lathe?&gp.lathe:nullptr,mesh)) {
             s.graspTried=false;     // the palm is not measured yet: again at the next step
             return;
         }
@@ -621,18 +656,36 @@ void SeatFor(Slot& s,float dt) {
         Rotate(aq,local,back);
         for(int k=0;k<3;++k)s.seat[k]=seatP[k]-back[k];
         std::copy_n(aq,4,s.seat+3);
+        // a prop the fitter baked: the baked grasp nearest this seat instead -- the mesh's pose against the palm and the
+        // fingers fitted on its drawn surface (the body's frame is its mesh's)
+        bool baked=false;
+        if(mesh && BakedGrasps()>0 && cvr::anim::GraspBakedHas(mesh)) {
+            float bp[3],bq[4],deg=0.f,dist=0.f;
+            int bk=-1;
+            if(cvr::anim::GraspTakeBaked(side,mesh,s.seat,s.seat+3,bp,bq,&bk,&deg,&dist)) {
+                std::copy_n(bp,3,s.seat);
+                std::copy_n(bq,4,s.seat+3);
+                kind=bk;
+                baked=true;
+                Log("[heldbody] proxy %u body %u: mesh %016llx baked grasp (kind %d), %.1f deg and %.1f mm from the game's seat\n",
+                    s.proxy,s.body,static_cast<unsigned long long>(mesh),bk,deg,dist*1000.f);
+            } else {
+                Log("[heldbody] proxy %u body %u: mesh %016llx baked, none near the game's seat: the solved grasp\n",
+                    s.proxy,s.body,static_cast<unsigned long long>(mesh));
+            }
+        }
         std::copy_n(s.offset,3,s.seatFrom);
         std::copy_n(s.turn,4,s.seatFrom+3);
         s.seatT=0.f;s.seated=true;s.graspSide=side;s.graspKind=kind;
         fingers[side].on=true;fingers[side].used=true;
         static const char* kKinds[8]={"flat","wrap","ball","pinch","edge","from above","from below","three fingers"};
         const volatile float* how=CyberpunkVR_DebugGraspApproach[side];
-        Log("[heldbody] proxy %u body %u: seated in the %s hand for a %s grasp (shape %d%s, half %.3f %.3f %.3f, hull %d points, mesh %016llx%s), %.3f m from where it was taken; "
-            "palm to its axis %.2f, along it %.2f of its half, that end to up %.2f\n",
-            s.proxy,s.body,side?"right":"left",kind>=0 && kind<8?kKinds[kind]:"?",shape,part?(gp.neck?" its neck":" its body"):"",
+        Log("[heldbody] proxy %u body %u: seated in the %s hand for a %s%s grasp (shape %d%s, half %.3f %.3f %.3f, hull %d points, mesh %016llx%s), %.3f m from where it was taken; "
+            "palm to its axis %.2f, along it %.2f of its half, that end to up %.2f; input palm in shape (%.3f %.3f %.3f), body in hand (%.3f %.3f %.3f)\n",
+            s.proxy,s.body,side?"right":"left",baked?"baked ":"",kind>=0 && kind<8?kKinds[kind]:"?",shape,part?(gp.stem?" its stem":gp.neck?" its neck":" its body"):"",
             half[0],half[1],half[2],hullN,static_cast<unsigned long long>(mesh),lathe?", the whole drawn round it":"",
             std::sqrt((s.seat[0]-s.offset[0])*(s.seat[0]-s.offset[0])+(s.seat[1]-s.offset[1])*(s.seat[1]-s.offset[1])+(s.seat[2]-s.offset[2])*(s.seat[2]-s.offset[2])),
-            how[0],how[1],how[2]);
+            how[0],how[1],how[2],gripAt[0],gripAt[1],gripAt[2],s.offset[0],s.offset[1],s.offset[2]);
     }
     if(!s.graspWanted) {
         Unseat(s);
@@ -703,7 +756,19 @@ bool Picture(Slot& s,uint8_t* record) {
 }
 // Where the hand has the thing now. The player as the engine has it this frame, the bone as animated for it.
 bool HandPose(const Slot& s,Pose& out) {
-    if(!CyberpunkVR_PlayerEntityValid || s.bone<0 || s.bone>=g_VRFKSnapCount)return false;
+    if(!CyberpunkVR_PlayerEntityValid || s.bone<0)return false;
+    const int side=s.bone==g_VRRightBoneIdx?1:s.bone==g_VRLeftBoneIdx?0:-1;
+    if(side>=0){
+        float wrist[3],rotation[4],offset[3];
+        if(!cvr::physhands::SolvedWorldPose(side,wrist,rotation))return false;
+        Rotate(rotation,s.offset,offset);
+        for(int k=0;k<3;++k)out.p[k]=wrist[k]+offset[k];
+        Mul(rotation,s.turn,out.q);
+        return UnitLike(out.q)&&std::isfinite(out.p[0]+out.p[1]+out.p[2]);
+    }
+    // Legacy callers can attach a picture to a non-hand bone. Normal physical
+    // grips above never mix the diagnostic FK cache with a later entity pose.
+    if(s.bone>=g_VRFKSnapCount)return false;
     float bone[3],rot[4],q[4],at[3],world[4],off[3];
     for(int k=0;k<3;++k)bone[k]=g_VRFKSnapPos[s.bone][k];
     for(int k=0;k<4;++k)rot[k]=g_VRFKSnapRot[s.bone][k];
@@ -1103,13 +1168,17 @@ void BeforeSimulate(void* scene,float dt) {
     QueriesAtStep(scene);
     if(!installed || !anyUsed)return;
     const auto tick=GetTickCount64();
+    float currentOrigin[3];
+    const bool originKnown=cvr::physhands::SceneOrigin(scene,currentOrigin);
     AcquireSRWLockExclusive(&lock);
     for(auto& s:slots) {
         if(!s.used || !s.ownBody || !s.actor || s.scene!=scene)continue;
         if(!InstanceOf(s.proxy)) {s.actor=nullptr;s.driving=false;continue;}   // gone with its sector, and its actor with it
         if(!Alive(s)) {Forget(s,"released (broken?)");continue;}
+        if(originKnown)std::copy_n(currentOrigin,3,s.origin);
         const bool holding=!s.letGo && tick-s.askedAt<=kUnaskedMs;
         if(holding) {
+            if(!originKnown)continue;
             SeatFor(s,dt);
             Pose pose;
             if(!HandPose(s,pose))continue;
@@ -1288,6 +1357,10 @@ bool Install() {
     if(MH_CreateHook(target,reinterpret_cast<void*>(&Update),reinterpret_cast<void**>(&originalUpdate))!=MH_OK)return false;
     if(MH_EnableHook(target)!=MH_OK) {MH_RemoveHook(target);return false;}
     installed=true;
+    std::thread([] {
+        const int meshes=BakedGrasps();
+        Log("[heldbody] baked grasps: %d meshes from %s\n",meshes,BakedGraspsPath().c_str());
+    }).detach();
     return true;
 }
 CVR_HOOK("HeldBody",::cvr::hooks::Stage::Boot,84,Install);

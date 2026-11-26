@@ -1,0 +1,241 @@
+{
+  "desktop": {
+    "pid": 13912,
+    "portModule": false,
+    "openXRLoader": false,
+    "VrBladeReceiptInCompiledScripts": false
+  },
+  "vr": {
+    "pid": 28804,
+    "weaponPlaneMode": 2,
+    "initialContactInput": "game API, fixed finite segments",
+    "continuationInput": "OpenXR simulator hand"
+  },
+  "contacts": [
+    {
+      "kind": "Puncture",
+      "shape": "Belly",
+      "physical": [
+        53.700878143311,
+        80.551315307617
+      ],
+      "bleeding": true,
+      "serial": 1,
+      "healthSamples": [
+        391.43084716797,
+        359.05099487305,
+        340.00283813477,
+        321.84692382813,
+        287.9358215332,
+        270.88705444336,
+        250.94932556152,
+        231.25090026855,
+        191.55601501465,
+        171.88694763184
+      ],
+      "markToBladeMeters": 2.4025948732742e-05,
+      "trailAccepted": [
+        true,
+        true,
+        true
+      ],
+      "changedComponents": [
+        "t2_041_ma_jacket__spiked5362",
+        "t1_071_ma_tank__basic"
+      ],
+      "changedControlComponents": []
+    },
+    {
+      "kind": "Slash",
+      "shape": "Belly",
+      "physical": [
+        59.966861724854,
+        59.966861724854
+      ],
+      "bleeding": false,
+      "serial": 2,
+      "healthSamples": [
+        553.93310546875,
+        553.93310546875,
+        553.93310546875,
+        553.93310546875,
+        553.93310546875,
+        553.93310546875,
+        553.93310546875,
+        553.93310546875,
+        553.93310546875,
+        553.93310546875
+      ],
+      "markToBladeMeters": 3.7319343391573e-05,
+      "trailAccepted": [
+        true,
+        true,
+        true
+      ],
+      "changedComponents": [
+        "t0_002_ma__c_base_tah3540",
+        "t1_008_ma_tank__low_cut7062",
+        "tattoo_ma__stomach_top"
+      ],
+      "changedControlComponents": []
+    }
+  ],
+  "continuations": [
+    {
+      "accepted": true,
+      "serial": 2,
+      "physical": [
+        29.320640563965,
+        58.64128112793
+      ]
+    },
+    {
+      "accepted": true,
+      "serial": 2,
+      "physical": [
+        39.050731658936,
+        78.101463317871
+      ]
+    },
+    {
+      "accepted": true,
+      "serial": 2,
+      "physical": [
+        42.385406494141,
+        84.770812988281
+      ]
+    }
+  ],
+  "shippingBuild": {
+    "pid": 23280,
+    "weaponPlaneOff": true,
+    "controllerOnly": [
+      {
+        "serialInAir": 0,
+        "serialOnContact": 1,
+        "markOnLoadedMesh": true,
+        "inputAndDamagePassed": true,
+        "hapticPassed": true
+      },
+      {
+        "serialInAir": 0,
+        "serialOnContact": 1,
+        "markOnLoadedMesh": true,
+        "inputAndDamagePassed": true,
+        "hapticPassed": true
+      },
+      {
+        "serialInAir": 0,
+        "serialOnContact": 1,
+        "markOnLoadedMesh": true,
+        "inputAndDamagePassed": true,
+        "hapticPassed": true
+      }
+    ],
+    "initialCases": [
+      {
+        "kind": "Puncture",
+        "reported": "last=PunctureRequested shape=Belly",
+        "physical": [
+          59.150718688965,
+          88.72607421875
+        ],
+        "bleed": true,
+        "healthSamples": [
+          364.0905456543,
+          345.11758422852,
+          328.26733398438,
+          309.43933105469,
+          273.58480834961,
+          256.72476196289,
+          236.00048828125,
+          198.06045532227,
+          178.75926208496,
+          159.17785644531
+        ],
+        "serialSamples": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "renderPoint": [
+          -1432.1627197266,
+          1264.7348632813,
+          24.087265014648,
+          1
+        ],
+        "distanceToLastSampleMeters": 4.5053428038955e-05
+      },
+      {
+        "kind": "Slash",
+        "reported": "last=SlashRequested shape=RightForeArm",
+        "physical": [
+          59.27095413208,
+          59.27095413208
+        ],
+        "bleed": false,
+        "healthSamples": [
+          554.62896728516,
+          554.62896728516,
+          554.62896728516,
+          554.62896728516,
+          554.62896728516,
+          554.62896728516,
+          554.62896728516,
+          554.62896728516,
+          554.62896728516,
+          554.62896728516
+        ],
+        "serialSamples": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "renderPoint": [
+          -1433.4327392578,
+          1266.2224121094,
+          24.186737060547,
+          1
+        ],
+        "distanceToLastSampleMeters": 5.1937240641564e-06
+      }
+    ],
+    "continued": [
+      {
+        "accepted": true,
+        "physical": [
+          25.644283294678,
+          51.288566589355
+        ]
+      },
+      {
+        "accepted": false,
+        "physical": [
+          40.901580810547,
+          40.901580810547
+        ]
+      },
+      {
+        "accepted": false,
+        "physical": [
+          41.846397399902,
+          41.846397399902
+        ]
+      }
+    ]
+  }
+}

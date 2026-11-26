@@ -1,11 +1,52 @@
 #pragma once
 #include <cstdint>
 #include <map>
+#if CVR_RUST_VRIK
+#include <utility>
+#endif
 #include <vector>
 
 namespace cvr::stereo::constants {
 // A bounded graph of witnessed queue operations. Fences are usable only while
 // one GPU queue signals monotonically above the initial completed value.
+#if CVR_RUST_VRIK
+// The order: rust/crates/cvr-render/src/constant_timeline.rs (tools/single_pass_tests/constant_timeline_test runs its cases
+// against it in its Rust variant). This object owns the Rust state; copies copy it.
+namespace detail {
+struct RustQueueOrder;
+struct RustReach {bool before,pending;};
+extern "C" {
+RustQueueOrder* cvr_gqo_new(const RustQueueOrder*);
+void cvr_gqo_free(RustQueueOrder*);
+uint32_t cvr_gqo_op(RustQueueOrder*,uint32_t,uint64_t,uint64_t,uint64_t);
+void cvr_gqo_reaches(const RustQueueOrder*,uint32_t,uint32_t,RustReach*);
+}
+}
+class GpuQueueOrder {
+public:
+    struct Reach {bool before{},pending{};};
+    static constexpr uint32_t Capacity=32768;
+    GpuQueueOrder():rust_(detail::cvr_gqo_new(nullptr)){}
+    GpuQueueOrder(const GpuQueueOrder& other):rust_(detail::cvr_gqo_new(other.rust_)){}
+    GpuQueueOrder(GpuQueueOrder&& other)noexcept:rust_(std::exchange(other.rust_,detail::cvr_gqo_new(nullptr))){}
+    GpuQueueOrder& operator=(GpuQueueOrder other)noexcept{std::swap(rust_,other.rust_);return *this;}
+    ~GpuQueueOrder(){detail::cvr_gqo_free(rust_);}
+    uint32_t Submit(uint64_t queue){return Op(0,queue);}
+    void Fence(uint64_t fence,uint64_t completed){Op(1,fence,completed);}
+    void Signal(uint64_t queue,uint64_t fence,uint64_t value){Op(2,queue,fence,value);}
+    void Wait(uint64_t queue,uint64_t fence,uint64_t value){Op(3,queue,fence,value);}
+    void Invalidate(uint64_t fence){Op(4,fence);}
+    void Progress(uint64_t fence,uint64_t completed){Op(5,fence,completed);}
+    Reach Reaches(uint32_t from,uint32_t target) const {
+        detail::RustReach out{};detail::cvr_gqo_reaches(rust_,from,target,&out);return {out.before,out.pending};
+    }
+    bool Failed() const{return detail::cvr_gqo_op(rust_,7,0,0,0)!=0;}
+    void Clear(){Op(6);}
+private:
+    uint32_t Op(uint32_t which,uint64_t a=0,uint64_t b=0,uint64_t c=0){return detail::cvr_gqo_op(rust_,which,a,b,c);}
+    detail::RustQueueOrder* rust_;
+};
+#else
 class GpuQueueOrder {
 public:
     struct Reach {bool before{},pending{};};
@@ -76,4 +117,5 @@ private:
         const auto id=uint32_t(nodes_.size());nodes_.push_back(std::move(node));last_[queue]=id;return id;
     }
 };
+#endif
 }

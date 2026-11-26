@@ -6,6 +6,18 @@
 namespace cvr::stereo {
 // Batch splitting changes the draw-local instance ordinal. Require an explicit
 // parsed input signature without SV_InstanceID, in addition to rebase support.
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/instance_rebase.rs (tools/single_pass_tests/geometry_commands_test and
+// instance_coverage_test run their cases against them in their Rust variants).
+extern "C" {
+bool cvr_ir_independent_ordinal(const D3D12_SHADER_BYTECODE*);
+bool cvr_ir_supports_rebase(const D3D12_SHADER_BYTECODE*,const D3D12_INPUT_LAYOUT_DESC*);
+}
+inline bool HasIndependentInstanceOrdinal(D3D12_SHADER_BYTECODE shader){return cvr_ir_independent_ordinal(&shader);}
+inline bool SupportsInstanceRebase(D3D12_SHADER_BYTECODE shader,const D3D12_INPUT_LAYOUT_DESC& layout) {
+    return cvr_ir_supports_rebase(&shader,&layout);
+}
+#else
 inline bool HasIndependentInstanceOrdinal(D3D12_SHADER_BYTECODE shader){
     if(!shader.pShaderBytecode || shader.BytecodeLength<32)return false;
     const auto* data=static_cast<const uint8_t*>(shader.pShaderBytecode);
@@ -61,4 +73,5 @@ inline bool SupportsInstanceRebase(D3D12_SHADER_BYTECODE shader,const D3D12_INPU
     }
     return vertex;
 }
+#endif
 }

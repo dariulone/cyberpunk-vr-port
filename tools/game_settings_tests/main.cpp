@@ -6,6 +6,10 @@
 #include <memory>
 #include <stdexcept>
 
+#if CVR_RUST_VRIK
+// cvr-settings' vrport.ini parse asks the C++ half for the subsystems' keys; none here.
+extern "C" bool cvr_cpp_settings_parse_subsystem(int,const char*,void*){return false;}
+#endif
 namespace fs=std::filesystem;
 void Check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 Json::Value Parse(const std::string& text){
@@ -72,7 +76,43 @@ void CheckRealFile(const fs::path& path,const Json::Value& preset){
     for(const auto& s:merged.skipped)std::cout<<"\n  skipped "<<s;
     std::cout<<"\n";
 }
+// The trace both builds print (cmake/ParityTrace.cmake): every byte the merges and reads give, hashed.
+int Trace() {
+    uint64_t hash=1469598103934665603ull;
+    const char* dump=std::getenv("CVR_SETTINGS_TRACE_DIR");int piece=0;
+    const auto mix=[&](std::string_view s){
+        if(dump)Write(fs::path(dump)/("piece"+std::to_string(piece++)+".txt"),std::string(s));
+        for(unsigned char c:s){hash^=c;hash*=1099511628211ull;}hash^=0xFF;hash*=1099511628211ull;};
+    const auto record=[&](const cvr::settings::MergeResult& m){
+        mix(m.ok?"ok":"failed");mix(std::to_string(m.changed));mix(m.json);mix(m.error);for(const auto& s:m.skipped)mix(s);
+    };
+    const auto presetText=Read(fs::path(CVR_SOURCE_ROOT)/"mods/config/UserSettings.json");
+    Check(!presetText.empty(),"the shipped preset is unreadable");
+    const auto preset=Parse(presetText);
+    record(cvr::settings::MergeGameSettings(presetText,presetText));
+    auto edited=preset;
+    for(auto& group:edited["data"])for(auto& option:group["options"]){
+        if(option["value"].isBool())option["value"]=!option["value"].asBool();
+        else if(option["value"].isNumeric())option["value"]=option["value"].asDouble()*1.5+0.25;
+        else if(option["value"].isString())option["value"]="e\xC3\xA9_"+option["value"].asString();
+        if(option.isMember("index"))option["index"]=0;
+        option.removeMember("min_value");option.removeMember("is_dynamic");
+    }
+    record(cvr::settings::MergeGameSettings(Encode(edited),presetText));
+    record(cvr::settings::MergeGameSettings(presetText,Encode(edited)));
+    record(cvr::settings::MergeGameSettings("{ broken",presetText));
+    const auto real=cvr::settings::PlayerSettingsFile();
+    if(!real.empty() && fs::exists(real)){
+        record(cvr::settings::MergeGameSettings(Read(real),presetText));
+        for(const auto& [group,name]:{std::pair{"/language","OnScreen"},{"/audio/volume","MasterVolume"},{"/video/display","WindowMode"},
+                                       {"/nothing","here"}})
+            mix(cvr::settings::GetGameSetting(real,group,name));
+    }
+    std::cout<<"settings trace "<<std::hex<<hash<<"\n";
+    return 0;
+}
 int main(int argc,char** argv)try {
+    if(argc==2 && std::string(argv[1])=="trace")return Trace();
     Check(argc==3 || argc==4,"preset and output directory required (and optionally a real player file)");
     auto preset=Parse(Read(fs::path(argv[1]))),player=preset;
     bool reflexFound=false;

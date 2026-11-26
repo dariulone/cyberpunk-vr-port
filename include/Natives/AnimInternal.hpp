@@ -97,7 +97,7 @@ RED4ext::Handle<RED4ext::ent::IPositionProvider> CreateStaticPositionProvider(co
 RED4ext::ent::AnimatedComponent* FindPlayerAnimatedComponentByName(const char* aName);
 RED4ext::ent::AnimationControllerComponent* FindPlayerAnimationController();
 RED4ext::world::AnimationSystem* FindWorldAnimationSystemFromScene(RED4ext::world::RuntimeScene* aRuntimeScene, uintptr_t aFrameworkScene, std::ofstream* aOut = nullptr);
-void AppendPlayerControllerIKState(std::ofstream& aOut);
+void AppendPlayerControllerIKState(std::ostream& aOut);
 void DumpAnimTrackParameters(std::ofstream& aOut, RED4ext::ent::AnimatedComponent* aAnimated, const char* aPrefix);
 void DumpBindingInfo(std::ofstream& aOut, RED4ext::ent::AnimationControlBinding* aBinding, const char* aPrefix);
 void DumpEntityAnimationInfo(std::ofstream& aOut, RED4ext::ent::Entity* aEntity, const char* aReason);

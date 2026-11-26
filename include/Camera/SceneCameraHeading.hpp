@@ -1,8 +1,21 @@
 #pragma once
 #include <cmath>
 #include "Utils/XrMath.hpp"
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::camera {
+#if CVR_RUST_ROOM
+// rust/crates/cvr-camera/src/frames.rs
+inline bool ScriptedCameraTier(int tier) { return tier>=2 && tier<=5; }
+inline bool UseNativeMainHeading(bool mounted,int tier,bool device,bool externalScene) {
+    return cvr_use_native_main_heading(mounted,tier,device,externalScene);
+}
+inline bool CompositionBaseYaw(const float* composed,const float* headXr,float* yaw) {
+    return cvr_composition_base_yaw(composed,headXr,yaw);
+}
+#else
 inline bool ScriptedCameraTier(int tier) { return tier>=2 && tier<=5; }
 inline bool UseNativeMainHeading(bool mounted,int tier,bool device,bool externalScene) {
     return (mounted || ScriptedCameraTier(tier)) && !device && !externalScene;
@@ -20,4 +33,5 @@ inline bool CompositionBaseYaw(const float* composed,const float* headXr,float* 
     if(x*x+y*y<1e-6f)return false;
     *yaw=std::atan2(-x,y);return true;
 }
+#endif
 }

@@ -1,0 +1,11 @@
+[package]
+name = "cvr-physhands"
+description = "The physics hands (main's 0.2.4 and on): their pure pieces -- the tracking frames, the held body's drive and contact, the NPC capsules' filter, the climb's support, the hand's skin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

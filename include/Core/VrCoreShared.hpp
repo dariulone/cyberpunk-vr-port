@@ -34,11 +34,11 @@ extern volatile int g_verboseLog;
 // The VERTICAL field of view written into the engine's camera field, in degrees. Hooks read it to
 // tell the player's view apart from shadow-map and reflection views, which arrive at the same
 // sites with their own FOVs.
-extern volatile float g_normalFovOverrideValue;
+extern "C" volatile float g_normalFovOverrideValue;   // C linkage: the Rust camera hooks
 
 // The engine's menu state, as the menu-mode hook last saw it. Shared because the hub answers a
 // getter from it and the whole VR path branches on it.
-extern volatile int g_menuModeValue;
+extern "C" volatile int g_menuModeValue;   // C linkage: rust/crates/cvr-rig/src/vrik/menu_mode.rs
 
 // The XR runtime's RECOMMENDED render size. Named "forced" in one log line for historical reasons
 // and it has already been misread once as evidence that something overrides the game's resolution:
@@ -53,13 +53,13 @@ extern volatile uintptr_t g_settingsResPtr;
 extern volatile uintptr_t g_dlssResPtr;
 
 // Player state the movement hooks branch on, refreshed from RTTI once per frame by the hub.
-extern bool g_isAiming;
+extern "C" bool g_isAiming;   // C linkage: the Rust weapon-arm layers read it
 // A weapon in hand: on AttachmentSlots.WeaponRight, or -- left-handed -- alone on WeaponLeft (cvr::anim::WeaponInLeftHand).
-extern bool g_hasWeaponEquipped;
+extern "C" bool g_hasWeaponEquipped;   // C linkage: the Rust finger layers read it
 // ...and what each slot holds: a WeaponObject on WeaponRight / WeaponLeft (the left one is also the second of two guns
 // and the projectile launcher).
-extern bool g_hasRightWeaponEquipped;
-extern bool g_hasLeftWeaponEquipped;
+extern "C" bool g_hasRightWeaponEquipped;
+extern "C" bool g_hasLeftWeaponEquipped;
 
 // The render size the launcher was told to use. The FOV hooks derive the vertical from the
 // horizontal through this aspect, so the two must be the SAME numbers the swapchain gets.
@@ -75,16 +75,17 @@ extern "C" float GetForcedFov();
 // Still read by the hub as well as by the hook that writes it.
 extern void* volatile g_dbgFovCamState;  // 1 further use(s) in VrCore.cpp
 extern volatile LONG g_pendingSnapYawDeltaBits;  // 1 further use(s) in VrCore.cpp
-extern float g_projStageFov;  // 1 further use(s) in VrCore.cpp
-extern float g_projStageAspect;  // 1 further use(s) in VrCore.cpp
-extern uint64_t g_projStageHits;  // 1 further use(s) in VrCore.cpp
-extern bool g_projStagePatched;  // 1 further use(s) in VrCore.cpp
+// C linkage: the Rust ProjStage hook (rust/crates/cvr-rig/src/vrik/proj_stage.rs) writes them and its stub reads two.
+extern "C" float g_projStageFov;  // 1 further use(s) in VrCore.cpp
+extern "C" float g_projStageAspect;  // 1 further use(s) in VrCore.cpp
+extern "C" uint64_t g_projStageHits;  // 1 further use(s) in VrCore.cpp
+extern "C" bool g_projStagePatched;  // 1 further use(s) in VrCore.cpp
 
 // Written by Hooks/CameraFov.cpp, read by the hub's FOV diagnostic.
 extern volatile float g_dbgLastOriginalFov;
 
 // Player state the hub refreshes from RTTI once per frame.
-extern bool g_isInVehicle;
+extern "C" bool g_isInVehicle;   // C linkage: the Rust VRIK solve reads it
 // MOUNTED IS NOT DRIVING. g_isInVehicle (and shared[31]) mean "mounted to anything", passenger seats
 // included; this one means the DRIVER seat, from VehicleComponent::IsDriver. The wheel grab needs the
 // distinction because it hands the arms back to the DRIVING animation, which is the wrong pose in
@@ -109,10 +110,11 @@ extern "C" int GetSnapTurnYawIndex();
 // The shared-memory block the CET mods and the natives talk through; null until it is mapped.
 float* GetShotShared();
 
-extern float g_projStageExtra;
-extern uint64_t g_unifixHits;
-extern volatile uintptr_t g_unifixRenderObj;
-extern float g_unifixProjDump[9];
+extern "C" float g_projStageExtra;
+// C linkage: the Rust projection-commit hook (rust/crates/cvr-rig/src/vrik/projection_commit.rs) writes them.
+extern "C" uint64_t g_unifixHits;
+extern "C" volatile uintptr_t g_unifixRenderObj;
+extern "C" float g_unifixProjDump[9];
 
 // Whether the stereo module is loaded, and which view it says is recording. Declared here because
 // the hub and Hooks/ViewKey.cpp both need the answer and neither owns it: the module defines the

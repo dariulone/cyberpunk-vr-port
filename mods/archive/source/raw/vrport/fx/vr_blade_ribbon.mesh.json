@@ -1,0 +1,525 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-11-17T22:11:32.9748103Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "vrport\\fx\\vr_blade_ribbon.mesh"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 1036,
+  "RootChunk": {
+   "$type": "CMesh",
+   "appearances": [
+    {
+     "HandleId": "0",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "mark_core"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "mark_rim"
+       }
+      ],
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "default"
+      },
+      "tags": []
+     }
+    }
+   ],
+   "boneNames": [],
+   "boneRigMatrices": [],
+   "boneVertexEpsilons": [],
+   "boundingBox": {
+    "$type": "Box",
+    "Max": {
+     "$type": "Vector4",
+     "W": 1,
+     "X": 0.00380000006,
+     "Y": 0.00249999994,
+     "Z": 0.0489999987
+    },
+    "Min": {
+     "$type": "Vector4",
+     "W": 1,
+     "X": -0.00430000015,
+     "Y": -0.00240000011,
+     "Z": -0.0469999984
+    }
+   },
+   "castGlobalShadowsCachedInCook": 1,
+   "castLocalShadowsCachedInCook": 1,
+   "castsRayTracedShadowsFromOriginalGeometry": 1,
+   "consoleBias": 0,
+   "constrainAutoHideDistanceToTerrainHeightMap": 0,
+   "cookingPlatform": "PLATFORM_PC",
+   "externalMaterials": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\fx\\mark_core.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\fx\\mark_rim.mi"
+     },
+     "Flags": "Default"
+    }
+   ],
+   "floatTrackNames": [],
+   "forceLoadAllAppearances": 0,
+   "geometryHash": "3989740986366296075",
+   "inplaceResources": [],
+   "isPlayerShadowMesh": 0,
+   "isShadowMesh": 0,
+   "localMaterialBuffer": {
+    "$type": "meshMeshMaterialBuffer",
+    "materials": [],
+    "rawData": null,
+    "rawDataHeaders": []
+   },
+   "localMaterialInstances": [],
+   "lodBoneMask": [],
+   "lodLevelInfo": [
+    0
+   ],
+   "materialEntries": [
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 0,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "mark_core"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 1,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "mark_rim"
+     }
+    }
+   ],
+   "objectType": "ROT_Static",
+   "parameters": [
+    {
+     "HandleId": "1",
+     "Data": {
+      "$type": "meshMeshParamUICollisionData",
+      "trianglesIndices": [
+       0,
+       1,
+       2,
+       3,
+       1,
+       0
+      ],
+      "uvs": [
+       {
+        "$type": "Vector2",
+        "X": 0,
+        "Y": 1
+       },
+       {
+        "$type": "Vector2",
+        "X": 1,
+        "Y": 0
+       },
+       {
+        "$type": "Vector2",
+        "X": 1,
+        "Y": 1
+       },
+       {
+        "$type": "Vector2",
+        "X": 0,
+        "Y": 0
+       }
+      ],
+      "vertices": [
+       {
+        "$type": "Vector3",
+        "X": 0.5,
+        "Y": -0.5,
+        "Z": 0
+       },
+       {
+        "$type": "Vector3",
+        "X": -0.5,
+        "Y": 0.5,
+        "Z": 0
+       },
+       {
+        "$type": "Vector3",
+        "X": -0.5,
+        "Y": -0.5,
+        "Z": 0
+       },
+       {
+        "$type": "Vector3",
+        "X": 0.5,
+        "Y": 0.5,
+        "Z": 0
+       }
+      ]
+     }
+    }
+   ],
+   "preloadExternalMaterials": [],
+   "preloadLocalMaterialInstances": [],
+   "renderResourceBlob": {
+    "HandleId": "3",
+    "Data": {
+     "$type": "rendRenderMeshBlob",
+     "header": {
+      "$type": "rendRenderMeshBlobHeader",
+      "bonePositions": [],
+      "customData": [],
+      "customDataElemStride": 0,
+      "dataProcessing": 1,
+      "indexBufferOffset": 2240,
+      "indexBufferSize": 240,
+      "opacityMicromaps": [],
+      "quantizationOffset": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -0.000250000041,
+       "Y": 4.99999151e-05,
+       "Z": 0.00100000016
+      },
+      "quantizationScale": {
+       "$type": "Vector4",
+       "W": 0,
+       "X": 0.00405000011,
+       "Y": 0.00245000003,
+       "Z": 0.0480000004
+      },
+      "renderChunkInfos": [
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 0
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           0,
+           320,
+           480,
+           800,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 60,
+        "numVertices": 40,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 120
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           1120,
+           1440,
+           1600,
+           1920,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 60,
+        "numVertices": 40,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       }
+      ],
+      "renderChunks": [],
+      "renderLODs": [
+       0
+      ],
+      "speedTreeWind": [],
+      "topology": [
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       }
+      ],
+      "topologyData": [],
+      "topologyDataStride": 0,
+      "topologyMetadata": [],
+      "topologyMetadataStride": 0,
+      "version": 20,
+      "vertexBufferSize": 2240
+     },
+     "renderBuffer": {
+      "BufferId": "0",
+      "Flags": 4063232,
+      "Bytes": "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"
+     }
+    }
+   },
+   "resourceVersion": 3,
+   "saveDateTime": "1048576",
+   "surfaceAreaPerAxis": {
+    "$type": "Vector3",
+    "X": 0,
+    "Y": 0,
+    "Z": 1
+   },
+   "useRayTracingShadowLODBias": 0
+  },
+  "EmbeddedFiles": []
+ }
+}

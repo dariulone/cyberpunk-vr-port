@@ -24,8 +24,37 @@
 #include <unordered_set>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's records are rust/crates/cvr-ffi/src/tweak_records.rs (the YAML, the levels, the properties and the
+// arrays' operators, the earlier releases' copies) and its native tweaks rust/crates/cvr-ffi/src/native_tweaks.rs (the
+// on-foot capsule, the launcher's ready state); this file keeps the TweakDB load hook and the narrow adapter over the
+// SDK's TweakDB and RTTI types below (Core/TweakRecords.hpp's AddNativeTweak and FlatWrites are the C++ build's).
+using RED4ext::CName;
+using RED4ext::TweakDB;
+using RED4ext::TweakDBID;
+using RED4ext::rtti::IType;
+
+extern "C" {
+
+// The RTTI adapters, TweakDB::Get, the flats' shared lock and TweakDB's reads (a flat and its offset, a record's class,
+// a type's first record, a record's presence), the flats' insertion and a record's creation are Rust's (cvr-ffi over
+// red4ext-abi's rtti and tweakdb); a new flat value and a record's update stay here.
+
+int32_t cvr_cpp_tdb_create_flat_value(TweakDB* db, IType* type, void* value) {
+    return db->CreateFlatValue(RED4ext::CStackType(type, value));
+}
+bool cvr_cpp_tdb_update_record(TweakDB* db, uint64_t id) {
+    std::lock_guard<RED4ext::SharedSpinLock> lock(db->mutex01);
+    return db->UpdateRecord(TweakDBID(id));
+}
+}
+
+// The TweakDB load hook and the records it applies: rust/crates/cvr-ffi/src/tweak_records.rs.
+#else
 namespace cvr::tweak_records {
 namespace {
 
@@ -558,3 +587,4 @@ void Install(RED4ext::v1::PluginHandle handle, const RED4ext::v1::Sdk* sdk) {
 }
 
 }  // namespace cvr::tweak_records
+#endif

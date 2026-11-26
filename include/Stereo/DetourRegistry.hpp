@@ -51,7 +51,7 @@ struct EngineDetour {
     void**          original;   // where MinHook writes the trampoline
     DetourWantedFn  wanted;
     EngineDetour*   next;
-    bool            installed;
+    mutable bool    installed;  // set by the install pass (Rust's, through its address) on a const object
 
     EngineDetour(const char* n, uintptr_t r, void* d, void** o, DetourWantedFn w);
 };

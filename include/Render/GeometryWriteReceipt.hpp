@@ -2,12 +2,33 @@
 #include "Render/GpuQueueOrder.hpp"
 #include <algorithm>
 #include <cstdint>
+#if CVR_RUST_VRIK
+#include <cstddef>
+#include <utility>
+#endif
 #include <map>
 #include <span>
 #include <tuple>
 #include <vector>
 
 namespace cvr::stereo::geometry {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/geometry_write_receipt.rs (tools/single_pass_tests/geometry_write_receipt_test runs
+// its cases against them in its Rust variant). The nested records cross by address, their layouts asserted in the class.
+namespace write_receipt_detail {
+struct RustReceipt;
+extern "C" {
+RustReceipt* cvr_gwr_new(const RustReceipt*);
+void cvr_gwr_free(RustReceipt*);
+void cvr_gwr_op(RustReceipt*,uint32_t,uint64_t,uint64_t,uint64_t);
+void cvr_gwr_mark(RustReceipt*,uint64_t,void*);
+bool cvr_gwr_add(RustReceipt*,uint32_t,const void*,const void*,const void*);
+void cvr_gwr_capture(const RustReceipt*,const void*,const void*,void*);
+bool cvr_gwr_submit(RustReceipt*,uint64_t,const uint64_t*,size_t);
+uint32_t cvr_gwr_check(const RustReceipt*,const void*,const void*);
+}
+}
+#endif
 // Caller serializes recording and queue evidence, supplies stable lifetime IDs,
 // and retains the resources/heaps/fences. No GPU objects or payloads are owned.
 // Feed every possible writer from an observed Reset; unknown submissions remain
@@ -28,6 +49,42 @@ public:
     };
     struct Receipt {Position main;Range range;bool valid{};};
 
+#if CVR_RUST_VRIK
+    GeometryWriteReceipt():rust_(write_receipt_detail::cvr_gwr_new(nullptr)){}
+    GeometryWriteReceipt(const GeometryWriteReceipt& other):rust_(write_receipt_detail::cvr_gwr_new(other.rust_)){}
+    GeometryWriteReceipt(GeometryWriteReceipt&& other)noexcept:rust_(std::exchange(other.rust_,write_receipt_detail::cvr_gwr_new(nullptr))){}
+    GeometryWriteReceipt& operator=(GeometryWriteReceipt other)noexcept{std::swap(rust_,other.rust_);return *this;}
+    ~GeometryWriteReceipt(){write_receipt_detail::cvr_gwr_free(rust_);}
+    void Reset(uint64_t list) noexcept {Op(0,list);}
+    Position Mark(uint64_t list) noexcept {Position result;write_receipt_detail::cvr_gwr_mark(rust_,list,&result);return result;}
+    bool Write(Position point,Range range) noexcept {return write_receipt_detail::cvr_gwr_add(rust_,0,&point,&range,nullptr);}
+    // An empty or incomplete alias span cannot exclude any watched allocation.
+    bool Alias(Position point,MemorySpan memory={}) noexcept {return write_receipt_detail::cvr_gwr_add(rust_,1,&point,nullptr,&memory);}
+    bool UnknownWrite(Position point) noexcept {return write_receipt_detail::cvr_gwr_add(rust_,2,&point,nullptr,nullptr);}
+    Receipt Capture(Position main,Range range) const noexcept {
+        Receipt result;write_receipt_detail::cvr_gwr_capture(rust_,&main,&range,&result);return result;
+    }
+    bool Submit(uint64_t queue,std::span<const uint64_t> lists) noexcept {
+        return write_receipt_detail::cvr_gwr_submit(rust_,queue,lists.data(),lists.size());
+    }
+    void Fence(uint64_t fence,uint64_t completed) noexcept {Op(1,fence,completed);}
+    void Signal(uint64_t queue,uint64_t fence,uint64_t value) noexcept {Op(2,queue,fence,value);}
+    void Wait(uint64_t queue,uint64_t fence,uint64_t value) noexcept {Op(3,queue,fence,value);}
+    void Progress(uint64_t fence,uint64_t completed) noexcept {Op(4,fence,completed);}
+    void InvalidateFence(uint64_t fence) noexcept {Op(5,fence);}
+    Status Check(const Receipt& receipt,Position peer) const noexcept {
+        return Status(write_receipt_detail::cvr_gwr_check(rust_,&receipt,&peer));
+    }
+    // Invalidates all receipts. Resume only after complete recording/queue
+    // observation has been established again; this is not a frame-boundary reset.
+    void Clear() noexcept {Op(6);}
+private:
+    static_assert(sizeof(Position)==24 && sizeof(MemorySpan)==24 && sizeof(Range)==56 && sizeof(Receipt)==88 &&
+        offsetof(Range,committed)==48 && offsetof(Receipt,valid)==80,"mirrored by geometry_write_receipt.rs");
+    void Op(uint32_t which,uint64_t a=0,uint64_t b=0,uint64_t c=0){write_receipt_detail::cvr_gwr_op(rust_,which,a,b,c);}
+    write_receipt_detail::RustReceipt* rust_;
+};
+#else
     void Reset(uint64_t list) noexcept {
         Mutate([&]{
             if(!list){fault_=Status::MissingProvenance;return;}
@@ -267,4 +324,5 @@ private:
         return Status::Unchanged;
     }
 };
+#endif
 }

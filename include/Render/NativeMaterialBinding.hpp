@@ -4,6 +4,7 @@
 #include "Render/NativeBufferRead.hpp"
 #include "Render/StereoDescriptorAudit.hpp"
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
@@ -34,6 +35,24 @@ struct Snapshot {
 };
 namespace detail {
 using MemoryReader=geometry::MemoryReader;
+#if CVR_RUST_VRIK
+// The rules below: rust/crates/cvr-render/src/material.rs (tools/single_pass_tests/material_binding_test runs its cases
+// against them in its Rust variant).
+static_assert(sizeof(Record)==32 && sizeof(CpuSlot)==48 && sizeof(Snapshot)==128 && offsetof(Snapshot,record)==48 &&
+    offsetof(Snapshot,slot)==80,"mirrored by material.rs");
+extern "C" {
+bool cvr_mat_read_snapshot(MemoryReader,void*,uint64_t,const camera_upload::Context*,uint32_t,Snapshot*,bool);
+bool cvr_mat_fits_cbv(const Snapshot*,uint64_t,uint32_t);
+bool cvr_mat_matches_draw(const Snapshot*,const Snapshot*,uint32_t,uint32_t,uint64_t,uint32_t,uint64_t,uint32_t);
+void cvr_mat_native(const Snapshot*,geometry::NativeBuffer*);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool ReadSnapshotOnce(MemoryReader reader,void* user,uint64_t game,
+                             camera_upload::Context context,uint32_t handle,Snapshot& out){
+    return cvr_mat_read_snapshot(reader,user,game,&context,handle,&out,true);
+}
+#else
 inline bool ReadSnapshotOnce(MemoryReader reader,void* user,uint64_t game,
                              camera_upload::Context context,uint32_t handle,Snapshot& out){
     out={};
@@ -75,8 +94,15 @@ inline bool ReadSnapshotOnce(MemoryReader reader,void* user,uint64_t game,
         (next.record.kind!=4 && slot.descriptor!=next.record.descriptor))return false;
     out=next;return true;
 }
+#endif
 // The fingerprinted bind has just selected this CPU slot. A transient handle
 // proves its current descriptor only; its registry resource fields are ignored.
+#if CVR_RUST_VRIK
+inline bool ReadSnapshot(MemoryReader reader,void* user,uint64_t game,
+                         camera_upload::Context context,uint32_t handle,Snapshot& out){
+    return cvr_mat_read_snapshot(reader,user,game,&context,handle,&out,false);
+}
+#else
 inline bool ReadSnapshot(MemoryReader reader,void* user,uint64_t game,
                          camera_upload::Context context,uint32_t handle,Snapshot& out){
     out={};Snapshot a,b;
@@ -84,22 +110,38 @@ inline bool ReadSnapshot(MemoryReader reader,void* user,uint64_t game,
         !ReadSnapshotOnce(reader,user,game,context,handle,b) || a!=b)return false;
     out=a;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool FitsCbv(const Snapshot& source,uint64_t address,uint32_t bytes){return cvr_mat_fits_cbv(&source,address,bytes);}
+#else
 inline bool FitsCbv(const Snapshot& source,uint64_t address,uint32_t bytes){
     if(!source.handle || source.record.bytes<LogicalBytes || !address || (address&255) ||
         bytes<LogicalBytes || bytes>65536 || (bytes&255) || address>UINT64_MAX-LogicalBytes)return false;
     return source.record.kind==4 || (source.record.gpu==address && source.record.resource &&
         source.record.descriptor==source.slot.descriptor);
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool MatchesDraw(const Snapshot& saved,const Snapshot& current,uint32_t parameter,uint32_t offset,
+                        uint64_t savedAddress,uint32_t savedBytes,uint64_t actualAddress,uint32_t actualBytes){
+    return cvr_mat_matches_draw(&saved,&current,parameter,offset,savedAddress,savedBytes,actualAddress,actualBytes);
+}
+#else
 inline bool MatchesDraw(const Snapshot& saved,const Snapshot& current,uint32_t parameter,uint32_t offset,
                         uint64_t savedAddress,uint32_t savedBytes,uint64_t actualAddress,uint32_t actualBytes){
     return saved==current && current.slot.parameter==parameter && current.slot.tableOffset==offset &&
         savedAddress==actualAddress && savedBytes==actualBytes && FitsCbv(current,actualAddress,actualBytes);
 }
+#endif
+#if CVR_RUST_VRIK
+inline geometry::NativeBuffer Native(const Snapshot& source){geometry::NativeBuffer out;cvr_mat_native(&source,&out);return out;}
+#else
 inline geometry::NativeBuffer Native(const Snapshot& source){
     if(source.record.kind==4)return {};
     return {source.record.resource,source.record.gpu,source.record.bytes,source.registry,
         source.context.context,source.handle,source.record.kind};
 }
+#endif
 }
 struct Lease {
     Snapshot native;

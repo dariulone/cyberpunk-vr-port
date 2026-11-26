@@ -5,11 +5,29 @@
 
 namespace cvr::stereo::graph_parent {
 struct Code {uint32_t rva{},bytes{};uint64_t hash{};};
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/native/graph_parent.rs through graph_parent_abi.rs
+// (tools/single_pass_tests/graph_parent_test runs its cases against them in its Rust variant).
+struct Context;struct Receipt;
+extern "C" {
+bool cvr_gp_certify(uint64_t,graph_snapshot::Read,const Code*,size_t);
+bool cvr_gp_read_context(graph_snapshot::Read,uint64_t,Context*);
+bool cvr_gp_resolve(const graph_snapshot::Node*,size_t,uint32_t,const Context*,Receipt*);
+}
+#endif
 // One-shot original-image certificate, captured before installing our detours.
 // A patched entry cannot be compared against the original whole-function hash.
 // Caller serializes capture and preserves the identified image's lifetime.
 class CodeReceipt {
 public:
+#if CVR_RUST_VRIK
+    bool Capture(uint64_t base,graph_snapshot::Read read,std::span<const Code> functions){
+        static_assert(sizeof(Code)==16,"mirrored by graph_parent.rs");
+        if(attempted_)return false;attempted_=true;
+        if(!cvr_gp_certify(base,read,functions.data(),functions.size()))return false;
+        base_=base;verified_=true;return true;
+    }
+#else
     bool Capture(uint64_t base,graph_snapshot::Read read,std::span<const Code> functions){
         if(attempted_)return false;attempted_=true;
         if(!base || !read || functions.empty() || functions.size()>64)return false;
@@ -23,6 +41,7 @@ public:
         }
         base_=base;verified_=true;return true;
     }
+#endif
     bool Attempted()const{return attempted_;}
     bool VerifiedFor(uint64_t base)const{return verified_ && base==base_;}
 private:
@@ -40,6 +59,12 @@ struct Receipt {
 // Native1ECF2C copies node metadata+5 to context+38 and resolves node metadata
 // viewIndex through context.manager+48. Native1EC7EC copies both values into
 // asynchronous child contexts. These are order slots, not inferred stage IDs.
+#if CVR_RUST_VRIK
+inline bool ReadContext(graph_snapshot::Read read,uint64_t address,Context& output) {
+    static_assert(sizeof(Context)==32 && sizeof(Receipt)==40,"mirrored by graph_parent.rs");
+    return cvr_gp_read_context(read,address,&output);
+}
+#else
 inline bool ReadContext(graph_snapshot::Read read,uint64_t address,Context& output) {
     output={};
     const auto once=[&](Context& out){
@@ -56,8 +81,14 @@ inline bool ReadContext(graph_snapshot::Read read,uint64_t address,Context& outp
     };
     Context a,b;if(!once(a) || !once(b) || a!=b)return false;output=a;return true;
 }
+#endif
 // A source-bound classification only. It authorizes neither changed scheduling
 // nor reuse of target allocations. Every native phase-1 slot must be unique.
+#if CVR_RUST_VRIK
+inline bool Resolve(const graph_snapshot::Snapshot& source,const Context& context,Receipt& output) {
+    return cvr_gp_resolve(source.nodes.data(),source.nodes.size(),source.failure,&context,&output);
+}
+#else
 inline bool Resolve(const graph_snapshot::Snapshot& source,const Context& context,Receipt& output) {
     output={};
     if(source.failure || source.nodes.empty() || source.nodes.size()>255 || !context.address || !context.view || !context.manager)return false;
@@ -75,4 +106,5 @@ inline bool Resolve(const graph_snapshot::Snapshot& source,const Context& contex
     output={graph_snapshot::Field<uint64_t>(found->bytes,16),found->work,graph_snapshot::Field<uint64_t>(found->definition,24),
             found->handle,found->order,context.viewIndex,context.slot};return true;
 }
+#endif
 }

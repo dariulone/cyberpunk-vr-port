@@ -5,11 +5,86 @@
 #include <algorithm>
 #include <stdexcept>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryFreezeEnable{},CyberpunkVR_GeometryFreezeSeq{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryFreezeCount{},CyberpunkVR_GeometryFreezePending{},CyberpunkVR_GeometryFreezeFailure{};
 __declspec(dllexport) uint64_t CyberpunkVR_GeometryFreezeRecords{},CyberpunkVR_GeometryFreezeBytes{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The freeze is Rust's: rust/crates/cvr-render/src/geometry_freeze.rs (the rows, entries and queue fences, the snapshots'
+// private copies and owners, their seal and readback, the pairing). This half lends it the exports, the draws' C++
+// copies (geometry::DrawResources, their leases rewritten onto the private buffer, their instances read back) and the
+// pair's commands.
+struct RustFreezeSlot {ID3D12Resource* resource;uint64_t gpu,bytes;uint32_t heapType,status,value,pad;};
+struct RustFreezeHost {
+    std::atomic<uint32_t>* enable,*seq,*count,*pending,*failure;uint64_t* records,*bytes;
+    void*(*drawNew)(const void*);cvr::stereo::native_probe::DrawRecord*(*drawRecord)(void*);void(*drawOwned)(void*,ID3D12Resource*,uint64_t);
+    void(*drawInstances)(void*,const uint8_t*,size_t);void(*drawFree)(void*);bool(*pair)(const void*,const void*,void*);
+};
+static_assert(sizeof(RustFreezeSlot)==40 && sizeof(RustFreezeHost)==13*8,"mirrored by geometry_freeze.rs");
+extern "C" {
+void cvr_gfz_attach(const RustFreezeHost*);
+void cvr_gfz_begin(bool);
+void cvr_gfz_capture(const void*,const cvr::stereo::native_probe::DrawRecord*,const RustFreezeSlot*,bool);
+void cvr_gfz_before_submit(UINT,ID3D12CommandList* const*,void(*)(void*,void*),void*);
+void cvr_gfz_submitted(ID3D12CommandQueue*,void* const*,size_t);
+void cvr_gfz_submission_free(void*);
+void cvr_gfz_poll();
+bool cvr_gfz_copy_pair(UINT,UINT,void*);
+}
+namespace cvr::stereo::geometry_snapshots {
+struct Entry {void* rust{};explicit Entry(void* value):rust(value){}~Entry(){cvr_gfz_submission_free(rust);}};   // a boxed Rust submission
+namespace {
+using geometry::DrawResources;
+const RustFreezeHost freezeHost{&CyberpunkVR_GeometryFreezeEnable,&CyberpunkVR_GeometryFreezeSeq,&CyberpunkVR_GeometryFreezeCount,
+    &CyberpunkVR_GeometryFreezePending,&CyberpunkVR_GeometryFreezeFailure,&CyberpunkVR_GeometryFreezeRecords,&CyberpunkVR_GeometryFreezeBytes,
+    [](const void* source)->void*{try{auto* copy=new DrawResources(*static_cast<const DrawResources*>(source));copy->instances.clear();return copy;}
+        catch(...){return nullptr;}},
+    [](void* copy){return &static_cast<DrawResources*>(copy)->draw;},
+    [](void* value,ID3D12Resource* resource,uint64_t bytes){auto& copy=*static_cast<DrawResources*>(value);
+        const geometry::BufferLease owned{resource,resource->GetGPUVirtualAddress(),bytes,D3D12_HEAP_TYPE_DEFAULT,0};copy.index=owned;
+        for(UINT slot=0;slot<16;++slot)if(copy.draw.inputSlotMask&(1u<<slot))copy.vertices[slot]=owned;},
+    [](void* value,const uint8_t* bytes,size_t count){static_cast<DrawResources*>(value)->instances.assign(bytes,bytes+count);},
+    [](void* value){delete static_cast<DrawResources*>(value);},
+    [](const void* left,const void* right,void* out)->bool{try{
+        const auto& a=*static_cast<const DrawResources*>(left);const auto& b=*static_cast<const DrawResources*>(right);
+        GeometryCommandPair result;result.instanceRebaseSafe=true;result.eyes={a,b};
+        result.eyes[1].index=a.index;result.eyes[1].draw.index=a.draw.index;
+        for(UINT slot=0;slot<16;++slot)if(a.draw.inputSlotMask&(1u<<slot)){
+            result.eyes[1].vertices[slot]=a.vertices[slot];result.eyes[1].draw.vertices[slot]=a.draw.vertices[slot];}
+        *static_cast<GeometryCommandPair*>(out)=std::move(result);return true;}catch(...){return false;}}};
+[[maybe_unused]] const bool freezeAttached=(cvr_gfz_attach(&freezeHost),true);
+}
+void Begin(bool enabled){cvr_gfz_begin(enabled);}
+void Capture(const geometry::DrawResources& source,const std::array<geometry::ReadState,17>& states,bool rebase){
+    std::array<RustFreezeSlot,17> slots{};
+    for(UINT slot=0;slot<17;++slot){const auto& lease=slot?source.vertices[slot-1]:source.index;
+        slots[slot]={lease.resource.Get(),lease.gpu,lease.bytes,UINT(lease.heapType),states[slot].status,states[slot].value,0};}
+    cvr_gfz_capture(&source,&source.draw,slots.data(),rebase);
+}
+Submission BeforeSubmit(UINT count,ID3D12CommandList* const* lists){
+    Submission result;   // one entry per submitted snapshot
+    cvr_gfz_before_submit(count,lists,[](void* user,void* rust){static_cast<Submission*>(user)->entries.push_back(std::make_shared<Entry>(rust));},&result);
+    return result;
+}
+void Submitted(ID3D12CommandQueue* queue,Submission submission){
+    std::vector<void*> rust;for(auto& entry:submission.entries){rust.push_back(entry->rust);entry->rust=nullptr;}
+    cvr_gfz_submitted(queue,rust.data(),rust.size());
+}
+void Poll(){cvr_gfz_poll();}
+bool CopyPair(UINT left,UINT right,GeometryCommandPair& output){return cvr_gfz_copy_pair(left,right,&output);}
+}
+#endif
+#else
 namespace cvr::stereo::geometry_snapshots {
 using Microsoft::WRL::ComPtr;
 struct Entry {
@@ -101,3 +176,4 @@ bool CopyPair(UINT left,UINT right,GeometryCommandPair& output) {
     return GeometrySnapshot::Pair(a->second->snapshot,b->second->snapshot,output);
 }
 }
+#endif

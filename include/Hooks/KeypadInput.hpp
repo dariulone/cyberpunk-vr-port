@@ -1,9 +1,17 @@
 #pragma once
 #include "Hooks/AnalogStick.hpp"
 #include <cstdint>
+#if CVR_RUST_INPUT
+#include <cstddef>
+#include <cstring>
+#endif
 
 namespace cvr::input {
 constexpr uint64_t KeypadInputTimeoutMs = 350;
+struct KeypadPoint { float x{}, y{}; };
+
+// The C++ reference for rust/crates/cvr-input's keypad module (see AnalogStick.hpp).
+namespace cpp {
 inline bool KeypadInputFresh(uint64_t stamp, uint64_t now) {
     return stamp != 0 && now >= stamp && now - stamp <= KeypadInputTimeoutMs;
 }
@@ -11,10 +19,6 @@ inline float KeypadCursorAxis(float value, float deadzone) {
     // UI_MoveCursor* reads the raw left axes, not the paired locomotion axes.
     return .5f * AnalogAxis(value, deadzone, 1.f);
 }
-bool KeypadInputActive();
-void PublishKeypadStick(float x, float y, float deadzone);
-
-struct KeypadPoint { float x{}, y{}; };
 struct KeypadCursor {
     KeypadPoint position{}, previousHead{};
     bool initialized{}, hadHead{};
@@ -45,4 +49,34 @@ struct KeypadCursor {
         return true;
     }
 };
+}
+
+#if CVR_RUST_INPUT
+inline bool KeypadInputFresh(uint64_t stamp, uint64_t now) { return cvr_keypad_input_fresh(stamp, now); }
+inline float KeypadCursorAxis(float value, float deadzone) { return cvr_keypad_cursor_axis(value, deadzone); }
+struct KeypadCursor {
+    KeypadPoint position{}, previousHead{};
+    bool initialized{}, hadHead{};
+
+    bool Update(bool headHit, KeypadPoint head, KeypadPoint stick, KeypadPoint size, float dt) {
+        CvrKeypadCursor state;
+        std::memcpy(&state, this, sizeof state);
+        const bool claimed = cvr_keypad_cursor_update(&state, headHit, {head.x, head.y}, {stick.x, stick.y},
+                                                      {size.x, size.y}, dt);
+        std::memcpy(this, &state, sizeof state);
+        return claimed;
+    }
+};
+static_assert(sizeof(KeypadCursor) == sizeof(CvrKeypadCursor) &&
+              offsetof(KeypadCursor, previousHead) == offsetof(CvrKeypadCursor, previousHead) &&
+              offsetof(KeypadCursor, initialized) == offsetof(CvrKeypadCursor, initialized) &&
+              offsetof(KeypadCursor, hadHead) == offsetof(CvrKeypadCursor, hadHead));
+#else
+using cpp::KeypadInputFresh;
+using cpp::KeypadCursorAxis;
+using cpp::KeypadCursor;
+#endif
+
+bool KeypadInputActive();
+void PublishKeypadStick(float x, float y, float deadzone);
 }

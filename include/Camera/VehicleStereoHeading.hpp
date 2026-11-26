@@ -2,6 +2,9 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::camera {
 // Called under the camera composition mutex. Only the selected camera
@@ -10,6 +13,18 @@ namespace cvr::camera {
 class VehicleStereoHeading {
 public:
     struct Selection { float yaw{}; bool changed{}; };
+#if CVR_RUST_ROOM
+    // rust/crates/cvr-camera/src/vehicle.rs; the class keeps its fields (Rust has its layout).
+    void SetSource(uintptr_t player, uintptr_t mainCamera) { cvr_vehicle_heading_set_source(this, player, mainCamera); }
+    bool Observe(uintptr_t camera, const float* q, const float* entityQ) {
+        return cvr_vehicle_heading_observe(this, camera, q, entityQ);
+    }
+    Selection ForFrame(uint64_t epoch, const float* entityQ, float publishedYaw, float nativeOffset) {
+        Selection s;
+        cvr_vehicle_heading_for_frame(this, epoch, entityQ, publishedYaw, nativeOffset, &s);
+        return s;
+    }
+#else
     void SetSource(uintptr_t player, uintptr_t mainCamera) {
         if (m_player == player && m_mainCamera == mainCamera) return;
         m_player = player;
@@ -51,6 +66,7 @@ public:
         m_frameValid = true;
         return {m_frameYaw,true};
     }
+#endif
 
 private:
     using Quaternion=std::array<float,4>;
@@ -84,4 +100,7 @@ private:
     float m_nativeYaw{}, m_frameYaw{};
     bool m_nativeValid{}, m_frameValid{}, m_frameEntityValid{};
 };
+#if CVR_RUST_ROOM
+static_assert(sizeof(VehicleStereoHeading) == 72 && sizeof(VehicleStereoHeading::Selection) == 8);
+#endif
 }

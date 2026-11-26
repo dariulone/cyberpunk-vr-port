@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // EntityAttach -- a thing carried by a slot of another entity, the way the game carries a weapon in a hand.
 //
 // HOW THE GAME CARRIES A THING, verified against game 2.5 with IDA headless and live (2026-10-28: x64dbg on
@@ -43,12 +44,22 @@
 #include "Core/GameBuild.hpp"
 #include "Natives/NativeFunctions.hpp"
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // [0] attaches made, [1] detaches made, [2] attaches refused (no root, a root already attached, not a placed
 // component), [3] calls that faulted.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DebugEntityAttach[4]{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+// The Rust build's two natives are rust/crates/cvr-rig/src/vrik/entity_attach.rs; the counters above stay.
+#if !CVR_RUST_VRIK
 namespace {
 const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
 constexpr uintptr_t kAttachRva = 0x44764C;
@@ -186,3 +197,5 @@ void VRDetachFromSlot(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFra
     CyberpunkVR_DebugEntityAttach[1].fetch_add(1, std::memory_order_relaxed);
     if (aOut) *aOut = Incoming(root) == 0;
 }
+#endif
+#endif

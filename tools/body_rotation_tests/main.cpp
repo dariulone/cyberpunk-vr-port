@@ -306,7 +306,9 @@ void Invariants(){for(const auto& pose:poses)for(float scale:{.7f,1.f,1.3f}){Run
 }
 #include "hybrid_cases.hpp"
 #include "dynamics_cases.hpp"
+#include "parity_trace.hpp"
 int main(int argc,char** argv)try{Check(argc==2,"case required");std::string name=argv[1];
+    if(name=="trace"){parity::Trace();return 0;}
     if(name=="prediction_noise_metrics"){PredictionNoiseMetrics();return 0;}
     if(name=="prediction_held_samples"){PredictionHeldSamples();return 0;}
     if(name=="dynamics_metrics"){DynamicsMetrics();return 0;}
@@ -320,7 +322,7 @@ int main(int argc,char** argv)try{Check(argc==2,"case required");std::string nam
     else if(name=="hybrid_boundary")HybridBoundary();else if(name=="hybrid_recovery")HybridRecovery();
     else if(name=="hybrid_posture")HybridPosture();
     else if(name=="hybrid_low_glance")HybridLowGlance();else if(name=="hybrid_neck_limit")HybridNeckLimit();else if(name=="hybrid_fast_turn_down")HybridFastTurnDown();
-    else if(name=="hybrid_glance_then_down")HybridGlanceThenDown();else if(name=="hybrid_missed_turn_heals")HybridMissedTurnHeals();else if(name=="hybrid_freeze_turn")HybridFreezeTurn();else if(name=="hybrid_down_glance_then_turn")HybridDownGlanceThenTurn();else if(name=="hybrid_hands_change_then_turn")HybridHandsChangeThenTurn();else if(name=="head_led_turn")HeadLedTurn();
+    else if(name=="hybrid_glance_then_down")HybridGlanceThenDown();else if(name=="hybrid_missed_turn_heals")HybridMissedTurnHeals();else if(name=="hybrid_freeze_turn")HybridFreezeTurn();else if(name=="hybrid_down_glance_then_turn")HybridDownGlanceThenTurn();else if(name=="hybrid_hands_change_then_turn")HybridHandsChangeThenTurn();
     else {
     if(name=="noisy_gestures"){NoisyGestures();std::cout<<"PASS "<<name<<'\n';return 0;}
     if(name=="return_turns"){ReturnTurns();std::cout<<"PASS "<<name<<'\n';return 0;}

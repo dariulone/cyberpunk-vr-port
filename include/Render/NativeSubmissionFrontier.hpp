@@ -30,11 +30,33 @@ struct Context {
     bool operator==(const Context&)const=default;
 };
 struct Slot {uint32_t index{},id{};Context context;Failure failure{};};
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/submission_frontier.rs (tools/single_pass_tests/submission_frontier_test runs its
+// cases against them in its Rust variant). AdmissionState's and Ledger's members stay here, mirrored there.
+struct RawRange {uint64_t header{},table{},registry{};uint32_t begin{},end{},mode{};};
+struct Key;struct Admission;class AdmissionState;struct Match;class Ledger;struct BoundaryBatch;struct BoundaryList;
+extern "C" {
+bool cvr_sf_token_capture_allowed(uint32_t,bool,const Slot*);
+uint32_t cvr_sf_id(uint32_t,uint32_t);
+bool cvr_sf_read(ReadMemory,void*,uint64_t,bool,uint64_t,void*,size_t);
+bool cvr_sf_read_context(ReadMemory,void*,uint64_t,uint32_t,Context*);
+bool cvr_sf_capture_range(ReadMemory,void*,uint64_t,uint64_t,uint64_t,uint32_t,uint32_t,RawRange*,Slot*,size_t*,Failure*);
+uint64_t cvr_sf_admission(AdmissionState*,uint32_t,bool,Admission*,uint64_t);
+bool cvr_sf_ledger(Ledger*,uint32_t,const Key*,uint64_t);
+void cvr_sf_ledger_observe(Ledger*,uint64_t,bool(*)(void*,uint32_t,uint32_t*),void*,Match*);
+bool cvr_sf_select_boundary(const BoundaryBatch*,const BoundaryBatch*,const BoundaryList*,size_t,const uint64_t*,size_t,
+    const void*,Boundary*,BoundaryFailure*);
+}
+inline bool TokenCaptureAllowed(uint32_t graphStatus,bool publisher,const Slot& slot)noexcept{
+    return cvr_sf_token_capture_allowed(graphStatus,publisher,&slot);
+}
+#else
 inline bool TokenCaptureAllowed(uint32_t graphStatus,bool publisher,const Slot& slot)noexcept{
     const auto& context=slot.context;
     return !graphStatus && publisher && slot.failure==Failure::None && context.address && context.list && context.state &&
         !context.submitted && (context.kind==1 || context.kind==2);
 }
+#endif
 struct Range {
     uint64_t header{},table{},registry{};uint32_t begin{},end{},mode{};std::vector<Slot> slots;
 };
@@ -42,6 +64,27 @@ inline constexpr std::array<native_recording::detail::Code,3> Contract{{
     {HookRva,0x84,0x0000000000000000ull},{0x655FAC,242,0x2FCB059521D7B173ull},
     {0x3E7DA0,73,0x3C36DA23B8209163ull}
 }};
+#if CVR_RUST_VRIK
+inline bool Read(ReadMemory read,void* user,uint64_t address,void* out,size_t bytes){return cvr_sf_read(read,user,address,false,0,out,bytes);}
+template<class T> bool Field(ReadMemory read,void* user,uint64_t address,uint64_t offset,T& out){
+    return cvr_sf_read(read,user,address,true,offset,&out,sizeof(out));
+}
+inline bool NativeId(uint32_t id){return cvr_sf_id(0,id)!=0;}
+inline uint32_t ProducerSlot(uint32_t tableIndex){return cvr_sf_id(1,tableIndex);}
+inline bool ReadContext(ReadMemory read,void* user,uint64_t registry,uint32_t id,Context& output){
+    return cvr_sf_read_context(read,user,registry,id,&output);
+}
+// Snapshot before the original range consumer moves contexts and clears IDs.
+// A zero/invalid ID is retained as an empty native slot, never dereferenced.
+inline bool CaptureRange(ReadMemory read,void* user,uint64_t base,uint64_t caller,uint64_t header,
+                         uint32_t end,uint32_t mode,Range& output,Failure& failure){
+    output={};RawRange raw;std::vector<Slot> slots(MaxSlots);size_t count{};
+    if(!cvr_sf_capture_range(read,user,base,caller,header,end,mode,&raw,slots.data(),&count,&failure))return false;
+    slots.resize(count);
+    output.header=raw.header;output.table=raw.table;output.registry=raw.registry;
+    output.begin=raw.begin;output.end=raw.end;output.mode=raw.mode;output.slots=std::move(slots);return true;
+}
+#else
 inline bool Read(ReadMemory read,void* user,uint64_t address,void* out,size_t bytes){
     return read && address && bytes && address<=UINT64_MAX-bytes && read(user,address,out,bytes);
 }
@@ -94,12 +137,27 @@ inline bool CaptureRange(ReadMemory read,void* user,uint64_t base,uint64_t calle
             !std::equal(ids.begin(),ids.begin()+count,again.begin()))))return false;
     output=std::move(next);failure=Failure::None;return true;
 }
+#endif
 struct Key {
     uint64_t list{},context{},generation{},token{},invocation{};uint32_t row{};bool graphKnown{};
 };
 struct Admission {uint64_t epoch{};bool active{};};
 // The owner serializes every operation with the same mutex as its exported
 // rows. A fast enabled read is never an admission or an epoch certificate.
+#if CVR_RUST_VRIK
+class AdmissionState {
+public:
+    uint64_t Epoch()const noexcept{return Const(0);}
+    uint32_t InFlight()const noexcept{return uint32_t(Const(1));}
+    bool Admit(bool enabled,Admission& ticket)noexcept{return cvr_sf_admission(this,2,enabled,&ticket,0)!=0;}
+    bool Matches(uint64_t epoch)const noexcept{return cvr_sf_admission(const_cast<AdmissionState*>(this),3,false,nullptr,epoch)!=0;}
+    bool Release(Admission& ticket)noexcept{return cvr_sf_admission(this,4,false,&ticket,0)!=0;}
+    bool Reset(bool enabled)noexcept{return cvr_sf_admission(this,5,enabled,nullptr,0)!=0;}
+private:
+    uint64_t Const(uint32_t which)const noexcept{return cvr_sf_admission(const_cast<AdmissionState*>(this),which,false,nullptr,0);}
+    uint64_t epoch_=1;uint32_t inFlight_{};
+};
+#else
 class AdmissionState {
 public:
     uint64_t Epoch()const noexcept{return epoch_;}
@@ -120,7 +178,29 @@ public:
 private:
     uint64_t epoch_=1;uint32_t inFlight_{};
 };
+#endif
 struct Match {MatchKind kind=MatchKind::UnknownList;uint32_t entry=UINT32_MAX,failure{};};
+#if CVR_RUST_VRIK
+class Ledger {
+public:
+    bool Add(const Key& key){return cvr_sf_ledger(this,0,&key,0);}
+    void Clear(){cvr_sf_ledger(this,1,nullptr,0);}
+    size_t Size()const{return count_;}
+    const Key& At(size_t index)const{return entries_[index].key;}
+    bool Mentions(uint64_t list)const{return cvr_sf_ledger(const_cast<Ledger*>(this),2,nullptr,list);}
+    // validate inspects held tokens, never the now-transferred/recycled ID bank.
+    template<class Validate>Match Observe(uint64_t list,Validate&& validate){
+        using Callable=std::remove_reference_t<Validate>;
+        const auto call=[](void* context,uint32_t index,uint32_t* reason)->bool{return (*static_cast<Callable*>(context))(index,*reason);};
+        Match result;cvr_sf_ledger_observe(this,list,call,const_cast<void*>(static_cast<const void*>(&validate)),&result);
+        return result;
+    }
+private:
+    struct Entry {Key key;bool used{};};std::array<Entry,MaxRows> entries_{};size_t count_{};
+};
+static_assert(sizeof(Context)==48 && sizeof(Slot)==64 && sizeof(RawRange)==40 && sizeof(Key)==48 && sizeof(Admission)==16 &&
+    sizeof(AdmissionState)==16 && sizeof(Match)==12 && sizeof(Ledger)==MaxRows*56+8,"mirrored by submission_frontier.rs");
+#else
 class Ledger {
 public:
     bool Add(const Key& key){if(!key.list || !key.context || count_==entries_.size())return false;entries_[count_++]={key,false};return true;}
@@ -148,6 +228,7 @@ public:
 private:
     struct Entry {Key key;bool used{};};std::array<Entry,MaxRows> entries_{};size_t count_{};
 };
+#endif
 struct BoundaryBatch {
     uint64_t probeEpoch{},batch{},thread{},queue{},lists{};uint32_t count{};
     bool operator==(const BoundaryBatch&)const=default;
@@ -166,6 +247,15 @@ struct BoundarySource {
 };
 // Numeric selection only. The caller must also validate held native tokens
 // while the exact observed batch is still pending its original queue call.
+#if CVR_RUST_VRIK
+inline bool SelectBoundary(const BoundaryBatch& observed,const BoundaryBatch& current,std::span<const BoundaryList> rows,
+                           std::span<const uint64_t> lists,const std::array<BoundarySource,2>& sources,Boundary& output,
+                           BoundaryFailure* failure=nullptr)noexcept{
+    return cvr_sf_select_boundary(&observed,&current,rows.data(),rows.size(),lists.data(),lists.size(),&sources,&output,failure);
+}
+static_assert(sizeof(BoundaryBatch)==48 && sizeof(BoundaryGraph)==56 && sizeof(BoundaryList)==136 && sizeof(BoundarySource)==80 &&
+    sizeof(Boundary)==104,"mirrored by submission_frontier.rs");
+#else
 inline bool SelectBoundary(const BoundaryBatch& observed,const BoundaryBatch& current,std::span<const BoundaryList> rows,
                            std::span<const uint64_t> lists,const std::array<BoundarySource,2>& sources,Boundary& output,
                            BoundaryFailure* failure=nullptr)noexcept{
@@ -207,6 +297,7 @@ inline bool SelectBoundary(const BoundaryBatch& observed,const BoundaryBatch& cu
     output={observed.probeEpoch,observed.batch,observed.thread,observed.queue,observed.lists,graph.consumer,graph.epoch,
         graph.pairGeneration,graph.frameOwner,graph.fingerprint,graph.invocation,observed.count,after,indices};return true;
 }
+#endif
 }
 // Install only from the host's normal initialized MinHook setup. No automatic
 // installation, native scheduling changes, execution permission or GPU work.

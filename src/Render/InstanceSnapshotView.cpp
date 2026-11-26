@@ -10,6 +10,17 @@
 
 namespace cvr::stereo::instance_snapshot_view {
 namespace detail {
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's plans are instance_snapshot_native.rs'
+// The plan's versions are Rust (rust/crates/cvr-render/src/instance_snapshot_native.rs); the plan holds one reference.
+extern "C" void cvr_isv2_plan_free(const void*);
+struct PlanData {
+    const void* rust{};
+    explicit PlanData(const void* value):rust(value){}
+    ~PlanData(){cvr_isv2_plan_free(rust);}
+};
+#endif
+#else
 struct Version {
     Scope scope;Mapping mapping;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
@@ -20,6 +31,26 @@ struct Version {
     std::vector<uint8_t> bytes;
 };
 struct PlanData {std::vector<Version> versions;uint64_t width{},copied{};};
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // only the test variants' host lays out C++ snapshots
+// The layout's arithmetic: rust/crates/cvr-render/src/instance_snapshot_view.rs; each element lent with what the rule
+// reads of its semantic. No allocation: at most MaxInputs elements are lent, more are refused there.
+namespace {
+struct RustElement {size_t semanticBytes;bool semanticNul;UINT index,format,slot,offset,classification,step;};
+static_assert(sizeof(RustElement)==40,"mirrored by instance_snapshot_view.rs");
+extern "C" bool cvr_isv_layout(const RustElement*,size_t,UINT,size_t);
+}
+bool Layout(std::span<const shader_snapshot::Input> input,UINT stride)noexcept {
+    std::array<RustElement,shader_snapshot::MaxInputs> lent{};
+    if(input.size()>lent.size())return false;
+    for(size_t i=0;i<input.size();++i){const auto& element=input[i];
+        lent[i]={element.semantic.size(),element.semantic.find('\0')!=std::string::npos,element.index,element.format,element.slot,
+            element.offset,element.classification,element.step};}
+    return cvr_isv_layout(lent.data(),input.size(),stride,shader_snapshot::MaxInputs);
+}
+#endif
+#else
 namespace {
 UINT ElementBytes(UINT format)noexcept {
     switch(DXGI_FORMAT(format)){
@@ -62,7 +93,135 @@ bool Layout(std::span<const shader_snapshot::Input> input,UINT stride)noexcept {
     }
     return instance;
 }
+#endif
 }
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's shader snapshots are shader_snapshot_native.rs' records (instance_snapshot_native.rs mod plugin)
+namespace rust_abi {
+// The shader snapshots the Rust versions hold: std::shared_ptr<const Snapshot> copies through this host.
+struct Host {
+    const void*(*current)(void*);void*(*retain)(const void*);void(*release)(void*);const void*(*get)(const void*);
+    uint64_t(*id)(const void*);bool(*layout)(const void*,uint32_t);
+};
+// An Input lent to Rust (its shader as a pointer to its shared_ptr).
+struct Input {Scope scope;ID3D12PipelineState* pipeline;const void* shader;D3D12_VERTEX_BUFFER_VIEW original;D3D12_DRAW_INDEXED_ARGUMENTS draw;
+    const uint8_t* bytes;size_t size;bool hasBytes;};
+// A PrivateView's parts, borrowed from the owner (copied by Fill).
+struct View {Scope scope;void* resource;void* pipeline;const void* shader;D3D12_VERTEX_BUFFER_VIEW vertex,original;D3D12_DRAW_INDEXED_ARGUMENTS draw;
+    Mapping mapping;uint64_t copyList,copyGeneration;UINT version;};
+static_assert(sizeof(Input)==120 && sizeof(View)==192 && sizeof(std::shared_ptr<const shader_snapshot::Snapshot>)==16 &&
+    sizeof(DestinationRecording)==40 && sizeof(DestinationCompletion)==64 && sizeof(NativeCompletion)==72 && sizeof(native_recording::Lease)==40 &&
+    sizeof(PrivateView)==208 && offsetof(PrivateView,mapping)==136 && offsetof(PrivateView,version)==200,"mirrored by instance_snapshot_native.rs");
+}
+extern "C" {
+void cvr_isv2_attach(const rust_abi::Host*);
+const void* cvr_isv2_build_plan(const rust_abi::Input*,size_t,uint64_t,uint32_t*);
+void cvr_isv2_plan_free(const void*);
+uint64_t cvr_isv2_plan_count(const void*,uint32_t);
+HRESULT cvr_isv2_overlay_new(ID3D12Device*,const void*,void**);
+uint32_t cvr_isv2_overlay_record(void*,ID3D12GraphicsCommandList*,const DestinationRecording*);
+bool cvr_isv2_overlay_view(void*,UINT,rust_abi::View*);
+uint64_t cvr_isv2_count(void*,uint32_t);
+bool cvr_isv2_overlay_submitted(void*,const DestinationRecording*,ID3D12CommandQueue*);
+bool cvr_isv2_view_check(bool,uint32_t,const PrivateView*,const void*,ID3D12GraphicsCommandList*,const DestinationRecording*,
+    const DestinationCompletion*,const native_recording::Lease*,const NativeCompletion*);
+HRESULT cvr_isv2_arena_new(ID3D12Device*,const native_recording::Lease*,UINT,uint64_t,void**);
+bool cvr_isv2_arena_capture(void*,ID3D12GraphicsCommandList*,const rust_abi::Input*,RecordNativeCopy,void*,const Input*,rust_abi::View*);
+bool cvr_isv2_arena_finalize(void*,ID3D12GraphicsCommandList*);
+}
+namespace {
+// The plan's versions, the overlay and the arena owners and their views' checks are Rust
+// (rust/crates/cvr-render/src/instance_snapshot_native.rs; their GPU half instance_snapshot_arena.rs).
+using Shared=std::shared_ptr<const shader_snapshot::Snapshot>;
+const rust_abi::Host host{
+    [](void* pipeline)->const void*{try{return shader_snapshot::Capture(static_cast<ID3D12PipelineState*>(pipeline)).get();}catch(...){return nullptr;}},
+    [](const void* shared)->void*{try{const auto& value=*static_cast<const Shared*>(shared);return value?new Shared(value):nullptr;}catch(...){return nullptr;}},
+    [](void* shared){delete static_cast<Shared*>(shared);},
+    [](const void* shared)->const void*{return static_cast<const Shared*>(shared)->get();},
+    [](const void* shared)->uint64_t{const auto& value=*static_cast<const Shared*>(shared);return value?value->id:0;},
+    [](const void* shared,uint32_t stride)->bool{try{const auto& value=*static_cast<const Shared*>(shared);
+        return value && detail::Layout(value->input,stride);}catch(...){return false;}},
+};
+[[maybe_unused]] const bool attached=(cvr_isv2_attach(&host),true);
+rust_abi::Input Lend(const Input& input)noexcept{
+    return {input.scope,input.pipeline.Get(),&input.shader,input.original,input.draw,input.bytes?input.bytes->data():nullptr,
+        input.bytes?input.bytes->size():0,bool(input.bytes)};
+}
+void Fill(const rust_abi::View& view,IUnknown* owner,PrivateView& output){
+    output.scope=view.scope;output.resource=static_cast<ID3D12Resource*>(view.resource);output.owner=owner;
+    output.pipeline=static_cast<ID3D12PipelineState*>(view.pipeline);output.shader=*static_cast<const Shared*>(view.shader);
+    output.vertex=view.vertex;output.original=view.original;output.draw=view.draw;output.mapping=view.mapping;
+    output.copyList=view.copyList;output.copyGeneration=view.copyGeneration;output.version=view.version;
+}
+}
+UINT Plan::VersionCount()const noexcept{return data_?UINT(cvr_isv2_plan_count(data_->rust,0)):0;}
+uint64_t Plan::RequiredBytes()const noexcept{return data_?cvr_isv2_plan_count(data_->rust,1):0;}
+uint64_t Plan::CopiedBytes()const noexcept{return data_?cvr_isv2_plan_count(data_->rust,2):0;}
+bool BuildPlan(std::span<const Input> inputs,Plan& output,Failure& failure,uint64_t budget)try{
+    output={};failure=Failure::Arguments;if(inputs.size()>MaxVersions)return false;
+    std::vector<rust_abi::Input> rows;rows.reserve(inputs.size());for(const auto& input:inputs)rows.push_back(Lend(input));
+    uint32_t code{};const void* rust=cvr_isv2_build_plan(rows.data(),rows.size(),budget,&code);failure=Failure(code);if(!rust)return false;
+    try{output.data_=std::make_shared<const detail::PlanData>(rust);}catch(...){cvr_isv2_plan_free(rust);throw;}
+    return true;
+}catch(...){output={};failure=Failure::Exception;return false;}
+struct Overlay::Storage:IUnknown{};
+Overlay::Overlay()=default;Overlay::~Overlay()=default;
+HRESULT Overlay::Create(ID3D12Device* device,const Plan& plan){
+    if(storage_ || !device || !plan.data_)return E_INVALIDARG;
+    void* out{};const auto result=cvr_isv2_overlay_new(device,plan.data_->rust,&out);
+    if(SUCCEEDED(result))storage_.Attach(static_cast<Storage*>(out));return result;
+}
+bool Overlay::Record(ID3D12GraphicsCommandList* list,const DestinationRecording& destination,Failure& failure){
+    failure=Failure::Arguments;if(!storage_ || !list)return false;
+    failure=Failure(cvr_isv2_overlay_record(storage_.Get(),list,&destination));return failure==Failure::None;
+}
+bool Overlay::GetView(UINT index,PrivateView& output)const {
+    output={};rust_abi::View view{};if(!storage_ || !cvr_isv2_overlay_view(storage_.Get(),index,&view))return false;
+    Fill(view,storage_.Get(),output);return true;
+}
+bool Overlay::ValidateDestinationSubmission(const DestinationRecording& destination,ID3D12CommandQueue* queue)const {
+    return storage_ && cvr_isv2_overlay_submitted(storage_.Get(),&destination,queue);
+}
+bool ValidatePrivateView(const PrivateView& view){
+    return cvr_isv2_view_check(false,0,&view,view.shader.get(),nullptr,nullptr,nullptr,nullptr,nullptr);
+}
+bool ValidatePrivateViewForRecording(const PrivateView& view,ID3D12GraphicsCommandList* list,const DestinationRecording& destination){
+    return cvr_isv2_view_check(false,1,&view,view.shader.get(),list,&destination,nullptr,nullptr,nullptr);
+}
+bool ValidatePrivateViewAfterCompletion(const PrivateView& view,const DestinationCompletion& completion){
+    return cvr_isv2_view_check(false,2,&view,view.shader.get(),nullptr,nullptr,&completion,nullptr,nullptr);
+}
+struct GpuCaptureArena::Storage:IUnknown{};
+GpuCaptureArena::GpuCaptureArena()=default;GpuCaptureArena::~GpuCaptureArena()=default;
+HRESULT GpuCaptureArena::Create(ID3D12Device* device,const native_recording::Lease& recording,UINT eye,uint64_t capacity){
+    if(storage_ || !device)return E_INVALIDARG;
+    void* out{};const auto result=cvr_isv2_arena_new(device,&recording,eye,capacity,&out);if(FAILED(result))return result;
+    storage_.Attach(static_cast<Storage*>(out));return S_OK;
+}
+bool GpuCaptureArena::Capture(ID3D12GraphicsCommandList* list,const Input& input,RecordNativeCopy record,void* context,PrivateView& output){
+    output={};if(!storage_ || !list || !record)return false;
+    const auto row=Lend(input);rust_abi::View view{};
+    if(!cvr_isv2_arena_capture(storage_.Get(),list,&row,record,context,&input,&view))return false;
+    Fill(view,storage_.Get(),output);return true;
+}
+bool GpuCaptureArena::Finalize(ID3D12GraphicsCommandList* list){return storage_ && list && cvr_isv2_arena_finalize(storage_.Get(),list);}
+UINT GpuCaptureArena::VersionCount()const{return storage_?UINT(cvr_isv2_count(storage_.Get(),0)):0;}
+uint64_t GpuCaptureArena::RequiredBytes()const{return storage_?cvr_isv2_count(storage_.Get(),1):0;}
+uint64_t GpuCaptureArena::CopiedBytes()const{return storage_?cvr_isv2_count(storage_.Get(),2):0;}
+bool ValidateNativeView(const PrivateView& view){
+    return cvr_isv2_view_check(true,0,&view,view.shader.get(),nullptr,nullptr,nullptr,nullptr,nullptr);
+}
+bool ValidateNativeViewForRecording(const PrivateView& view,ID3D12GraphicsCommandList* list,const native_recording::Lease& recording){
+    return cvr_isv2_view_check(true,1,&view,view.shader.get(),list,nullptr,nullptr,&recording,nullptr);
+}
+bool ValidateNativeViewAfterSubmission(const PrivateView& view,const NativeCompletion& completion){
+    return cvr_isv2_view_check(true,2,&view,view.shader.get(),nullptr,nullptr,nullptr,nullptr,&completion);
+}
+bool ValidateNativeViewAfterCompletion(const PrivateView& view,const NativeCompletion& completion){
+    return cvr_isv2_view_check(true,3,&view,view.shader.get(),nullptr,nullptr,nullptr,nullptr,&completion);
+}
+#endif
+#else
 namespace {
 constexpr GUID ownerType{0x0e1d90db,0x6f45,0x442e,{0x89,0x1c,0x95,0x0e,0xa5,0x59,0xe2,0x7c}};
 enum class Stage:uint32_t {Created,Recording,Recorded,Failed};
@@ -294,4 +453,5 @@ bool ValidateNativeViewAfterCompletion(const PrivateView& view,const NativeCompl
     if(!ValidateNativeViewAfterSubmission(view,completion))return false;
     const auto completed=completion.fence->GetCompletedValue();return completed!=UINT64_MAX && completed>=completion.value;
 }
+#endif
 }

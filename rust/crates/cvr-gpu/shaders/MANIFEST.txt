@@ -1,0 +1,63 @@
+The port's shaders in DXIL, made from rust/shaders/passes by `cargo xtask shaders` -- not edited by hand.
+rust-gpu 0.11.0 (spirv-builder), naga 30, dxcompiler.dll: 1.9(5184-21d28f72)(1.9.2602.17) - 1.9.2602.17 (21d28f727)
+
+space_quad_vs.dxil  vs_6_0  3904 bytes  space_quad::vs  {"cb0"}
+space_quad_fill.dxil  ps_6_0  3248 bytes  space_quad::fill  {"cb0"}
+space_quad_over.dxil  ps_6_0  4204 bytes  space_quad::over  {"cb0", "s0", "t0"}
+space_quad_copy.dxil  ps_6_0  3708 bytes  space_quad::copy  {"s1", "t0"}
+space_quad_light.dxil  ps_6_0  4420 bytes  space_quad::light  {"cb0", "s0", "t0"}
+srgb_vs.dxil  vs_6_0  2960 bytes  fullscreen::srgb_vs  {}
+srgb_ps.dxil  ps_6_0  4632 bytes  fullscreen::srgb_ps  {"cb0", "t0"}
+fullscreen_uv_vs.dxil  vs_6_0  3112 bytes  fullscreen::uv_vs  {}
+sharpen_ps.dxil  ps_6_0  6068 bytes  fullscreen::sharpen_ps  {"cb0", "s0", "t0"}
+depth_resolve_ps.dxil  ps_6_0  3684 bytes  fullscreen::depth_resolve_ps  {"s0", "t0"}
+group_resolve_vs.dxil  vs_6_0  2916 bytes  group_resolve::vs  {}
+group_resolve_ps.dxil  ps_6_0  5812 bytes  group_resolve::ps  {"cb0", "t0", "t1", "t2", "t3", "t4"}
+group_resolve_depth_ps.dxil  ps_6_0  4972 bytes  group_resolve::depth_ps  {"cb0", "t3", "t4"}
+color_blit_vs.dxil  vs_6_0  3072 bytes  color_blit::vs  {}
+color_blit_ps.dxil  ps_6_0  4172 bytes  color_blit::blit_ps  {"cb0", "s0", "t0"}
+color_blit_overlay_ps.dxil  ps_6_0  5240 bytes  color_blit::overlay_ps  {"cb0", "cb1", "s0", "t0"}
+color_blit_hud_ps.dxil  ps_6_0  11444 bytes  color_blit::hud_ps  {"cb0", "cb1", "cb2", "s0", "t0", "t1", "t2", "t3"}
+color_blit_dot_vs.dxil  vs_6_0  3808 bytes  color_blit::dot_vs  {"cb0"}
+color_blit_dot_ps.dxil  ps_6_0  3916 bytes  color_blit::dot_ps  {"cb0"}
+foveated_prepare_cs.dxil  cs_6_0  6880 bytes  foveated::prepare  {"cb0", "s0", "t0", "t1", "t2", "u0", "u1", "u2"}
+foveated_composite_cs.dxil  cs_6_0  5360 bytes  foveated::composite  {"cb0", "s0", "t3", "t4", "u3"}
+stereo_depth_cs.dxil  cs_6_0  6596 bytes  stereo_depth::main  {"cb0", "t0", "t1", "u0"}
+depth_commit_gate_depth_cs.dxil  cs_6_0  4280 bytes  single_pass::depth_gate  {"t0", "t1", "u0"}
+depth_commit_gate_buffer_cs.dxil  cs_6_0  3824 bytes  single_pass::buffer_gate  {"cb0", "t0", "t1", "u0"}
+geometry_compare_initialize_cs.dxil  cs_6_0  3800 bytes  single_pass::geometry_initialize  {"cb0", "t2", "u0"}
+geometry_compare_cs.dxil  cs_6_0  4392 bytes  single_pass::geometry_compare  {"cb0", "t0", "t1", "t2", "t3", "u0"}
+multilayer_membership_cs.dxil  cs_6_0  8932 bytes  single_pass::membership_check  {"cb0", "t0", "t1", "t2", "t3", "t4", "u0", "u1"}
+finer_vrs_initialize_cs.dxil  cs_6_0  2688 bytes  finer_vrs::initialize  {"u1"}
+finer_vrs_reduce_cs.dxil  cs_6_0  4736 bytes  finer_vrs::reduce  {"cb0", "t0", "u0", "u1"}
+osr_clear_cs.dxil  cs_6_0  5084 bytes  osr::clear  {"cb0", "t1", "u0", "u1", "u5"}
+osr_splat_cs.dxil  cs_6_0  6516 bytes  osr::splat  {"cb0", "t1", "t3", "u0", "u1"}
+osr_resolve_cs.dxil  cs_6_0  16556 bytes  osr::resolve  {"cb0", "s0", "t0", "t1", "t2", "t3", "u0", "u1", "u2", "u3", "u5"}
+osr_inpaint_cs.dxil  cs_6_0  12080 bytes  osr::inpaint  {"cb0", "s0", "t0", "t4", "t5", "u4"}
+framegen_pack_cs.dxil  cs_6_0  4172 bytes  framegen::pack  {"cb0", "s0", "t0", "u0"}
+framegen_flow_cs.dxil  cs_6_0  4632 bytes  framegen::flow  {"cb0", "t1", "u1", "u2"}
+framegen_scene_cut_cs.dxil  cs_6_0  6468 bytes  framegen::scene_cut  {"cb0", "s0", "t0", "t2", "u2"}
+framegen_prepare_inputs_cs.dxil  cs_6_0  5632 bytes  framegen::prepare_inputs  {"cb0", "t0", "t1", "u0", "u1"}
+fsr3_dilate_clear_cs.dxil  cs_6_0  3588 bytes  fsr3::dilate_clear  {"cb0", "u2"}
+fsr3_dilate_cs.dxil  cs_6_0  7048 bytes  fsr3::dilate  {"cb0", "t0", "t1", "u0", "u1", "u2", "u4"}
+fsr3_dilate_resolve_cs.dxil  cs_6_0  3796 bytes  fsr3::dilate_resolve  {"cb0", "u2", "u3"}
+fsr3_warp_cs.dxil  cs_6_0  5276 bytes  fsr3::warp  {"cb0", "s0", "t0", "t1", "u0"}
+nr_encode_cs.dxil  cs_6_0  4652 bytes  neural_render::encode  {"cb0", "t0", "u0"}
+nr_decode_cs.dxil  cs_6_0  5048 bytes  neural_render::decode  {"cb0", "t0", "u0"}
+mirror_vs.dxil  vs_6_0  3136 bytes  mirror::vs  {}
+mirror_ps.dxil  ps_6_0  5636 bytes  mirror::ps  {"cb0", "t0"}
+lens_mask_ps.dxil  ps_6_0  4768 bytes  optics::lens_mask  {"cb0", "cb4"}
+lens_velocity_ps.dxil  ps_6_0  5912 bytes  optics::lens_velocity  {"cb0", "cb1", "cb4"}
+sight_mask_ps.dxil  ps_6_0  4144 bytes  optics::sight_mask  {"cb4"}
+lens_source_resolve_cs.dxil  cs_6_0  11872 bytes  optics_resolve::lens  {"cb0", "s0", "t0", "t1", "t2", "u0", "u1"}
+camera_source_resolve_cs.dxil  cs_6_0  11248 bytes  optics_resolve::camera  {"cb0", "s0", "t0", "t1", "u0"}
+world_marker_sprite_vs.dxil  vs_6_0  6312 bytes  world_markers::sprite_main  {"cb1", "cb5"}
+world_marker_procedural_vs.dxil  vs_6_0  6944 bytes  world_markers::procedural_main  {"cb1", "cb5", "cb7"}
+world_marker_sprite_stereo_vs.dxil  vs_6_0  7300 bytes  world_markers::sprite_stereo_main  {"cb1", "cb5", "cb7"}
+world_marker_text_stereo_vs.dxil  vs_6_0  7284 bytes  world_markers::text_stereo_main  {"cb1", "cb5", "cb7"}
+world_marker_sprite_stereo_z_vs.dxil  vs_6_0  7304 bytes  world_markers::sprite_stereo_z_main  {"cb1", "cb5", "cb7"}
+world_marker_sprite_stereo_one_vs.dxil  vs_6_0  7288 bytes  world_markers::sprite_stereo_one_main  {"cb1", "cb5", "cb7"}
+vision_highlight_cs.dxil  cs_6_0  36588 bytes  vision::main  {"cb0", "cb1", "cb12", "cb6", "s11", "t0", "t1", "t2", "t4", "t5", "t6", "t7", "t8", "u0", "u1"}
+sight_reflex_vs.dxil  vs_6_0  12376 bytes  sight::reflex_vs  {"cb0", "cb1", "cb5", "cb7", "t10"}
+sight_reflex_ps.dxil  ps_6_0  25996 bytes  sight_ps::reflex_ps  {"cb0", "cb4", "s0", "t0", "t0,space1"}
+sight_reflex_ps_scope.dxil  ps_6_0  24716 bytes  sight_ps::reflex_ps_scope  {"cb0", "cb4", "s0", "t0", "t0,space1"}

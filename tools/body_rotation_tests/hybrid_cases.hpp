@@ -150,7 +150,7 @@ void HybridNeckLimit(){
     Check(Error(b.follower.Offset(),0)<1,"the neck limit's pull stayed after the head came back");
 }
 // Looking down, turned round fast and back, the controllers turning with the head (the simulator's legacy hands), the
-// body must end where the torso is (2026-11-07: the body 40 degrees right of the head). Faster than a person turns
+// body must end where the torso is (user, 2026-11-07: the body 40 degrees right of the head). Faster than a person turns
 // (0.12 s for 180 degrees; the simulator's mouse) the tracker took the head and wrists turning as one for a tracking
 // fault and suspended: the turn was lost and the body stayed at the neck limit, 65 degrees off.
 void HybridFastTurnDown(){float worst=0;int count=0;
@@ -191,7 +191,7 @@ void HybridFastTurnDown(){float worst=0;int count=0;
     }
     std::cout<<count<<" fast turns and flicks round and back looking down; worst body off the torso "<<worst<<" deg\n";
 }
-// THE HEAD ALONE IS NO TORSO (2026-11-07).
+// THE HEAD ALONE IS NO TORSO (user, 2026-11-07: "сбивается гибридный если опустить руки потом опять повернуться").
 // Upright, the head turns on its own and holds (the cone has the body follow it), then looks down: the body goes to
 // the hands -- the torso never turned. The alignment used to be refitted to the cone's body and the body stayed where
 // the head had looked.
@@ -299,7 +299,7 @@ void HybridDownGlanceThenTurn(){float worst=0;int count=0;std::string where;
     std::cout<<count<<" looks round looking down, then turns; worst body off the torso "<<worst<<" deg ("<<where<<")\n";
     Check(worst<3,"a look round looking down lost part of the next turn: "+where);
 }
-// HANDS CHANGED, THEN A TURN (2026-11-07).
+// HANDS CHANGED, THEN A TURN (user, 2026-11-07: "сбивается гибридный если опустить руки потом опять повернуться").
 // Looking down, the head turns alone and holds; the hands change their hold (lowered, raised to a gun) while it is
 // turned; the head comes back over the torso and the torso and head turn together. The body must end at the torso.
 void HybridHandsChangeThenTurn(){float worst=0;int count=0;std::string where;
@@ -332,60 +332,6 @@ void HybridHandsChangeThenTurn(){float worst=0;int count=0;std::string where;
     }
     std::cout<<count<<" hand changes with the head turned, then turns; worst body off the torso "<<worst<<" deg ("<<where<<")\n";
     Check(worst<3,"a hand change with the head turned lost part of the next turn: "+where);
-}
-// THE HEAD-LED TURN, TIGHT (Runtimes/HeadLedBodyTurn.hpp kTightBodyTurnConfig). Upright: the body follows the head
-// within 1 degree, never faster than 150 deg/s. Looking down (pitch below -30): the body stays while the head is
-// within 70 degrees of where it last re-aimed, then turns at 150 deg/s to where the head was then. Through 0/360.
-void HeadLedTurn(){
-    using cvr::body::HeadLedBodyTurn;using cvr::body::TurnDeltaAngle;
-    for(float hz:{45.f,90.f,144.f})for(float sign:{-1.f,1.f}){
-        const float dt=1/hz;
-        HeadLedBodyTurn m;m.Seed(10);
-        float head=10,most=0,prev=10;
-        for(int i=0;i<int(hz*.3f);++i){head+=sign*90*dt/.3f;const float b=m.Step(head,0,dt);most=std::max(most,std::fabs(TurnDeltaAngle(prev,b))/dt);prev=b;}
-        for(int i=0;i<int(hz*1.0f);++i){const float b=m.Step(head,0,dt);most=std::max(most,std::fabs(TurnDeltaAngle(prev,b))/dt);prev=b;}
-        Check(std::fabs(TurnDeltaAngle(prev,head))<=1.001f,"upright: the body did not end within 1 degree of the head");
-        Check(most<=150.01f,"upright: the body turned faster than 150 deg/s: "+std::to_string(most));
-        Check(most>=149.0f,"upright: the body did not turn at its 150 deg/s: "+std::to_string(most));
-        // looking down, the head turns 60 and holds: the body stays
-        const float base=prev;
-        for(int i=0;i<int(hz*.5f);++i){head+=sign*60*dt/.5f;prev=m.Step(head,-45,dt);}
-        for(int i=0;i<int(hz*1.0f);++i)prev=m.Step(head,-45,dt);
-        Check(std::fabs(TurnDeltaAngle(base,prev))<.001f,"looking down: a 60 degree look round turned the body");
-        // past 70 the body turns to where the head was when it crossed, at 150 deg/s
-        float crossed=0;bool seen=false;
-        for(int i=0;i<int(hz*.3f);++i){
-            head+=sign*30*dt/.3f;prev=m.Step(head,-45,dt);
-            if(!seen && std::fabs(TurnDeltaAngle(base,prev))>1e-4f){seen=true;crossed=head;}
-        }
-        for(int i=0;i<int(hz*1.5f);++i)prev=m.Step(head,-45,dt);
-        Check(seen,"looking down: a 90 degree look round did not turn the body");
-        Check(std::fabs(TurnDeltaAngle(prev,crossed))<.01f,"looking down: the body did not stop where the head was when it crossed 70");
-        // (the re-aim point is within the upright 1 degree of the body, and the head moves up to 2.3 degrees a frame)
-        Check(std::fabs(TurnDeltaAngle(base,crossed))>69 && std::fabs(TurnDeltaAngle(base,crossed))<73.5f,"the crossing was not at 70 degrees: "+std::to_string(TurnDeltaAngle(base,crossed)));
-    }
-    // through 0/360: 350 -> 10 turns 20 degrees the short way
-    HeadLedBodyTurn m;m.Seed(350);float b=350;
-    for(int i=0;i<90;++i)b=m.Step(10,0,1/90.f);
-    Check(std::fabs(TurnDeltaAngle(b,10))<1.001f,"the turn did not go through 0");
-    std::cout<<"head-led turn: upright follow <= 150 deg/s to within 1 deg; looking down holds to 70\n";
-    // the port's: a 10 degree upright cone -- an 8 degree look leaves the body, a 30 degree turn brings it under the head
-    {
-        using cvr::body::kDefaultBodyTurnConfig;
-        HeadLedBodyTurn p;p.Seed(0);float body=0;
-        for(int i=0;i<90;++i)body=p.Step(8.0f*std::min(1.0f,i/30.0f),0,1/90.f,kDefaultBodyTurnConfig);
-        Check(std::fabs(TurnDeltaAngle(0,body))<1e-4f,"port cone: an 8 degree look turned the body");
-        for(int i=0;i<90;++i)body=p.Step(30.0f,0,1/90.f,kDefaultBodyTurnConfig);
-        Check(std::fabs(TurnDeltaAngle(body,30.0f))<.01f,"port cone: a 30 degree turn did not end under the head");
-        // a gradual 30 degree turn (0.67 degree a frame, under the cone every frame) ends under the head too
-        HeadLedBodyTurn g;g.Seed(0);float gb=0;
-        for(int i=0;i<=45;++i)gb=g.Step(30.0f*i/45.0f,0,1/90.f,kDefaultBodyTurnConfig);
-        for(int i=0;i<90;++i)gb=g.Step(30.0f,0,1/90.f,kDefaultBodyTurnConfig);
-        Check(std::fabs(TurnDeltaAngle(gb,30.0f))<.01f,"port cone: a gradual 30 degree turn stopped short of the head");
-        // and the cone is centred there: an 8 degree look from it leaves the body
-        for(int i=0;i<90;++i)gb=g.Step(38.0f,0,1/90.f,kDefaultBodyTurnConfig);
-        Check(std::fabs(TurnDeltaAngle(gb,30.0f))<.01f,"port cone: the cone was not centred under the head after the turn");
-    }
 }
 void HybridPosture(){
     cvr::body::BendTracker bend;HybridBodyYaw hybrid;bool activated=false;uint64_t stamp=1000000;

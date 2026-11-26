@@ -1,6 +1,7 @@
 #pragma once
 #include "Render/NativeCameraBindingState.hpp"
 #include <algorithm>
+#include <cstddef>
 #include <vector>
 
 namespace cvr::stereo::camera_upload::flush_state {
@@ -22,6 +23,59 @@ struct Snapshot {
     std::vector<Table> tables;
     bool operator==(const Snapshot&)const=default;
 };
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/camera_flush.rs (tools/single_pass_tests/camera_flush_state_test runs its
+// cases against them in its Rust variant). The snapshots stay here and are lent to the rules as views.
+struct RustTableView {uint32_t group,rootParameter,start,count,first;int32_t cached;const uint64_t* descriptors;size_t descriptorCount;};
+struct RustSnapshotView {
+    Context context;uint64_t heap,layout,cpuTable,dirty,rebind,groups,resourceMask,samplerMask,graphicsMask;
+    std::array<uint64_t,4> visibility;std::array<uint32_t,3> programs;uint64_t cachedCpu,cachedGpu;uint8_t cpuValid,gpuValid;
+    uint32_t base,capacity,stride,cursor,count;const RustTableView* tables;size_t tableCount;
+};
+static_assert(sizeof(RustTableView)==40 && sizeof(RustSnapshotView)==200 && offsetof(RustSnapshotView,cachedCpu)==144 &&
+    offsetof(RustSnapshotView,tables)==184,"mirrored by camera_flush.rs");
+struct RustFlushRead;
+extern "C" {
+RustFlushRead* cvr_fs_read(ReadState,const Context*,uint32_t,bool,RustSnapshotView*);
+void cvr_fs_free(RustFlushRead*);
+bool cvr_fs_check(uint32_t,const RustSnapshotView*,const RustSnapshotView*,uint64_t);
+}
+namespace detail {
+// A snapshot lent as a view (its tables' views in `tables`).
+inline RustSnapshotView View(const Snapshot& s,std::vector<RustTableView>& tables){
+    tables.clear();tables.reserve(s.tables.size());
+    for(const auto& x:s.tables)tables.push_back({x.group,x.rootParameter,x.start,x.count,x.first,x.cached,x.descriptors.data(),x.descriptors.size()});
+    return {s.context,s.heap,s.layout,s.cpuTable,s.dirty,s.rebind,s.groups,s.resourceMask,s.samplerMask,s.graphicsMask,
+        s.visibility,s.programs,s.cachedCpu,s.cachedGpu,s.cpuValid,s.gpuValid,s.base,s.capacity,s.stride,s.cursor,s.count,
+        tables.data(),tables.size()};
+}
+inline bool Read(ReadState read,Context context,uint32_t stages,bool twice,Snapshot& out){
+    RustSnapshotView v{};const auto captured=cvr_fs_read(read,&context,stages,twice,&v);
+    if(!captured)return false;
+    struct Release{RustFlushRead* read;~Release(){cvr_fs_free(read);}}release{captured};
+    Snapshot s;s.context=v.context;s.heap=v.heap;s.layout=v.layout;s.cpuTable=v.cpuTable;s.dirty=v.dirty;s.rebind=v.rebind;
+    s.groups=v.groups;s.resourceMask=v.resourceMask;s.samplerMask=v.samplerMask;s.graphicsMask=v.graphicsMask;
+    s.visibility=v.visibility;s.programs=v.programs;s.cachedCpu=v.cachedCpu;s.cachedGpu=v.cachedGpu;s.cpuValid=v.cpuValid;
+    s.gpuValid=v.gpuValid;s.base=v.base;s.capacity=v.capacity;s.stride=v.stride;s.cursor=v.cursor;s.count=v.count;
+    for(size_t i=0;i<v.tableCount;++i){const auto& x=v.tables[i];
+        s.tables.push_back({x.group,x.rootParameter,x.start,x.count,x.first,x.cached,{x.descriptors,x.descriptors+x.descriptorCount}});}
+    out=std::move(s);return true;
+}
+inline bool Check(uint32_t check,const Snapshot& a,const Snapshot* b,uint64_t replacement){
+    std::vector<RustTableView> at,bt;const auto av=View(a,at);
+    if(!b)return cvr_fs_check(check,&av,nullptr,replacement);
+    const auto bv=View(*b,bt);return cvr_fs_check(check,&av,&bv,replacement);
+}
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool ReadOnce(ReadState read,Context context,uint32_t stages,Snapshot& out) {
+    out={};return detail::Read(read,context,stages,false,out);
+}
+inline bool Read(ReadState read,Context context,uint32_t stages,Snapshot& out) {
+    return detail::Read(read,context,stages,true,out);
+}
+#else
 inline bool ReadOnce(ReadState read,Context context,uint32_t stages,Snapshot& out) {
     out={};
     const auto copy=[&](uint64_t p,void* dst,size_t n){return read && p && p<=UINT64_MAX-n && read(p,dst,n);};
@@ -72,6 +126,14 @@ inline bool Read(ReadState read,Context context,uint32_t stages,Snapshot& out) {
     if(!ReadOnce(read,context,stages,a) || !ReadOnce(read,context,stages,b) || a!=b)return false;
     out=std::move(a);return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Room(const Snapshot& s) {return detail::Check(0,s,nullptr,0);}
+inline bool SameAllocation(const Snapshot& a,const Snapshot& b) {return detail::Check(1,a,&b,0);}
+inline bool Pending(const Snapshot& original,const Snapshot& next,uint64_t replacement) {return detail::Check(2,original,&next,replacement);}
+inline bool Flushed(const Snapshot& pending,const Snapshot& next) {return detail::Check(3,pending,&next,0);}
+}
+#else
 inline bool Room(const Snapshot& s) {
     return !(s.dirty&s.graphicsMask) && !s.rebind && s.count && s.cursor<=s.capacity && uint64_t(s.count)*2<=s.capacity-s.cursor;
 }
@@ -103,3 +165,4 @@ inline bool Flushed(const Snapshot& pending,const Snapshot& next) {
     return true;
 }
 }
+#endif

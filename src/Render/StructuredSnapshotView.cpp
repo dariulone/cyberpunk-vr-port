@@ -9,6 +9,67 @@
 #include <tuple>
 
 namespace cvr::stereo::structured_snapshot_view {
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+// The plan's versions, the adoption, the overlay's buffer and copies, the views: rust/crates/cvr-render/src/
+// structured_view_overlay.rs. The read plan's check, the overlay's COM owner, stage and destination, the
+// command-resource retention and the internal-commands scope stay here.
+struct RustSovInput {
+    Scope scope,b4Scope,completionScope;
+    ID3D12Resource* dense;IUnknown* denseOwner;uint64_t denseSource,densePrivate,denseCopied;
+    IUnknown* copyOwner;uint64_t copyList,copyGeneration,copyOccurrence,copySource,copyPrivate,copyCopied;
+    ID3D12CommandQueue* queue;ID3D12Fence* fence;uint64_t value,firstElement,resourceWidth;uint32_t numElements,stride;
+    const uint8_t* b4;size_t b4Bytes;const uint8_t* planB4;bool certified,finalized,b4Verified,bounded,planView;
+};
+struct RustSovRead {uint64_t resourceOffset;uint32_t byteExtent,firstRecord,recordSpan;const uint32_t* records;size_t count;};
+struct RustSovDestination {uint64_t list,generation;ID3D12CommandAllocator* allocator;ID3D12CommandQueue* queue;bool certified;};
+static_assert(sizeof(RustSovInput)==296 && sizeof(RustSovRead)==40 && sizeof(RustSovDestination)==40 && sizeof(PrivateView)==520 &&
+    offsetof(PrivateView,srv)==56 && offsetof(PrivateView,records)==160 && offsetof(PrivateView,privateB4Bytes)==288,"mirrored by structured_view_overlay.rs");
+extern "C" {
+void* cvr_sov_plan_new();
+void cvr_sov_plan_free(void*);
+uint32_t cvr_sov_admit(const void*,const RustSovInput*);
+uint32_t cvr_sov_push(void*,const RustSovInput*,const RustSovRead*,uint64_t);
+uint64_t cvr_sov_counts(const void*,uint32_t);
+}
+namespace detail {
+struct PlanData {
+    void* rust=cvr_sov_plan_new();
+    PlanData()=default;PlanData(const PlanData&)=delete;PlanData& operator=(const PlanData&)=delete;
+    ~PlanData(){cvr_sov_plan_free(rust);}
+};
+}
+namespace {
+bool SameReadPlan(const multilayer_selectors::ReadPlan& a,const multilayer_selectors::ReadPlan& b){
+    return a.family==b.family && a.b4Key==b.b4Key && a.b4Bytes==b.b4Bytes && a.view==b.view && a.baseRecord==b.baseRecord && a.mask==b.mask &&
+        a.firstRecord==b.firstRecord && a.recordSpan==b.recordSpan && a.records==b.records && a.resourceOffset==b.resourceOffset && a.byteExtent==b.byteExtent;
+}
+RustSovInput Facts(const Input& input){const auto& view=input.originalView;const auto& dense=input.dense;const auto& copy=input.copy;const auto& done=input.completion;
+    return {input.scope,input.privateB4Scope,done.scope,dense.resource.Get(),dense.owner.Get(),dense.sourceOffset,dense.privateOffset,dense.copiedBytes,
+        copy.owner.Get(),copy.list,copy.generation,copy.occurrence,copy.sourceOffset,copy.privateOffset,copy.copiedBytes,done.queue.Get(),done.fence.Get(),
+        done.value,view.firstElement,view.resourceWidth,view.numElements,view.structureByteStride,input.privateB4Bytes.data(),input.privateB4Bytes.size(),
+        input.readPlan.b4Bytes.data(),done.submissionCertified,done.finalized,input.privateB4GpuMatchVerified,input.allRecordPathsBounded,input.readPlan.view==view};
+}
+}
+UINT Plan::VersionCount()const noexcept{return data_?UINT(cvr_sov_counts(data_->rust,0)):0;}
+uint64_t Plan::RequiredBytes()const noexcept{return data_?cvr_sov_counts(data_->rust,1):0;}
+uint64_t Plan::CopiedBytes()const noexcept{return data_?cvr_sov_counts(data_->rust,2):0;}
+bool BuildPlan(std::span<const Input> inputs,Plan& output,Failure& failure,uint64_t budget)try{
+    output={};failure=Failure::Arguments;if(inputs.empty() || inputs.size()>MaxVersions || !budget || budget>MaxBytes)return false;
+    auto pending=std::make_shared<detail::PlanData>();
+    for(const auto& input:inputs){const auto facts=Facts(input);
+        failure=Failure(cvr_sov_admit(pending->rust,&facts));if(failure!=Failure::None)return false;
+        multilayer_selectors::ReadPlan checked;std::string error;failure=Failure::ReadPlan;
+        if(!input.readPlan.conservativeRecordSuperset || !input.readPlan.originalSiteCoverageComplete ||
+            !multilayer_selectors::PlanRead(input.readPlan.family,{input.readPlan.b4Key,input.privateB4Bytes},input.originalView,checked,error) ||
+            !SameReadPlan(input.readPlan,checked) || checked.records.empty() || checked.records.size()>multilayer_selectors::MaxRecords)return false;
+        const RustSovRead read{checked.resourceOffset,checked.byteExtent,checked.firstRecord,checked.recordSpan,checked.records.data(),checked.records.size()};
+        failure=Failure(cvr_sov_push(pending->rust,&facts,&read,budget));if(failure!=Failure::None)return false;
+    }
+    output.data_=std::move(pending);failure=Failure::None;return true;
+}catch(...){output={};failure=Failure::Exception;return false;}
+#endif
+#else
 namespace detail {
 struct Version {
     Scope scope;Mapping mapping;
@@ -88,6 +149,54 @@ bool BuildPlan(std::span<const Input> inputs,Plan& output,Failure& failure,uint6
     }
     output.data_=std::move(pending);failure=Failure::None;return true;
 }catch(...){output={};failure=Failure::Exception;return false;}
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+// The overlay's owner: rust/crates/cvr-render/src/structured_view_owner.rs (a COM object: its stage, device, buffer,
+// plan and destination); these forwards keep the header's API.
+extern "C" {
+HRESULT cvr_sov2_create(ID3D12Device*,const void*,void**);
+uint32_t cvr_sov2_adopt(ID3D12Device*,const void*,void**);
+uint32_t cvr_sov2_record(void*,ID3D12GraphicsCommandList*,const DestinationRecording*);
+bool cvr_sov2_view(void*,UINT,PrivateView*,ID3D12Resource**);
+uint64_t cvr_sov2_count(void*,uint32_t);
+bool cvr_sov2_submitted(void*,const DestinationRecording*,ID3D12CommandQueue*);
+bool cvr_sov2_validate(const PrivateView*);
+bool cvr_sov2_validate_recording(const PrivateView*,ID3D12GraphicsCommandList*,const DestinationRecording*);
+}
+static_assert(sizeof(DestinationRecording)==40,"mirrored by structured_view_overlay.rs");
+struct Overlay::Storage:IUnknown {};   // the Rust owner's IUnknown face
+Overlay::Overlay()=default;Overlay::~Overlay()=default;
+bool Overlay::AdoptSources(ID3D12Device* device,std::span<const Input> inputs,Failure& failure)try{
+    failure=Failure::Arguments;if(storage_ || !device)return false;
+    Plan checked;if(!BuildPlan(inputs,checked,failure))return false;
+    void* out{};failure=Failure(cvr_sov2_adopt(device,checked.data_->rust,&out));if(failure!=Failure::None)return false;
+    storage_.Attach(static_cast<Storage*>(out));return true;
+}catch(...){failure=Failure::Exception;return false;}
+HRESULT Overlay::Create(ID3D12Device* device,const Plan& plan){
+    if(storage_ || !device || !plan.data_)return E_INVALIDARG;
+    void* out{};const auto result=cvr_sov2_create(device,plan.data_->rust,&out);
+    if(SUCCEEDED(result))storage_.Attach(static_cast<Storage*>(out));return result;
+}
+bool Overlay::Record(ID3D12GraphicsCommandList* list,const DestinationRecording& destination,Failure& failure){
+    failure=Failure::Arguments;if(!storage_ || !list)return false;
+    failure=Failure(cvr_sov2_record(storage_.Get(),list,&destination));return failure==Failure::None;
+}
+bool Overlay::GetView(UINT index,PrivateView& output)const {
+    output={};ID3D12Resource* resource{};if(!storage_ || !cvr_sov2_view(storage_.Get(),index,&output,&resource))return false;
+    output.resource=resource;output.owner=storage_;return true;
+}
+uint64_t Overlay::RequiredBytes()const noexcept{return storage_?cvr_sov2_count(storage_.Get(),1):0;}
+uint64_t Overlay::CopiedBytes()const noexcept{return storage_?cvr_sov2_count(storage_.Get(),2):0;}
+bool Overlay::ValidateDestinationSubmission(const DestinationRecording& destination,ID3D12CommandQueue* queue)const {
+    return storage_ && cvr_sov2_submitted(storage_.Get(),&destination,queue);
+}
+bool ValidatePrivateView(const PrivateView& view){return cvr_sov2_validate(&view);}
+bool ValidatePrivateViewForRecording(const PrivateView& view,ID3D12GraphicsCommandList* list,const DestinationRecording& destination){
+    return cvr_sov2_validate_recording(&view,list,&destination);
+}
+#endif
+#else
 struct Overlay::Storage final:IUnknown {
     std::atomic<ULONG> refs{1};std::atomic<Stage> stage{Stage::Created};
     bool adopted{};
@@ -196,4 +305,5 @@ bool ValidatePrivateViewForRecording(const PrivateView& view,ID3D12GraphicsComma
     return !storage->adopted && destination.allocator==storage->destination.allocator && destination.queue==storage->destination.queue &&
         gpu::HasCommandResource(list,storage.Get()) && SameDevice(storage->device.Get(),list);
 }
+#endif
 }

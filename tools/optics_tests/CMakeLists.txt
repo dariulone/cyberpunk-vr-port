@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(OpticsPipelineTests LANGUAGES CXX)
 enable_testing()
+add_executable(scope_shell scope_shell.cpp)
+target_compile_features(scope_shell PRIVATE cxx_std_17)
 add_executable(optics_pipeline_lifetime pso_lifetime_test.cpp)
 target_include_directories(optics_pipeline_lifetime PRIVATE ../../include)
 target_compile_features(optics_pipeline_lifetime PRIVATE cxx_std_20)

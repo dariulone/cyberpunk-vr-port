@@ -54,7 +54,7 @@ function M.update(dt,player,weapon)
     local s=current
     if not s or s.key~=key or s.origin~=h.z then
         current={key=key,origin=h.z,seq=h.y,stamp=h.x,p=p,down=b.w>.35,history={}}
-        M.state.phase='ready';return true
+        M.state.phase='ready';return false
     end
     -- Duplicate poses may carry a new grip edge, but must not become a zero-dt velocity.
     if h.y~=s.seq then
@@ -74,10 +74,11 @@ function M.update(dt,player,weapon)
         end
     end
     local down=s.down and b.w>.35 or (not s.down and b.w>=.65)
+    local releasing=not down and s.down and s.held
     if down and not s.down then
         s.held=true;s.started=h.x;s.history={{p=p,t=h.x}};M.state.phase='gripped'
         s.aims={{t=h.x,gaze=frame[5],eye=frame[6]}}
-    elseif not down and s.down and s.held then
+    elseif releasing then
         s.held=false
         local best,velocity,began=0,nil,h.x
         for i,finish in ipairs(s.history) do
@@ -117,6 +118,8 @@ function M.update(dt,player,weapon)
         s.history={}
     end
     s.down=down
-    return true -- targeting/throw windup must not also inflict a melee swing
+    -- Aiming a throwable item is also a valid melee state. Reserve the input
+    -- only for an armed throw, its release frame, or a pending game transition.
+    return s.held or releasing or (player.VRMeleeThrowPending and player:VRMeleeThrowPending(weapon)) or false
 end
 return M

@@ -8,6 +8,62 @@
 #include "Render/RenderProbeScope.hpp"
 #include <algorithm>
 #include <mutex>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The trace and its observer front are Rust's (rust/crates/cvr-render/src/scene_access_observer.rs and
+// scene_access_native.rs: the lock, the epochs, the attribution, the writes); this half lends the scene child's
+// description and the bound targets.
+namespace cvr::stereo::scene_access_trace {
+struct CvrSaAt {scene_child::Identity child;uint64_t token,generation,context,list,registry;bool matched,internal;};
+static_assert(sizeof(CvrSaAt)==184,"mirrored by At in scene_access_observer.rs");
+extern "C" {
+void cvr_sao_attach(const void*);
+void cvr_sao_unavailable();
+void cvr_sao_reset(ID3D12GraphicsCommandList*);
+void cvr_sao_close(ID3D12GraphicsCommandList*,HRESULT);
+void cvr_sao_operand(ID3D12GraphicsCommandList*,ID3D12Resource*,bool,uint32_t,UINT,uint64_t,uint64_t);
+void cvr_sao_immediate(ID3D12GraphicsCommandList2*,UINT,uint64_t,uint64_t,uint64_t);
+void cvr_sao_barriers(ID3D12GraphicsCommandList*,UINT,const D3D12_RESOURCE_BARRIER*);
+void cvr_sao_targets(ID3D12GraphicsCommandList*,UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,BOOL,const D3D12_CPU_DESCRIPTOR_HANDLE*);
+void cvr_sao_clear_view(ID3D12GraphicsCommandList*,D3D12_CPU_DESCRIPTOR_HANDLE,bool);
+void cvr_sao_shader(ID3D12GraphicsCommandList*,bool);
+void cvr_sao_unknown(ID3D12GraphicsCommandList*,uint32_t);
+}
+namespace {
+struct Host {
+    bool (*at)(ID3D12GraphicsCommandList*,CvrSaAt*);
+    bool (*bound)(UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,BOOL,const D3D12_CPU_DESCRIPTOR_HANDLE*,uint64_t*);
+};
+const Host kHost{
+    [](ID3D12GraphicsCommandList* list,CvrSaAt* out){
+        try{native_recording::Lease lease;const bool matched=scene_child::DescribeCurrentAtList(list,out->child,lease);
+            out->generation=lease.generation;out->context=lease.context;out->list=lease.list;out->registry=lease.registry;
+            out->token=reinterpret_cast<uintptr_t>(lease.token.Detach());return matched;}catch(...){return false;}},
+    [](UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE* colors,BOOL contiguous,const D3D12_CPU_DESCRIPTOR_HANDLE* depth,uint64_t* out){
+        try{std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,9> held;
+            const bool known=scene_state::CaptureBoundResources(count,colors,contiguous,depth,held);
+            for(size_t i=0;i<held.size();++i)out[i]=reinterpret_cast<uintptr_t>(held[i].Detach());return known;}
+        catch(...){for(size_t i=0;i<9;++i)out[i]=0;return false;}},
+};
+[[maybe_unused]] const bool kAttached=(cvr_sao_attach(&kHost),true);
+}  // namespace
+void ObserverUnavailable()noexcept{cvr_sao_unavailable();}
+void Reset(ID3D12GraphicsCommandList* list)noexcept{cvr_sao_reset(list);}
+void Close(ID3D12GraphicsCommandList* list,HRESULT result)noexcept{cvr_sao_close(list,result);}
+void Operand(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,bool write,uint32_t tag,UINT subresource,uint64_t offset,uint64_t bytes)noexcept{
+    cvr_sao_operand(list,resource,write,tag,subresource,offset,bytes);}
+void ImmediateWrite(ID3D12GraphicsCommandList2* list,UINT count,const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER* parameters,
+                    const D3D12_WRITEBUFFERIMMEDIATE_MODE* modes,uintptr_t caller)noexcept{
+    cvr_sao_immediate(list,count,reinterpret_cast<uintptr_t>(parameters),reinterpret_cast<uintptr_t>(modes),caller);}
+void Barriers(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RESOURCE_BARRIER* barriers)noexcept{cvr_sao_barriers(list,count,barriers);}
+void Targets(ID3D12GraphicsCommandList* list,UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE* colors,BOOL contiguous,
+             const D3D12_CPU_DESCRIPTOR_HANDLE* depth)noexcept{cvr_sao_targets(list,count,colors,contiguous,depth);}
+void ClearView(ID3D12GraphicsCommandList* list,D3D12_CPU_DESCRIPTOR_HANDLE view,bool depth)noexcept{cvr_sao_clear_view(list,view,depth);}
+void Shader(ID3D12GraphicsCommandList* list,bool graphics)noexcept{cvr_sao_shader(list,graphics);}
+void Unknown(ID3D12GraphicsCommandList* list,uint32_t tag)noexcept{cvr_sao_unknown(list,tag);}
+}  // namespace cvr::stereo::scene_access_trace
+#endif
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SceneAccessEnable{},CyberpunkVR_SceneAccessSeq{};
@@ -251,3 +307,4 @@ void Unknown(ID3D12GraphicsCommandList* list,uint32_t tag)noexcept{
     Observe(list,[&](Recording& record,const Attribution& at){Event event;event.kind=uint32_t(Kind::Unknown);event.tag=tag;Append(record,at,event);});
 }
 }
+#endif

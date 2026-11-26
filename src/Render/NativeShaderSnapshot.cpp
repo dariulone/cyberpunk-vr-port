@@ -8,6 +8,78 @@
 #include <array>
 #include <cstring>
 #include <utility>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's snapshots are shader_snapshot_native.rs' Rust records
+// The owners in private data, the copies and the reservations are Rust's
+// (rust/crates/cvr-render/src/shader_snapshot_native.rs); this half builds the Snapshot value once per
+// pipeline (its consumers compare it by identity) and lends the observation switch.
+namespace cvr::stereo::shader_snapshot {
+namespace {
+struct CvrShsInput {const char* semantic;size_t semanticLength;UINT index,format,slot,offset,classification,step;};
+struct CvrShsView {uint64_t id;const uint8_t* vs;size_t vsLength;const uint8_t* ps;size_t psLength;const uint8_t* root;size_t rootLength;
+    const CvrShsInput* inputs;size_t inputCount;uint32_t stages,streamOutput;uint64_t bytes;};
+static_assert(sizeof(CvrShsInput)==40 && sizeof(CvrShsView)==88 && sizeof(Input)==56,"mirrored by shader_snapshot_native.rs");
+struct CvrShsMirror {const void* identity;const uint8_t* vs;size_t vsLength;const uint8_t* ps;size_t psLength;const uint8_t* root;size_t rootLength;};
+static_assert(sizeof(CvrShsMirror)==56,"mirrored by Mirror in shader_snapshot_native.rs");
+struct Host {bool(*observe)();void*(*make)(const CvrShsView*,bool*);void(*free)(void*);void(*describe)(const void*,CvrShsMirror*);};
+}
+}
+extern "C" {
+void cvr_shs_attach(const void*);
+void cvr_shs_root_created(ID3D12RootSignature*,const void*,size_t);
+void cvr_shs_graphics_created(ID3D12PipelineState*,ID3D12RootSignature*,D3D12_SHADER_BYTECODE,D3D12_SHADER_BYTECODE,const D3D12_INPUT_LAYOUT_DESC*);
+void cvr_shs_graphics_desc_created(ID3D12PipelineState*,const D3D12_GRAPHICS_PIPELINE_STATE_DESC*);
+void cvr_shs_graphics_stream_created(ID3D12PipelineState*,const cvr::stereo::PipelineStreamInfo*);
+void cvr_shs_describe(const void*,bool,uint32_t*);
+void* cvr_shs_capture(ID3D12PipelineState*,void**);
+void cvr_shs_release(uint64_t);
+}
+namespace cvr::stereo::shader_snapshot {
+namespace {
+using Shared=std::shared_ptr<const Snapshot>;
+const Host kHost{
+    []{return !probe::internalCommands && native_probe::ObserveBindings();},
+    [](const CvrShsView* view,bool* released)->void*{
+        try{auto value=std::make_unique<Snapshot>();value->id=view->id;
+            value->vs.assign(view->vs,view->vs+view->vsLength);value->ps.assign(view->ps,view->ps+view->psLength);
+            value->root.assign(view->root,view->root+view->rootLength);value->input.reserve(view->inputCount);
+            for(size_t i=0;i<view->inputCount;++i){const auto& source=view->inputs[i];Input item;item.semantic.assign(source.semantic,source.semanticLength);
+                item.index=source.index;item.format=source.format;item.slot=source.slot;item.offset=source.offset;
+                item.classification=source.classification;item.step=source.step;value->input.push_back(std::move(item));}
+            value->creation={StageCompleteness(view->stages),StreamOutputPresence(view->streamOutput)};
+            auto holder=std::make_unique<Shared>();const auto bytes=view->bytes;auto* raw=value.release();
+            // The constructor runs the deleter itself when it throws: the reservation is then handed back already.
+            try{*holder=Shared(raw,[bytes](const Snapshot* snapshot){delete snapshot;cvr_shs_release(bytes);});}
+            catch(...){*released=true;return nullptr;}
+            return holder.release();}
+        catch(...){return nullptr;}},
+    [](void* snapshot){delete static_cast<Shared*>(snapshot);},
+    [](const void* snapshot,CvrShsMirror* out){const auto& value=**static_cast<const Shared*>(snapshot);
+        *out={&value,value.vs.data(),value.vs.size(),value.ps.data(),value.ps.size(),value.root.data(),value.root.size()};},
+};
+[[maybe_unused]] const bool kAttached=(cvr_shs_attach(&kHost),true);
+}
+void RootCreated(ID3D12RootSignature* root,const void* bytes,size_t size){cvr_shs_root_created(root,bytes,size);}
+CreationContract DescribeCreation(const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source)noexcept{
+    uint32_t out[2]{};cvr_shs_describe(&source,false,out);return {StageCompleteness(out[0]),StreamOutputPresence(out[1])};
+}
+CreationContract DescribeStreamCreation(const PipelineStreamInfo& source)noexcept{
+    uint32_t out[2]{};cvr_shs_describe(&source,true,out);return {StageCompleteness(out[0]),StreamOutputPresence(out[1])};
+}
+void GraphicsCreated(ID3D12PipelineState* pipeline,ID3D12RootSignature* root,D3D12_SHADER_BYTECODE vs,
+    D3D12_SHADER_BYTECODE ps,const D3D12_INPUT_LAYOUT_DESC& input){
+    cvr_shs_graphics_created(pipeline,root,vs,ps,&input);
+}
+void GraphicsCreated(ID3D12PipelineState* pipeline,const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source){cvr_shs_graphics_desc_created(pipeline,&source);}
+void GraphicsStreamCreated(ID3D12PipelineState* pipeline,const PipelineStreamInfo& source){cvr_shs_graphics_stream_created(pipeline,&source);}
+std::shared_ptr<const Snapshot> Capture(ID3D12PipelineState* pipeline){
+    void* holder{};const auto* snapshot=static_cast<const Shared*>(cvr_shs_capture(pipeline,&holder));
+    Microsoft::WRL::ComPtr<IUnknown> held;held.Attach(static_cast<IUnknown*>(holder));
+    return snapshot?*snapshot:nullptr;
+}
+}
+#endif
+#else
 
 namespace cvr::stereo::shader_snapshot {
 using Microsoft::WRL::ComPtr;
@@ -152,3 +224,4 @@ std::shared_ptr<const Snapshot> Capture(ID3D12PipelineState* pipeline){
     catch(...){return {};}
 }
 }
+#endif

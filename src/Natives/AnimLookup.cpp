@@ -49,6 +49,9 @@
 #include <RED4ext/Scripting/Natives/entAnimationControllerComponent.hpp>
 #include <RED4ext/Scripting/Natives/entIPlacedComponent.hpp>
 #include <RED4ext/Scripting/Natives/Generated/ent/AnimatedComponent.hpp>
+#include <RED4ext/Scripting/Natives/animMetaRig.hpp>
+#include <RED4ext/ResourceLoader.hpp>
+#include <RED4ext/Scripting/Natives/Generated/QsTransform.hpp>
 #include <RED4ext/Scripting/Natives/Generated/ent/StaticOrientationProvider.hpp>
 #include <RED4ext/Scripting/Natives/worldAnimationSystem.hpp>
 #include <RED4ext/Scripting/Natives/worldAnimationSystemScriptInterface.hpp>
@@ -76,6 +79,60 @@
 #include "Natives/NativeHelpers.hpp"
 #include "Natives/NativeState.hpp"
 
+#if CVR_RUST_VRIK
+// The Rust build's lookups are rust/crates/cvr-ffi/src/anim_lookup.rs (the player, its controller, the world's
+// animation system, an entity's animated objects in the update buckets, the lookup dump, the engine's objects and
+// systems); the adapter below hands Rust the buckets' layout from the SDK's declarations.
+extern "C" {
+struct CvrAnimLayout {
+    uint32_t buckets, bucketStride, bucketCount, objects, components, entities, objectsSize, componentsSize, entitiesSize;
+    uint32_t bindings, bindingsSize, bindingStride;  // the dumps: componentBindings
+};
+void cvr_cpp_anim_layout(CvrAnimLayout* out) {
+    using System = RED4ext::world::AnimationSystem;
+    using Bucket = RED4ext::world::AnimatedEntitiesBucket;
+    constexpr uint32_t kEntries = Bucket::MaxEntries;
+    out->buckets = static_cast<uint32_t>(offsetof(System, entitityBuckets));
+    out->bucketStride = sizeof(Bucket);
+    out->bucketCount = System::BucketCount;
+    out->objects = static_cast<uint32_t>(offsetof(Bucket, animatedObjects));
+    out->components = static_cast<uint32_t>(offsetof(Bucket, animatedComponents));
+    out->entities = static_cast<uint32_t>(offsetof(Bucket, entities));
+    // A StaticArray keeps its size right after its entries.
+    out->objectsSize = out->objects + kEntries * sizeof(RED4ext::anim::AnimatedObject*);
+    out->componentsSize = out->components + kEntries * sizeof(RED4ext::ent::AnimatedComponent*);
+    out->entitiesSize = out->entities + kEntries * sizeof(RED4ext::Handle<RED4ext::ent::Entity>);
+    out->bindings = static_cast<uint32_t>(offsetof(Bucket, componentBindings));
+    out->bindingStride = sizeof(Bucket::ComponentBindings);
+    out->bindingsSize = out->bindings + kEntries * sizeof(Bucket::ComponentBindings);
+}
+// The animated object's fields the dumps read: the SDK's comments say 9C and AC, its declaration puts them here.
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimatedObject, cameraDistanceLevel, 0x98);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimatedObject, lastDistanceLevel, 0xA4);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimatedObject, distanceFromCamera, 0xE4);
+RED4EXT_ASSERT_OFFSET(RED4ext::world::AnimatedEntitiesBucket::ComponentBindings::Binding, animComponent, 0x10);
+RED4EXT_ASSERT_OFFSET(RED4ext::world::AnimatedEntitiesBucket::ComponentBindings::Binding, transformAttachment, 0x18);
+static_assert(sizeof(RED4ext::StaticArray<RED4ext::anim::AnimatedObject*, 2048>) == 2048 * 8 + 8,
+              "a StaticArray is its entries and a size after them");
+// The fields cvr-rig's optic_hinge.rs reads (the Osprey's screen hinge, main's OpticHinge.cpp), checked against the SDK.
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::AnimatedComponent, rig, 0x138);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::AnimatedComponent, controlBinding, 0x288);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IBinding, enabled, 0x30);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IBinding, bindName, 0x68);
+RED4EXT_ASSERT_OFFSET(RED4ext::ResourceToken<>, resource, 0x28);
+RED4EXT_ASSERT_OFFSET(RED4ext::ResourceToken<>, finished, 0x58);
+RED4EXT_ASSERT_OFFSET(RED4ext::ResourceToken<>, error, 0x5C);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::Rig, parentIndices, 0x40);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::Rig, referencePoseLS, 0x48);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::Rig, boneNames, 0x50);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimatedObject, metaRigID, 0x00);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::AnimatedObject, metaRig, 0x08);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::MetaRig, parentIndeces, 0x10);
+RED4EXT_ASSERT_OFFSET(RED4ext::anim::MetaRig, boneNames, 0x20);
+RED4EXT_ASSERT_OFFSET(RED4ext::QsTransform, Rotation, 0x10);
+RED4EXT_ASSERT_SIZE(RED4ext::QsTransform, 0x30);
+}
+#else
 RED4ext::ent::AnimationControllerComponent* FindPlayerAnimationController()
 {
     RED4ext::ScriptGameInstance gameInstance;
@@ -134,20 +191,9 @@ static RED4ext::world::AnimationSystem* GetWorldAnimationSystem()
     return iface ? iface->animationSystem : nullptr;
 }
 
-// An aligned user-mode address, with no floor at 1 TiB: Windows can allocate the game's objects below it too.
-// Cheap on purpose: the cached system is checked on every lookup, and VirtualQuery on this process's heap takes
-// milliseconds (it once took carrying a plate to 10 FPS). The reads after it are SEH-guarded (SafeGetObjectType).
-static bool LikelyObjectAddress(const void* aPtr)
-{
-    const auto v = reinterpret_cast<uintptr_t>(aPtr);
-    return v >= 0x10000 && v < 0x0000800000000000ull && (v & 7) == 0;
-}
-
-// These candidates come from a known engine chain or the cached system, not a memory scan.
-// Windows can allocate them below 1 TiB too: validate memory rather than assuming an ASLR range.
 static bool IsValidAnimationSystemPtr(void* aPtr)
 {
-    if (!LikelyObjectAddress(aPtr))
+    if (std::strcmp(ClassifyQword(reinterpret_cast<uint64_t>(aPtr)), "HEAP") != 0)
         return false;
     auto* type = SafeGetObjectType(aPtr);
     return type && type->name == "worldAnimationSystem";
@@ -159,17 +205,17 @@ static bool IsValidAnimationSystemPtr(void* aPtr)
 // arbitrary pointers and intermittently crashes. Only one GetType() call here.
 static RED4ext::world::AnimationSystem* TryKnownAnimationSystemChain(RED4ext::world::RuntimeScene* aRuntimeScene)
 {
-    if (!VRIK_IsReadable(aRuntimeScene, 0x10))
+    if (!aRuntimeScene)
         return nullptr;
 
     uint64_t parent = SafeReadQword(reinterpret_cast<uint8_t*>(aRuntimeScene), 0x8);
-    if (!VRIK_IsReadable(reinterpret_cast<void*>(parent), 0x40))
+    if (std::strcmp(ClassifyQword(parent), "HEAP") != 0)
         return nullptr;
 
     uint64_t cand = SafeReadQword(reinterpret_cast<uint8_t*>(parent), 0x38);
-    // the discovery path (once, until the cache is lost) can afford the memory check
-    if (!VRIK_IsReadable(reinterpret_cast<void*>(cand), sizeof(void*)))
+    if (std::strcmp(ClassifyQword(cand), "HEAP") != 0)
         return nullptr;
+
     if (IsValidAnimationSystemPtr(reinterpret_cast<void*>(cand)))
         return reinterpret_cast<RED4ext::world::AnimationSystem*>(cand);
 
@@ -360,37 +406,6 @@ RED4ext::anim::AnimatedObject* FindPlayerAnimatedObjectByComponentName(const cha
     return nullptr;
 }
 
-// Any entity's root animated object, by walking the buckets. Once, when an arm is taken: not for every frame.
-RED4ext::anim::AnimatedObject* FindAnimatedObjectOf(RED4ext::ent::Entity* wanted)
-{
-    auto* engine = RED4ext::CGameEngine::Get();
-    auto* framework = engine ? engine->framework : nullptr;
-    auto* animationSystem = wanted ? FindWorldAnimationSystemFromScene(wanted->runtimeScene, framework ? framework->unk18 : 0, nullptr) : nullptr;
-    if (!animationSystem)
-        return nullptr;
-    for (uint32_t bucketIndex = 0; bucketIndex < RED4ext::world::AnimationSystem::BucketCount; ++bucketIndex)
-    {
-        __try
-        {
-            auto& bucket = animationSystem->entitityBuckets[bucketIndex];
-            const uint32_t entryCount = bucket.entities.Size();
-            for (uint32_t entryIndex = 0; entryIndex < entryCount; ++entryIndex)
-            {
-                if (reinterpret_cast<RED4ext::ent::Entity*>(bucket.entities[entryIndex].instance) != wanted)
-                    continue;
-                auto* animatedComponent = bucket.animatedComponents[entryIndex];
-                const char* name = animatedComponent ? animatedComponent->name.ToString() : nullptr;
-                if (name && std::strcmp(name, "root") == 0)
-                    return bucket.animatedObjects[entryIndex];
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-        }
-    }
-    return nullptr;
-}
-
 void DumpAnimationSystemLookup(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)
 {
     RED4EXT_UNUSED_PARAMETER(aContext);
@@ -449,3 +464,27 @@ void DumpAnimationSystemLookup(RED4ext::IScriptable* aContext, RED4ext::CStackFr
 
     if (aOut) *aOut = 1;
 }
+
+#endif
+
+#if CVR_RUST_VRIK
+#include "Runtimes/OpenXRManager.hpp"
+#include "Anim/VrikHook.hpp"
+#include "Anim/WeaponAim.hpp"
+#include "Core/CoreInternal.hpp"
+#include "Core/LiveControls.hpp"
+#include "Natives/VrMenu.hpp"
+#include "Stereo/VrcamConfig.hpp"
+#include <cstring>
+// The hands' and body's natives (src/Natives/HandBody.cpp in Rust: rust/crates/cvr-rig/src/vrik/hand_body.rs): the
+// controllers' own motion (the player's animated object is rust/crates/cvr-ffi/src/anim_lookup.rs).
+extern "C" {
+// The pose and rig natives (src/Natives/PoseRig.cpp in Rust: rust/crates/cvr-rig/src/vrik/pose_rig.rs); the pose hook's
+// install is rust/crates/cvr-rig/src/vrik/anim_pose_hook.rs's.
+// The orientation providers and the weapon state (rust/crates/cvr-rig/src/vrik/provider.rs).
+// cvr_cpp_physical_optics_stereo_ready and cvr_cpp_set_physical_optics_path: rust/crates/cvr-render/src/frame_graph.rs.
+// The scene tier that suspends VRIK on foot (rust/crates/cvr-rig/src/vrik/vrik_arming.rs).
+// The overlay's VRCAM request (Stereo/VrcamConfig.hpp; rust/crates/cvr-rig/src/vrik/performance.rs).
+// cvr_cpp_vrcam_enable_request: rust/crates/cvr-render/src/vrcam_selection.rs.
+}
+#endif

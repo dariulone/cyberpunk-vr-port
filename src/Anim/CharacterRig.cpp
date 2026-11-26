@@ -1,6 +1,5 @@
 #include "Core/Paths.hpp"
 #include "Hooks/BodyHeading.hpp"
-#include "Hooks/ScannerGesture.hpp"
 #include "Utils/DebugGate.hpp"
 // CharacterRig -- the solve for the PLAYER'S OWN bones.
 //
@@ -24,7 +23,6 @@
 #include "Anim/LadderFingerTuning.hpp"
 #include "Anim/LadderRungPose.hpp"
 #include "Anim/LeftHanded.hpp"
-#include "Utils/SharedSlots.hpp"
 #include "Camera/NeckCameraMount.hpp"
 // The elbow-policy flag lives with the other live controls.
 #include "Camera/CameraState.hpp"
@@ -36,17 +34,11 @@
 #include <vector>
 #include <cstring>
 #include <mutex>
-#include "Natives/FrameOrderProbe.hpp"
-#include "Natives/PhysHands.hpp"
-#include "Natives/HeldGripPose.hpp"
 
 static inline void VRIK_QuatExtractTwist(const float* q,const float* axis,float* outT);
 
-bool g_VRUpperOwned[VRIK_MAX_BONES]{};
-int g_VRShadowSource[VRIK_MAX_BONES]{};
-bool g_VRHeadReferenceValid=false;
-bool g_VRIKVehicleUpperActive=false;
-float g_VRHeadReferenceModelRot[4]={0,0,0,1};
+// The globals this solve shares (g_fkPos, the hand stop, the solve cache, the live controls...) are defined in
+// src/Anim/CharacterRigState.cpp: the Rust port of this file (rust/crates/cvr-rig/src/vrik) uses the same ones.
 namespace {
 bool s_referenceValid[VRIK_MAX_BONES]{};
 float s_referenceLocalRot[VRIK_MAX_BONES][4]{};
@@ -141,62 +133,22 @@ BendLegRestore* SaveVehicleLower(uint8_t* buffer) {
     return saved;
 }
 }
-bool g_solveCacheModel=false;
-float g_VRIKBodyBendAngle=0;
-float g_VRIKBodyBendPelvis[3]{};
-float g_VRIKBodyEyeTarget[3]{},g_VRIKBodyEyeSolved[3]{};
-bool g_VRIKBodyEyeBound=false;
-float g_VRIKGirdleReach[2][4]{}; // weight, clavicle degrees, joint advance(m), scapula travel(m)
 // GRIP REACH. A hand closed on a weapon -- the support hand of the two-hand hold, a wrist the reload has locked to a
 // slide or a fore-end -- has to ARRIVE at what it is drawn holding; a hand stopped a few centimetres short of its
 // own grip by the arm's length caps is the one thing everybody sees. A real arm gets there from behind: the
 // scapula protracts round the ribcage, the clavicle swings forward, and when that is still not enough the thorax
 // turns into the reach. So while a side is in a grip its girdle reaches further (VRIK_ReachGirdle), and whatever
 // the LEFT wrist is still short after the caps feeds a thorax turn on the next solve (VRIK_GripTorso).
+// (CyberpunkVR_GripReach and the solve's other live controls and probes: Anim/CharacterRig.hpp.)
 extern "C" int CyberpunkVR_TwoHandActive;                                       // Anim/TwoHandGrip.cpp
-extern "C" __declspec(dllexport) int   CyberpunkVR_GripReach = 1;
-// A leg solved onto the animation's foot (squat, crouch, bend): its knee over the toes (1), in the animation's own leg
-// plane (0, which a crouch splays 30-45 degrees out), or between the two (2).
-extern "C" __declspec(dllexport) int   CyberpunkVR_SquatKneeMode = 1;
-// 1: a squat's feet stand about OUR hips as the animation's stand about its hips (its stance moved with the hips; the
-// heights its floor contact); 0: where the animation has them -- in its crouch 21-35 cm behind ours (FootTarget).
-extern "C" __declspec(dllexport) int   CyberpunkVR_SquatFeetUnderHips = 1;
-// 1: a squat (the legs VRIK solves onto the animation's feet) stands symmetric about the hips -- the feet level with
-// each other, at the animation's mean spread, turned out alike; 0: the animation's own stance (its crouch: one foot
-// back and turned out 46 degrees, the other ahead and straight).
-extern "C" __declspec(dllexport) int   CyberpunkVR_SquatSymmetric = 1;
-// Debug: the animation's feet moving against its hips (m/s, the stance gate) and the stance's weight.
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugSquatStance[2] = {};
-// Debug: the toes (model space), [0] right, [1] left, as VRIK_PublishBodyBones left them.
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugToes[2][3] = {};
 // Each foot's toe bone (its child furthest ahead), found by VRIK_CaptureNativeLegs; [0] right, [1] left.
 static int s_toeBone[2]{-1,-1};
-extern "C" __declspec(dllexport) float CyberpunkVR_GripProtract = 0.085f;      // m of protraction at full reach
-extern "C" __declspec(dllexport) float CyberpunkVR_GripTorsoMaxDeg = 20.0f;     // the thorax turn's limit
-// R, L: how far the wrist fell short of its target after the caps, mm (negative = slack); the turn, degrees
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugGripShortMm[2] = {0.0f, 0.0f};
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugGripTorsoDeg = 0.0f;
-// the left side: how far the turn carried the shoulder's anchor (mm); the girdle's weight, clavicle degrees and
-// joint advance (mm); the reach as a fraction of the arm; 1 while that girdle ran in its grip profile
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugGripReach[6] = {0,0,0,0,0,0};
-// THE BODY OF A SLIDE, A JUMP, A FALL AND A LANDING FROM THEIR CLIP (VRIK_PlaceBodyUnderHMD). 1 = through those
-// moves the hips and spine are the clip's own; 0 = the standing body throughout.
-extern "C" __declspec(dllexport) int   CyberpunkVR_ClipBodyMoves = 1;
-// the view (body base), the clip's camera bone and hips (model space), the clip's weight, the detailed locomotion state,
-// and 1 when the torso came from a buffer that was our own output
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugClipBody[12] = {};
 bool  g_VRIKGrip[2]{};            // R, L: that hand was in a grip on the last solve
 float g_VRIKShort[2]{};           // ...and its wrist's shortfall, metres (negative = slack)
-float g_VRIKHandPin[2][3]{};      // R, L: where the solve put the wrist, model space -- the hand that is drawn,
-                                  // short of the target when the caps run out of arm
-float g_VRIKHandAim[2][8]{};      // R, L: the target the controller asks for (position, rotation, valid), model space
 float g_VRIKTorsoShift[3]{};      // where this solve's thorax turn carried the LEFT shoulder, model space
 float g_VRIKTorsoQ[2][4]{{0,0,0,1},{0,0,0,1}};   // the turn's two rotations, model space, lower bone first...
 float g_VRIKTorsoP[2][3]{};                      // ...and the point each one turns about
-bool  g_VRIKTorsoOn=false;
 int   g_VRIKTorsoBones[2]{-1,-1}; // the two spine bones the turn is written on, for the replay cache
-int g_VRCyberwareFamily=0;
-extern "C" __declspec(dllexport) int CyberpunkVR_NativeCyberwarePasses=1;
 uint64_t g_VRCyberGraphHashes[16]{},g_VRCyberGraphCalls[16]{};
 bool VRIK_UsesNativeCyberware() {return CyberpunkVR_NativeCyberwarePasses!=0 && g_VRCyberwareFamily!=0;}
 
@@ -256,7 +208,6 @@ bool cvr::camera::ReadNeckCameraEyeOffset(AnchorVector* offset) {
 void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* reference,int referenceCount,bool female) {
     using namespace cvr::vrik;
     count=std::clamp(count,0,VRIK_MAX_BONES);
-    g_VRBodyFemale=female ? 1:0;   // the physics hands' skin (Natives/HandSkin.hpp) is a woman's or a man's
     g_VRCyberwareFamily=0;
     for(int i=0;i<count;++i)if(names[i]) {
         if(EqualBoneName(names[i],"l_plate_up_a"))g_VRCyberwareFamily=1;
@@ -306,7 +257,7 @@ void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* r
         }
     }
     // The toes by name, under their own foot. (Picked as the foot's furthest child, the choice was LeftHeel -- 5 cm
-    // BEHIND the ankle: as the knee's pole it bent both knees backward in the game's crouch, 2026-11-07.)
+    // BEHIND the ankle: as the knee's pole it bent both knees backward in the game's crouch, user 2026-11-07.)
     s_toeBone[0]=s_toeBone[1]=-1;
     for(int i=0;i<count;++i) {
         if(!names[i])continue;
@@ -476,13 +427,8 @@ void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* r
             if(names[chain]) { strcat_s(ancestors,names[chain]);strcat_s(ancestors," < "); }
             chain=g_VRBoneParent[chain];
         }
-        // Once per distinct result: the rig is rebuilt on every rebind (loads, scenes, mirrors), the same each time.
-        static int lastHeld=-1,lastKept=-1;
-        if(held!=lastHeld || kept!=lastKept || cvr::RuntimeDiagnosticsEnabled()) {
-            lastHeld=held;lastKept=kept;
-            Log("[fbt-calib] reference hold: %d bones under Hips, %d fppCamera bones kept in place; camera chain: %s\n",
-                held,kept,ancestors);
-        }
+        Log("[fbt-calib] reference hold: %d bones under Hips, %d fppCamera bones kept in place; camera chain: %s\n",
+            held,kept,ancestors);
         // V's skeleton for offline IK tools: roles, then every bone's reference pose. Once per rig
         // and size per session: the game binds V's first-person body (~295 bones) and the full rig with the face (~620)
         // in turn, so each gets its own file, fbt_rig_<male|female>_<bones>.txt.
@@ -676,9 +622,7 @@ void VRIK_WriteHand(uint8_t* boneBuf, int bIdx,
 
 // QsTransform field offsets inside each 48-byte bone slot.
 
-// Model-space FK scratch (recomputed each matched frame). Sized generously.
-float g_fkPos[VRIK_MAX_BONES][3];
-float g_fkRot[VRIK_MAX_BONES][4];
+// Model-space FK scratch (recomputed each matched frame): g_fkPos/g_fkRot, src/Anim/CharacterRigState.cpp.
 
 // FK SNAPSHOT -- the measurement channel for capsule geometry.
 //
@@ -690,10 +634,7 @@ float g_fkRot[VRIK_MAX_BONES][4];
 // Filled only while diag capture is on, which is also the only time the post-solve FK is computed at all --
 // on normal frames the arms in g_fkPos are still the ENGINE'S ANIMATED pose, the exact trap that once put
 // the ball at the player's hip. Count is published LAST so a reader either sees a complete snapshot or the
-// previous one.
-volatile float g_VRFKSnapPos[VRIK_MAX_BONES][3];
-volatile float g_VRFKSnapRot[VRIK_MAX_BONES][4];
-volatile int   g_VRFKSnapCount = 0;
+// previous one. (g_VRFKSnapPos/Rot/Count: src/Anim/CharacterRigState.cpp.)
 
 void VRIK_PublishNativeCyberwarePose(uint8_t* buffer,uint64_t graph) {
     // Read-only diagnostic of the actual downstream result, rather than the
@@ -708,7 +649,6 @@ void VRIK_PublishNativeCyberwarePose(uint8_t* buffer,uint64_t graph) {
         for(int k=0;k<4;++k)g_VRFKSnapRot[i][k]=g_fkRot[i][k];
     }
     g_VRFKSnapCount=count;
-    cvr::frameorder::Note('K');
 }
 
 // FK walk length: only the prefix of the rig the solver actually reads
@@ -916,7 +856,7 @@ void VRIK_SyncShadowUpper(uint8_t* boneBuf,bool preserveLowerBody) {
 void VRIK_CaptureModelCache(bool preserveLowerBody) {
     const int count=std::min(VRIK_FKCount(),VRIK_MAX_BONES);
     g_solveCacheN=0;g_solveCacheModel=true;
-    s_solveCacheCapturedMs=GetTickCount64();
+    s_solveCacheCapturedMs=VRIK_ClockMs();
     std::fill_n(s_modelCacheOwned,VRIK_MAX_BONES,false);
     for(int bone=0;bone<count;++bone) {
         const int leg=s_bendLegShadowSource[bone];
@@ -937,7 +877,7 @@ void VRIK_CaptureModelCache(bool preserveLowerBody) {
 
 void VRIK_CaptureLocalArmCache(uint8_t* boneBuf,bool right,bool left) {
     g_solveCacheN=0;g_solveCacheModel=false;
-    s_solveCacheCapturedMs=GetTickCount64();
+    s_solveCacheCapturedMs=VRIK_ClockMs();
     const int count=std::min(static_cast<int>(g_VRBoneCount),VRIK_MAX_BONES);
     auto push=[&](int bone) {
         if(!boneBuf || bone<0 || bone>=count || g_solveCacheN>=96)return;
@@ -973,10 +913,10 @@ void VRIK_GripTorso(uint8_t* boneBuf,const float* bodyRight,const float* bodyUp)
     // elapsed time, measured here: this runs once per fresh solve, and the passes in between replay it
     float dt=.016f;
     {
-        static LARGE_INTEGER f{},prev{};
-        if(f.QuadPart==0)QueryPerformanceFrequency(&f);
-        LARGE_INTEGER now{};QueryPerformanceCounter(&now);
-        if(prev.QuadPart!=0 && f.QuadPart)dt=float(double(now.QuadPart-prev.QuadPart)/double(f.QuadPart));
+        static int64_t prev=0;
+        const double f=VRIK_ClockQpcFrequency();       // the tests' counter, or QPC
+        const int64_t now=VRIK_ClockQpc();
+        if(prev!=0 && f!=0.0)dt=float(double(now-prev)/f);
         prev=now;
         if(!(dt>0.0f) || dt>.1f)dt=.016f;
     }
@@ -1364,8 +1304,8 @@ static inline void VRIK_QuatExtractTwist(const float* q, const float* axis, floa
 // against it. File scope rather than a static inside the function because the WHEEL GRAB has to be
 // able to put the same rest value BACK when it hands the arm to the driving animation -- the
 // protraction write is not reverted by anything else (iPowerTech, 425d4262).
-float g_vrikUpArmRest[2][3] = {};
-bool  g_vrikUpArmRestCap[2] = { false, false };
+static float g_vrikUpArmRest[2][3] = {};
+static bool  g_vrikUpArmRestCap[2] = { false, false };
 
 static bool VRIK_ReachGirdle(uint8_t* buffer,int upper,const float* target,
                              const float* up,const float* forward,
@@ -1479,131 +1419,13 @@ static void VRIK_UpdateUpperArmDeformation(uint8_t* buffer,int fore,bool left) {
 static float WristHeldEase(int side) {
     static float s_ease[2]{};
     static long long s_at[2]{};
-    LARGE_INTEGER now,freq;
-    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
-    const float dt=s_at[side] ? static_cast<float>(static_cast<double>(now.QuadPart-s_at[side])/static_cast<double>(freq.QuadPart)) : 0.f;
-    s_at[side]=now.QuadPart;
-    const float want=(g_VRHandRotLockOn[side] || cvr::physhands::HoldsBody(side)) ? 1.f : 0.f;
+    const int64_t now=VRIK_ClockQpc();const double freq=VRIK_ClockQpcFrequency();
+    const float dt=s_at[side] ? static_cast<float>(static_cast<double>(now-s_at[side])/freq) : 0.f;
+    s_at[side]=now;
+    const float want=g_VRHandRotLockOn[side] ? 1.f : 0.f;
     const float step=std::clamp(dt,0.f,.05f)/.15f;
     s_ease[side]+=std::clamp(want-s_ease[side],-step,step);
     return s_ease[side];
-}
-
-// THE WRIST'S RANGE. A hand is drawn with the controller's turn wherever the solve put the forearm, so a hand held at a
-// wall while the controller goes on, or a body pivoting on a table's edge, could bend the wrist past any wrist
-// (2026-11-08: "the hand turns over far past what a wrist does"). The turn of the hand against the forearm, from the rig's
-// own straight wrist, is split into its twist about the forearm (the forearm's to carry) and its swing, and the swing
-// held inside an ellipse: flexion 75 deg, extension 70, toward the thumb 25, toward the little finger 35. The axes come
-// from the reference hand: the forearm's line into it, across the knuckles, and the palm's normal on the side the
-// fingers close to (the rig's finger flexion, as Anim/GraspPose.cpp finds it).
-// OFF BY DEFAULT: the forearm here is the arm solve's guess (the elbow is not tracked), not the player's forearm, so a
-// wrist the player really holds within its range read as out of it against the guessed forearm -- mostly sideways, where
-// the guess is worst -- and the hand was drawn turned away from the controller. HIGGS has no wrist limit at all; Bonelab's
-// (a ConfigurableJoint, +-90 deg) is against its physical forearm, which follows the tracked hand, so a real wrist never
-// reaches it. The physics hands' body still stops a hand turned into the world. 1 turns the range back on.
-extern "C" __declspec(dllexport) int CyberpunkVR_WristRange = 0;
-struct WristFrame { uint64_t revision = ~0ull; bool ok = false; float straight[4], along[3], across[3], palm[3]; };
-static WristFrame s_wristFrame[2];
-static bool VRIK_WristFrameOf(int side, int foreIdx, int handIdx, WristFrame& w) {
-    if (w.revision == s_rigRevision) return w.ok;
-    w.revision = s_rigRevision;
-    w.ok = false;
-    const int index1 = VRIK_LadderFingerBone(side, 6), middle1 = VRIK_LadderFingerBone(side, 7),
-              little1 = VRIK_LadderFingerBone(side, 9), middle2 = VRIK_LadderFingerBone(side, 12);
-    for (int b : {foreIdx, handIdx, index1, middle1, little1, middle2})
-        if (b < 0 || b >= g_VRBoneCount || b >= VRIK_MAX_BONES || !s_referenceValid[b]) return false;
-    const float* H = s_referenceModelRot[handIdx];
-    float invF[4], invH[4];
-    VRIK_QuatConj(s_referenceModelRot[foreIdx], invF);
-    VRIK_QuatConj(H, invH);
-    VRIK_QuatMul(invF, H, w.straight);
-    VRIK_QuatNorm(w.straight);
-    float a[3], d[3], t[3], n[3];
-    for (int k = 0; k < 3; ++k) {
-        a[k] = s_referenceModelPos[handIdx][k] - s_referenceModelPos[foreIdx][k];
-        d[k] = s_referenceModelPos[middle1][k] - s_referenceModelPos[handIdx][k];
-        t[k] = s_referenceModelPos[index1][k] - s_referenceModelPos[little1][k];
-    }
-    if (VRIK_Norm3(a) < 1e-4f || VRIK_Norm3(d) < 1e-4f) return false;
-    const float td = t[0] * d[0] + t[1] * d[1] + t[2] * d[2];
-    for (int k = 0; k < 3; ++k) t[k] -= td * d[k];
-    if (VRIK_Norm3(t) < 1e-4f) return false;
-    n[0] = d[1] * t[2] - d[2] * t[1]; n[1] = d[2] * t[0] - d[0] * t[2]; n[2] = d[0] * t[1] - d[1] * t[0];
-    if (VRIK_Norm3(n) < 1e-4f) return false;
-    // the side the fingers close to: the middle finger's proximal phalanx turned about its own -Z takes its next joint there
-    {
-        const float* m = s_referenceModelRot[middle1];
-        float invM[4], rel[3], local[3], moved[3], out[3];
-        VRIK_QuatConj(m, invM);
-        for (int k = 0; k < 3; ++k) rel[k] = s_referenceModelPos[middle2][k] - s_referenceModelPos[middle1][k];
-        VRIK_QuatRotateVec(invM, rel, local);
-        moved[0] = local[1]; moved[1] = -local[0]; moved[2] = 0;   // (-Z) x local
-        VRIK_QuatRotateVec(m, moved, out);
-        if (out[0] * n[0] + out[1] * n[1] + out[2] * n[2] < 0) for (int k = 0; k < 3; ++k) n[k] = -n[k];
-    }
-    // all three in the hand's own frame, the swing axes square to the forearm's line
-    VRIK_QuatRotateVec(invH, a, w.along);
-    float tl[3], nl[3];
-    VRIK_QuatRotateVec(invH, t, tl);
-    VRIK_QuatRotateVec(invH, n, nl);
-    for (float* v : {tl, nl}) {
-        const float da = v[0] * w.along[0] + v[1] * w.along[1] + v[2] * w.along[2];
-        for (int k = 0; k < 3; ++k) v[k] -= da * w.along[k];
-        if (VRIK_Norm3(v) < 1e-4f) return false;
-    }
-    std::copy_n(tl, 3, w.across);
-    std::copy_n(nl, 3, w.palm);
-    w.ok = true;
-    return true;
-}
-static void VRIK_HoldWristRange(int side, int foreIdx, int handIdx, const float* foreModel, float* handModel) {
-    WristFrame& w = s_wristFrame[side];
-    if (!CyberpunkVR_WristRange || !VRIK_WristFrameOf(side, foreIdx, handIdx, w)) return;
-    constexpr float kDeg = 0.01745329f;
-    float invF[4], rel[4], invS[4], D[4];
-    VRIK_QuatConj(foreModel, invF);
-    VRIK_QuatMul(invF, handModel, rel);
-    VRIK_QuatConj(w.straight, invS);
-    VRIK_QuatMul(invS, rel, D);
-    VRIK_QuatNorm(D);
-    if (D[3] < 0) for (float& c : D) c = -c;
-    // twist about the forearm's line, and the swing that is left (D = swing * twist)
-    const float p = D[0] * w.along[0] + D[1] * w.along[1] + D[2] * w.along[2];
-    float twist[4] = {w.along[0] * p, w.along[1] * p, w.along[2] * p, D[3]};
-    const float tn = std::sqrt(twist[0] * twist[0] + twist[1] * twist[1] + twist[2] * twist[2] + twist[3] * twist[3]);
-    if (tn < 1e-6f) return;
-    for (float& c : twist) c /= tn;
-    float invT[4], swing[4];
-    VRIK_QuatConj(twist, invT);
-    VRIK_QuatMul(D, invT, swing);
-    VRIK_QuatNorm(swing);
-    if (swing[3] < 0) for (float& c : swing) c = -c;
-    const float sn = std::sqrt(swing[0] * swing[0] + swing[1] * swing[1] + swing[2] * swing[2]);
-    if (sn < 1e-6f) return;
-    const float angle = 2.0f * std::atan2(sn, swing[3]);
-    float v[3] = {swing[0] / sn * angle, swing[1] / sn * angle, swing[2] / sn * angle};
-    // about `across` +: the fingers go away from the palm's side (extension); about `palm` +: toward the thumb
-    float flex = -(v[0] * w.across[0] + v[1] * w.across[1] + v[2] * w.across[2]);
-    float dev = v[0] * w.palm[0] + v[1] * w.palm[1] + v[2] * w.palm[2];
-    const float flexLim = (flex > 0 ? 75.0f : 70.0f) * kDeg, devLim = (dev > 0 ? 25.0f : 35.0f) * kDeg;
-    const float e = (flex / flexLim) * (flex / flexLim) + (dev / devLim) * (dev / devLim);
-    if (e <= 1.0f) return;
-    const float k = 1.0f / std::sqrt(e);
-    flex *= k;
-    dev *= k;
-    float nv[3];
-    for (int c = 0; c < 3; ++c) nv[c] = -w.across[c] * flex + w.palm[c] * dev;
-    const float na = std::sqrt(nv[0] * nv[0] + nv[1] * nv[1] + nv[2] * nv[2]);
-    float held[4] = {0, 0, 0, 1};
-    if (na > 1e-6f) {
-        const float h = std::sin(0.5f * na) / na;
-        held[0] = nv[0] * h; held[1] = nv[1] * h; held[2] = nv[2] * h; held[3] = std::cos(0.5f * na);
-    }
-    float D2[4], R2[4];
-    VRIK_QuatMul(held, twist, D2);
-    VRIK_QuatMul(w.straight, D2, R2);
-    VRIK_QuatMul(foreModel, R2, handModel);
-    VRIK_QuatNorm(handModel);
 }
 
 void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
@@ -1622,7 +1444,7 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
     // Only the swivel changes: the wrist target and both segment lengths stay fixed.
     // The swivel reads the wrist as a fist's aim and puts the elbow behind it. A wrist locked to a thing is turned by that
     // thing, not by the arm: on a holstered gun's grip (muzzle down, the grip standing back) it put the elbow 27 cm in front
-    // of the hand (2026-11-05: "the elbow bends forward taking the pistol at the right hip").
+    // of the hand (players, 2026-11-05: "the elbow bends forward taking the pistol at the right hip").
     const float combatBlend=(g_VRBind!=4 || ladderReach || !s_referenceValid[foreIdx] || !s_referenceValid[handIdx] ? 0.f :
         VRIK_UsesNativeCyberware() && (g_VRCyberwareFamily==1 || g_VRCyberwareFamily==2) ? 1.f :
         VRIK_UsesNativeCyberware() && g_VRCyberwareFamily==3 ? .5f : .25f)*(1.f-WristHeldEase(isLeft ? 0 : 1));
@@ -1658,9 +1480,8 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
     // A hand closed on something: the two-hand hold's support hand, or a wrist the reload has locked to a grip.
     // (The support hand is the right one while the weapon is in the left hand, Anim/LeftHanded.cpp.)
     const bool support=isLeft!=cvr::anim::WeaponInLeftHand();
-    const bool heldBody=cvr::physhands::HoldsBody(isLeft ? 0 : 1);
     const bool grip=CyberpunkVR_GripReach!=0 &&
-        ((support && CyberpunkVR_TwoHandActive!=0) || g_VRHandRotLockOn[isLeft ? 0 : 1]!=0 || heldBody);
+        ((support && CyberpunkVR_TwoHandActive!=0) || g_VRHandRotLockOn[isLeft ? 0 : 1]!=0);
     g_VRIKGrip[sideJ]=grip;
     const bool girdle=VRIK_ReachGirdle(boneBuf,upperIdx,targetModel,bodyUp,bodyFwd,upLen+foreLen,isLeft,ladderReach,grip);
     if(girdle) {
@@ -2083,7 +1904,7 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
                 // A HANGING ARM: the whole circle the elbow can be on is above the hand, so no turn gets it down there and
                 // the cap only took it to the circle's lowest point, which is wherever the arm happens to lean. With the
                 // hand behind and outside the shoulder that is forward and into the belly, a few centimetres lower for an
-                // elbow no arm can make (2026-11-05: "the elbow bends forward taking the pistol at the right hip").
+                // elbow no arm can make (players, 2026-11-05: "the elbow bends forward taking the pistol at the right hip").
                 // So the cap holds only as far as it can be met, gone by the point it cannot (a limit of 1 caps nothing),
                 // and it never turns an elbow forward.
                 const float canMeet = std::clamp((aMax + 1.0f) / 0.5f, 0.0f, 1.0f);
@@ -2167,15 +1988,15 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
         if(s_yRevision[sideI]!=s_rigRevision || s_yBlend[sideI]!=combatBlend) {
             s_yRevision[sideI]=s_rigRevision;s_yBlend[sideI]=combatBlend;s_yInit[sideI]=false;s_yT[sideI]=0;
         }
-        LARGE_INTEGER qn, qf;
-        QueryPerformanceCounter(&qn); QueryPerformanceFrequency(&qf);
+        const int64_t qn = VRIK_ClockQpc();
+        const double qf = VRIK_ClockQpcFrequency();
         float dt = 0.016f;
         if (s_yT[sideI] != 0) {
-            dt = static_cast<float>(static_cast<double>(qn.QuadPart - s_yT[sideI]) / static_cast<double>(qf.QuadPart));
+            dt = static_cast<float>(static_cast<double>(qn - s_yT[sideI]) / qf);
             if (dt < 0.0f) dt = 0.0f;
             if (dt > 0.05f) dt = 0.05f;
         }
-        s_yT[sideI] = qn.QuadPart;
+        s_yT[sideI] = qn;
         if (!s_yInit[sideI]) {
             s_ySm[sideI][0]=yDir[0]; s_ySm[sideI][1]=yDir[1]; s_ySm[sideI][2]=yDir[2];
             s_yInit[sideI] = true;
@@ -2291,11 +2112,7 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
         float tmp[4]; VRIK_QuatMul(delta2, nativeDelta, tmp);
         VRIK_QuatMul(tmp, g_fkRot[foreIdx], newForeModel); VRIK_QuatNorm(newForeModel);
     }
-    // The quarter of the wrist's roll goes to the forearm whether or not the hinge has been identified yet: the share
-    // needs only the forearm's axis and the hand. Gated on the hinge it was missing on any rig whose native arm stands
-    // straight (the hinge is captured only from a bent arm) -- the launcher rig's right arm never shared any roll
-    // (vrik_launcher_pose, 0 degrees).
-    {
+    if (s_rigCap[sideI]) {
         float inverse[4];VRIK_QuatConj(newForeModel,inverse);
         float relative[4];VRIK_QuatMul(handModelRot,inverse,relative);VRIK_QuatNorm(relative);
         float twist[4];VRIK_QuatExtractTwist(relative,desFore,twist);
@@ -2328,15 +2145,8 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
         }
     }
 
-    // Hand orientation written local to the new forearm, inside a wrist's range -- but not a hand on a weapon or locked to
-    // a grip: there the hand is the aim, and the forearm is the one that gives.
-    {
-        float handHeld[4] = {handModelRot[0], handModelRot[1], handModelRot[2], handModelRot[3]};
-        if (!g_hasWeaponEquipped && !grip) VRIK_HoldWristRange(isLeft ? 0 : 1, foreIdx, handIdx, newForeModel, handHeld);
-        VRIK_WriteLocalRot(boneBuf, handIdx, newForeModel, handHeld);
-        // the farthest the hand pin below puts the hand from this shoulder: both segments at their stretch caps
-        cvr::physhands::NoteForearm(isLeft ? 0 : 1, elbowW, targetModel, handHeld, shP, 1.15f * (upLen + foreLen));
-    }
+    // Hand orientation written local to the new forearm.
+    VRIK_WriteLocalRot(boneBuf, handIdx, newForeModel, handModelRot);
 
     // HAND PIN (hand == target EXACTLY: the hand is the gizmo, the rest adapts).
     // The two-bone solve lands short whenever the avatar arm and the real reach disagree; instead
@@ -2355,9 +2165,7 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
             // what the caps leave between the wrist and its target -- the thorax turn's input (VRIK_GripTorso)
             g_VRIKShort[sideJ] = rl - hi;
             CyberpunkVR_DebugGripShortMm[sideJ] = (rl - hi) * 1000.0f;
-            // The weighted body is already driven to this wrist's grip point. A second positional cap
-            // would separate the fingers from the part whenever wrist rotation changes the elbow solve.
-            cl = cvr::held_grip::PinnedForearmLength(cl, lo, hi, heldBody);
+            if (cl < lo) cl = lo; if (cl > hi) cl = hi;
             float pin[3] = { elbowW[0]+rel[0]*(cl/rl), elbowW[1]+rel[1]*(cl/rl), elbowW[2]+rel[2]*(cl/rl) };
             VRIK_WriteLocalPos(boneBuf, handIdx, elbowW, newForeModel, pin);
             std::copy_n(pin, 3, g_VRIKHandPin[sideJ]);
@@ -2405,45 +2213,27 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
 // is carried. Authoring it Dynamic in the asset was measured and rejected: a solver-owned collider component
 // is not held by its bone binding, and both hand capsules free-fell to Z = -8100.
 //
-// Index 0 is LEFT, 1 is RIGHT.
-volatile float g_VRHandStopModel[2][3] = { {0.0f,0.0f,0.0f}, {0.0f,0.0f,0.0f} };
-volatile int   g_VRHandStopValid[2]    = { 0, 0 };
+// Index 0 is LEFT, 1 is RIGHT. (The globals of this block are src/Anim/CharacterRigState.cpp's.)
 // A driven body always trails its target a little, and echoing that lag into the arm would read as input
 // latency rather than as contact. Only a miss LARGER than this counts as being blocked, and only the part
 // beyond it is applied -- so unobstructed motion is untouched and a real wall moves the hand by exactly how
-// far the body could not go.
-volatile float g_VRHandStopDeadband = 0.02f;
+// far the body could not go (g_VRHandStopDeadband).
 
 // WRIST ROTATION LOCK. While on, the hand's MODEL-space rotation is replaced with this quat right before the arm
 // solve -- the same slot the controller's twist normally rides in -- so a glued hand (the reload grip) keeps the
 // recorded orientation no matter how the controller rotates. Raw tracking (g_VRHandRawRot below) is published
-// BEFORE the override, so scripts keep seeing pure tracking.
-volatile float g_VRHandRotLock[2][4] = { {0.0f,0.0f,0.0f,1.0f}, {0.0f,0.0f,0.0f,1.0f} };
-volatile int   g_VRHandRotLockOn[2]  = { 0, 0 };
+// BEFORE the override, so scripts keep seeing pure tracking (g_VRHandRotLock, g_VRHandRotLockOn).
 
 // The target BEFORE any stop is applied, i.e. where tracking alone would put the hand. The driving loop must
 // steer the body towards THIS, never towards the clamped result: every palm readout a script can reach is
 // published after the clamp, so driving the body at that would close a loop on itself -- the hand would stay
-// wherever it stopped even after the wall was gone.
-volatile float g_VRHandRawModel[2][3] = { {0.0f,0.0f,0.0f}, {0.0f,0.0f,0.0f} };
-volatile int   g_VRHandRawValid[2]    = { 0, 0 };
+// wherever it stopped even after the wall was gone (g_VRHandRawModel, g_VRHandRawValid).
 // The TRACKED hand rotation, published for the same reason: a collision shape oriented by the solved bone
-// depends on the previous frame's clamp, which is a feedback loop that shakes the hand in a cluster of capsules.
-volatile float g_VRHandRawRot[2][4]   = { {0.0f,0.0f,0.0f,1.0f}, {0.0f,0.0f,0.0f,1.0f} };
-
-// Per hand: the script's stop (model x y z, valid), the target as drawn (model x y z), whether the wrist is claimed.
-extern "C" __declspec(dllexport) volatile float CyberpunkVR_DebugHandStop[2][8] = {};
+// depends on the previous frame's clamp, which is a feedback loop that shakes the hand in a cluster of capsules
+// (g_VRHandRawRot).
 
 void VRIK_ApplyHandStop(int side, float* target, float* handRot) {
     if (side < 0 || side > 1 || !target) return;
-    // THE WRIST A SCRIPT CLAIMED (shared slot 162: the reload's slide glue and magazine magnet, a holster's hold, the
-    // grenade's pin): its stop is drawn even with the hand's own body on. The body's place is where the hand starts
-    // from, the script's stop is where it goes (the pull below), its rotation lock kept over the body's turn. Left to
-    // the body the hand hung wherever that was, and the slide's glue did nothing (2026-11-11).
-    const float ownedSlot = g_pSharedHands ? g_pSharedHands[vrshared::kReloadOwnedHand] : -1.0f;
-    const bool claimed = ownedSlot > -0.5f && int(ownedSlot + 0.5f) == side;
-    const bool scanner = cvr::input::scannerHandPhysics.ScannerActive();
-    const bool slowPhysics = cvr::input::scannerHandPhysics.Active();
     // published unconditionally, so the loop has a target even while no hold is active
     g_VRHandRawModel[side][0] = target[0];
     g_VRHandRawModel[side][1] = target[1];
@@ -2451,7 +2241,7 @@ void VRIK_ApplyHandStop(int side, float* target, float* handRot) {
     if (handRot) {
         for (int k = 0; k < 4; ++k) g_VRHandRawRot[side][k] = handRot[k];
         // the reload grip's wrist lock: the solve gets the recorded orientation instead of the controller's
-        if ((!slowPhysics || (claimed && !scanner)) && g_VRHandRotLockOn[side]) {
+        if (g_VRHandRotLockOn[side]) {
             handRot[0] = g_VRHandRotLock[side][0];
             handRot[1] = g_VRHandRotLock[side][1];
             handRot[2] = g_VRHandRotLock[side][2];
@@ -2459,34 +2249,6 @@ void VRIK_ApplyHandStop(int side, float* target, float* handRot) {
         }
     }
     g_VRHandRawValid[side] = 1;
-    // Keep raw tracking and the next physics target live, but never draw a slowed physics body.
-    // Explicit reload/magazine ownership survives non-scanner slow motion; scanner releases all contacts.
-    if (slowPhysics && (scanner || !claimed)) {
-        g_VRHandStopValid[side] = g_VRHandRotLockOn[side] = 0;
-        if (handRot) cvr::physhands::NoteTarget(side, target, handRot);
-        for (int k = 0; k < 3; ++k) CyberpunkVR_DebugHandStop[side][4 + k] = target[k];
-        CyberpunkVR_DebugHandStop[side][3] = CyberpunkVR_DebugHandStop[side][7] = 0.f;
-        return;
-    }
-    // THE HAND'S OWN BODY (Natives/PhysHands.cpp): tracking goes to it, and the drawn hand comes back from where PhysX has
-    // it. While it does, the script's stops are not added on top: the body already met whatever they would.
-    if (handRot) {
-        cvr::physhands::NoteTarget(side, target, handRot);
-        if (!slowPhysics && cvr::physhands::Adjust(side, target, handRot)) {
-            if (!(claimed && g_VRHandStopValid[side])) {
-                for (int k = 0; k < 3; ++k) CyberpunkVR_DebugHandStop[side][4 + k] = target[k];
-                CyberpunkVR_DebugHandStop[side][3] = g_VRHandStopValid[side] ? 1.f : 0.f;
-                CyberpunkVR_DebugHandStop[side][7] = claimed ? 1.f : 0.f;
-                return;
-            }
-            if (g_VRHandRotLockOn[side])
-                for (int k = 0; k < 4; ++k) handRot[k] = g_VRHandRotLock[side][k];
-        }
-    }
-    for (int k = 0; k < 3; ++k) CyberpunkVR_DebugHandStop[side][k] = g_VRHandStopModel[side][k];
-    CyberpunkVR_DebugHandStop[side][3] = g_VRHandStopValid[side] ? 1.f : 0.f;
-    CyberpunkVR_DebugHandStop[side][7] = claimed ? 1.f : 0.f;
-    for (int k = 0; k < 3; ++k) CyberpunkVR_DebugHandStop[side][4 + k] = target[k];
     if (!g_VRHandStopValid[side]) return;
     const float d[3] = { g_VRHandStopModel[side][0] - target[0],
                          g_VRHandStopModel[side][1] - target[1],
@@ -2498,7 +2260,6 @@ void VRIK_ApplyHandStop(int side, float* target, float* handRot) {
     target[0] += d[0] * k;
     target[1] += d[1] * k;
     target[2] += d[2] * k;
-    for (int i = 0; i < 3; ++i) CyberpunkVR_DebugHandStop[side][4 + i] = target[i];
 }
 
 void VRIK_BuildHandTarget(const float* shoulderModelPos,
@@ -2833,6 +2594,7 @@ static inline void VRIK_BuildHandTargetGizmo(const float* camModelPos, const flo
 // We scale those two translations so the avatar arm length matches the player's T-pose-measured
 // arm length: a straight real arm then yields a straight avatar arm at the 1:1 gizmo target
 // (fixes "arm down but elbow still bent"). Hand + fingers keep their normal size.
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 static inline float VRIK_ArmScale(uint8_t* boneBuf, int foreIdx, int handIdx, float userArmLen) {
     // Reject implausible T-pose measurements (real shoulder->wrist is ~0.45..0.85 m). A bad
     // calibration frame must NOT shrink the avatar arm -> fall back to the avatar's own length.
@@ -2846,9 +2608,11 @@ static inline float VRIK_ArmScale(uint8_t* boneBuf, int foreIdx, int handIdx, fl
     if (avatar < 0.05f) return 1.0f;
     float s = userArmLen / avatar;
     if (s < 0.7f) s = 0.7f; if (s > 1.3f) s = 1.3f;
+#endif
     return s;
 }
 
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 static inline void VRIK_ScaleArmBones(uint8_t* boneBuf, int foreIdx, int handIdx, float scale) {
     if (scale <= 0.0f || std::fabs(scale - 1.0f) < 1e-3f) return;
     if (foreIdx >= 0 && foreIdx < VRIK_MAX_BONES) {
@@ -2860,6 +2624,7 @@ static inline void VRIK_ScaleArmBones(uint8_t* boneBuf, int foreIdx, int handIdx
         t[0]*=scale; t[1]*=scale; t[2]*=scale;
     }
 }
+#endif
 
 static inline bool VRIK_ArmRestTrans(uint8_t* boneBuf, uintptr_t trackBuf, int boneCount, int idx, float* out) {
     static uintptr_t s_trackBuf = 0;
@@ -3103,7 +2868,7 @@ static NativeLegs VRIK_CaptureNativeLegs() {
     legs.valid=true;
     return legs;
 }
-// THE KNEE OVER THE TOES (2026-11-07). The animation's
+// THE KNEE OVER THE TOES (2026-11-07, user: "в приседе ноги как-то странно в разные стороны смотрят"). The animation's
 // crouch splays its knees 30-45 degrees out, asymmetrically, under hips 25 cm lower than ours: solved in that plane from
 // our higher hips, the legs, less bent, pointed off to either side. Knees track the toes (CyberpunkVR_SquatKneeMode).
 static void KneePole(const NativeLegs& legs,int side,float* out) {
@@ -3123,8 +2888,8 @@ static void KneePole(const NativeLegs& legs,int side,float* out) {
     float w=cvr::body::SmoothRange(agree,0.0f,.5f)*(CyberpunkVR_SquatKneeMode==1 ? 1.0f:.5f);
     for(int k=0;k<3;++k)out[k]=native[k]+(toe[k]-native[k])*w;
 }
-// WHERE THE FOOT STANDS (2026-11-07; and the body must stay under
-// the head: the body slid behind the head when the animation's pelvis was tried in its place). The game's crouch takes its hips
+// WHERE THE FOOT STANDS (2026-11-07, user: "вперед выноса не хватает, при ходьбе хуже"; and the body must stay under
+// the head: "тело уходит за голову" was the animation's pelvis tried in its place). The game's crouch takes its hips
 // 25-30 cm back over its heels -- its first-person body stands behind the camera -- and puts the feet under them. Our
 // hips stay under the head: the feet as the animation has them were 21-35 cm behind ours, the knees could not come
 // forward and a crouch walk stepped behind the body. With CyberpunkVR_SquatFeetUnderHips the animation's stance is
@@ -3142,7 +2907,7 @@ static void MoveStance(NativeLegs& legs,const float* placedHips) {
 static void FootTarget(const NativeLegs& legs,int side,const float*,float* out) {
     std::copy_n(legs.foot[side],3,out);
 }
-// A SQUAT STANDS SYMMETRIC (2026-11-07). The game's
+// A SQUAT STANDS SYMMETRIC (2026-11-07, user: "в приседе ноги как-то странно в разные стороны смотрят"). The game's
 // crouch is a stance for its third-person crouch walk: the right foot 10 cm further back than the left and turned out
 // 46 degrees, the left nearly straight, both 6 cm left of the hips. Under the animation's hips, 25 cm further back,
 // it reads as a crouch; under ours, with the knees over the toes, the right knee went 28 cm out to the side and the left
@@ -3156,7 +2921,7 @@ static bool s_stancePrevValid=false;
 static std::chrono::steady_clock::time_point s_stancePrevTime{};
 static void SymmetricStance(NativeLegs& legs) {
     if(!legs.valid || !legs.toeValid[0] || !legs.toeValid[1])return;
-    const auto now=std::chrono::steady_clock::now();
+    const auto now=std::chrono::steady_clock::time_point(std::chrono::nanoseconds(VRIK_SteadyNs()));
     float rel[2][2];
     for(int side=0;side<2;++side) { rel[side][0]=legs.foot[side][0]-legs.hips[0];rel[side][1]=legs.foot[side][1]-legs.hips[1]; }
     if(s_stancePrevValid) {
@@ -3230,7 +2995,8 @@ static void VRIK_ApplyBodyBend(uint8_t* boneBuf,float angle,const float* headRot
             const int slot=saved->count++;saved->bones[slot]=bone;
             std::memcpy(saved->native[slot],boneBuf+bone*48,48);
         }
-        // WHERE THE HIPS ARE FAR FROM THE ANIMATION'S, THE FEET ARE THE ANIMATION'S (2026-11-07). The feet are read here from the native
+        // WHERE THE HIPS ARE FAR FROM THE ANIMATION'S, THE FEET ARE THE ANIMATION'S (2026-11-07, user: "при приседании
+        // ноги выгибаются в обратную сторону и через секунду нормально приседают"). The feet are read here from the native
         // legs hanging under hips already placed by the camera: the animation's feet, give or take how far its hips stand
         // from ours. A squat looking down at the legs is taken for a floor reach (BodyBend), and once the game's own
         // crouch came in its bent legs hung from our standing-height hips 30 cm above its own: the feet were aimed 0.7 m
@@ -3467,7 +3233,7 @@ bool VRIK_PlaceVehicleCombatUpper(uint8_t* boneBuf,const float* cameraTarget,
 }
 
 namespace { float s_squatEMA{};bool s_squatInit{}; }
-// THE BEND'S HOLD ON THE PELVIS FADES IN AND OUT (2026-11-06: "remove the jump between the bent state and
+// THE BEND'S HOLD ON THE PELVIS FADES IN AND OUT (2026-11-06, user: "remove the jump between the bent state and
 // standing up again -- too sharp"). A bend keeps the body from rising above the headset's eye or getting ahead of it
 // (VRIK_ApplyBodyBend's one-sided limits). Upright, the hips are placed by the squat instead, which ignores the first
 // part of a head's descent (g_VRSquatThreshold), so the two disagree at the bend's edge -- and the limit came in at
@@ -3481,7 +3247,6 @@ namespace { float s_squatEMA{};bool s_squatInit{}; }
 // it classifies a hinge late and then sweeps the angle up 0.2 rad in a tenth of a second, the pelvis dropping 7 cm
 // with it while the head went down 5 mm a tick. Eased over 0.12 s the pelvis goes into the bend at the head's pace.
 namespace { constexpr float kBendLimitTime=0.35f,kBendEaseTime=0.12f; float s_bendLimitW{},s_bendEased{}; int64_t s_bendLimitUs{}; }
-int64_t (*g_VRBendLimitClockUs)()=nullptr;
 void VRIK_ApplyLadderFingers(uint8_t* boneBuf,int side,int kind,const float* curls,const float (*adjustments)[6]) {
     if(!boneBuf || side<0 || side>1 || kind<1 || kind>3)return;
     if(kind==2 && !curls) {
@@ -3662,8 +3427,7 @@ bool ClipMove(int detailed,int plain) {
 // standing height, letting go as it rises. `engaged` is true on the solve the clip's body comes in.
 bool s_clipLatched{};
 float ClipBodyWeight(const NativeTorso* clip,bool* engaged) {
-    const int64_t now=std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const int64_t now=VRIK_SteadyNs()/1000;
     const float dt=s_clipBodyAtUs ? std::clamp(static_cast<float>(now-s_clipBodyAtUs)*1e-6f,0.0f,0.1f):0.0f;
     s_clipBodyAtUs=now;
     // Never under full-body tracking: the trackers move the body through those moves as the player makes them.
@@ -3689,7 +3453,8 @@ void QuatNlerp(const float* a,const float* b,float t,float* out) {
 }
 }
 
-// THE FEET STAY WHERE THE ANIMATION PUTS THEM WHEN THE HIPS GO DOWN (2026-11-07). Upright, the hips are placed by the physical squat and every native leg
+// THE FEET STAY WHERE THE ANIMATION PUTS THEM WHEN THE HIPS GO DOWN (2026-11-07, user: "при приседании ... ноги странно
+// выглядят а потом через секунду нормально"). Upright, the hips are placed by the physical squat and every native leg
 // local was kept, so the legs went down with the hips and the feet with them. Measured (simulator, a 55 cm squat):
 // before the game's crouch engaged, the standing legs were carried 31 cm down and the feet 22 cm under the floor; once
 // it had, the crouch's own bent legs hung from hips placed 19 cm above the crouch's, and the feet 20-28 cm over the
@@ -3751,8 +3516,7 @@ void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
     float bendAngle=0;
     {
         const float raw=SharedPose(115)==2.0f ? SharedPose(114):0;
-        const int64_t now=g_VRBendLimitClockUs ? g_VRBendLimitClockUs():std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
+        const int64_t now=g_VRBendLimitClockUs ? g_VRBendLimitClockUs():VRIK_SteadyNs()/1000;
         const float dt=s_bendLimitUs ? std::clamp(float(now-s_bendLimitUs)*1e-6f,0.0f,0.1f):0.0f;
         s_bendLimitUs=now;
         if(!std::isfinite(raw))s_bendEased=0;
@@ -3988,11 +3752,8 @@ void VRIK_TwistAbout(const float* q, const float* a, float* outT) {
 // AnimPoseFunc_t and OriginalAnimPose moved to src/Hooks/AnimPose.cpp: the trampoline the
 // detour calls through is the hook's own state, not the character solve's.
 
-// Solve cache (one solve per tick + replay).
-// The frame the cache holds a solve for, and the frame counter itself. See the note in
-// Anim/CharacterRig.hpp: this used to be the Lua-pushed tick from the shared block.
-uint32_t g_solveCacheTick = 0xFFFFFFFFu;
-std::atomic<uint32_t> g_VrikFrameEpoch{0};
+// Solve cache (one solve per tick + replay): g_solveCacheTick and the frame counter g_VrikFrameEpoch, with the
+// census and shake probes below, are src/Anim/CharacterRigState.cpp's.
 
 // ---- WHERE DOES THE SHAKE ENTER? ---------------------------------------------------------------
 //
@@ -4053,23 +3814,9 @@ std::atomic<uint32_t> g_VrikFrameEpoch{0};
 // clock has stopped being safe.
 // Which pass of the animation batch found a bone of ours already moved. Index 0 is the batch's first
 // pass (which takes the fresh-solve path, so it never appears here), 1..6 the later ones, 7 a catch-all.
-int   g_VrikOverwritePassHist[8] = {0,0,0,0,0,0,0,0};
-
-int   g_VrikBatchGapNew = 0;
-int   g_VrikBatchGapSame = 0;
-float g_VrikBatchGapNewMin = 0.0f;
-float g_VrikBatchGapSameMax = 0.0f;
-
-float g_VrikEngineOverwriteMm = 0.0f;
 // Which bone it was, and how often it happened at all: a quarter-metre peak that fires in one window
 // out of three is a different problem from one that fires every pass, and the bone says whose arm --
 // or whose body -- is being drawn in the wrong place.
-int   g_VrikEngineOverwriteBone = -1;
-int   g_VrikEngineOverwriteHits = 0;      // passes where the engine had moved a bone more than 10 mm
-int   g_VrikEngineOverwritePasses = 0;    // replay passes examined
-float g_VrikShakePeakMm[2][4] = {{0.0f,0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f,0.0f}};   // any motion
-float g_VrikShakeSlowMm[2][4] = {{0.0f,0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f,0.0f}};   // slow motion only
-int   g_VrikShakeSlowN[2][4]  = {{0,0,0,0},{0,0,0,0}};
 namespace {
 struct VrikShakeHist { float p1[3]; float p2[3]; int n; };
 VrikShakeHist g_vrikShakeHist[2][4] = {};
@@ -4102,9 +3849,3 @@ void VRIK_NoteShake(int hand, int stage, const float* pos) {
     for (int i = 0; i < 3; ++i) { h.p2[i] = h.p1[i]; h.p1[i] = pos[i]; }
     if (h.n < 2) ++h.n;
 }
-
-int   g_solveCacheN = 0;
-int   g_solveCacheIdx[VRIK_MAX_BONES];
-float g_solveCacheVal[VRIK_MAX_BONES][7];
-float g_solveCacheYaw = 0.0f;   // heading the cached solve was built with
-float g_solveCacheSnapCtr = -1.0f; // snap event counter [147] the cached solve consumed

@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "cyberpunkvrport.logをきれいに保つためデフォルトはオフ。ClipCursor / 深度 / フックの\n診断を記録するときだけ有効にしてください。",
   ["FRAMEGEN"] = "フレーム生成",
   ["Enable frame generation"] = "フレーム生成を有効化",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "フレーム生成が有効な間、手のスムージングは本来の速度のxr_hand_lerp_framegen_scale倍で動作します（1.25、0で無効）。",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "フレーム生成が有効な間、手のスムージングは本来の速度のxr_hand_lerp_framegen_scale倍で動作します（1.10、0で無効）。",
   ["Frame generator"] = "フレーム生成方式",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

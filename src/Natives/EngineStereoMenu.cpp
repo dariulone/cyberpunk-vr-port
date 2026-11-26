@@ -11,6 +11,10 @@
 #include "Lobby/MenuLobby.hpp"
 #include "Overlay/LiveControlsUi.hpp"
 #include <RED4ext/Scripting/Utils.hpp>
+#if CVR_RUST_VRIK
+// The Rust build's natives are rust/crates/cvr-render/src/lobby_natives.rs; the settings panel's save stays here.
+// The settings panel's save of the lobby's ambient switch: rust/crates/cvr-render/src/core_services.rs.
+#else
 void VREngineStereoMenuShown(RED4ext::IScriptable*,RED4ext::CStackFrame* f,void*,int64_t){++f->code;cvr::engine_stereo::NoteMainMenu();cvr::lobby::NoteMainMenu();}
 void VREngineStereoMenuClosed(RED4ext::IScriptable*,RED4ext::CStackFrame* f,void*,int64_t){++f->code;cvr::lobby::NoteMainMenuClosed();cvr::engine_stereo::NoteMainMenuClosed();}
 void VRLobbyActive(RED4ext::IScriptable*,RED4ext::CStackFrame* f,bool* out,int64_t){++f->code;if(out)*out=cvr::lobby::Active();}
@@ -24,3 +28,4 @@ void VRSetLobbyAmbient(RED4ext::IScriptable*,RED4ext::CStackFrame* f,void*,int64
     state.lobbyAmbient=on?1:0;
     SetLiveControlsUiState(&state,1);
 }
+#endif

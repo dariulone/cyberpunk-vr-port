@@ -41,13 +41,14 @@ static void RecordAndContext(){
 }
 static void AllocationHeaders(){
     Memory m;const uint64_t base=0x140000000,allocation=0x7000,allocator=0x8000,registry=0x20000;
-    const std::array<uint64_t,5> a{0x2A462D0,0x18E9720,0x8780A4,0x878238,0x8780C8},b{0x2A462D0,0x18E9720,0x8780A4,0x1892658,0x18925EC};
+    // The 2.5 methods of the allocation and allocator vtables (detail::Methods).
+    const std::array<uint64_t,5> a{0x2FAC534,0x2FAAF80,0x348220,0x3483A4,0x348244},b{0x2FAC534,0x2FAAF80,0x348220,0x18F3FB4,0x18F3F48};
     for(size_t i=0;i<5;++i){m.Put(base+inspect::detail::AllocationVtable+i*8,base+a[i]);m.Put(base+inspect::detail::AllocatorVtable+i*8,base+b[i]);}
     m.Zero(allocation,0x68);m.Put(allocation,base+inspect::detail::AllocationVtable);m.Put<uint32_t>(allocation+8,2);
     m.Put<uint64_t>(allocation+0x10,0x1234);m.Put<uint64_t>(allocation+0x18,65536);m.Put<uint64_t>(allocation+0x28,0x9000);
     auto observed=inspect::detail::ReadAllocation(Memory::Read,&m,base,allocation);
     Require(observed.observation==inspect::Observation::Known && observed.resource==0x9000 && observed.bytes==65536,"Known committed allocation header rejected");
-    m.Zero(allocator,0x18);m.Put(allocator,base+inspect::detail::AllocatorVtable);m.Put<uint32_t>(allocator+8,3);m.Put<uint64_t>(allocator+0x10,0x1234);m.Put(registry+0x13BC540,allocator);
+    m.Zero(allocator,0x18);m.Put(allocator,base+inspect::detail::AllocatorVtable);m.Put<uint32_t>(allocator+8,3);m.Put<uint64_t>(allocator+0x10,0x1234);m.Put(registry+0x1410540,allocator);
     auto wrapper=inspect::detail::ReadAllocator(Memory::Read,&m,base,registry,observed);
     Require(wrapper.observation==inspect::Observation::Known && wrapper.associationKnown && wrapper.pimplMatches,"Allocator Pimpl association rejected");
     m.changing=allocation;m.changingOffset=8;m.hits=0;
@@ -93,7 +94,7 @@ static void AliasAndPool(){
     geometry::NativeBuffer native{0x9000,0x100200,16,registry,0x4000,1,1};inspect::Record record;record.observation=inspect::Observation::Known;
     record.bytes[6]=0x16;const uint32_t packed=1u<<16;std::memcpy(record.bytes.data()+0x40,&packed,4);
     uint32_t logical=16;std::memcpy(record.bytes.data(),&logical,4);std::memcpy(record.bytes.data()+8,&native.gpu,8);std::memcpy(record.bytes.data()+0x10,&native.resource,8);
-    m.Put<uint32_t>(base+0x314AB00,512);m.Put<uint8_t>(registry+0x13BC5C0,1);m.Put<uint64_t>(registry+0x13BC548,0xA000);m.Put<uint32_t>(registry+0x13BC550,1);m.Put<uint32_t>(registry+0x13BC554,1);
+    m.Put<uint32_t>(base+0x36F44C8,512);m.Put<uint8_t>(registry+0x14105C0,1);m.Put<uint64_t>(registry+0x1410548,0xA000);m.Put<uint32_t>(registry+0x1410550,1);m.Put<uint32_t>(registry+0x1410554,1);
     m.Zero(0xA000,144);m.Put<uint64_t>(0xA000,native.resource);m.Put<uint64_t>(0xA008,0xB000);m.Put<uint64_t>(0xA010,2);
     auto pool=inspect::detail::ReadPool(Memory::Read,&m,base,native,record,0x100000,262144);
     Require(pool.observation==inspect::Observation::Known && pool.slot==1 && pool.owner==0xB000 && pool.occupied,"Small non-292 pool payload rejected");

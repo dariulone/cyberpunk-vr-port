@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // LodFov -- the level-of-detail cone, and the one hook whose value is NOT the render FOV.
 //
@@ -22,6 +23,48 @@
 #include "Utils/MemorySafe.hpp"
 #include "Utils/LogThrottle.hpp"   // g_verboseLog: the launcher's DEBUG box
 
+#if CVR_RUST_VRIK
+// The callback, the MAIN stub and the threshold tails are rust/crates/cvr-rig/src/vrik/lod_fov.rs; the exports and the
+// registrations stay.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) int      CyberpunkVR_BdHeadWrite = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdHeadWrites = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdViewSeen = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdViewByFov = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) int   CyberpunkVR_BdFovWrite = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBdFovWrites = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_FixLodEnable = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugFixLodCoverage = 0;
+#endif
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("LodFov", ::cvr::hooks::Stage::Boot, 60, cvr_hook_lod_fov_install);
+#endif
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("LodFovThreshold", ::cvr::hooks::Stage::Boot, 61, cvr_hook_lod_fov_threshold_install);
+#endif
+#else
 namespace { uint64_t g_fixLoDHits = 0; uint64_t g_bdFovWrites = 0; uint64_t g_bdFovSeen = 0; }
 
 // ---- THE BRAINDANCE VIEW ------------------------------------------------------------------------
@@ -478,3 +521,5 @@ static bool InstallFixLoDThresholdSites() {
 }
 
 CVR_HOOK("LodFovThreshold", ::cvr::hooks::Stage::Boot, 61, InstallFixLoDThresholdSites);
+#endif
+#endif

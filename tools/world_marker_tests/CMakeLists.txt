@@ -17,3 +17,25 @@ if(EXISTS "${native_dir}/manifest.json")
     add_test(NAME world_marker_native_parity COMMAND world_marker_tests native "${native_dir}")
     add_test(NAME world_marker_native_link COMMAND world_marker_tests native_link "${native_dir}")
 endif()
+
+# The same cases against the Rust recognition of the native shaders (rust/crates/cvr-render through cvr_rust.lib);
+# WorldMarkerShader.cpp keeps only the generated table and hands it to Rust.
+option(CVR_WORLD_MARKER_TESTS_RUST "Also run the tests against the Rust shader recognition" ON)
+if(CVR_WORLD_MARKER_TESTS_RUST)
+    include(../../cmake/RustStaticlib.cmake)
+    # The C++ half's callbacks the Rust library can reach that no marker test exercises (as in single_pass_tests).
+    add_library(world_marker_rust_stubs STATIC ../single_pass_tests/rust_stubs.cpp)
+    set_property(TARGET cvr_rust APPEND PROPERTY INTERFACE_LINK_LIBRARIES world_marker_rust_stubs)
+    add_executable(world_marker_tests_rust main.cpp abi.asm
+        ../../src/Render/WorldMarkerShader.cpp ../../src/Hooks/WorldMarkerTextThunk.asm)
+    cvr_world_marker_shaders(world_marker_tests_rust)
+    target_include_directories(world_marker_tests_rust PRIVATE ../../include)
+    target_compile_features(world_marker_tests_rust PRIVATE cxx_std_20)
+    target_compile_definitions(world_marker_tests_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    target_link_libraries(world_marker_tests_rust PRIVATE d3d12 dxgi d3dcompiler)
+    cvr_link_rust(world_marker_tests_rust)
+    # The arithmetic (WorldMarkerProjection/Reprojection/Scale/Ownership.hpp) forwards to world_marker_math.rs there too.
+    foreach(case depth camera marker_size sprite procedural text text_batched abi effect_owner reprojection world_shader)
+        add_test(NAME world_marker_${case}_rust COMMAND world_marker_tests_rust ${case})
+    endforeach()
+endif()

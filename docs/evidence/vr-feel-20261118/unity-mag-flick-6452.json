@@ -1,0 +1,106 @@
+{
+  "pid": 6452,
+  "runtime": "OpenXR Simulator",
+  "record": "Items.Preset_Unity_Default",
+  "controller": "right",
+  "source": "build/physical-melee/handheld-load/flick-live.json",
+  "source_sha256": "0a664d64be6f15ce4b0f6720efdedd6f34e0d697fbb79cb92268eade1466765c",
+  "installed_sha256": {
+    "reload.lua": "dedbe3ae802512f13edeeeb5e961305be62a596adeff68f19d99510967f5a74d",
+    "mag_flick.lua": "822e75158d74fdd1cf92b28bcb0679695f25e5ec167c3034543afe4176fe59c7"
+  },
+  "samples": [
+    "before",
+    "down",
+    "end"
+  ],
+  "cases": [
+    {
+      "case": "motion_only",
+      "b": [
+        0,
+        0,
+        0
+      ],
+      "ammo": [
+        7,
+        7,
+        7
+      ],
+      "releases": [
+        0,
+        0,
+        0
+      ],
+      "flicks": [
+        0,
+        0,
+        0
+      ],
+      "magazine_state": [
+        "in",
+        "in",
+        "in"
+      ],
+      "added_outward_m_s": 0
+    },
+    {
+      "case": "button_only",
+      "b": [
+        0,
+        1,
+        0
+      ],
+      "ammo": [
+        7,
+        0,
+        0
+      ],
+      "releases": [
+        0,
+        1,
+        1
+      ],
+      "flicks": [
+        0,
+        0,
+        0
+      ],
+      "magazine_state": [
+        "in",
+        "gone",
+        "gone"
+      ],
+      "added_outward_m_s": 0
+    },
+    {
+      "case": "button_flick",
+      "b": [
+        0,
+        1,
+        0
+      ],
+      "ammo": [
+        7,
+        0,
+        0
+      ],
+      "releases": [
+        1,
+        2,
+        2
+      ],
+      "flicks": [
+        0,
+        1,
+        1
+      ],
+      "magazine_state": [
+        "in",
+        "gone",
+        "gone"
+      ],
+      "added_outward_m_s": 1.7340909370357
+    }
+  ]
+}

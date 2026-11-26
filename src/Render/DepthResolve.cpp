@@ -1,5 +1,7 @@
 #include "Render/DepthResolve.hpp"
 
+#if !CVR_RUST_VRIK
+// The C++ build's resolve; the Rust build's is rust/crates/cvr-gpu/src/depth_resolve.rs (the header calls it).
 #include <cstdio>
 #include <d3dcompiler.h>
 
@@ -314,3 +316,4 @@ bool DepthResolve::RecordResolve(ID3D12GraphicsCommandList* cmdList,
     cmdList->DrawInstanced(3, 1, 0, 0);
     return true;
 }
+#endif

@@ -20,16 +20,36 @@
 #include <unordered_map>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
 using Microsoft::WRL::ComPtr;
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_SinglePassPipelineCounts[12]{};
 __declspec(dllexport) char CyberpunkVR_SinglePassError[256]{};
 // 0: no material pipeline is registered (and nothing else of single pass runs); read once, at the first root.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassPipelines{1};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE REGISTRY IS RUST'S (rust/crates/cvr-render/src/single_pass_pipelines.rs): the material roots and their twins,
+// the owned descriptions kept on the PSOs, the twin shaders' disk cache and the three background builders. This file
+// keeps the exports above and the C++ names.
+extern "C" {
+}
+static_assert(sizeof(std::atomic<uint64_t>) == 8 && sizeof(std::atomic<uint32_t>) == 4,
+              "the counters are read as plain atomics by rust/crates/cvr-render/src/single_pass_pipelines.rs");
+
+#else
 namespace cvr::single_pass {
 using cvr::stereo::BuildViewInstancedStream;using cvr::stereo::GraphicsDescStream;using cvr::stereo::OwnedGraphicsDesc;
 using cvr::stereo::OwnedPipelineStream;using cvr::stereo::OwnGraphicsDesc;using cvr::stereo::OwnPipelineStream;
@@ -476,3 +496,4 @@ ID3D12PipelineState* Twin(Pipeline* p,ID3D12PipelineState* engine,ID3D12Pipeline
     return nullptr;
 }
 }
+#endif

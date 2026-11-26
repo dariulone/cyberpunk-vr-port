@@ -4,13 +4,41 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstddef>
 #include <cstring>
 #include <mutex>
 #include <string>
 #ifdef CVR_NATIVE_DLSSG
 #include <nvsdk_ngx_helpers_dlssg_d3d.h>
-#include "Framegen/AnrFrameGen.hpp"
 #endif
+#if CVR_RUST_VRIK
+// NATIVE DLSS FRAME GENERATION IS RUST'S (rust/crates/cvr-render/src/dlssg_native.rs: NGX's initialisation on the device,
+// the eyes' features, their VRAM estimate and evaluation, the SDK helpers' parameters set by name). The SDK's static NGX
+// loader links here: this half lends its entries when the SDK was found at configure time (CVR_NATIVE_DLSSG).
+#ifdef CVR_NATIVE_DLSSG
+namespace {
+struct RustNgx {
+    decltype(&NVSDK_NGX_D3D12_Init_with_ProjectID) init;decltype(&NVSDK_NGX_D3D12_GetCapabilityParameters) capability;
+    decltype(&NVSDK_NGX_D3D12_AllocateParameters) allocate;decltype(&NVSDK_NGX_D3D12_DestroyParameters) destroy;
+    decltype(&NVSDK_NGX_D3D12_CreateFeature) create;decltype(&NVSDK_NGX_D3D12_ReleaseFeature) release;
+    decltype(&NVSDK_NGX_D3D12_EvaluateFeature_C) evaluate;
+    decltype(&NVSDK_NGX_Parameter_SetUI) setUI;decltype(&NVSDK_NGX_Parameter_SetF) setF;
+    decltype(&NVSDK_NGX_Parameter_SetD3d12Resource) setResource;decltype(&NVSDK_NGX_Parameter_SetVoidPointer) setPointer;
+    decltype(&NVSDK_NGX_Parameter_GetI) getI;decltype(&NVSDK_NGX_Parameter_GetUI) getUI;
+    decltype(&NVSDK_NGX_Parameter_GetVoidPointer) getPointer;
+};
+static_assert(sizeof(RustNgx)==14*8 && sizeof(NVSDK_NGX_FeatureCommonInfo)==40 && NVSDK_NGX_Version_API==0x15 &&
+    NVSDK_NGX_Feature_FrameGeneration==11 && NVSDK_NGX_ENGINE_TYPE_CUSTOM==0 && NVSDK_NGX_LOGGING_LEVEL_ON==1,
+    "mirrored by dlssg_native.rs");
+const RustNgx ngx{&NVSDK_NGX_D3D12_Init_with_ProjectID,&NVSDK_NGX_D3D12_GetCapabilityParameters,&NVSDK_NGX_D3D12_AllocateParameters,
+    &NVSDK_NGX_D3D12_DestroyParameters,&NVSDK_NGX_D3D12_CreateFeature,&NVSDK_NGX_D3D12_ReleaseFeature,&NVSDK_NGX_D3D12_EvaluateFeature_C,
+    &NVSDK_NGX_Parameter_SetUI,&NVSDK_NGX_Parameter_SetF,&NVSDK_NGX_Parameter_SetD3d12Resource,&NVSDK_NGX_Parameter_SetVoidPointer,
+    &NVSDK_NGX_Parameter_GetI,&NVSDK_NGX_Parameter_GetUI,&NVSDK_NGX_Parameter_GetVoidPointer};
+extern "C" void cvr_dlssg2_attach(const RustNgx*);
+[[maybe_unused]] const bool ngxAttached=(cvr_dlssg2_attach(&ngx),true);
+}
+#endif
+#else
 
 extern void Log(const char*,...);
 namespace cvr::framegen::dlssg {
@@ -98,35 +126,23 @@ bool BuildMatrices(const CameraData& current,const CameraData* previous,Matrices
     return Invert(out->clipToPrevClip,out->prevClipToClip);
 }
 
-const char* Reason(Provider provider) {
-#ifdef CVR_NATIVE_DLSSG
-    if(provider==Provider::Anr)return anr::Reason();
-#endif
-    std::lock_guard lock(mutex);static thread_local std::string copy;copy=reason;return copy.c_str();
-}
+const char* Reason() {std::lock_guard lock(mutex);static thread_local std::string copy;copy=reason;return copy.c_str();}
 
 #ifdef CVR_NATIVE_DLSSG
 struct Feature {
-    Provider provider{};
     NVSDK_NGX_Handle* handle{};
     NVSDK_NGX_Parameter* parameters{};
     uint64_t bytes{};
 };
 void FeatureDeleter::operator()(Feature* feature) const {
     if(!feature)return;
-    if(feature->provider==Provider::Anr) {
-        if(feature->handle)anr::Release(feature->handle);
-        if(feature->parameters)anr::DestroyParameters(feature->parameters);
-    } else {
-        if(feature->handle)NVSDK_NGX_D3D12_ReleaseFeature(feature->handle);
-        if(feature->parameters)NVSDK_NGX_D3D12_DestroyParameters(feature->parameters);
-    }
+    if(feature->handle)NVSDK_NGX_D3D12_ReleaseFeature(feature->handle);
+    if(feature->parameters)NVSDK_NGX_D3D12_DestroyParameters(feature->parameters);
     delete feature;
 }
 uint64_t Bytes(const Feature& feature) {return feature.bytes;}
 
-bool Available(ID3D12Device* device,Provider provider) {
-    if(provider==Provider::Anr)return anr::Available(device);
+bool Available(ID3D12Device* device) {
     std::lock_guard lock(mutex);
     if(!device)return false;
     if(device==initialized)return available;
@@ -168,23 +184,15 @@ bool Available(ID3D12Device* device,Provider provider) {
 }
 
 FeaturePtr Create(ID3D12GraphicsCommandList* list,uint32_t width,uint32_t height,uint32_t renderWidth,uint32_t renderHeight,
-    DXGI_FORMAT backbuffer,DXGI_FORMAT motion,DXGI_FORMAT depth,Provider provider) {
-    FeaturePtr feature(new Feature);feature->provider=provider;
-    const bool anrFg=provider==Provider::Anr;
-    if(anrFg)feature->parameters=anr::AllocateParameters();
-    else if(NVSDK_NGX_FAILED(NVSDK_NGX_D3D12_AllocateParameters(&feature->parameters)))return {};
+    DXGI_FORMAT backbuffer,DXGI_FORMAT motion,DXGI_FORMAT depth) {
+    FeaturePtr feature(new Feature);
+    if(NVSDK_NGX_FAILED(NVSDK_NGX_D3D12_AllocateParameters(&feature->parameters)))return {};
     NVSDK_NGX_DLSSG_Create_Params create{};create.Width=width;create.Height=height;create.RenderWidth=renderWidth;
     create.RenderHeight=renderHeight;create.NativeBackbufferFormat=backbuffer;create.DynamicResolutionScaling=false;
-    const auto result=anrFg ? anr::Create(list,&feature->handle,feature->parameters,&create) :
-        NGX_D3D12_CREATE_DLSSG(list,1,1,&feature->handle,feature->parameters,&create);
+    const auto result=NGX_D3D12_CREATE_DLSSG(list,1,1,&feature->handle,feature->parameters,&create);
     if(NVSDK_NGX_FAILED(result) || !feature->handle) {
-        Log("[framegen] %s: feature %ux%u (render %ux%u) creation failed 0x%08X\n",anrFg?"ANR FG":"DLSS-G",
-            width,height,renderWidth,renderHeight,unsigned(result));
+        Log("[framegen] DLSS-G: feature %ux%u (render %ux%u) creation failed 0x%08X\n",width,height,renderWidth,renderHeight,unsigned(result));
         feature->handle=nullptr;return {};
-    }
-    if(anrFg) {
-        Log("[framegen] ANR FG: feature %ux%u render %ux%u created\n",width,height,renderWidth,renderHeight);
-        return feature;
     }
     NVSDK_NGX_Parameter* caps{};
     if(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_GetCapabilityParameters(&caps)) && caps) {
@@ -219,16 +227,10 @@ bool Evaluate(Feature& feature,ID3D12GraphicsCommandList* list,const Evaluation&
     o.multiFrameCount=1;o.multiFrameIndex=1;
     o.backbufferSubrectSize={e.width,e.height};o.outputInterpSubrectSize={e.width,e.height};
     o.mvecsSubrectSize={e.motionWidth,e.motionHeight};o.depthSubrectSize={e.depthWidth,e.depthHeight};
-    if(feature.provider==Provider::Anr) {
-        // What OptiScaler's provider proxy sets before every evaluation (Nvngx_DllProxy, its defaults).
-        feature.parameters->Set("DLSSG.ShowDebug",0);
-        feature.parameters->Set("DLSSG.DispatchFlags",0x10000000u); // IGNORE_UI_TEXTURE
-    }
-    const auto result=feature.provider==Provider::Anr ? anr::Evaluate(list,feature.handle,feature.parameters,&in,&o) :
-        NGX_D3D12_EVALUATE_DLSSG(list,feature.handle,feature.parameters,&in,&o);
+    const auto result=NGX_D3D12_EVALUATE_DLSSG(list,feature.handle,feature.parameters,&in,&o);
     if(NVSDK_NGX_FAILED(result)) {
         static std::atomic<uint32_t> logged{};
-        if(logged.fetch_add(1)<4)Log("[framegen] %s: evaluate failed 0x%08X\n",feature.provider==Provider::Anr?"ANR FG":"DLSS-G",unsigned(result));
+        if(logged.fetch_add(1)<4)Log("[framegen] DLSS-G: evaluate failed 0x%08X\n",unsigned(result));
         return false;
     }
     return true;
@@ -237,8 +239,10 @@ bool Evaluate(Feature& feature,ID3D12GraphicsCommandList* list,const Evaluation&
 struct Feature {};
 void FeatureDeleter::operator()(Feature* feature) const {delete feature;}
 uint64_t Bytes(const Feature&) {return 0;}
-bool Available(ID3D12Device*,Provider) {return false;}
-FeaturePtr Create(ID3D12GraphicsCommandList*,uint32_t,uint32_t,uint32_t,uint32_t,DXGI_FORMAT,DXGI_FORMAT,DXGI_FORMAT,Provider) {return {};}
+bool Available(ID3D12Device*) {return false;}
+FeaturePtr Create(ID3D12GraphicsCommandList*,uint32_t,uint32_t,uint32_t,uint32_t,DXGI_FORMAT,DXGI_FORMAT,DXGI_FORMAT) {return {};}
 bool Evaluate(Feature&,ID3D12GraphicsCommandList*,const Evaluation&) {return false;}
 #endif
 }
+
+#endif

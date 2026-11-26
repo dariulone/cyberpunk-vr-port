@@ -79,7 +79,19 @@ end
 -- A plain function for pcall: `pcall(function() ... end)` would allocate a closure every frame.
 local function ballHas(pl) return pl:VRBallHas() end
 
+-- THE RUST BUILD RUNS THIS BRIDGE ITSELF (rust/crates/cvr-ffi/src/mechanics.rs, bit 1 of VRRustMechanics): the capsule
+-- queries and the ball's tick, on the game's main thread every frame. The reference build has no such native, and this
+-- bridge keeps running there.
+local rustOwned = nil
+local function rustOwnsBridge()
+    if rustOwned == nil then
+        rustOwned = type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 2) % 2 == 1
+    end
+    return rustOwned
+end
+
 registerForEvent('onUpdate', function(dt)
+    if rustOwnsBridge() then return end
     dt = dt or 0.016
     -- A stalled or absurd frame delta would fabricate a huge velocity and fire a bogus impulse.
     -- Skip the frame instead of guessing: one dropped correction is invisible, a wrong one is not.

@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include "Render/NativeBufferRead.hpp"
 #include "Render/NativeCommandRecording.hpp"
 #include "Render/RegisteredConstantUpload.hpp"
@@ -17,8 +18,29 @@ namespace cvr::stereo::texture_read {
 struct NativeTexture {uint64_t registry{},resource{};uint32_t handle{},reserved{};};
 struct State {uint32_t value{},status{};};
 namespace detail {
+#if CVR_RUST_VRIK
+// The pure rules below: rust/crates/cvr-render/src/texture_read.rs (tools/single_pass_tests/native_texture_state_test runs
+// its cases against them in its Rust variant).
+extern "C" {
+bool cvr_tr_copy_read_mask(State,uint32_t*);
+bool cvr_tr_has_read_state(State,uint32_t);
+bool cvr_tr_source_read_state(State,UINT);
+bool cvr_tr_writable_state(State,uint32_t);
+bool cvr_tr_alpha_format(DXGI_FORMAT);
+bool cvr_tr_typed_format(DXGI_FORMAT);
+bool cvr_tr_immutable_shape(const D3D12_RESOURCE_DESC*);
+bool cvr_tr_shape(const D3D12_RESOURCE_DESC*);
+bool cvr_tr_view_mips(const D3D12_RESOURCE_DESC*,const D3D12_SHADER_RESOURCE_VIEW_DESC*,UINT*,UINT*);
+bool cvr_tr_view_subresources(const D3D12_RESOURCE_DESC*,const D3D12_SHADER_RESOURCE_VIEW_DESC*,UINT*,size_t,size_t*);
+bool cvr_tr_footprint_range(const D3D12_PLACED_SUBRESOURCE_FOOTPRINT*,UINT,uint64_t,uint64_t,uint64_t*);
+uint64_t cvr_tr_fixed_owner(const std::array<uint8_t,0x58>*);
+}
+#endif
 inline constexpr uint32_t ShaderReads=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE|D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 inline constexpr uint32_t AllowedReads=ShaderReads|D3D12_RESOURCE_STATE_COPY_SOURCE;
+#if CVR_RUST_VRIK
+inline bool CopyReadMask(State before,uint32_t& required){return cvr_tr_copy_read_mask(before,&required);}
+#else
 inline bool CopyReadMask(State before,uint32_t& required){
     required=0;
     if(before.status!=1 && before.status!=2 && before.status!=5)return false;
@@ -26,34 +48,68 @@ inline bool CopyReadMask(State before,uint32_t& required){
     if(previous&~AllowedReads)return false;
     required=previous|AllowedReads;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool HasReadState(State state,uint32_t required){return cvr_tr_has_read_state(state,required);}
+#else
 inline bool HasReadState(State state,uint32_t required){
     return (state.status==1 || state.status==2) && !(state.value&~AllowedReads) && (state.value&required)==required;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool SourceReadState(State state,UINT subresources){return cvr_tr_source_read_state(state,subresources);}
+#else
 inline bool SourceReadState(State state,UINT subresources){
     return subresources && (state.status==1 || (state.status==2 && subresources==1)) &&
         (state.value&ShaderReads) && !(state.value&~AllowedReads);
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool WritableState(State state,uint32_t expected){return cvr_tr_writable_state(state,expected);}
+#else
 inline bool WritableState(State state,uint32_t expected){
     return (expected==D3D12_RESOURCE_STATE_RENDER_TARGET || expected==D3D12_RESOURCE_STATE_DEPTH_WRITE) &&
         state.status==1 && state.value==expected;
 }
+#endif
 struct Allocation {uint64_t heap{},offset{},bytes{};uint32_t kind{};};
+#if CVR_RUST_VRIK
+static_assert(sizeof(Allocation)==32,"mirrored by rust/crates/cvr-render/src/texture_read.rs");
+extern "C" {
+bool cvr_tr_known_allocation(const Allocation*);
+bool cvr_tr_could_alias(const Allocation*,const Allocation*);
+bool cvr_tr_alias_affects(uint64_t,const Allocation*,uint64_t,const Allocation*,uint64_t,const Allocation*);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool KnownAllocation(const Allocation& allocation){return cvr_tr_known_allocation(&allocation);}
+#else
 inline bool KnownAllocation(const Allocation& allocation){
     return allocation.kind==1 || (allocation.kind==2 && allocation.heap && allocation.bytes &&
         allocation.bytes!=UINT64_MAX && allocation.offset<=UINT64_MAX-allocation.bytes);
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool CouldAlias(const Allocation& source,const Allocation& other){return cvr_tr_could_alias(&source,&other);}
+#else
 inline bool CouldAlias(const Allocation& source,const Allocation& other){
     if(source.kind==1 || other.kind==1)return false;
     if(source.heap && other.heap && source.heap!=other.heap)return false;
     if(!KnownAllocation(source) || !KnownAllocation(other))return true;
     return source.offset<other.offset+other.bytes && other.offset<source.offset+source.bytes;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool AliasAffects(uint64_t resource,const Allocation& source,uint64_t before,const Allocation& from,
+                         uint64_t after,const Allocation& to){return cvr_tr_alias_affects(resource,&source,before,&from,after,&to);}
+#else
 inline bool AliasAffects(uint64_t resource,const Allocation& source,uint64_t before,const Allocation& from,
                          uint64_t after,const Allocation& to){
     if(resource==before || resource==after)return true;
     if(!before && !after)return source.kind!=1;
     return (before && CouldAlias(source,from)) || (after && CouldAlias(source,to));
 }
+#endif
 struct CreationProof:buffer_read::detail::History {
     bool acquired{};
     CreationProof(bool enabled=false){valid=enabled;}
@@ -63,21 +119,36 @@ struct CreationProof:buffer_read::detail::History {
         buffer_read::detail::History::Written(recording);
     }
 };
+#if CVR_RUST_VRIK
+inline bool AlphaFormat(DXGI_FORMAT format){return cvr_tr_alpha_format(format);}
+#else
 inline bool AlphaFormat(DXGI_FORMAT format){
     return format==DXGI_FORMAT_BC1_UNORM_SRGB || format==DXGI_FORMAT_BC7_UNORM_SRGB;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool TypedFormat(DXGI_FORMAT format){return cvr_tr_typed_format(format);}
+#else
 inline bool TypedFormat(DXGI_FORMAT format){
     return format==DXGI_FORMAT_R8_UNORM || format==DXGI_FORMAT_R16_UNORM ||
         format==DXGI_FORMAT_R16G16_UNORM || format==DXGI_FORMAT_R16G16B16A16_UNORM ||
         format==DXGI_FORMAT_R11G11B10_FLOAT || format==DXGI_FORMAT_R32_UINT;
 }
+#endif
 // Lifetime observation for shader-readable assets, not a copy-format contract.
+#if CVR_RUST_VRIK
+inline bool ImmutableShape(const D3D12_RESOURCE_DESC& desc){return cvr_tr_immutable_shape(&desc);}
+#else
 inline bool ImmutableShape(const D3D12_RESOURCE_DESC& desc){
     return desc.Dimension>=D3D12_RESOURCE_DIMENSION_TEXTURE1D && desc.Dimension<=D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
         desc.Width && desc.Height && desc.DepthOrArraySize && desc.MipLevels && desc.Format!=DXGI_FORMAT_UNKNOWN &&
         desc.SampleDesc.Count==1 && !desc.SampleDesc.Quality && desc.Flags==D3D12_RESOURCE_FLAG_NONE &&
         desc.Layout==D3D12_TEXTURE_LAYOUT_UNKNOWN;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Shape(const D3D12_RESOURCE_DESC& desc){return cvr_tr_shape(&desc);}
+#else
 inline bool Shape(const D3D12_RESOURCE_DESC& desc){
     if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D || !desc.Width || desc.Width>4096 ||
         !desc.Height || desc.Height>4096 || !desc.DepthOrArraySize || desc.DepthOrArraySize>2048 || desc.SampleDesc.Count!=1 ||
@@ -89,6 +160,12 @@ inline bool Shape(const D3D12_RESOURCE_DESC& desc){
     while(size>1){size>>=1;++levels;}
     return desc.MipLevels<=levels && UINT(desc.MipLevels)*desc.DepthOrArraySize<=D3D12_REQ_SUBRESOURCES;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ViewMips(const D3D12_RESOURCE_DESC& desc,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,UINT& first,UINT& count){
+    return cvr_tr_view_mips(&desc,&view,&first,&count);
+}
+#else
 inline bool ViewMips(const D3D12_RESOURCE_DESC& desc,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,UINT& first,UINT& count){
     first=count=0;
     if(!Shape(desc) || desc.DepthOrArraySize!=1 || view.ViewDimension!=D3D12_SRV_DIMENSION_TEXTURE2D || view.Format!=desc.Format ||
@@ -99,6 +176,15 @@ inline bool ViewMips(const D3D12_RESOURCE_DESC& desc,const D3D12_SHADER_RESOURCE
     if(!visible || visible>remaining)return false;
     first=view.Texture2D.MostDetailedMip;count=visible;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ViewSubresources(const D3D12_RESOURCE_DESC& desc,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,
+                            std::vector<UINT>& output){
+    output.assign(D3D12_REQ_SUBRESOURCES,0);size_t count{};
+    const bool ok=cvr_tr_view_subresources(&desc,&view,output.data(),output.size(),&count);
+    output.resize(count);return ok;
+}
+#else
 inline bool ViewSubresources(const D3D12_RESOURCE_DESC& desc,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,
                             std::vector<UINT>& output){
     output.clear();
@@ -124,6 +210,13 @@ inline bool ViewSubresources(const D3D12_RESOURCE_DESC& desc,const D3D12_SHADER_
         indices.push_back(first+mip+(slice+layer)*UINT(desc.MipLevels));
     output=std::move(indices);return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool FootprintRange(const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout,UINT rows,uint64_t rowBytes,
+                           uint64_t destinationBytes,uint64_t& bytes){
+    return cvr_tr_footprint_range(&layout,rows,rowBytes,destinationBytes,&bytes);
+}
+#else
 inline bool FootprintRange(const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout,UINT rows,uint64_t rowBytes,
                            uint64_t destinationBytes,uint64_t& bytes){
     bytes=0;
@@ -135,10 +228,24 @@ inline bool FootprintRange(const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout,UINT
     if(beforeLast>UINT64_MAX-rowBytes || beforeLast+rowBytes>destinationBytes-layout.Offset)return false;
     bytes=beforeLast+rowBytes;return true;
 }
+#endif
 struct MipFootprint {
     UINT mip{};D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout{};UINT rows{};
     uint64_t rowBytes{},bytes{};
 };
+#if CVR_RUST_VRIK
+static_assert(sizeof(MipFootprint)==64,"mirrored by rust/crates/cvr-render/src/texture_read.rs");
+extern "C" {
+bool cvr_tr_subresource_layout(ID3D12Device*,const D3D12_RESOURCE_DESC*,UINT,uint64_t,MipFootprint*);
+bool cvr_tr_view_layouts(ID3D12Device*,const D3D12_RESOURCE_DESC*,const D3D12_SHADER_RESOURCE_VIEW_DESC*,uint64_t,MipFootprint*,size_t,size_t*);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool SubresourceLayout(ID3D12Device* device,const D3D12_RESOURCE_DESC& desc,UINT subresource,
+                              uint64_t offset,MipFootprint& output){
+    return cvr_tr_subresource_layout(device,&desc,subresource,offset,&output);
+}
+#else
 inline bool SubresourceLayout(ID3D12Device* device,const D3D12_RESOURCE_DESC& desc,UINT subresource,
                               uint64_t offset,MipFootprint& output){
     output={};if(!device || !Shape(desc) || subresource>=UINT(desc.MipLevels)*desc.DepthOrArraySize ||
@@ -149,7 +256,16 @@ inline bool SubresourceLayout(ID3D12Device* device,const D3D12_RESOURCE_DESC& de
         !FootprintRange(next.layout,next.rows,next.rowBytes,UINT64_MAX,next.bytes))return false;
     output=next;return true;
 }
+#endif
 // Layout metadata alone grants no source identity, content, state or copy lease.
+#if CVR_RUST_VRIK
+inline bool ViewLayouts(ID3D12Device* device,const D3D12_RESOURCE_DESC& desc,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,
+                        uint64_t offset,std::vector<MipFootprint>& output){
+    output.assign(D3D12_REQ_SUBRESOURCES,MipFootprint{});size_t count{};
+    const bool ok=cvr_tr_view_layouts(device,&desc,&view,offset,output.data(),output.size(),&count);
+    output.resize(count);return ok;
+}
+#else
 inline bool ViewLayouts(ID3D12Device* device,const D3D12_RESOURCE_DESC& desc,const D3D12_SHADER_RESOURCE_VIEW_DESC& view,
                         uint64_t offset,std::vector<MipFootprint>& output){
     output.clear();std::vector<UINT> indices;
@@ -165,11 +281,16 @@ inline bool ViewLayouts(ID3D12Device* device,const D3D12_RESOURCE_DESC& desc,con
     }
     output=std::move(result);return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline uint64_t FixedOwner(const std::array<uint8_t,0x58>& record){return cvr_tr_fixed_owner(&record);}
+#else
 inline uint64_t FixedOwner(const std::array<uint8_t,0x58>& record){
     uint64_t owner{};uint32_t binding{};uint16_t flags{};
     std::memcpy(&owner,record.data()+0x10,8);std::memcpy(&binding,record.data()+0x48,4);std::memcpy(&flags,record.data()+0x56,2);
     return record[8]==1 && binding==ShaderReads && (flags==0x41 || flags==0xc1)?owner:0;
 }
+#endif
 struct FixedHandle {
     NativeTexture native;uint64_t record{},lock{},owner{};int32_t references{};
 };
@@ -177,6 +298,36 @@ struct FixedPinSnapshot {
     FixedHandle handle;source_cbv_details::Allocation allocation;source_cbv_details::Allocator allocator;
 };
 using FixedRead=bool(*)(void*,uint64_t,void*,size_t);
+struct FixedPinOperations {
+    FixedRead read{};
+    bool(*tryLock)(void*,uint64_t)noexcept{};
+    bool(*retainHandle)(void*,uint64_t,int32_t)noexcept{};
+    bool(*retainOwner)(void*,uint64_t,bool)noexcept{}; // false allocator, true allocation; retains only, never cleans up.
+    void(*releaseHandle)(void*,uint32_t)noexcept{};
+    void(*unlock)(void*,uint64_t)noexcept{};
+};
+#if CVR_RUST_VRIK
+// The bootstrap: rust/crates/cvr-render/src/texture_pins.rs (C-unwind there: a fixture's reader may throw through it).
+static_assert(sizeof(FixedHandle)==56 && sizeof(FixedPinSnapshot)==312 && offsetof(FixedPinSnapshot,allocation)==56 &&
+    offsetof(FixedPinSnapshot,allocator)==248 && sizeof(FixedPinOperations)==48,"mirrored by rust/crates/cvr-render/src/texture_pins.rs");
+extern "C" {
+bool cvr_tr_read_fixed_handle(FixedRead,void*,uint64_t,const NativeTexture*,FixedHandle*);
+bool cvr_tr_read_fixed_pin(FixedRead,void*,uint64_t,const NativeTexture*,FixedPinSnapshot*);
+bool cvr_tr_same_fixed_pins(const FixedPinSnapshot*,const FixedPinSnapshot*);
+bool cvr_tr_bootstrap_fixed_pins(const FixedPinOperations*,void*,uint64_t,const NativeTexture*,FixedPinSnapshot*,uint32_t*);
+}
+inline bool ReadFixedHandle(FixedRead read,void* user,uint64_t base,const NativeTexture& wanted,FixedHandle& output){
+    return cvr_tr_read_fixed_handle(read,user,base,&wanted,&output);
+}
+inline bool ReadFixedPin(FixedRead read,void* user,uint64_t base,const NativeTexture& wanted,FixedPinSnapshot& output){
+    return cvr_tr_read_fixed_pin(read,user,base,&wanted,&output);
+}
+inline bool SameFixedPins(const FixedPinSnapshot& a,const FixedPinSnapshot& b){return cvr_tr_same_fixed_pins(&a,&b);}
+inline bool BootstrapFixedPins(const FixedPinOperations& ops,void* user,uint64_t base,const NativeTexture& wanted,
+                               FixedPinSnapshot& output,uint32_t& rejected){
+    return cvr_tr_bootstrap_fixed_pins(&ops,user,base,&wanted,&output,&rejected);
+}
+#else
 template<class T> inline bool FixedField(FixedRead read,void* user,uint64_t address,uint64_t offset,T& output){
     return address && offset<=UINT64_MAX-address && source_cbv_details::detail::Copy(read,user,address+offset,&output,sizeof(output));
 }
@@ -225,14 +376,6 @@ inline bool SameFixedPins(const FixedPinSnapshot& a,const FixedPinSnapshot& b){
         x.resource==y.resource && x.bytes==y.bytes && x.heap==y.heap && x.block==y.block && x.handle==y.handle && x.kind==y.kind &&
         u.address==v.address && u.vtable==v.vtable && u.pimpl==v.pimpl;
 }
-struct FixedPinOperations {
-    FixedRead read{};
-    bool(*tryLock)(void*,uint64_t)noexcept{};
-    bool(*retainHandle)(void*,uint64_t,int32_t)noexcept{};
-    bool(*retainOwner)(void*,uint64_t,bool)noexcept{}; // false allocator, true allocation; retains only, never cleans up.
-    void(*releaseHandle)(void*,uint32_t)noexcept{};
-    void(*unlock)(void*,uint64_t)noexcept{};
-};
 // Shared by runtime and pure race fixtures. Native owners remain in the caller's
 // packet even on failure, so their COM releases happen AFTER this guard unlocks.
 inline bool BootstrapFixedPins(const FixedPinOperations& ops,void* user,uint64_t base,const NativeTexture& wanted,
@@ -256,8 +399,16 @@ inline bool BootstrapFixedPins(const FixedPinOperations& ops,void* user,uint64_t
     if(!ReadFixedPin(ops.read,user,base,wanted,after) || !SameFixedPins(snapshot,after))return false;
     output=snapshot;rejected=0;return true;
 }
+#endif
 }
 using ReadMemory=bool(*)(void*,uint64_t,void*,size_t);
+#if CVR_RUST_VRIK
+static_assert(sizeof(NativeTexture)==24 && sizeof(State)==8,"mirrored by rust/crates/cvr-render/src/texture_read.rs");
+extern "C" State cvr_tr_read_state(const NativeTexture*,uint64_t,uint64_t,ReadMemory,void*);
+inline State ReadState(const NativeTexture& source,uint64_t context,uint64_t list,ReadMemory read,void* user=nullptr){
+    return cvr_tr_read_state(&source,context,list,read,user);
+}
+#else
 inline State ReadState(const NativeTexture& source,uint64_t context,uint64_t list,ReadMemory read,void* user=nullptr){
     auto memory=[&](uint64_t address,void* output,size_t bytes){return address && address<=UINT64_MAX-bytes && read && read(user,address,output,bytes);};
     if(!source.registry || !source.resource || !source.handle || source.handle>32768 || !context || !list || context>UINT64_MAX-0x630)return {0,3};
@@ -303,6 +454,7 @@ inline State ReadState(const NativeTexture& source,uint64_t context,uint64_t lis
     // end because the table is cyclic, corrupt, or too long to verify.
     return {0,at==UINT_MAX?5u:6u};
 }
+#endif
 struct Lease {Microsoft::WRL::ComPtr<ID3D12Resource> resource;NativeTexture native;uint64_t receipt{},owner{};};
 struct ImmutableLease {Microsoft::WRL::ComPtr<IUnknown> owner;Lease source;};
 class FixedAssetPins {
@@ -389,7 +541,11 @@ private:
     struct Data;std::shared_ptr<const Data> data_;
     friend bool CaptureWritableIdentity(ID3D12GraphicsCommandList*,ID3D12Resource*,D3D12_RESOURCE_STATES,WritableTargetIdentity&);
     friend bool ValidateWritableIdentity(const WritableTargetIdentity&,ID3D12CommandQueue*);
+    friend void AuthenticateWritableIdentity(WritableTargetIdentity&);
 };
+// The Rust build: an identity the target handoff's observer (rust/crates/cvr-render/src/target_handoff_observer.rs)
+// captured and copied out gets its authenticated copy (itself, as captured).
+void AuthenticateWritableIdentity(WritableTargetIdentity&);
 namespace detail {
 struct WritableRecordObservation {
     // Resource identity is known. kind/owner remain uninterpreted numbers;

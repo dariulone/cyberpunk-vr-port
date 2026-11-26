@@ -14,7 +14,7 @@ int main()try{
     static_assert(sizeof(observer::QueryObservation)==256);
     static_assert(size_t(observer::QueryField::SourceList)==3 && size_t(observer::QueryField::CpuBytes)==25 &&
         size_t(observer::QueryField::LiveCpuBytes)==31);
-    Require(observer::WriterRva==0x1F3E40 && observer::ReserveRva==0x95B308 && observer::PublishRva==0x20A7DC,"exact native hook addresses");
+    Require(observer::WriterRva==0x337144 && observer::ReserveRva==0x939ACC && observer::PublishRva==0x4F34FC,"exact native hook addresses");
     plan::ReservationRange reservation;
     Require(plan::ReservationResult(64,0x20000,128,64,192,reservation) && reservation.headBefore==64 &&
         reservation.absoluteBegin==64 && reservation.absoluteEnd==192,"exclusive genuine native allocator result");

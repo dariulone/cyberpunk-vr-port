@@ -12,6 +12,22 @@
 #include <source_location>
 using Microsoft::WRL::ComPtr;
 using namespace cvr::vrs;
+// Engine stereo is off here: the rate map is laid out for one eye per target.
+namespace cvr::engine_stereo { bool Enabled(){return false;} }
+#if CVR_RUST_VRIK
+// The plugin defines the report's exports in Rust and hands them to the GPU half with the engine-stereo query as it loads
+// (rust/crates/cvr-render/src/export_attach.rs); the test stands in for both, with the C++ definitions' values.
+extern "C" {
+__declspec(dllexport) uint32_t CyberpunkVR_FixedVrsReportSeq=0;
+__declspec(dllexport) char CyberpunkVR_FixedVrsReport[1024]="{}";
+}
+namespace {
+struct FixedVrsAttach {bool(*engineStereo)();uint32_t* reportSeq;char* report;size_t reportBytes;};
+const FixedVrsAttach kFixedVrsAttach{[]{return cvr::engine_stereo::Enabled();},&CyberpunkVR_FixedVrsReportSeq,
+    CyberpunkVR_FixedVrsReport,sizeof(CyberpunkVR_FixedVrsReport)};
+}
+extern "C" void cvr_vrs_attach(const FixedVrsAttach*);
+#endif
 static ComPtr<ID3D12InfoQueue> debugInfo;
 static void Check(bool v,const char* text){if(!v)throw std::runtime_error(text);}
 static void Hr(HRESULT h,const std::source_location where=std::source_location::current()){
@@ -32,6 +48,9 @@ static void Barrier(ID3D12GraphicsCommandList* l,ID3D12Resource* r,D3D12_RESOURC
     D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={r,0,from,to};l->ResourceBarrier(1,&b);
 }
 int main()try{
+#if CVR_RUST_VRIK
+    cvr_vrs_attach(&kFixedVrsAttach);
+#endif
     ComPtr<ID3D12Debug> debug;Hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));debug->EnableDebugLayer();
     ComPtr<IDXGIFactory6> factory;Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));ComPtr<IDXGIAdapter1> adapter;
     Hr(factory->EnumAdapterByGpuPreference(0,DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,IID_PPV_ARGS(&adapter)));
@@ -89,7 +108,7 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
         Rate(list5.Get(),D3D12_SHADING_RATE_1X1,nullptr);Image(list5.Get(),nullptr);ShadingRate(list.Get(),D3D12_SHADING_RATE_1X1,nullptr);ShadingImage(list.Get(),nullptr);
     };
     SetSettings({1,70,65,0,0});std::this_thread::sleep_for(std::chrono::milliseconds(1010));Tick(device.Get(),queue.Get());
-    begin();PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());Hr(list->Close());
+    begin();PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Restore(list.Get());Hr(list->Close());
     Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());Check(GetStatus().readyMaps==1,"Map did not become ready");
     struct Result{std::vector<uint8_t> pixels;uint64_t invocations{};};
     auto render=[&](int mode,int eye,uint32_t node){
@@ -114,7 +133,7 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
         for(UINT y=0;y<height;++y)std::memcpy(result.pixels.data()+y*width*4,static_cast<uint8_t*>(data)+fp.Offset+y*fp.Footprint.RowPitch,width*4);readback->Unmap(0,nullptr);
         Hr(counters->Map(0,nullptr,&data));result.invocations=static_cast<D3D12_QUERY_DATA_PIPELINE_STATISTICS*>(data)->PSInvocations;counters->Unmap(0,nullptr);return result;
     };
-    const auto baseline=render(0,0,0),main=render(1,0,0x23A938),vr=render(1,1,0x23A938),restored=render(2,0,0x23A938),hud=render(1,0,0x111111);
+    const auto baseline=render(0,0,0),main=render(1,0,0x33DDA4),vr=render(1,1,0x33DDA4),restored=render(2,0,0x33DDA4),hud=render(1,0,0x111111);
     Check(main.pixels==vr.pixels,"Eye policies differ");Check(restored.pixels==baseline.pixels && hud.pixels==baseline.pixels,"VRS escaped scene scope");
     Check(main.invocations<baseline.invocations*.85,"Pixel shading did not decrease");
     const auto rates=BuildRates({1,70,65,0,0},width,height,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
@@ -131,15 +150,15 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
     const D3D12_SHADING_RATE_COMBINER nativeCombiners[]{D3D12_SHADING_RATE_COMBINER_MAX,D3D12_SHADING_RATE_COMBINER_MIN};
     Rate(list5.Get(),D3D12_SHADING_RATE_2X1,nativeCombiners);Image(list5.Get(),lastMap);
     ShadingRate(list.Get(),D3D12_SHADING_RATE_2X1,nativeCombiners);ShadingImage(list.Get(),lastMap);
-    PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());
+    PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Restore(list.Get());
     Check(observedRate==D3D12_SHADING_RATE_2X1 && observedImage==savedMap && observedCombiners[0]==nativeCombiners[0] && observedCombiners[1]==nativeCombiners[1],"Non-default native state lost");
-    Invalidate(list.Get());PrepareDraw(list.Get(),0x23A938,0,Rate,Image);
+    Invalidate(list.Get());PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);
     Check(observedRate==D3D12_SHADING_RATE_2X1,"Unknown bundle state overridden");Hr(list->Close());
     SetSettings({2,40,40,15,10});std::this_thread::sleep_for(std::chrono::milliseconds(1010));Tick(device.Get(),queue.Get());
-    begin();PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());Hr(list->Close());Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());
-    const auto strong=render(1,0,0x23A938);Check(strong.invocations<main.invocations,"Second configuration not applied");
+    begin();PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Restore(list.Get());Hr(list->Close());Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());
+    const auto strong=render(1,0,0x33DDA4);Check(strong.invocations<main.invocations,"Second configuration not applied");
     std::cout<<"PASS GPU native image/rate/combiners, unknown-state refusal and 4x4/settings rebuild; PS invocations "<<strong.invocations<<"\n";
-    SetSettings({});const auto off=render(1,0,0x23A938);Check(off.pixels==baseline.pixels,"Off is not pass-through");
+    SetSettings({});const auto off=render(1,0,0x33DDA4);Check(off.pixels==baseline.pixels,"Off is not pass-through");
     cvr::gpu::CollectCommandResources();Shutdown();
     ComPtr<ID3D12InfoQueue> info;Hr(device.As(&info));
     for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T n=0;info->GetMessage(i,nullptr,&n);std::vector<char> storage(n);auto* m=reinterpret_cast<D3D12_MESSAGE*>(storage.data());Hr(info->GetMessage(i,m,&n));

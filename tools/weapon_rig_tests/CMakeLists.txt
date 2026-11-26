@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.24)
+project(WeaponRigTests LANGUAGES CXX)
+enable_testing()
+add_executable(weapon_rig_tests main.cpp ../../src/Anim/WeaponRig.cpp
+    ../../src/Anim/RigPoseWrites.cpp ../../src/Natives/NativeState.cpp)
+target_compile_features(weapon_rig_tests PRIVATE cxx_std_20)
+target_include_directories(weapon_rig_tests PRIVATE ../../include ../../externals/RED4ext.SDK/include)
+target_compile_definitions(weapon_rig_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_options(weapon_rig_tests PRIVATE /W4 /permissive- /Gy /Gw)
+target_link_options(weapon_rig_tests PRIVATE /OPT:REF /OPT:ICF /INCREMENTAL:NO)
+add_test(NAME weapon_rig_channels_and_concurrency COMMAND weapon_rig_tests)
+set_tests_properties(weapon_rig_channels_and_concurrency PROPERTIES TIMEOUT 20)

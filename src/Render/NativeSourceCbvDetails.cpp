@@ -1,5 +1,14 @@
 #include "Render/NativeSourceCbvDetails.hpp"
 #include <windows.h>
+#if CVR_RUST_VRIK
+// CaptureAtSource: rust/crates/cvr-render/src/source_cbv_snapshot_receipt.rs (the two reads at the source and the
+// metadata between them).
+namespace cvr::stereo::source_cbv_details {
+static_assert(sizeof(Resource)==56 && sizeof(Detail)==760 && offsetof(Detail,record)==112 && offsetof(Detail,state)==304 &&
+    offsetof(Detail,alias)==328 && offsetof(Detail,allocator)==696 && sizeof(source_cbv::SourceCbvBacking)==472,
+    "mirrored by source_cbv_snapshot_receipt.rs");
+}  // namespace cvr::stereo::source_cbv_details
+#else
 
 namespace cvr::stereo::source_cbv_details {
 namespace {
@@ -61,3 +70,4 @@ bool CaptureAtSource(ID3D12GraphicsCommandList* list,uint64_t root,UINT paramete
     output.status=Status::Captured;return true;
 }catch(...){output.status=Status::Exception;return false;}
 }
+#endif

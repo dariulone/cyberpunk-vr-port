@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // ProjAspectCall -- one hook, one file.
 //
 // The three call sites that pass FOV and aspect by offset. One installer, three patches --
@@ -29,6 +30,12 @@
 #include <cstddef>
 #include <cmath>
 
+#if CVR_RUST_VRIK
+// The callback and the stubs are rust/crates/cvr-rig/src/vrik/proj_aspect.rs; the registration (gated off) stays.
+extern "C" bool cvr_hook_proj_aspect_call_install();
+extern "C" bool cvr_hook_proj_aspect_call_wanted();
+CVR_HOOK_IF("ProjAspectCall", ::cvr::hooks::Stage::Boot, 51, cvr_hook_proj_aspect_call_install, cvr_hook_proj_aspect_call_wanted);
+#else
 // State private to this hook.
 namespace {
 uint64_t g_projAspectCallHits = 0;
@@ -230,3 +237,5 @@ bool InstallProjAspectCallHooks() {
 }
 
 CVR_HOOK_IF("ProjAspectCall", ::cvr::hooks::Stage::Boot, 51, InstallProjAspectCallHooks, ProjAspectCallWanted);
+#endif
+#endif

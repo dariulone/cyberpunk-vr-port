@@ -7,6 +7,22 @@
 namespace cvr::stereo::breadcrumb_write {
 namespace detail {
 using ReadMemory=bool(*)(void*,uint64_t,void*,size_t);
+#if CVR_RUST_VRIK
+// The rules below: rust/crates/cvr-render/src/breadcrumb.rs (tools/single_pass_tests/breadcrumb_write_test runs its cases
+// against them in its Rust variant).
+struct Observation;struct Frame;struct FrameLayout;
+extern "C" {
+uint32_t cvr_bc_caller_mode(uint64_t,uint64_t);
+uint32_t cvr_bc_nearest_caller(uint64_t,uint64_t,const uint64_t*,size_t);
+bool cvr_bc_parameters(uint32_t,UINT,uint64_t,uint32_t,uint32_t);
+bool cvr_bc_stack_span(const Frame*,uint64_t,uint64_t);
+bool cvr_bc_layout(uint64_t,const Frame*,FrameLayout*);
+bool cvr_bc_frame_from_registers(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,Frame*);
+bool cvr_bc_observe(ReadMemory,void*,uint64_t,const Frame*,uint64_t,uint64_t,uint32_t,uint32_t,Observation*,uint32_t*);
+bool cvr_bc_shape(const Observation*,const D3D12_RESOURCE_DESC*,const D3D12_HEAP_DESC*,const D3D12_RESOURCE_ALLOCATION_INFO*,uint64_t);
+bool cvr_bc_observed_creation_matches(const constants::ResourceCreationInfo*,const Observation*,uint64_t);
+}
+#endif
 inline constexpr uint32_t MarkerInReturn=0x3E529E,MarkerOutReturn=0x3E5A59;
 // 2.5 inlines the out-of-line chunk 2.31 kept at 0x1EDF598 into sub_14051FF90 (its row covers it).
 inline constexpr std::array<native_recording::detail::Code,16> Contract{{
@@ -26,22 +42,38 @@ inline bool Read(ReadMemory read,void* user,uint64_t address,void* output,size_t
 template<class T> bool Field(ReadMemory read,void* user,uint64_t address,uint64_t offset,T& output){
     return address && address<=UINT64_MAX-offset && Read(read,user,address+offset,&output,sizeof(output));
 }
+#if CVR_RUST_VRIK
+inline uint32_t CallerMode(uint64_t base,uint64_t caller){return cvr_bc_caller_mode(base,caller);}
+#else
 inline uint32_t CallerMode(uint64_t base,uint64_t caller){
     if(!base || caller<base)return 0;
     if(caller-base==MarkerInReturn)return 1;
     if(caller-base==MarkerOutReturn)return 2;
     return 0;
 }
+#endif
 // Frames are OS-unwound return addresses, never a scan for plausible values.
+#if CVR_RUST_VRIK
+inline uint32_t NearestCaller(uint64_t base,uint64_t imageBytes,std::span<const uint64_t> frames){
+    return cvr_bc_nearest_caller(base,imageBytes,frames.data(),frames.size());
+}
+#else
 inline uint32_t NearestCaller(uint64_t base,uint64_t imageBytes,std::span<const uint64_t> frames){
     if(!base || !imageBytes || base>UINT64_MAX-imageBytes || frames.size()>64)return 0;
     for(const auto rip:frames)if(rip>=base && rip-base<imageBytes)return CallerMode(base,rip);
     return 0;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Parameters(uint32_t callerMode,UINT count,const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER& value,uint32_t mode){
+    return cvr_bc_parameters(callerMode,count,value.Dest,value.Value,mode);
+}
+#else
 inline bool Parameters(uint32_t callerMode,UINT count,const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER& value,uint32_t mode){
     return count==1 && (callerMode==1 || callerMode==2) && mode==callerMode && value.Value==callerMode &&
         value.Dest && !(value.Dest&3) && value.Dest<=UINT64_MAX-4;
 }
+#endif
 struct Observation {
     uint64_t base{},registry{},device{},holder{},list{},marker{},entry{},heap{},resource{},gpu{},slotGpu{},bitmap{};
     uint32_t kind{},slot{},capacity{},stride{},slots{},words{};
@@ -52,10 +84,20 @@ struct Frame {
     bool operator==(const Frame&)const=default;
 };
 struct FrameLayout {uint64_t parameters{},modes{};uint32_t mode{};};
+#if CVR_RUST_VRIK
+static_assert(sizeof(Observation)==120 && sizeof(Frame)==48 && sizeof(FrameLayout)==24,"mirrored by breadcrumb.rs");
+#endif
+#if CVR_RUST_VRIK
+inline bool StackSpan(const Frame& frame,uint64_t address,uint64_t bytes){return cvr_bc_stack_span(&frame,address,bytes);}
+#else
 inline bool StackSpan(const Frame& frame,uint64_t address,uint64_t bytes){
     return frame.stackLow && frame.stackLow<frame.stackHigh && frame.stackHigh>=bytes &&
         address>=frame.stackLow && address<=frame.stackHigh-bytes;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Layout(uint64_t base,const Frame& frame,FrameLayout& output){return cvr_bc_layout(base,&frame,&output);}
+#else
 inline bool Layout(uint64_t base,const Frame& frame,FrameLayout& output){
     output={};const auto mode=CallerMode(base,frame.rip);
     if(!mode || !frame.holder || frame.holder>UINT64_MAX-8 || frame.rsp%16 ||
@@ -66,17 +108,32 @@ inline bool Layout(uint64_t base,const Frame& frame,FrameLayout& output){
         !StackSpan(frame,value.modes,sizeof(D3D12_WRITEBUFFERIMMEDIATE_MODE)))return false;
     output=value;return true;
 }
+#endif
 // Only the audited nonvolatile argument holder is recovered: RDI in marker-in,
 // RBX in marker-out. RBP is a frame pointer only in marker-in, not marker-out.
+#if CVR_RUST_VRIK
+inline bool FrameFromRegisters(uint64_t base,uint64_t rip,uint64_t rsp,uint64_t rbp,uint64_t rdi,uint64_t rbx,
+                               uint64_t low,uint64_t high,Frame& output){
+    return cvr_bc_frame_from_registers(base,rip,rsp,rbp,rdi,rbx,low,high,&output);
+}
+#else
 inline bool FrameFromRegisters(uint64_t base,uint64_t rip,uint64_t rsp,uint64_t rbp,uint64_t rdi,uint64_t rbx,
                                uint64_t low,uint64_t high,Frame& output){
     output={};const auto mode=CallerMode(base,rip);if(!mode)return false;
     Frame value{rip,rsp,mode==1?rbp:0,mode==1?rdi:rbx,low,high};FrameLayout layout;
     if(!Layout(base,value,layout))return false;output=value;return true;
 }
+#endif
 // Reader failures: 1 arguments/frame, 2 globals/holder, 3 marker association,
 // 4 factory shape, 5 heap/buffer, 6 bitmap/lock, 7 slot range, 8 destination.
 // 9 native stack arguments differ. Padding bytes are not compared.
+#if CVR_RUST_VRIK
+inline bool Observe(ReadMemory read,void* user,uint64_t base,const Frame& frame,uint64_t actualList,
+                    const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER& parameter,uint32_t mode,
+                    Observation& output,uint32_t* failure=nullptr){
+    return cvr_bc_observe(read,user,base,&frame,actualList,parameter.Dest,parameter.Value,mode,&output,failure);
+}
+#else
 inline bool Observe(ReadMemory read,void* user,uint64_t base,const Frame& frame,uint64_t actualList,
                     const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER& parameter,uint32_t mode,
                     Observation& output,uint32_t* failure=nullptr){
@@ -117,6 +174,13 @@ inline bool Observe(ReadMemory read,void* user,uint64_t base,const Frame& frame,
     if(destination<value.slotGpu || destination-value.slotGpu>value.stride-4)return fail(8);
     output=value;return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool Shape(const Observation& observation,const D3D12_RESOURCE_DESC& desc,const D3D12_HEAP_DESC& heap,
+                  const D3D12_RESOURCE_ALLOCATION_INFO& allocation,uint64_t gpu){
+    return cvr_bc_shape(&observation,&desc,&heap,&allocation,gpu);
+}
+#else
 inline bool Shape(const Observation& observation,const D3D12_RESOURCE_DESC& desc,const D3D12_HEAP_DESC& heap,
                   const D3D12_RESOURCE_ALLOCATION_INFO& allocation,uint64_t gpu){
     const auto flags=D3D12_RESOURCE_FLAGS(D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE|
@@ -129,12 +193,20 @@ inline bool Shape(const Observation& observation,const D3D12_RESOURCE_DESC& desc
         allocation.Alignment && allocation.SizeInBytes<=heap.SizeInBytes &&
         !(allocation.SizeInBytes%allocation.Alignment) && (!heap.Alignment || heap.Alignment==allocation.Alignment);
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ObservedCreationMatches(const constants::ResourceCreationInfo& value,const Observation& native,
+                                   uint64_t allocationBytes){
+    return cvr_bc_observed_creation_matches(&value,&native,allocationBytes);
+}
+#else
 inline bool ObservedCreationMatches(const constants::ResourceCreationInfo& value,const Observation& native,
                                    uint64_t allocationBytes){
     return value.kind==2 && reinterpret_cast<uintptr_t>(value.resource.Get())==native.resource &&
         reinterpret_cast<uintptr_t>(value.heap.Get())==native.heap && !value.heapOffset && value.allocationBytes==allocationBytes &&
         (!value.initialStateKnown || value.initialState==D3D12_RESOURCE_STATE_COPY_DEST);
 }
+#endif
 }
 enum class Provenance:uint32_t {ObservedCreation=1,NativeFactory=2};
 struct Snapshot {

@@ -1,6 +1,9 @@
 #pragma once
 #include "Utils/XrMath.hpp"
 #include "Runtimes/BodyYawPrediction.hpp"
+#if CVR_RUST_BODY
+#include "Rust/CvrRust.h"
+#endif
 #include <algorithm>
 #include <cstdint>
 
@@ -17,10 +20,17 @@ struct TrackingFrame {
     uint64_t sequence{},stampUs{},origin{};
 };
 struct YawEstimate {float yaw{},confidence{};bool valid=false;};
+#if CVR_RUST_BODY
+static_assert(sizeof(TrackingFrame) == 112 && sizeof(YawEstimate) == 12);
+inline bool TrackingFrameFresh(const TrackingFrame& frame,uint64_t currentOrigin,uint64_t nowUs){
+    return cvr_tracking_frame_fresh(&frame,currentOrigin,nowUs);
+}
+#else
 inline bool TrackingFrameFresh(const TrackingFrame& frame,uint64_t currentOrigin,uint64_t nowUs){
     return frame.valid && frame.origin==currentOrigin && currentOrigin!=0 && frame.sequence!=0 &&
         frame.stampUs!=0 && nowUs>=frame.stampUs && nowUs-frame.stampUs<=150000;
 }
+#endif
 
 class TrackedBodyYaw {
     struct Observation {XrVector3f hand[2],worldHand[2];XrQuaternionf rotation[2],headRotation;};
@@ -116,8 +126,8 @@ private:
         return true;
     }
     // A new reference for a new hand shape (a gesture, the hands lowered or raised): the torso has not turned, so the
-    // head's yaw against it is carried over, as at a mid-turn rebase. HANDS CHANGED, THEN A TURN (2026-11-07: the hybrid
-    // lost the torso when the hands were lowered and the player turned again): the lead was zeroed here, and the head had
+    // head's yaw against it is carried over, as at a mid-turn rebase. HANDS CHANGED, THEN A TURN (2026-11-07, user:
+    // "сбивается гибридный если опустить руки потом опять повернуться"): the lead was zeroed here, and the head had
     // been 61 degrees off the torso when the hands changed -- the next turn of the torso toward the head was taken for
     // a turn against it and refused half way (simulator, random turns: 42 of 106 degrees, the body left at the neck limit).
     void Reshape(const Observation& value){
@@ -132,6 +142,14 @@ private:
             Radius(p.hand[0])<.65f && Radius(p.hand[1])<.65f;
     }
 public:
+#if CVR_RUST_BODY
+    // rust/crates/cvr-body/src/tracked_yaw.rs; this class's fields are its layout.
+    void Reset(float seed=0,bool useAbsoluteInitial=true){cvr_tracked_body_yaw_reset(this,seed,useAbsoluteInitial);}
+    void Suspend(){cvr_tracked_body_yaw_suspend(this);}
+    bool Ready() const{return haveAnchor;}
+    YawEstimate Predict(uint64_t nowUs) const {YawEstimate e;cvr_tracked_body_yaw_predict(this,nowUs,&e);return e;}
+    YawEstimate Update(const TrackingFrame& frame){YawEstimate e;cvr_tracked_body_yaw_update(this,&frame,&e);return e;}
+#else
     void Reset(float seed=0,bool useAbsoluteInitial=true){*this={};absoluteInitial=useAbsoluteInitial;target=output=anchorYaw=std::isfinite(seed)?Wrap(seed):0;prediction.Reset(output);}
     void Suspend(){trace.bits|=1u<<27;if(haveAnchor){keptAnchor=true;keptStamp=stamp;}haveAnchor=haveFilter=false;rigidHeld=false;stamp=sequence=0;evidence=0;target=output;prediction.Reset(output);}
     bool Ready() const{return haveAnchor;}
@@ -151,7 +169,7 @@ public:
         if(stamp && (frame.stampUs<=stamp || !Newer(frame.sequence,sequence)))return {output,0,true};
         const float dt=stamp?float(frame.stampUs-stamp)*1e-6f:0;
         if(dt>.20f){
-            // A FREEZE (2026-11-07). No sample for longer than a frame ever
+            // A FREEZE (2026-11-07, user: "симулируй фриз при поворотах тела"). No sample for longer than a frame ever
             // takes: the game hitched. Suspended, the reference was taken afresh where the player stood after it and any
             // turn made during the hitch was lost -- the body stayed behind the hands until the neck limit dragged it.
             // Both wrists turned by one yaw and both hands moved round the neck with them is the torso turned: carried.
@@ -178,7 +196,8 @@ public:
                 // a person turns is the player turned as one -- the simulator's mouse (its controllers ride on the head),
                 // or the tracking space turning under the player -- and the torso turned with them: carried. Suspended
                 // instead, the turn was lost: the reference came back where the body had been left (dragged at the neck
-                // limit), and looking down the body stayed 40-65 degrees off the head. Devices jumping apart are a tracking fault, suspended as before; and one sample
+                // limit), and looking down the body stayed 40-65 degrees off the head (user: "я повернулся развернулся и
+                // тело смотрит правее"). Devices jumping apart are a tracking fault, suspended as before; and one sample
                 // turned and the next back is an outlier: the first is held (the estimate unchanged, the reference and
                 // the filter kept from before it) and the turn carried only when the next sample is still turned.
                 const float tolerance=.10f+.15f*std::abs(headJump);
@@ -395,5 +414,9 @@ public:
         }
         return {output,coherent?std::min(1.0f,evidence/.045f):0,true};
     }
+#endif
 };
+#if CVR_RUST_BODY
+static_assert(sizeof(TrackedBodyYaw) == 488);
+#endif
 }

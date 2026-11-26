@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: patchday <patchday@local>
+Date: Thu, 22 Oct 2026 18:35:14 +0300
+Subject: [PATCH 4/4] 2.5 (3.0.88): ArchiveScope renumbered (Patch 4/5, Mod 6)
+
+---
+ include/RED4ext/ResourceDepot.hpp | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/include/RED4ext/ResourceDepot.hpp b/include/RED4ext/ResourceDepot.hpp
+index 81497685..fd70f327 100644
+--- a/include/RED4ext/ResourceDepot.hpp
++++ b/include/RED4ext/ResourceDepot.hpp
+@@ -19,13 +19,16 @@ struct Archive
+ RED4EXT_ASSERT_SIZE(Archive, 0x50);
+ RED4EXT_ASSERT_OFFSET(Archive, path, 0x10);
+ 
++// 2.5 (3.0.88) renumbered the scopes (2.31: Patch 3, Mod 4); see the game's scope -> folder mapping (hash 1525423808).
+ enum class ArchiveScope : uint32_t
+ {
+     Invalid = 0,
+     Content = 1, // archive\pc\content
+-    DLC = 2,     // archive\pc\dlc
+-    Patch = 3,   // archive\pc\patch
+-    Mod = 4,     // archive\pc\mod + mods\*\archives
++    DLC = 2,     // archive\pc\ep1
++    Unk3 = 3,    // no folder
++    Patch = 4,   // archive\pc\patch
++    Patch2 = 5,  // archive\pc\patch, loaded before Patch
++    Mod = 6,     // archive\pc\mod + mods\*\archives + mod.io mods
+ };
+ 
+ struct ArchiveGroup

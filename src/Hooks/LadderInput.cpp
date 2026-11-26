@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Hooks/LadderInput.hpp"
 #include "Hooks/SwimmingInput.hpp"
 #include "Hooks/RoomscaleMove.hpp"
@@ -13,8 +14,15 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include <mutex>
 
+// THE LADDER IS RUST'S with CVR_RUST_VRIK (rust/crates/cvr-rig/src/vrik/ladder_input.rs, the climb itself in
+// rust/crates/cvr-rig/src/ladder_climb.rs); cvr::ladder::* then forwards from src/Hooks/WaterLadderRust.cpp.
+#if !CVR_RUST_VRIK
+// The OpenXR Simulator's presence through src/Hooks/HookServices.cpp, which tools/vrik_tests replaces.
+extern "C" bool cvr_cpp_simulator_loaded();
 namespace cvr::ladder {
 namespace {
+// XrDiagNowUs, or the tests' counter (g_VRIKClockQpc, 1 MHz).
+uint64_t ClockUs() { return g_VRIKClockQpc ? static_cast<uint64_t>(g_VRIKClockQpc()) : XrDiagNowUs(); }
 std::mutex s_mutex;
 uintptr_t s_player{};
 uint64_t s_stamp{},s_inputStamp{},s_testUntil{};
@@ -27,17 +35,17 @@ Vec s_handWorld[2]{};
 bool IsFresh(uint64_t now) { return Fresh(s_player,cvr::roomscale::PlayerIdentity(),s_stamp,now,s_detailed); }
 bool ContextAllowed() {
     const int tier=g_sceneTier.load(std::memory_order_relaxed);
-    return GripEnabled(g_liveControls.xrHandPhysics!=0,g_liveControls.xrLadderGripClimb!=0) && !g_isInVehicle && g_menuModeValue==0 &&
+    return g_liveControls.xrLadderGripClimb!=0 && !g_isInVehicle && g_menuModeValue==0 &&
         !DeviceCamActive() && !g_bdActive.load(std::memory_order_relaxed) &&
         !g_uiPopupOpen.load(std::memory_order_relaxed) && !OverlayIsVisible() && tier>0 && tier<4;
 }
 void Clear() { s_climber.Reset();s_axis=0;s_inputStamp=0; }
 Vec V(XrVector3f v) { return {v.x,v.y,v.z}; }
 }
-bool Active() { std::lock_guard lock(s_mutex);return IsFresh(XrDiagNowUs()); }
+bool Active() { std::lock_guard lock(s_mutex);return IsFresh(ClockUs()); }
 void ReadHandKinds(int* kinds) {
     kinds[0]=kinds[1]=0;if(!ContextAllowed())return;
-    std::lock_guard lock(s_mutex);const auto now=XrDiagNowUs();
+    std::lock_guard lock(s_mutex);const auto now=ClockUs();
     if(s_paused || !IsFresh(now) || !s_inputStamp || now<s_inputStamp || now-s_inputStamp>100000)return;
     for(int side=0;side<2;++side)if(s_climber.Held(side))kinds[side]=s_climber.Kind(side);
 }
@@ -50,31 +58,31 @@ void Publish(uintptr_t player,int detailed,bool paused,const Geometry* geometry)
         next.topRailCount=s_geometry.topRailCount;
         std::copy_n(s_geometry.topRails,next.topRailCount,next.topRails);
     }
-    s_player=player;s_detailed=detailed;s_paused=paused;s_stamp=XrDiagNowUs();
+    s_player=player;s_detailed=detailed;s_paused=paused;s_stamp=ClockUs();
     s_geometry=next;
 }
 bool PublishTop(uintptr_t player,Vec ladderPosition,Vec origin,Vec right,Vec normal,Vec up) {
     std::lock_guard lock(s_mutex);
-    if(player!=s_player || !IsFresh(XrDiagNowUs()) || Length(ladderPosition-s_geometry.position)>.01f)return false;
+    if(player!=s_player || !IsFresh(ClockUs()) || Length(ladderPosition-s_geometry.position)>.01f)return false;
     return s_geometry.SetTopRails(origin,right,normal,up);
 }
 bool PublishMeasuredTop(uintptr_t player,Vec ladderPosition,float top) {
     std::lock_guard lock(s_mutex);
-    if(player!=s_player || !IsFresh(XrDiagNowUs()) || Length(ladderPosition-s_geometry.position)>.01f)return false;
+    if(player!=s_player || !IsFresh(ClockUs()) || Length(ladderPosition-s_geometry.position)>.01f)return false;
     return s_geometry.SetMeasuredTop(top);
 }
 void ResetInput() { std::lock_guard lock(s_mutex);Clear(); }
 bool SetSimulatorGrip(float left,float right,int milliseconds) {
-    if(!GetModuleHandleW(L"openxr_simulator.dll"))return false;
+    if(!cvr_cpp_simulator_loaded())return false;
     std::lock_guard lock(s_mutex);
     s_testGrip[0]=std::clamp(left,0.0f,1.0f);s_testGrip[1]=std::clamp(right,0.0f,1.0f);
-    s_testUntil=milliseconds>0 ? XrDiagNowUs()+uint64_t(std::min(milliseconds,2000))*1000:0;
+    s_testUntil=milliseconds>0 ? ClockUs()+uint64_t(std::min(milliseconds,2000))*1000:0;
     return true;
 }
 void UpdateInput(const VRControllerState& controllers) {
     const bool context=ContextAllowed();Geometry geometry;float grips[2]={controllers.leftGrip,controllers.rightGrip};
     {
-        std::lock_guard lock(s_mutex);const auto now=XrDiagNowUs();
+        std::lock_guard lock(s_mutex);const auto now=ClockUs();
         if(!context || s_paused || !IsFresh(now) || !s_geometry.valid) { Clear();return; }
         geometry=s_geometry;
         if(now<s_testUntil)for(int i=0;i<2;++i)grips[i]=s_testGrip[i];
@@ -123,14 +131,14 @@ void UpdateInput(const VRControllerState& controllers) {
         sample.height=Dot(entity-geometry.position,geometry.up);
         sample.sequence=sequence;sample.origin=head.originSerial;sample.stamp=stamp;sample.valid=head.valid;
     }
-    std::lock_guard lock(s_mutex);const auto now=XrDiagNowUs();
+    std::lock_guard lock(s_mutex);const auto now=ClockUs();
     if(!IsFresh(now) || s_paused || geometry.identity!=s_geometry.identity) { Clear();return; }
     for(int i=0;i<2;++i)s_handWorld[i]=sample.world[i];
     s_axis=s_climber.Update(geometry,sample,now,valid);s_inputStamp=now;
 }
 float NativeAction() {
     if(!ContextAllowed())return 0;
-    std::lock_guard lock(s_mutex);const auto now=XrDiagNowUs();
+    std::lock_guard lock(s_mutex);const auto now=ClockUs();
     if(s_paused || !IsFresh(now) || !s_inputStamp || now<s_inputStamp || now-s_inputStamp>100000)return 0;
     return s_axis;
 }
@@ -140,7 +148,7 @@ float MixMove(float original,float rawX,float rawY) {
 }
 void ConstrainHand(int side,float* targetModel,float* handRotation,const float* position,const float* rotation) {
     if(!targetModel || !handRotation || !position || !rotation || side<0 || side>1 || !ContextAllowed())return;
-    std::lock_guard lock(s_mutex);const auto now=XrDiagNowUs();
+    std::lock_guard lock(s_mutex);const auto now=ClockUs();
     if(s_paused || !IsFresh(now) || !s_inputStamp || now<s_inputStamp || now-s_inputStamp>100000)return;
     // The caller supplies the one body frame latched for both hands and the
     // view. Reading the newest transform independently here would mix ticks.
@@ -164,7 +172,7 @@ float DebugValue(int index) {
     }
     switch(index) {
     case 0:return float(s_detailed);
-    case 1:return IsFresh(XrDiagNowUs()) ? 1.0f:0.0f;
+    case 1:return IsFresh(ClockUs()) ? 1.0f:0.0f;
     case 2:return s_axis;
     case 3:return s_climber.Held(0) ? 1.0f:0.0f;
     case 4:return s_climber.Held(1) ? 1.0f:0.0f;
@@ -172,7 +180,7 @@ float DebugValue(int index) {
     case 6:return s_geometry.valid ? 1.0f:0.0f;
     case 7:return float(s_climber.Kind(0));
     case 8:return float(s_climber.Kind(1));
-    case 9:return s_stamp ? float(XrDiagNowUs()-s_stamp)*.001f:-1;
+    case 9:return s_stamp ? float(ClockUs()-s_stamp)*.001f:-1;
     case 16:return float(s_geometry.topRailCount);
     case 17:return s_geometry.PhysicalTop();
     case 18:return s_climber.Finishing() ? 1.0f:0.0f;
@@ -181,3 +189,5 @@ float DebugValue(int index) {
     }
 }
 }
+#endif
+#endif

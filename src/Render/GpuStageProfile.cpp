@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/GpuStageProfile.hpp"
 #include "Render/CommandResources.hpp"
 #include <wrl/client.h>
@@ -7,6 +8,10 @@
 #include <cstdio>
 #include <mutex>
 #include <vector>
+#if CVR_RUST_VRIK
+// The exports' tables are attached by rust/crates/cvr-render/src/export_attach.rs as the plugin loads;
+// nothing of this file remains in the Rust build.
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GpuStageRequest{0};
@@ -161,3 +166,5 @@ void Poll() {
     if (changed) Publish();
 }
 }
+#endif
+#endif

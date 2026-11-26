@@ -48,6 +48,31 @@ bool MatchesStagedPrivate(const Copy&,const descriptors::SourceResourceBinding&,
     const native_recording::Lease&,ID3D12CommandQueue*);
 Failure LastFailure();
 namespace detail {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/material_buffer_snapshot.rs (tools/single_pass_tests/material_buffer_snapshot_test
+// runs its cases against them in its Rust variant). The bindings are mirrored there, the COM pointers read as addresses.
+extern "C" {
+bool cvr_mbs_same_recording(const native_recording::Lease*,const native_recording::Lease*);
+bool cvr_mbs_same_buffer_view(const D3D12_SHADER_RESOURCE_VIEW_DESC*,const D3D12_SHADER_RESOURCE_VIEW_DESC*);
+bool cvr_mbs_source_binding(const descriptors::SrvBinding*,uint32_t,const descriptors::SourceResourceBinding*);
+bool cvr_mbs_private_view(const D3D12_SHADER_RESOURCE_VIEW_DESC*,UINT,uint64_t,uint64_t,D3D12_SHADER_RESOURCE_VIEW_DESC*);
+}
+static_assert(sizeof(native_recording::Lease)==40 && sizeof(D3D12_SHADER_RESOURCE_VIEW_DESC)==40 &&
+    sizeof(descriptors::SrvBinding)==384 && offsetof(descriptors::SrvBinding,view)==168 && offsetof(descriptors::SrvBinding,stamp)==208 &&
+    sizeof(descriptors::SourceResourceBinding)==208 && offsetof(descriptors::SourceResourceBinding,stamp)==16 &&
+    offsetof(descriptors::SourceResourceBinding,resource)==192,"mirrored by material_buffer_snapshot.rs");
+inline bool SameRecording(const native_recording::Lease& a,const native_recording::Lease& b){return cvr_mbs_same_recording(&a,&b);}
+inline bool SameBufferView(const D3D12_SHADER_RESOURCE_VIEW_DESC& a,const D3D12_SHADER_RESOURCE_VIEW_DESC& b){
+    return cvr_mbs_same_buffer_view(&a,&b);
+}
+inline bool SourceBinding(const source_srv::SourceSrvBacking& source,const descriptors::SourceResourceBinding& binding){
+    return cvr_mbs_source_binding(&source.binding,source.shaderRegister,&binding);
+}
+inline bool PrivateView(const D3D12_SHADER_RESOURCE_VIEW_DESC& original,UINT reg,uint64_t offset,uint64_t bytes,
+    D3D12_SHADER_RESOURCE_VIEW_DESC& result){
+    return cvr_mbs_private_view(&original,reg,offset,bytes,&result);
+}
+#else
 inline bool SameRecording(const native_recording::Lease& a,const native_recording::Lease& b){
     return a.token && a.token==b.token && a.list==b.list && a.generation==b.generation && a.context==b.context && a.registry==b.registry;
 }
@@ -73,5 +98,6 @@ inline bool PrivateView(const D3D12_SHADER_RESOURCE_VIEW_DESC& original,UINT reg
     else if(original.Format!=DXGI_FORMAT_UNKNOWN || original.Buffer.Flags || original.Buffer.StructureByteStride!=64)return false;
     result=original;result.Buffer.FirstElement=offset/stride;return true;
 }
+#endif
 }
 }

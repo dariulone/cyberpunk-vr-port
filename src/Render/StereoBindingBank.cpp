@@ -10,8 +10,133 @@
 #include <tuple>
 #include <intrin.h>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The bank: rust/crates/cvr-render/src/binding_bank.rs (tools/single_pass_tests/binding_bank_test and
+// source_binding_assembly_test run their cases against it in their Rust variants).
+extern "C" {
+HRESULT cvr_bank_create_pass(ID3D12Device*,const void*,size_t,void**);
+HRESULT cvr_bank_create_source_pass(ID3D12Device*,const void*,size_t,cvr::stereo::SourcePassFailure*,void**);
+HRESULT cvr_bank_create_arena(ID3D12Device*,ID3D12RootSignature*,const void*,UINT,UINT64,void**);
+HRESULT cvr_bank_append_constants(void*,const void*,const void*,size_t,UINT*);
+bool cvr_bank_restart_arena(void*);
+bool cvr_bank_captured_for(void*,ID3D12GraphicsCommandList*,bool(*)(void*,void*));
+bool cvr_bank_capture_eye(void*,ID3D12GraphicsCommandList*,UINT,bool(*)(void*,void*),bool(*)(void*,void*));
+bool cvr_bank_bind(void*,ID3D12GraphicsCommandList*,UINT,UINT,bool(*)(void*,void*));
+bool cvr_bank_bind_source(void*,ID3D12GraphicsCommandList*,UINT,bool(*)(void*,void*));
+void cvr_bank_counts(void*,void*);
+}
+#endif
+#endif
 namespace cvr::stereo {
 using Microsoft::WRL::ComPtr;
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's banks are binding_bank.rs' (no StereoBindingBank is made)
+// The storage is the Rust object (its IUnknown vtable is Rust's); the inputs are lent as mirrors, the command resources'
+// Keep / Has are callbacks.
+namespace {
+struct RustPlan {const uint8_t* serialized;size_t serializedLength;const PairedBindingLocation* bindings;size_t bindingCount;
+    std::array<UINT,2> parameters,descriptors;UINT originalParameters,rootDwords;};
+struct RustValue {const uint8_t* constants;size_t constantsLength;ID3D12Resource* source;D3D12_SHADER_RESOURCE_VIEW_DESC srv;
+    D3D12_RESOURCE_STATES state;D3D12_CONSTANT_BUFFER_VIEW_DESC gpuCbv;IUnknown* owner;bool borrowedSrv,implicitSrv;};
+struct RustPair {PairedBinding binding;std::array<RustValue,2> eyes;};
+struct RustTable {UINT parameter,offset,count;ID3D12DescriptorHeap* cpuHeap;IUnknown* const* leases;size_t leaseCount;
+    uint64_t identity,version,storageScope;UINT storageExtent;};
+struct RustDraw {ID3D12RootSignature* root;const RustPlan* plan;const RustPair* pairs;size_t pairCount;const RustTable* shared;
+    size_t sharedCount;ID3D12RootSignature* sourceRoot;};
+struct RustSource {ID3D12RootSignature* root;const uint8_t* serialized;size_t serializedLength;const RustTable* tables;size_t tableCount;};
+struct RustCounts {UINT draws,descriptors,snapshots;UINT64 constantBytes;};
+static_assert(sizeof(RustPlan)==56 && sizeof(RustValue)==104 && sizeof(RustPair)==224 && sizeof(RustTable)==72 &&
+    sizeof(RustDraw)==56 && sizeof(RustSource)==40 && sizeof(RustCounts)==24,"mirrored by binding_bank.rs");
+RustPlan Lend(const PairedRootPlan& plan){
+    return {plan.serialized.data(),plan.serialized.size(),plan.bindings.data(),plan.bindings.size(),plan.parameters,plan.descriptors,
+        plan.originalParameters,plan.rootDwords};
+}
+RustValue Lend(const BankValue& v){
+    return {v.constants.data(),v.constants.size(),v.source.Get(),v.srv,v.state,v.gpuCbv,v.owner.Get(),v.borrowedSrv,v.implicitSrv};
+}
+RustPair Lend(const BankPair& p){return {p.binding,{Lend(p.eyes[0]),Lend(p.eyes[1])}};}
+// The tables with their leases as raw pointers: the owners stay held by the caller's tables for the call.
+struct LentTables {std::vector<std::vector<IUnknown*>> leases;std::vector<RustTable> tables;};
+void Lend(std::span<const SharedBankTable> tables,LentTables& output){
+    output.leases.reserve(tables.size());output.tables.reserve(tables.size());
+    for(const auto& t:tables){auto& leases=output.leases.emplace_back();leases.reserve(t.leases.size());
+        for(const auto& lease:t.leases)leases.push_back(lease.Get());
+        output.tables.push_back({t.parameter,t.offset,t.count,t.cpuHeap.Get(),leases.data(),leases.size(),t.identity,t.version,
+            t.storageScope,t.storageExtent});}
+}
+bool Keep(void* list,void* storage)noexcept{
+    try{return gpu::KeepCommandResources(static_cast<ID3D12GraphicsCommandList*>(list),{static_cast<IUnknown*>(storage)});}catch(...){return false;}
+}
+bool Has(void* list,void* storage)noexcept{
+    try{return gpu::HasCommandResource(static_cast<ID3D12GraphicsCommandList*>(list),static_cast<IUnknown*>(storage));}catch(...){return false;}
+}
+RustCounts Counts(IUnknown* storage){RustCounts counts{};if(storage)cvr_bank_counts(storage,&counts);return counts;}
+}
+struct StereoBindingBank::Storage:IUnknown {};
+StereoBindingBank::StereoBindingBank()=default;
+StereoBindingBank::~StereoBindingBank()=default;
+HRESULT StereoBindingBank::Create(ID3D12Device* device,ID3D12RootSignature* root,const PairedRootPlan& plan,
+    std::span<const BankPair> pairs,std::span<const SharedBankTable> shared) {
+    const BankDraw draw{root,&plan,pairs,shared};return CreatePass(device,{&draw,1});
+}
+HRESULT StereoBindingBank::CreatePass(ID3D12Device* device,std::span<const BankDraw> draws)try{
+    if(storage_ || !device || draws.empty() || draws.size()>32768)return E_INVALIDARG;
+    std::vector<RustPlan> plans;std::vector<std::vector<RustPair>> pairs;std::vector<LentTables> tables;std::vector<RustDraw> lent;
+    plans.reserve(draws.size());pairs.reserve(draws.size());tables.reserve(draws.size());lent.reserve(draws.size());
+    for(const auto& draw:draws){
+        plans.push_back(draw.plan?Lend(*draw.plan):RustPlan{});
+        auto& lentPairs=pairs.emplace_back();lentPairs.reserve(draw.pairs.size());for(const auto& pair:draw.pairs)lentPairs.push_back(Lend(pair));
+        auto& lentTables=tables.emplace_back();Lend(draw.shared,lentTables);
+        lent.push_back({draw.root,draw.plan?&plans.back():nullptr,lentPairs.data(),lentPairs.size(),lentTables.tables.data(),
+            lentTables.tables.size(),draw.sourceRoot});
+    }
+    void* created{};const auto hr=cvr_bank_create_pass(device,lent.data(),lent.size(),&created);if(FAILED(hr))return hr;
+    storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(created)));return S_OK;
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
+HRESULT StereoBindingBank::CreateSourcePass(ID3D12Device* device,std::span<const SourceBankDraw> inputs)try{
+    sourcePassFailure_={};
+    if(storage_){sourcePassFailure_.stage=UINT(SourcePassFailureStage::Arguments);
+        sourcePassFailure_.bits=uint64_t(SourcePassFailureReason::AlreadyInitialized);return E_INVALIDARG;}
+    std::vector<LentTables> tables;std::vector<RustSource> lent;tables.reserve(inputs.size());lent.reserve(inputs.size());
+    for(const auto& input:inputs){auto& lentTables=tables.emplace_back();Lend(input.tables,lentTables);
+        lent.push_back({input.root.Get(),input.serializedRoot.data(),input.serializedRoot.size(),lentTables.tables.data(),lentTables.tables.size()});}
+    void* created{};const auto hr=cvr_bank_create_source_pass(device,lent.data(),lent.size(),&sourcePassFailure_,&created);if(FAILED(hr))return hr;
+    storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(created)));return S_OK;
+}catch(const std::bad_alloc&){sourcePassFailure_.stage=UINT(SourcePassFailureStage::Exception);
+    sourcePassFailure_.bits=uint64_t(SourcePassFailureReason::AllocationException);return E_OUTOFMEMORY;}
+HRESULT StereoBindingBank::CreateArena(ID3D12Device* device,ID3D12RootSignature* root,const PairedRootPlan& plan,UINT maxDraws,UINT64 bytes)try{
+    if(storage_ || !device)return E_INVALIDARG;
+    const auto lent=Lend(plan);void* created{};const auto hr=cvr_bank_create_arena(device,root,&lent,maxDraws,bytes,&created);if(FAILED(hr))return hr;
+    storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(created)));return S_OK;
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
+HRESULT StereoBindingBank::AppendConstants(const PairedRootPlan& plan,std::span<const BankPair> pairs,UINT& index)try{
+    if(!storage_)return E_INVALIDARG;
+    const auto lentPlan=Lend(plan);std::vector<RustPair> lent;lent.reserve(pairs.size());for(const auto& pair:pairs)lent.push_back(Lend(pair));
+    return cvr_bank_append_constants(storage_.Get(),&lentPlan,lent.data(),lent.size(),&index);
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
+bool StereoBindingBank::RestartArena(){return storage_ && cvr_bank_restart_arena(storage_.Get());}
+void* StereoBindingBank::DetachStorage(){return static_cast<IUnknown*>(storage_.Detach());}
+void StereoBindingBank::AttachStorage(void* storage){storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(storage)));}
+bool StereoBindingBank::CapturedFor(ID3D12GraphicsCommandList* list)const{return storage_ && list && cvr_bank_captured_for(storage_.Get(),list,&Has);}
+bool StereoBindingBank::CaptureEye(ID3D12GraphicsCommandList* list,UINT eye){
+    return storage_ && list && cvr_bank_capture_eye(storage_.Get(),list,eye,&Keep,&Has);
+}
+bool StereoBindingBank::Bind(ID3D12GraphicsCommandList* list,UINT index)const{
+    return storage_ && list && cvr_bank_bind(storage_.Get(),list,UINT_MAX,index,&Has);
+}
+bool StereoBindingBank::BindSourceEye(ID3D12GraphicsCommandList* list,UINT eye,UINT index)const{
+    return storage_ && list && eye<2 && cvr_bank_bind(storage_.Get(),list,eye,index,&Has);
+}
+bool StereoBindingBank::BindSource(ID3D12GraphicsCommandList* list,UINT index)const{
+    return storage_ && list && cvr_bank_bind_source(storage_.Get(),list,index,&Keep);
+}
+UINT StereoBindingBank::DescriptorCount()const{return Counts(storage_.Get()).descriptors;}
+UINT StereoBindingBank::DrawCount()const{return Counts(storage_.Get()).draws;}
+UINT StereoBindingBank::SnapshotCount()const{return Counts(storage_.Get()).snapshots;}
+UINT64 StereoBindingBank::ConstantBytes()const{return Counts(storage_.Get()).constantBytes;}
+#endif
+#else
 struct StereoBindingBank::Storage final : IUnknown {
     struct Copy {ComPtr<ID3D12Resource> source,owned;D3D12_RESOURCE_STATES state{};UINT eye{};};
     struct Draw {ComPtr<ID3D12RootSignature> root,sourceRoot;std::vector<std::pair<UINT,UINT>> tables,samplerTables;
@@ -551,4 +676,5 @@ UINT StereoBindingBank::DescriptorCount()const{return storage_?storage_->descrip
 UINT StereoBindingBank::DrawCount()const{return storage_?UINT(storage_->draws.size()):0;}
 UINT StereoBindingBank::SnapshotCount()const{return storage_?UINT(storage_->copies.size()):0;}
 UINT64 StereoBindingBank::ConstantBytes()const{return storage_?storage_->constantBytes:0;}
+#endif
 }

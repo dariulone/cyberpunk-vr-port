@@ -5,8 +5,38 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::camera {
+#if CVR_RUST_ROOM
+// rust/crates/cvr-camera/src/eye_centre.rs, owned by this object (its own lock inside).
+class EyeCentreLedger {
+public:
+    using Position = std::array<int32_t, 3>;
+    using WorldPosition = std::array<float, 3>;
+    EyeCentreLedger() : m_rust(cvr_eye_ledger_new()) {}
+    ~EyeCentreLedger() { cvr_eye_ledger_free(m_rust); }
+    EyeCentreLedger(const EyeCentreLedger&) = delete;
+    EyeCentreLedger& operator=(const EyeCentreLedger&) = delete;
+    void Publish(Position eye, Position centre) { Publish(eye, centre, centre); }
+    void Publish(Position eye, Position centre, Position bodyBase) {
+        cvr_eye_ledger_publish(m_rust, eye.data(), centre.data(), bodyBase.data());
+    }
+    bool Read(Position eye, Position& centre, Position* bodyBase = nullptr) {
+        return cvr_eye_ledger_read(m_rust, eye.data(), centre.data(), bodyBase ? bodyBase->data() : nullptr);
+    }
+    bool ReadWorld(WorldPosition eyeOrCentre, WorldPosition& centre, WorldPosition* bodyBase = nullptr) {
+        return cvr_eye_ledger_read_world(m_rust, eyeOrCentre.data(), centre.data(), bodyBase ? bodyBase->data() : nullptr);
+    }
+    static WorldPosition World(Position p) {
+        return {float(p[0])/131072.0f, float(p[1])/131072.0f, float(p[2])/131072.0f};
+    }
+private:
+    void* m_rust;
+};
+#else
 class EyeCentreLedger {
 public:
     using Position = std::array<int32_t, 3>;
@@ -89,4 +119,5 @@ private:
     uint64_t m_next{};
     std::mutex m_mutex;
 };
+#endif
 }

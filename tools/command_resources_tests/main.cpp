@@ -1,5 +1,7 @@
 #include "Render/CommandResources.hpp"
 #include "Render/IdleDlssContext.hpp"
+#include "Render/FenceRetirement.hpp"
+#include "Runtimes/SubmissionQueue.hpp"
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 #include <atomic>
@@ -43,7 +45,7 @@ int main() try {
         const auto result = WaitForSingleObject(event, 5000); CloseHandle(event); Check(result == WAIT_OBJECT_0, "GPU timeout");
         CollectCommandResources();
     };
-    Check(PrepareCommandResources(1, commands).batches.empty(), "unrelated list tracked");
+    Check(SubmissionEmpty(PrepareCommandResources(1, commands)), "unrelated list tracked");
 
     keep(); Hr(list->Close()); reset();
     Check(destroyed == 1, "unsubmitted recording retained after reset");
@@ -65,7 +67,7 @@ int main() try {
     // A closed list may be submitted more than once without being re-recorded.
     keep(); Hr(list->Close());
     for (unsigned i = 0; i < 2; ++i) {
-        auto replay = PrepareCommandResources(1, commands); Check(!replay.batches.empty(), "replay lost ownership");
+        auto replay = PrepareCommandResources(1, commands); Check(!SubmissionEmpty(replay), "replay lost ownership");
         queue->ExecuteCommandLists(1, commands); SubmitCommandResources(queue.Get(), std::move(replay)); wait();
         Check(destroyed == 3, "recording no longer owns replay operands");
     }

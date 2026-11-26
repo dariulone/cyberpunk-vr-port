@@ -16,12 +16,22 @@
 #include "Runtimes/RuntimeFovCorrection.hpp"
 #include "Runtimes/AsymmetricProjection.hpp"
 
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_MainIsRightEye;
+#endif
 
 #include <windows.h>
 #include <cstdint>
 #include <cstddef>
 
+#if CVR_RUST_VRIK
+// The callback and the stub are rust/crates/cvr-rig/src/vrik/camera_fov.rs; the diagnostics of C++ linkage the hub prints,
+// the OpenXR getters' services and the registration stay.
+// cvr_cpp_fov_publish: rust/crates/cvr-render/src/xr_manager_services.rs.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("CameraFov", ::cvr::hooks::Stage::Boot, 35, cvr_hook_camera_fov_install);
+#endif
+#else
 // EXTERNAL LINKAGE ON PURPOSE: the hub prints this in its own diagnostic line, so a copy per
 // translation unit would leave that line reporting a number nothing ever wrote.
 volatile float g_dbgLastOriginalFov = 0.0f;
@@ -227,3 +237,4 @@ bool InstallNormalFovHook() {
     return true;
 }
 CVR_HOOK("CameraFov", ::cvr::hooks::Stage::Boot, 35, InstallNormalFovHook);
+#endif

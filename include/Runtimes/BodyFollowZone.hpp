@@ -1,6 +1,9 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#if CVR_RUST_BODY
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::roomscale {
 // THE BODY FOLLOWS THE HEAD CONTINUOUSLY. Head/camera tracking is never filtered here; this turns only the body.
@@ -10,8 +13,9 @@ namespace cvr::roomscale {
 // came out as a staircase -- a catch-up every time the head had gained the cone's width again -- and every catch-up
 // started and stopped at full speed: the jerk at each step.
 //
-// Now the body's turn RATE is a continuous function of how far the head is from it (a standing body tracking the head
-// within a degree, never by jumps; BONELAB's chest and pelvis are joint drives, soft springs -- the same idea):
+// Now the body's turn RATE is a continuous function of how far the head is from it (Into the Radius 2's standing
+// body tracks the head within a degree, never by jumps; BONELAB's chest and pelvis are joint drives, soft springs --
+// the same idea):
 //   - past the cone the body is pulled hard (kLeashGain per radian beyond the cone), so the head never gets far past
 //     the cone's edge while it turns, and the body turns WITH it rather than after it;
 //   - once the head has been past the cone, the body also turns toward the head at kCentreGain per radian of the
@@ -35,6 +39,13 @@ public:
     static constexpr float kMaxRate = 6.2831853f;  // 360 deg/s
     static constexpr float kRateTau = 0.05f;       // s: how fast the rate itself changes
 
+#if CVR_RUST_BODY
+    // rust/crates/cvr-body/src/follow_zone.rs; this class's fields are its layout.
+    void Reset() { cvr_body_follow_zone_reset(this); }
+    bool Following() const { return cvr_body_follow_zone_following(this); }
+    float Rate() const { return m_rate; }
+    float Step(float residual, float radius, float dt) { return cvr_body_follow_zone_step(this, residual, radius, dt); }
+#else
     void Reset() { m_rate = 0; m_blend = 0; m_turning = false; m_previousRadius = 0; }
     bool Following() const { return m_turning || std::fabs(m_rate) > 1e-3f; }
     float Rate() const { return m_rate; }
@@ -80,6 +91,7 @@ public:
         }
         return step;
     }
+#endif
 
 private:
     float m_rate{};
@@ -87,4 +99,7 @@ private:
     float m_previousRadius{};
     bool m_turning{};
 };
+#if CVR_RUST_BODY
+static_assert(sizeof(BodyFollowZone) == 16);
+#endif
 }

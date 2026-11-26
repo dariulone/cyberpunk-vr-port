@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // GpuQueueTimeline -- diagnostic: when each queue of the game actually runs its batches.
 //
 // nvidia-smi says how much of the time the GPU is busy, not where it waits. Asked for through
@@ -21,11 +22,20 @@
 #include <vector>
 #include <windows.h>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
+#if !CVR_RUST_VRIK
 extern std::atomic<void*> g_presentQueue;   // Hooks/SwapChain.cpp
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // Write a number of submissions to capture; 0 when taken.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GpuTimelineRequest{0};
 // 0 idle, 1 capturing, 2 waiting for the GPU, 3 done (records valid), 4 failed.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GpuTimelineState{0};
@@ -37,8 +47,16 @@ __declspec(dllexport) uint64_t CyberpunkVR_GpuTimelineCalib[8]{};
 // call came in, QPC when the original returned, GPU timestamp before the lists, GPU timestamp after them.
 // Kinds 3 (queue Signal) and 4 (queue Wait): queue pointer, QPC, fence pointer, fence value, 0.
 __declspec(dllexport) uint64_t CyberpunkVR_GpuTimelineRecords[16384 * 6]{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build: the timeline is rust/crates/cvr-gpu/src/queue_timeline.rs; the exports stay above, attached at
+// load with the image submission mutex and the swap chain's queue.
+// The timeline's table is built in rust/crates/cvr-gpu/src/queue_timeline.rs.
+#else
 namespace cvr::gpu::queue_timeline {
 namespace {
 using Microsoft::WRL::ComPtr;
@@ -335,3 +353,5 @@ void Present() {
     g_capture.store(want);
 }
 }
+#endif
+#endif

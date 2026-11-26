@@ -1,4 +1,6 @@
 #include "Render/SharpenPass.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's pass; the Rust build's is rust/crates/cvr-gpu/src/sharpen_pass.rs (the header calls it).
 #include "Render/CommandResources.hpp"
 
 #include <algorithm>
@@ -359,3 +361,4 @@ bool SharpenPass::RecordSharpen(ID3D12GraphicsCommandList* cmdList,
     cmdList->ResourceBarrier(1, &barrier);
     return true;
 }
+#endif

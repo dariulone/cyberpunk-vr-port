@@ -27,6 +27,7 @@
 --
 -- Cached for a quarter second: this is called from onUpdate and a shared-memory read per frame to
 -- decide whether to not log is a poor trade.
+local aimThreat = require('aim_threat')
 local dbgCache, dbgAt = false, -1.0
 local function vrDebug()
     local now = (os and os.clock and os.clock()) or 0.0
@@ -52,6 +53,7 @@ local installed = false
 local installTimer = 0.0
 local cyberware = require('cyberware')
 local physicalThrow = require('physical_throw')
+local bladePose = require('blade_contact_pose')
 local cyberwareLastError
 
 -- Ordinary melee uses the same tracking/swing/native-damage module as arm cyberware.
@@ -159,15 +161,9 @@ local RECOIL_KICK_BY_FAMILY = {
     ['zhuo'] = 2.8,
 }
 
--- FELT RECOIL, WHERE THE GAME'S NUMBER IS NOT THE ANSWER. The table above is TweakDB's own kick and it
--- is what every weapon is scaled by; these are the ones where the result was judged in the headset and
--- came back wrong. Kept separate from the generated table on purpose -- that one is data and must stay
--- regenerable, this one is a handful of measured corrections with a reason each.
---
---   unity  2.25 -> 0.87   Its own number puts it at 38.4 deg, which is inside the ceiling's compression
---                         where every heavy pistol lands within four degrees of every other. Halved after
---                         firing it: 19.1 deg, and it sits below the knee again,
---                         where the ladder still has room to tell weapons apart.
+-- Legacy fallback for iconics, unknown audio sets and unprofiled classes. The
+-- ordinary VR presentation in hand_kick.lua takes precedence after type lookup.
+-- Keep Unity's older headset adjustment for fallback variants only.
 local RECOIL_KICK_OVERRIDE = {
     ['unity'] = 0.87,
 }
@@ -226,6 +222,8 @@ local function zeroCameraKick(wpn, wid) return zeroCameraKickItem(wpn:GetItemID(
 -- THE WEAPON'S RECOIL PROFILE, off its record: the record key, the family name, the game's peak kick and the
 -- class. The weapon in hand publishes these as its own; with a gun in each hand the left one does the same for
 -- the left hand (leftGunFrame).
+local handKick = require('hand_kick')
+local attachmentRecoil = require('attachment_recoil')
 local function recoilProfile(wpn)
     -- WHICH WEAPON, FROM ITS RECORD NAME. `Items.Preset_Lexington_Neon` -> "lexington". The table above
     -- holds the game's own peak kick per family, which is the number the hand spring scales its angle
@@ -332,12 +330,28 @@ local function recoilProfile(wpn)
     -- the blade/fists tokens above. Use the game's melee predicate as the
     -- authority, including modded melee records and cyberware arms.
     pcall(function() if WeaponObject.IsMelee(wpn:GetItemID()) then cls = 5 end end)
-    return key, famName, kick, cls, itName
+    local ok, solo, supported, tapScale, blendTime = pcall(handKick, wpn, key, itName)
+    if ok and solo then kick = solo end
+    -- Keep the per-draw profile value available to existing telemetry.
+    pcall(function() wpn.vrTapCycleScale = ok and tapScale or 0 end)
+    return key, famName, kick, cls, itName, ok and supported or nil, blendTime, ok and tapScale or nil
+end
+
+local activeSolo, activeSupported, supportTime, supportBlend
+local function updateSupportAccent(dt)
+    if type(GetVRTwoHandActive) ~= 'function' or type(SetVRWeaponKick) ~= 'function' then return end
+    local target = GetVRTwoHandActive() and 1 or 0 -- native excludes dual wield and owns handedness
+    if target == supportBlend then return end
+    local nextBlend = target + (supportBlend - target) * math.exp(-math.max(0, dt or 0) / supportTime)
+    if math.abs(nextBlend - target) < .005 then nextBlend = target end
+    supportBlend = nextBlend
+    SetVRWeaponKick(activeSolo + (activeSupported - activeSolo) * nextBlend)
 end
 
 local function killCameraRecoil(wpn, wid)
     if not wpn or recoilKilled == wid then return end
-    local key, famName, kick, cls, itName = recoilProfile(wpn)
+    local key, famName, kick, cls, itName, supported, blendTime, tapScale = recoilProfile(wpn)
+    activeSolo, activeSupported, supportTime, supportBlend = kick, supported ~= kick and supported or nil, blendTime, 0
     if type(SetVRWeaponName) == 'function' then
         SetVRWeaponName(famName or (key and string.lower(key)) or '')
     end
@@ -356,7 +370,8 @@ local function killCameraRecoil(wpn, wid)
         end
     end) end
     logf('recoil: itemType=%s class=%d', tostring(itName), cls)
-    logf('recoil: key=%s kick=%s', tostring(key), tostring(kick))
+    logf('recoil: key=%s spring=%s supported=%s grip blend=%ss manual tap scale=%s',
+        tostring(key), tostring(kick), tostring(supported), tostring(blendTime), tostring(tapScale))
     -- STRAIGHT TO A FILE, because the module's spdlog log stopped accepting lines after a mod reload
     -- (the file was reopened and nothing more was appended, while the value provably reached the
     -- plugin). A diagnostic that can go quiet is worse than none: this one is opened, written, flushed
@@ -390,9 +405,12 @@ local LEFT_PARTNER_SLOT = 3
 local leftKilled = nil
 local leftPrepClock = 0.5
 local WEAPON_LEFT = nil
-local function leftGunFrame(pl, dt)
+local function leftGunFrame(pl, dt, primaryWid)
     if not WEAPON_LEFT then WEAPON_LEFT = TweakDBID.new('AttachmentSlots.WeaponLeft') end
     local gun = Game.GetTransactionSystem():GetItemInSlot(pl, WEAPON_LEFT)
+    local wid = gun and tostring(gun:GetEntityID().hash)
+    local partner = wid ~= primaryWid and gun or nil
+    attachmentRecoil.update(0, pl, partner, partner and wid, dt)
     if not gun then
         if leftKilled then
             leftKilled = nil
@@ -412,7 +430,6 @@ local function leftGunFrame(pl, dt)
         return
     end
     leftPrepClock = 0.5
-    local wid = tostring(gun:GetEntityID().hash)
     if wid == leftKilled then return end
     local key, _, kick, cls = recoilProfile(gun)
     if type(SetVRLeftWeaponKick) == 'function' then SetVRLeftWeaponKick(kick, cls) end
@@ -518,12 +535,35 @@ local function aimHit(x, y, z, q)
     end
 end
 
+-- Smart guns lock targets in a cone around the targeting ray; the plugin points that ray down the
+-- barrel while this reports a smart gun (SetVRSmartWeapon, refreshed every frame with the muzzle).
+-- The record is asked once per drawn weapon entity, but only an answer is remembered: a weapon
+-- just drawn can have no record yet, and caching that "no" left a smart gun on the head for good.
+-- EnumInt gives 64-bit cdata; compare plain numbers.
+local smartKey, smartIs = nil, false
+local function isSmartWeapon(wpn)
+    local key = tostring(wpn:GetEntityID().hash)
+    if key ~= smartKey then
+        local ok, smart = pcall(function()
+            local record = wpn:GetWeaponRecord()
+            if not record then return nil end
+            local evolution = record:Evolution()
+            if not evolution then return false end
+            return tonumber(EnumInt(evolution:Type())) == tonumber(EnumInt(gamedataWeaponEvolution.Smart))
+        end)
+        if not ok or smart == nil then return false end
+        smartKey, smartIs = key, smart == true
+    end
+    return smartIs
+end
+
 local function updateMuzzle(wpn)
     local xf = wpn:GetMuzzleSlotWorldTransform()
     if not xf then return end
     local q = xf.Orientation or (xf.GetOrientation and xf:GetOrientation())
     if q and type(SetVRMuzzleQuat) == 'function' then
         SetVRMuzzleQuat(q.i, q.j, q.k, q.r)
+        if type(SetVRSmartWeapon) == 'function' then SetVRSmartWeapon(isSmartWeapon(wpn)) end
     end
     -- The POSITION half of the same transform, which used to be dropped on the floor. The launch
     -- override replaced the shot's direction with the muzzle's and left its origin at the game
@@ -821,7 +861,7 @@ local function carryTick(dt)
     local okDual, dual = pcall(function() return GameObject.IsDualWielding(pl) end)
     if okDual and dual then return end
     -- An implanted arm cannot be handed over as a loose weapon.
-    if cyberware.kind(pl:GetActiveWeapon(),pl)~=0 then return end
+    if cyberware.peekKind(pl:GetActiveWeapon(),pl)~=0 then return end
     local ts = Game.GetTransactionSystem()
     if not ts then return end
     slotRightID = slotRightID or TweakDBID.new(SLOT_RIGHT)
@@ -970,9 +1010,39 @@ local RESTORE_SETTLE = 1.5
 local restoreWatch = nil    -- seconds the watch still runs; nil when no load is being watched
 local restoreHeld = 0.0     -- seconds the current finding has held
 
+-- THE RUST BUILD RUNS THE WEAPON FRAME (rust/crates/cvr-ffi/src/mechanics/weapon.rs, bit 24 of VRRustMechanics): the
+-- hand-over, the aim hooks' install, the muzzle and its hit, the recoil profile and the camera kick, the left gun,
+-- handedness, the draw sound, the zoom and the blade guard. The tracked combat below stays here. The reference build
+-- has no such native, and everything runs here.
+-- AND THE TRACKED COMBAT (rust/crates/cvr-ffi/src/mechanics/weapon_combat.rs, bit 25): the cyberware chord, the implant
+-- kind, the hands' equipment, the physical throw, the implant's swings and ordinary melee.
+local rustFrame, rustCombat = nil, nil
+local function rustOwnsFrame()
+    if rustFrame == nil then
+        local owned = type(VRRustMechanics) == 'function' and VRRustMechanics() or 0
+        rustFrame = math.floor(owned / 16777216) % 2 == 1
+        rustCombat = math.floor(owned / 33554432) % 2 == 1
+    end
+    return rustFrame
+end
+local function rustOwnsCombat()
+    rustOwnsFrame()
+    return rustCombat
+end
+
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent('onInit', function()
     logf("weapon-aim init")
-    Observe('PlayerPuppet', 'OnGameAttached', function() restoreWatch, restoreHeld = RESTORE_WATCH, 0.0 end)
+    if rustHooks() then return end
+    Observe('PlayerPuppet', 'OnGameAttached', function()
+        restoreWatch, restoreHeld = RESTORE_WATCH, 0.0
+        if rustOwnsFrame() then pcall(VRWeaponAttached) end
+    end)
+    Observe('PlayerPuppet', 'OnPartAddedToSlotEvent', attachmentRecoil.invalidate)
+    Observe('PlayerPuppet', 'OnPartRemovedFromSlotEvent', attachmentRecoil.invalidate)
 end)
 
 -- THE WEAPON CHANGES HANDS WITH THE CONTROLS. Left-handed, a weapon drawn on its own is the left hand's
@@ -1070,8 +1140,13 @@ local function weaponFrame(dt)
                 if f then f:write('killCameraRecoil threw: ' .. tostring(errR) .. string.char(10)); f:close() end
             end)
         end
+        if activeSupported then pcall(updateSupportAccent, dt) end
+    else
+        activeSolo, activeSupported = nil, nil
+        recoilKilled = nil
     end
-    if pl then pcall(leftGunFrame, pl, dt) end
+    pcall(attachmentRecoil.update, 1, pl, wpn, curWid, dt)
+    if pl then pcall(leftGunFrame, pl, dt, curWid) end
     if pl then pcall(handednessFrame, pl, dt) end
 
     -- weapon draw sound (see equipSnd* header): fires on entity change, any weapon class
@@ -1080,7 +1155,6 @@ local function weaponFrame(dt)
         equipSndId = curWid
     elseif curWid ~= equipSndId then
         equipSndId = curWid
-        recoilKilled = nil
         if wpn and pl and pl.VREquipSound then
             pcall(function() pl:VREquipSound(wpn) end)
         end
@@ -1098,7 +1172,7 @@ local function weaponFrame(dt)
     end
 
     guardClock = guardClock + (dt or 0.016)
-    local cyberwareKind=cyberware.kind(wpn,pl)
+    local cyberwareKind=cyberware.peekKind(wpn,pl)
     if cyberwareKind~=0 then
         -- Never run the ordinary 1.25m right-weapon trace on arm cyberware,
         -- even while the rig is rebinding or a sample is unavailable.
@@ -1106,11 +1180,7 @@ local function weaponFrame(dt)
         return
     end
 
-    -- VR MOTION MELEE: probe every frame the weapon is being SWUNG (speed relative to the player,
-    -- so walking/turning doesn't count); the redscript helper does precise per-NPC enter detection
-    -- and queues a native damage hit. Detection requires a melee weapon in the right hand AND the
-    -- redscript helper VRMeleeBladeHit to be compiled in.
-    if not (meleeEnabled and pl and wpn and pl.VRMeleeBladeHit) then
+    if not (meleeEnabled and pl and wpn and pl.VRMeleeSweepHit) then
         -- guard cleanup on unequip/holster/death: the stats must never outlive the blade in hand
         if pl then guardStats(pl, false, false) else guardParryMod = nil; guardBlockMod = nil end
         guardWasOn = false
@@ -1195,41 +1265,83 @@ local function updateWeapon(dt)
 end
 
 local cyberwareClock=0
+local bladeInputLog={}
+local function noteBladeInput(weapon,blocked)
+    local d=cyberware.state
+    if not weapon or not d.ordinary or not weapon.VRBladeConfirmedSerial then bladeInputLog.key=nil;return end
+    local key=d.weapon
+    local mode=blocked and 'throw' or (d.bladeTracking and 'tracked' or 'untracked')
+    if key~=bladeInputLog.key then
+        bladeInputLog={key=key,queries=d.strokeQueries or 0,serial=weapon:VRBladeConfirmedSerial()}
+    end
+    if mode~=bladeInputLog.mode and cyberwareClock>=(bladeInputLog.nextLog or 0) then
+        bladeInputLog.mode=mode;bladeInputLog.nextLog=cyberwareClock+1
+        logAlways('motion melee: %s hand=%s phase=%s',mode,Game.VRWeaponInLeftHand() and 'left' or 'right',tostring(d.phase))
+    end
+    if not bladeInputLog.probed and (d.strokeQueries or 0)>bladeInputLog.queries then
+        bladeInputLog.probed=true;logAlways('motion melee: controller movement reached the contact sweep')
+    end
+    if not bladeInputLog.confirmed then
+        local serial=weapon:VRBladeConfirmedSerial()
+        if serial~=0 and serial~=bladeInputLog.serial then
+            bladeInputLog.confirmed=true;logAlways('motion melee: game confirmed contact %s',tostring(serial))
+        end
+    end
+end
 local function combatFrame(dt)
     local pl=Game.GetPlayer();local wpn=pl and pl:GetActiveWeapon()
     -- Runtime weapon hooks need a live player, not the front-end/loading
     -- scene while the game is still constructing script/resource types.
-    if pl then pcall(updateWeapon,dt) end
+    if pl and not rustOwnsFrame() then pcall(updateWeapon,dt) elseif not pl then attachmentRecoil.reset() end
+    if rustOwnsCombat() then return end
+    if pl and pl.VRPhysicalMeleeWeapon then
+        local held=pl:VRPhysicalMeleeWeapon()
+        if held and held.VRBladeKind and held:VRBladeKind()>0 then wpn=held end
+    end
     -- The cyberware chord with the game window behind: the plugin cannot press the key then (Hooks/CyberwareChord.cpp).
     if pl and pl.VRActivateIconicCyberware and Game.VRCyberwareChordTake() then pl:VRActivateIconicCyberware() end
     local kind=cyberware.kind(wpn,pl)
     Game.VRCyberwareSelect(cyberware.inputKind())
     cyberware.handEquipment(pl)
     local throwing=physicalThrow.update(dt,pl,wpn)
+    local bladeFrame=false
     if kind~=0 then cyberware.update(dt,pl,wpn,kind,cyberwareClock)
     elseif cyberware.inputKind()==5 and meleeEnabled and not throwing then
         local pos=wpn:GetWorldPosition()
         local forward=wpn:VRMeleeDirection()
-        if pos and forward then cyberware.ordinary(dt,pl,wpn,pos,forward,pl:GetWorldPosition()) end
+        if pos and forward then
+            cyberware.ordinary(dt,pl,wpn,pos,forward,pl:GetWorldPosition())
+            bladeFrame=true;bladePose.update(dt,pl,wpn,pos,forward,cyberware.state.bladeTracking)
+        end
     end
+    if not bladeFrame then bladePose.reset() end
+    noteBladeInput(wpn,throwing)
 end
 
 registerForEvent('onUpdate',function(dt)
+    if VRBladeMeshPoll then VRBladeMeshPoll() end
+    local aimOk,aimErr=pcall(aimThreat.update,Game.GetPlayer())
+    if not aimOk then aimThreat.state.error=tostring(aimErr);aimThreat.clear() end
+    if rustOwnsFrame() and rustOwnsCombat() then return end
     -- CET keeps one handler per event in a mod. Registering cyberware as a
     -- second onUpdate replaced weapon-name/hold selection and ordinary melee.
     -- Keep one entry point with isolated weapon and tracked-combat updates.
     cyberwareClock=cyberwareClock+(dt or 0)
     local ok,err=pcall(combatFrame,dt)
     if not ok then
-        cyberware.state.error=tostring(err)
+        pcall(bladePose.reset);cyberware.state.error=tostring(err)
         if cyberwareLastError~=tostring(err) then cyberwareLastError=tostring(err);logAlways('cyberware combat: %s',cyberwareLastError) end
     end
 end)
 
 registerForEvent('onShutdown', function()
+    attachmentRecoil.reset()
+    bladePose.reset();aimThreat.clear()
     pcall(function()
         local pl = Game.GetPlayer()
         if pl then guardStats(pl, false, false) end
     end)
 end)
-return {CyberwareStatus=function() return cyberware.state end,ThrowStatus=function() return physicalThrow.state end}
+return {AttachmentRecoilStatus=attachmentRecoil.status,
+    CyberwareStatus=function() return cyberware.state end,ThrowStatus=function() return physicalThrow.state end,
+    BladePoseStatus=function() return bladePose.state end,AimThreatStatus=function() return aimThreat.state end}

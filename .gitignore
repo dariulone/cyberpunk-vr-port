@@ -16,6 +16,8 @@ CyberpunkVRProxy.log
 # itself and git never descends into an excluded directory, so the negation below would not fire.
 tools/*
 !tools/psvr2_input_tests/
+# The Rust migration's in-game acceptance harness (docs/rust-migration/).
+!tools/rust_migration/
 !tools/roomscale_tests/
 !tools/il2cpp_study/
 !tools/scanner_input_tests/
@@ -26,14 +28,29 @@ tools/body_rotation_tests/__pycache__/
 !tools/hand_tests/
 !tools/debug_draw/
 !tools/xr_probe/
+# the patch-day RTTI dump plugin: CMakeLists.txt adds it as a target
+!tools/rtti_dump/
 !tools/crash/
 !tools/ent/
 !tools/story_attention_tests/
 !tools/command_resources_tests/
+!tools/srgb_pass_tests/
+!tools/depth_resolve_tests/
+!tools/space_quad_tests/
+!tools/caption_tests/
+!tools/osr_tests/
+!tools/color_blit_tests/
+!tools/desktop_mirror_tests/
+!tools/rust_test_support/
+!tools/view_twin_tests/
 !tools/reflex_tests/
 !tools/vr_overlay_tests/
 !tools/hud_panel_tests/
 !tools/ngx_tests/
+!tools/framegen_overlay_tests/
+!tools/framegen_capture_tests/
+!tools/hud_layout_tests/
+!tools/pipeline_stream_tests/
 !tools/belt_tests/
 !tools/gpu_stage_tests/
 !tools/hud_submit_tests/
@@ -76,6 +93,9 @@ package.json
 !tools/single_pass_tests/restart_probe.ps1
 # ...except the probe layer install scripts, which are part of the tool,
 !tools/xr_probe/*.ps1
+# the Rust migration's in-game acceptance runs,
+!tools/rust_migration/*.ps1
+!tools/rust_migration/*.py
 # the install/uninstall pair, which is how the mod is meant to be deployed,
 !scripts/deploy_stereo.ps1
 !scripts/revert_stereo.ps1
@@ -164,6 +184,9 @@ tools/optics_tests/*
 !tools/optics_tests/CMakeLists.txt
 !tools/optics_tests/pso_lifetime_test.cpp
 !tools/optics_tests/add_optics_camera.py
+!tools/optics_tests/build_integrated_sights.py
+!tools/optics_tests/build_scope_assets.py
+!tools/optics_tests/embed_scope_optics.py
 !tools/lod_tests/
 tools/lod_tests/*
 !tools/lod_tests/CMakeLists.txt
@@ -205,6 +228,17 @@ tools/grasp_tests/*
 !tools/grasp_tests/*.bat
 !tools/grasp_tests/README.txt
 !tools/grasp_tests/stub/
+!tools/grasp_tests/corpse_live/
+tools/grasp_tests/corpse_live/*
+!tools/grasp_tests/corpse_live/*.cpp
+!tools/grasp_tests/corpse_live/*.py
+!tools/grasp_tests/corpse_live/*.lua
+!tools/grasp_tests/corpse_live/README.md
+!tools/grasp_tests/corpse_live/CMakeLists.txt
+!tools/physics_frame_tests/
+tools/physics_frame_tests/*
+!tools/physics_frame_tests/*.cpp
+!tools/physics_frame_tests/CMakeLists.txt
 # its round props' radius profiles: the packer and the generator (their packs and builds stay ignored)
 !tools/grasp_tests/profiles/
 tools/grasp_tests/profiles/*
@@ -245,6 +279,8 @@ tools/lua_host_tests/__pycache__/
 !tools/lua_host_tests/*.py
 # VR rendering benchmark harness (docs/vr-render-optimization-20261104.md): sources only.
 !tools/vr_bench/
+!tools/resource_profiler/
+!tools/resource_profiler/*.ps1
 !tools/vr_bench/*.py
 !tools/vr_bench/simulator/
 tools/vr_bench/__pycache__/
@@ -259,6 +295,9 @@ tools/holsters/*
 !tools/mirror/
 tools/mirror/*
 !tools/mirror/walkable_mirror.py
+# Builds docs/controls/icons (the README's control icons) from Kenney's Input Prompts pack.
+!tools/controls_icons/
+!tools/controls_icons/*.py
 
 # The packed archive: 100+ MB, over GitHub's file size limit. Its files come back out of it with WolvenKit, and the
 # release package (scripts/build_dist.ps1) takes it from mods/archive on disk.
@@ -267,3 +306,11 @@ mods/archive/cyberpunkvrport.archive
 # Haptics regression fixtures; generated output stays local.
 !tools/psvr2_input_tests/stubs/
 /build-haptics-tests/
+# NVIDIA DLSS 5 NR runtime (proprietary binary), packed into bin/x64 by cargo xtask dist when present
+/externals/dlss5/
+
+# Screenshots and the lobby's Blender sources: kept on disk, not in the repository (2026-11-26)
+/scope images/
+/menu images/
+/cyberware images/
+/art/vr_lobby/

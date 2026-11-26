@@ -1,0 +1,47 @@
+{
+  "pid": 23296,
+  "fixture": "stationary disposable game character, cosmetic API fed synthetic world segments",
+  "sample": 1,
+  "replay": {
+    "age": 0.171875,
+    "repeatSample": false,
+    "hp": 553.52093505859,
+    "after": 1,
+    "first": true,
+    "serial": 1,
+    "stale": false,
+    "prior": 0,
+    "mark": "attached=1 pending=0 last=AttachedShape shape=Belly"
+  },
+  "end": {
+    "count": 2,
+    "hp": 553.52093505859,
+    "serial": 1,
+    "next": true,
+    "mark": "attached=2 pending=1 last=Pending shape=Belly"
+  },
+  "render": [
+    {
+      "on": true,
+      "z": 24.084396362305,
+      "x": -1432.0616455078,
+      "y": 1264.7861328125,
+      "scale": 1
+    },
+    {
+      "on": true,
+      "z": 24.124046325684,
+      "x": -1432.0557861328,
+      "y": 1264.8033447266,
+      "scale": 0.62504035234451
+    },
+    {
+      "on": true,
+      "z": 24.202529907227,
+      "x": -1432.0435791016,
+      "y": 1264.8376464844,
+      "scale": 0.60535836219788
+    }
+  ],
+  "shotAck": "the simulator did not answer shot"
+}

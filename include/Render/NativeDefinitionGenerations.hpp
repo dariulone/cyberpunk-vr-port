@@ -30,6 +30,116 @@ struct Generation {
 // Caller holds its short synchronization gate and supplies audited mutation and
 // aggregate terminal evidence. No method reads/writes native memory or owns a
 // pin/allocation. Header addresses are observations; only monotonic IDs bind use.
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/native/definition_generations.rs through definition_generations_abi.rs
+// (tools/single_pass_tests/definition_generations_test runs its cases against them in its Rust variant). The ledger
+// lives in Rust, a generation boxed there (GetGeneration's pointer stays valid while it is tracked); it does not fail
+// on allocation, where the C++ map insertions reported Allocation.
+namespace detail {
+extern "C" {
+void* cvr_dg_ledger_new();
+void cvr_dg_ledger_free(void*);
+uint64_t cvr_dg_birth(void*,const HeaderObservation*,bool);
+uint64_t cvr_dg_find(const void*,uint64_t,uint64_t);
+const Generation* cvr_dg_get(const void*,uint64_t);
+bool cvr_dg_consumer(void*,uint32_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint32_t);
+bool cvr_dg_complete(void*,const AggregateTerminalProof*);
+bool cvr_dg_generation(void*,uint32_t,uint64_t,uint64_t,uint64_t,uint32_t);
+uint64_t cvr_dg_count(const void*,uint32_t);
+}
+}
+static_assert(sizeof(HeaderObservation)==40 && sizeof(AggregateTerminalProof)==32 && sizeof(Generation)==88 &&
+    offsetof(Generation,unsupportedReason)==80,"mirrored by native/definition_generations.rs");
+class Ledger {
+public:
+    Ledger():ledger_(detail::cvr_dg_ledger_new()){}
+    ~Ledger(){detail::cvr_dg_ledger_free(ledger_);}
+    Ledger(const Ledger&)=delete;
+    Ledger& operator=(const Ledger&)=delete;
+    Ledger(Ledger&&)=delete;
+    Ledger& operator=(Ledger&&)=delete;
+
+    uint64_t BirthGeneration(const HeaderObservation& observation,bool allPriorConsumersAccounted=false){
+        return detail::cvr_dg_birth(ledger_,&observation,allPriorConsumersAccounted);
+    }
+    uint64_t FindGeneration(uint64_t ownerHeader,uint64_t bornMutationEpoch)const{return detail::cvr_dg_find(ledger_,ownerHeader,bornMutationEpoch);}
+    const Generation* GetGeneration(uint64_t generationId)const{return detail::cvr_dg_get(ledger_,generationId);}
+    // Register before the first possible native cache/source access, not merely
+    // at a later callback constructor. This class cannot prove that frontier.
+    bool RegisterConsumer(uint64_t consumerId,uint64_t requestEpoch,uint64_t pairGeneration){
+        return ConsumerOp(0,consumerId,requestEpoch,pairGeneration);
+    }
+    bool RegisterProvisionalConsumer(uint64_t consumerId){return ConsumerOp(1,consumerId);}
+    // The native root can advance request/pair identity before construction.
+    // Its admission ID stays fixed; identity becomes immutable at this seal.
+    bool SealProvisionalConsumer(uint64_t consumerId,uint64_t requestEpoch,uint64_t pairGeneration){
+        return ConsumerOp(2,consumerId,requestEpoch,pairGeneration);
+    }
+    bool HasConsumer(uint64_t consumerId)const{return ConsumerQuery(3,consumerId,0);}
+    bool ConsumerBound(uint64_t consumerId,uint64_t generationId)const{return ConsumerQuery(4,consumerId,generationId);}
+    bool BindConsumer(uint64_t consumerId,uint64_t requestEpoch,uint64_t pairGeneration,
+                      uint64_t generationId,uint64_t bornMutationEpoch,Admission admission=Admission::Source){
+        return ConsumerOp(5,consumerId,requestEpoch,pairGeneration,generationId,bornMutationEpoch,uint32_t(admission));
+    }
+    bool CompleteConsumer(const AggregateTerminalProof& proof){return detail::cvr_dg_complete(ledger_,&proof);}
+    bool UnsupportedConsumer(uint64_t consumerId,uint64_t requestEpoch,uint64_t pairGeneration,
+                             Failure reason=Failure::Unsupported){
+        return ConsumerOp(6,consumerId,requestEpoch,pairGeneration,0,0,uint32_t(reason));
+    }
+    // A guarded native early exit can prove no cache/source access occurred.
+    // Cancellation without that proof is not terminal or prior-use accounting.
+    bool CancelUnboundConsumer(uint64_t consumerId,uint64_t requestEpoch,uint64_t pairGeneration,bool nativeNoSourceProved=false){
+        return ConsumerOp(7,consumerId,requestEpoch,pairGeneration,0,0,nativeNoSourceProved);
+    }
+    bool UnsupportedGeneration(uint64_t generationId,uint64_t bornMutationEpoch,Failure reason=Failure::Unsupported){
+        return detail::cvr_dg_generation(ledger_,0,generationId,bornMutationEpoch,0,uint32_t(reason));
+    }
+    bool CloseSource(uint64_t generationId,uint64_t bornMutationEpoch,uint64_t closingMutationEpoch){
+        return detail::cvr_dg_generation(ledger_,1,generationId,bornMutationEpoch,closingMutationEpoch,0);
+    }
+    bool VerifyPriorConsumers(uint64_t generationId,uint64_t bornMutationEpoch,bool allPriorConsumersAccounted){
+        return detail::cvr_dg_generation(ledger_,2,generationId,bornMutationEpoch,0,allPriorConsumersAccounted);
+    }
+    bool VerifyDetach(uint64_t generationId,uint64_t bornMutationEpoch,bool originalOwnerDetached){
+        return detail::cvr_dg_generation(ledger_,3,generationId,bornMutationEpoch,0,originalOwnerDetached);
+    }
+    // Moving a source-closed owner protects still-pending users. Destruction has
+    // the additional terminal gates in ReadyToRetire; a mutex is not exclusivity.
+    bool CanAdopt(uint64_t generationId,bool nativeExclusiveProved=false)const{return GenerationQuery(4,generationId,nativeExclusiveProved);}
+    bool OwnershipEligible(uint64_t generationId)const{return GenerationQuery(5,generationId,false);}
+    bool ReadyToRetire(uint64_t generationId)const{return GenerationQuery(6,generationId,false);}
+    bool BeginRetire(uint64_t generationId,uint64_t bornMutationEpoch){return detail::cvr_dg_generation(ledger_,7,generationId,bornMutationEpoch,0,0);}
+    bool FinishRetire(uint64_t generationId,uint64_t bornMutationEpoch){return detail::cvr_dg_generation(ledger_,8,generationId,bornMutationEpoch,0,0);}
+    // Discard only observer metadata. Detached ownership and unresolved users
+    // must survive; this neither retires nor destroys any native definitions.
+    bool ForgetClosedObservation(uint64_t generationId,uint64_t bornMutationEpoch){
+        return detail::cvr_dg_generation(ledger_,9,generationId,bornMutationEpoch,0,0);
+    }
+    size_t ActiveConsumers()const{return size_t(detail::cvr_dg_count(ledger_,0));}
+    size_t ActiveGenerations()const{return size_t(detail::cvr_dg_count(ledger_,1));}
+    size_t TrackedOwners()const{return size_t(detail::cvr_dg_count(ledger_,2));}
+    uint64_t LastGenerationId()const{return detail::cvr_dg_count(ledger_,3);}
+    uint64_t LastConsumerId()const{return detail::cvr_dg_count(ledger_,4);}
+    uint64_t CompletedConsumers()const{return detail::cvr_dg_count(ledger_,5);}
+    uint64_t UnsupportedConsumers()const{return detail::cvr_dg_count(ledger_,6);}
+    uint64_t CancelledConsumers()const{return detail::cvr_dg_count(ledger_,7);}
+    uint64_t RetiredGenerations()const{return detail::cvr_dg_count(ledger_,8);}
+    uint64_t ForgottenObservations()const{return detail::cvr_dg_count(ledger_,9);}
+    Failure Rejection()const{return Failure(detail::cvr_dg_count(ledger_,10));}
+private:
+    bool ConsumerOp(uint32_t which,uint64_t consumerId,uint64_t requestEpoch=0,uint64_t pairGeneration=0,
+                    uint64_t a=0,uint64_t b=0,uint32_t value=0){
+        return detail::cvr_dg_consumer(ledger_,which,consumerId,requestEpoch,pairGeneration,a,b,value);
+    }
+    bool ConsumerQuery(uint32_t which,uint64_t consumerId,uint64_t generationId)const{
+        return detail::cvr_dg_consumer(ledger_,which,consumerId,0,0,generationId,0,0);
+    }
+    bool GenerationQuery(uint32_t which,uint64_t generationId,bool value)const{
+        return detail::cvr_dg_generation(ledger_,which,generationId,0,0,value);
+    }
+    void* ledger_;
+};
+#else
 class Ledger {
 public:
     Ledger()=default;
@@ -284,4 +394,5 @@ private:
     uint64_t nextGeneration_{},lastConsumer_{},completedConsumers_{},unsupportedConsumers_{},cancelledConsumers_{},retiredGenerations_{},forgottenObservations_{};
     Failure failure_=Failure::None;
 };
+#endif
 }

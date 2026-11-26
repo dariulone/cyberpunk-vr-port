@@ -1,51 +1,11 @@
--- Read the player's gamepad range and remove model input slew only during a VR
--- wheel grab. The model's steering limits, speed assists and tire physics stay
--- native. Shared drive-model flats are restored when the grip/driver changes.
-local patch = nil
+-- The car seat's script side: the player's gamepad range and the cabin wheel's slot for the hands on the wheel, the
+-- radio list's close and the autopilot chord. The road wheels' response to the wheel is the plugin's
+-- (Anim/VehicleSteerCurve.cpp): it writes the driven car's live physics while a hand holds the wheel and puts it back
+-- after, so no drive model in TweakDB is changed here -- an edited flat reaches every car spawned meanwhile,
+-- the traffic's included, and never the car already driven.
 local profileTime = 0.5
 local reportedError = false
-local rates = {
-    turnUpdateInputSlowChangeSpeed = 100.0,
-    turnUpdateInputFastChangeSpeed = 100.0,
-    wheelTurnMaxAddPerSecond = 10000.0,
-    wheelTurnMaxSubPerSecond = 10000.0,
-}
-
-local function flat(id, name) return TweakDBID.new(id, "." .. name) end
-local function key(id) return tostring(id.hash) .. ":" .. tostring(id.length) end
-local function same(a, b) return type(a) == "number" and math.abs(a - b) < 0.00001 end
-
-local function restore()
-    if not patch then return end
-    for name, entry in pairs(patch.values) do
-        local id = flat(patch.id, name)
-        -- An external edit made while held belongs to its author, not this mod.
-        if same(TweakDB:GetFlat(id), entry.applied) then
-            assert(TweakDB:SetFlat(id, entry.before) ~= false, "cannot restore steering rate")
-        end
-        patch.values[name] = nil
-    end
-    patch = nil
-end
-
-local function apply(id)
-    local wanted = key(id)
-    if patch and patch.key == wanted then return end
-    restore()
-    local values = {}
-    for name, rate in pairs(rates) do
-        local before = TweakDB:GetFlat(flat(id, name))
-        -- Not all mounted vehicle types use the road-vehicle drive model.
-        if type(before) ~= "number" then return end
-        values[name] = { before = before, applied = math.max(before, rate) }
-    end
-    patch = { id = id, key = wanted, values = values }
-    for name, entry in pairs(values) do
-        local field = flat(id, name)
-        assert(TweakDB:SetFlat(field, entry.applied) ~= false, "cannot apply steering rate")
-        assert(same(TweakDB:GetFlat(field), entry.applied), "steering rate not accepted")
-    end
-end
+local vehicleHands = require('vehicle_hands')
 
 -- THE CABIN WHEEL FOR THE HANDS ON IT. While a hand holds the rim of a car's wheel the plugin keeps it on the wheel the
 -- car draws: its steering_wheel slot, here in the player's model space (world = player position + player turn * model).
@@ -73,7 +33,53 @@ local function sendCabin(player, vehicle)
     SetVRWheelCabin(Vector4.new(x, y, z, 1.0), Quaternion.new(mi, mj, mk, mr))
 end
 
+-- B CLOSES THE RADIO LIST IN THE CAR. The list (D-pad left held) closes on `cancel`, the pad's B, which in a car is
+-- held out of the game as the exit button, and Start closes it only to open the pause menu on the release (measured).
+-- The plugin counts each B press made with a popup up (shared slot 175); on a change the open list is closed the way
+-- its own cancel does. Only one modal list is ever up; it is forgotten when it uninitializes.
+local POPUP_BACK_SLOT = 175
+local modalList, popupBacks = nil, nil
+local function popupBack()
+    local n = GetVRSharedSlot(POPUP_BACK_SLOT)
+    if popupBacks == nil or n == popupBacks then popupBacks = n; return end
+    popupBacks = n
+    local list = modalList
+    modalList = nil
+    if list then list:Close() end
+end
+
+registerForEvent("onInit", function()
+    ObserveAfter("BaseModalListPopupGameController", "OnInitialize", function(self) modalList = self end)
+    ObserveAfter("BaseModalListPopupGameController", "OnUninitialize", function() modalList = nil end)
+end)
+
+-- THE AUTOPILOT ON THE CYBERWARE CHORD. In the driver seat the plugin hands the chord (left grip + left stick click,
+-- held) here instead of pressing the cyberware key. The game's own autodrive is L3 held for half a second, which the
+-- port never produces; this queues what the autodrive widget queues, so the system's own checks -- the player's own
+-- car, a valid lane, no race -- still decide, and it says so on the HUD when it refuses.
+local function autopilotChord()
+    local ok, taken = pcall(function() return Game.VRAutopilotChordTake() end)
+    if not ok or not taken then return end
+    local ads = Game.GetScriptableSystemsContainer():Get(CName.new("AutoDriveSystem"))
+    if not ads then return end
+    if ads:GetAutodriveEnabled() then
+        ads:QueueRequest(DisableAutoDriveRequest.new())
+    else
+        ads:QueueRequest(EnableAutoDriveRequest.new())
+    end
+end
+
 registerForEvent("onUpdate", function(dt)
+    local chordOK, chordError = pcall(autopilotChord)
+    if not chordOK and not reportedError then print('[driving] autopilot chord: ' .. tostring(chordError)) end
+    local backOK, backError = pcall(popupBack)
+    if not backOK then modalList = nil; print('[driving] popup close: ' .. tostring(backError)) end
+    local handsOK, handsError = pcall(vehicleHands.update, Game.GetPlayer(), os.clock())
+    if not handsOK then
+        vehicleHands.clear()
+        if vehicleHands.state.error ~= tostring(handsError) then print('[driving] panel interaction: ' .. tostring(handsError)) end
+        vehicleHands.state.error = tostring(handsError)
+    end
     local ok, err = pcall(function()
         local state = Game.GetVRWheelControlState()
         if state % 4 ~= 0 then
@@ -81,7 +87,7 @@ registerForEvent("onUpdate", function(dt)
             local v = p and p:GetMountedVehicle()
             if v then sendCabin(p, v) end
         end
-        if state == 0 then restore(); profileTime = 0.5; return end
+        if state == 0 then profileTime = 0.5; return end
         profileTime = profileTime + math.max(0, dt or 0)
         if profileTime >= 0.5 then
             local settings = Game.GetSettingsSystem()
@@ -90,16 +96,8 @@ registerForEvent("onUpdate", function(dt)
             assert(Game.SetVRWheelGamepadProfile(inner, outer), "invalid gamepad range")
             profileTime = 0
         end
-        if state % 4 == 0 then restore(); return end
-        local player = Game.GetPlayer()
-        local vehicle = player and player:GetMountedVehicle()
-        if not vehicle then restore(); return end
-        local model = TweakDB:GetFlat(flat(vehicle:GetRecordID(), "vehDriveModelData"))
-        if not model then restore(); return end
-        apply(model)
     end)
     if not ok then
-        pcall(restore)
         if not reportedError then print("[driving] wheel profile unavailable: " .. tostring(err)) end
         reportedError = true
     else
@@ -107,5 +105,5 @@ registerForEvent("onUpdate", function(dt)
     end
 end)
 
-registerForEvent("onShutdown", function() pcall(restore) end)
-return { GetState = function() return { active = patch ~= nil, model = patch and patch.key or nil } end }
+registerForEvent("onShutdown", function() vehicleHands.clear() end)
+return { GetState = function() return { hands = vehicleHands.state } end }

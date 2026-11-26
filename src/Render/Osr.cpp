@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/Osr.hpp"
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -6,10 +7,17 @@
 #include <cmath>
 #include <cstring>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // Diagnostics: [0] frames reconstructed, [1] failed, [2] frames that used the made eye's history.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<int64_t> CyberpunkVR_OsrStats[3]{};
 // Tuning, read every frame: [0] depth agreement tolerance x1000 (relative distance, default 30 = 3%), [1] the
 // farthest a fill searches along a row or a column for the hole's bounds (pixels; the hands at 30-40 cm open holes
@@ -18,7 +26,14 @@ __declspec(dllexport) std::atomic<int64_t> CyberpunkVR_OsrStats[3]{};
 // see StillThere), [3] how far a sample may sit from a nearer surface's place in the made eye before it counts as
 // that surface's edge (made-eye pixels x100, 0 = off): see Trace.
 __declspec(dllexport) int32_t CyberpunkVR_OsrTune[4] = {30, 384, 100, 75};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+
+#if !CVR_RUST_VRIK
+// The C++ build's reconstruction; the Rust build's is rust/crates/cvr-gpu/src/osr.rs (the header calls it). The
+// exported counters and tuning above stay here for both.
 
 namespace cvr::osr {
 namespace {
@@ -630,3 +645,5 @@ bool Record(const Request& q) {
 }
 
 }  // namespace cvr::osr
+#endif
+#endif

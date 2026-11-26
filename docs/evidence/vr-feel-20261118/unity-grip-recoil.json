@@ -1,0 +1,41 @@
+{
+  "pid": 19888,
+  "takes": [
+    {
+      "ammo": 12,
+      "id": "Items.Preset_Unity_Default",
+      "cycleScale": 0.60000002384186,
+      "phase": "solo",
+      "held": 0,
+      "kickInput": 1.0,
+      "afterAmmo": 11,
+      "peakDeg": 7.6644463539123535,
+      "settledDeg": 0.0,
+      "heldAfter": 0
+    },
+    {
+      "ammo": 11,
+      "id": "Items.Preset_Unity_Default",
+      "cycleScale": 0.60000002384186,
+      "phase": "supported",
+      "held": 1,
+      "kickInput": 0.6060914993286133,
+      "afterAmmo": 10,
+      "peakDeg": 4.123900413513184,
+      "settledDeg": 0.0,
+      "heldAfter": 1
+    },
+    {
+      "ammo": 10,
+      "id": "Items.Preset_Unity_Default",
+      "cycleScale": 0.60000002384186,
+      "phase": "released",
+      "held": 0,
+      "kickInput": 1.0,
+      "afterAmmo": 9,
+      "peakDeg": 7.494350910186768,
+      "settledDeg": -2.486031189619098e-05,
+      "heldAfter": 0
+    }
+  ]
+}

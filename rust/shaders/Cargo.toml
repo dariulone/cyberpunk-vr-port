@@ -1,0 +1,22 @@
+# The port's own shaders, written in Rust (rust-gpu), and the tool that turns them into the DXIL the plugin embeds
+# (stage 8 of docs/rust-migration-plan.md). A workspace of its own: rust-gpu's code generator needs the nightly of
+# rust-toolchain.toml here, while the plugin builds on ../rust-toolchain.toml's stable. Run through `cargo xtask shaders`
+# (from ../); the DXIL lands in ../crates/cvr-gpu/shaders, committed -- the plugin's build never needs this workspace.
+[workspace]
+members = ["passes", "builder"]
+exclude = ["vendor"]
+resolver = "2"
+
+# naga 30.0.2 with one fix of its SPIR-V reader (vendor/README.md): an image loaded from a binding array.
+[patch.crates-io]
+naga = { path = "vendor/naga" }
+
+[workspace.package]
+version = "0.2.2"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 16

@@ -1,9 +1,14 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/NativeUploadArena.hpp"
 #include "Render/NativeUploadReservation.hpp"
 #include <Windows.h>
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <mutex>
+#if CVR_RUST_VRIK
+// Nothing in the Rust build calls the upload arena (its rules are rust/crates/cvr-render/src/native/upload_arena.rs);
+// its exports, CyberpunkVR_UploadArenaRows among them, are declared_moved_exports.rs'.
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_UploadArenaEnable{},CyberpunkVR_UploadArenaSeq{};
@@ -126,15 +131,24 @@ void PrepareCodeGuards(uintptr_t base)noexcept {
         !Read(nullptr,base+guard.rva,bytes.data(),size_t(guard.bytes)) || upload_reservation::Fnv(bytes.data(),size_t(guard.bytes))!=guard.fnv){guardValid=false;break;}
 }
 bool Compatible()noexcept {std::lock_guard lock(codeMutex);return guardValid && guardedBase==Base();}
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 Invocation BeforeReady(uint64_t arena)noexcept{return Before(arena,Kind::Ready);}
+#endif
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 Invocation BeforeReset(uint64_t arena)noexcept{return Before(arena,Kind::Reset);}
+#endif
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 Invocation BeforeDestroy(uint64_t arena)noexcept{return Before(arena,Kind::Destroy);}
+#endif
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 Status AfterReset(const Invocation& call)noexcept {
     if(!call.nonce)return Status::Disabled;
     ArenaFields fields;const bool valid=Enabled() && Compatible() && StableFields(call.arena,fields) && detail::ResetFields(fields);
     if(!scopes.FinishReset(call,GetCurrentThreadId(),valid))return Reject(call,valid?Status::InvalidInvocation:Status::InvalidArena);
     std::lock_guard lock(stateMutex);++stats[4];Emit(Kind::Reset,Status::Observed,call,fields,0,call.nonce,call.parentReady);return Status::Observed;
 }
+#endif
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 Status AfterReady(const Invocation& call)noexcept {
     if(!call.nonce)return Status::Disabled;
     uint64_t reset{};if(!scopes.FinishReady(call,GetCurrentThreadId(),reset))return Reject(call,Status::MissingReset);
@@ -156,11 +170,14 @@ Status AfterReady(const Invocation& call)noexcept {
     owner->current.store(true,std::memory_order_release);entry->owner=owner;entry->pendingReady=0;++stats[2];++stats[7];
     return Emit(Kind::Ready,Status::Captured,call,fields,owner->generation,reset)?Status::Captured:Status::Capacity;
 }
+#endif
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 Status AfterDestroy(const Invocation& call)noexcept {
     if(!call.nonce)return Status::Disabled;
     if(!scopes.FinishDestroy(call,GetCurrentThreadId()))return Reject(call,Status::InvalidInvocation);
     std::lock_guard lock(stateMutex);++stats[6];Emit(Kind::Destroy,Status::Observed,call);return Status::Observed;
 }
+#endif
 void Cancel(const Invocation& call)noexcept {
     if(!call.nonce)return;scopes.Cancel(call,GetCurrentThreadId());(void)Reject(call,Status::InvalidInvocation);
 }
@@ -178,10 +195,12 @@ bool QueryCurrent(ID3D12Resource* held,uint64_t arena,uint64_t generation,Snapsh
         output.owner_=owner;Emit(Kind::Query,Status::Captured,{0,arena,GetCurrentThreadId(),uint64_t(Kind::Query),0},fields,generation);}
     return bool(output);
 }
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 bool ValidateCurrent(const Snapshot& snapshot)noexcept {
     if(!snapshot)return false;Snapshot fresh;
     return QueryCurrent(snapshot.Resource(),snapshot.Arena(),snapshot.Generation(),fresh) && fresh.owner_==snapshot.owner_;
 }
+#endif
 void Clear()noexcept {
     Releases releases;{std::lock_guard lock(stateMutex);for(auto& entry:entries){if(entry.arena)Invalidate(entry,releases);entry={};}
         stats.fill(0);exhausted=false;observed.store(false,std::memory_order_release);
@@ -190,3 +209,5 @@ void Clear()noexcept {
     scopes.Clear();
 }
 }
+#endif
+#endif

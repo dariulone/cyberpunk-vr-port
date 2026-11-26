@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "Standardmäßig aus für ein sauberes cyberpunkvrport.log. Nur aktivieren,\nwenn ClipCursor- / Tiefen- / Hook-Diagnosen erfasst werden.",
   ["FRAMEGEN"] = "FRAME-GEN",
   ["Enable frame generation"] = "Frame-Generierung aktivieren",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "Bei aktiver Frame-Generierung läuft die Handglättung mit ihrer Rate mal xr_hand_lerp_framegen_scale (1.25; 0 schaltet sie aus).",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "Bei aktiver Frame-Generierung läuft die Handglättung mit ihrer Rate mal xr_hand_lerp_framegen_scale (1.10; 0 schaltet sie aus).",
   ["Frame generator"] = "Frame-Generator",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

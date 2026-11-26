@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.24)
+project(SrgbPassTests LANGUAGES CXX)
+enable_testing()
+add_executable(srgb_pass_tests main.cpp ../../src/Render/SrgbToLinearPass.cpp)
+target_include_directories(srgb_pass_tests PRIVATE ../../include)
+target_compile_features(srgb_pass_tests PRIVATE cxx_std_20)
+target_compile_definitions(srgb_pass_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(srgb_pass_tests PRIVATE d3d12 dxgi d3dcompiler)
+add_test(NAME srgb_pass COMMAND srgb_pass_tests)
+
+# The same program against the Rust pass (rust/crates/cvr-gpu through cvr_rust.lib), and both traces compared bit for bit.
+option(CVR_SRGB_PASS_TESTS_RUST "Also run the test against the Rust pass" ON)
+if(CVR_SRGB_PASS_TESTS_RUST)
+    include(../../cmake/RustStaticlib.cmake)
+    add_executable(srgb_pass_tests_rust main.cpp)
+    target_include_directories(srgb_pass_tests_rust PRIVATE ../../include)
+    target_compile_features(srgb_pass_tests_rust PRIVATE cxx_std_20)
+    target_compile_definitions(srgb_pass_tests_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    target_link_libraries(srgb_pass_tests_rust PRIVATE d3d12 dxgi d3dcompiler)
+    cvr_link_rust(srgb_pass_tests_rust)
+    add_test(NAME srgb_pass_rust COMMAND srgb_pass_tests_rust)
+    add_test(NAME srgb_pass_parity
+             COMMAND ${CMAKE_COMMAND} -DCPP=$<TARGET_FILE:srgb_pass_tests> -DRUST=$<TARGET_FILE:srgb_pass_tests_rust>
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/ParityTrace.cmake)
+endif()

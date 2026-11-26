@@ -141,3 +141,124 @@ void ListReset(ID3D12GraphicsCommandList*);
 void Execute(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*,source::ExecuteFn);
 }
 }
+
+#if CVR_RUST_VRIK
+#include <cstddef>
+#include <cstdint>
+// The glass, its twins, full-rate shading, the lens velocity target, the bound targets and the history mask:
+// rust/crates/cvr-gpu/src/optics.rs. mask::SetTag stays in src/Render/LensMask.cpp (it hands Rust the list's
+// unhooked clear), with the exported controls it attaches.
+extern volatile int g_verboseLog;
+extern "C" {
+bool cvr_optics_shader(uint32_t kind,D3D12_SHADER_BYTECODE*);
+bool cvr_optics_glass_replacement(const D3D12_SHADER_BYTECODE*,D3D12_SHADER_BYTECODE*);
+bool cvr_optics_glass_pipeline(ID3D12PipelineState*);
+void cvr_optics_glass_created(ID3D12PipelineState*,ID3D12PipelineState*,ID3D12PipelineState*);
+bool cvr_optics_glass_recent();
+ID3D12PipelineState* cvr_optics_glass_mask_pipeline(ID3D12PipelineState*);
+void cvr_optics_shading_rate_set(ID3D12GraphicsCommandList*,D3D12_SHADING_RATE,const D3D12_SHADING_RATE_COMBINER*);
+bool cvr_optics_full_rate(ID3D12GraphicsCommandList*,ID3D12PipelineState*,D3D12_SHADING_RATE*,D3D12_SHADING_RATE_COMBINER*);
+void cvr_optics_motion_vectors_tagged(ID3D12Resource*,bool verbose);
+ID3D12Resource* cvr_optics_motion_vectors();
+void cvr_optics_targets(ID3D12GraphicsCommandList*,UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,BOOL,const D3D12_CPU_DESCRIPTOR_HANDLE*);
+bool cvr_optics_bound_targets(ID3D12GraphicsCommandList*,cvr::optics::BoundTargets*);
+void cvr_optics_list_reset(ID3D12GraphicsCommandList*);
+struct cvr_optics_lens_velocity_pass {ID3D12PipelineState* pipeline;ID3D12Resource* target;D3D12_CPU_DESCRIPTOR_HANDLE rtv;cvr::optics::BoundTargets targets;};
+bool cvr_optics_prepare_lens_velocity(ID3D12GraphicsCommandList*,ID3D12PipelineState*,cvr_optics_lens_velocity_pass*);
+bool cvr_optics_mask_enabled();
+bool cvr_optics_mask_active(int side);
+bool cvr_optics_mask_target(int side,ID3D12Resource**,SIZE_T*);
+void cvr_optics_mask_drawn(int side);
+}
+namespace cvr::optics {
+static_assert(sizeof(BoundTargets)==88 && offsetof(BoundTargets,handles)==8 && offsetof(BoundTargets,depth)==72 && offsetof(BoundTargets,valid)==81);
+inline bool GlassShaderReplacement(const D3D12_SHADER_BYTECODE& native,D3D12_SHADER_BYTECODE& replacement){
+    return cvr_optics_glass_replacement(&native,&replacement);}
+inline void GlassPipelineCreated(ID3D12PipelineState* glass,ID3D12PipelineState* velocity,ID3D12PipelineState* mask){
+    cvr_optics_glass_created(glass,velocity,mask);}
+inline bool GlassRecent(){return cvr_optics_glass_recent();}
+inline void ListReset(ID3D12GraphicsCommandList* list){cvr_optics_list_reset(list);}
+inline void ShadingRateSet(ID3D12GraphicsCommandList* list,D3D12_SHADING_RATE rate,const D3D12_SHADING_RATE_COMBINER* combiners){
+    cvr_optics_shading_rate_set(list,rate,combiners);}
+inline FullRateDraw::FullRateDraw(ID3D12GraphicsCommandList* base,ID3D12PipelineState* pso,RateFn setRate){
+    if(!base || !pso || !setRate)return;
+    D3D12_SHADING_RATE engine{};D3D12_SHADING_RATE_COMBINER engineCombiners[2]{};
+    if(!cvr_optics_full_rate(base,pso,&engine,engineCombiners))return;
+    // Base 1x1 with both combiners passthrough ignores per-primitive rates and the rate image.
+    static constexpr D3D12_SHADING_RATE_COMBINER passthrough[]{D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
+    list=static_cast<ID3D12GraphicsCommandList5*>(base);set=setRate;rate=engine;combiners={engineCombiners[0],engineCombiners[1]};
+    set(list,D3D12_SHADING_RATE_1X1,passthrough);
+}
+inline FullRateDraw::~FullRateDraw(){if(list)set(list,rate,combiners.data());}
+inline bool LensVelocityShader(D3D12_SHADER_BYTECODE& shader){return cvr_optics_shader(0,&shader);}
+inline void MotionVectorsTagged(ID3D12Resource* resource){cvr_optics_motion_vectors_tagged(resource,g_verboseLog!=0);}
+inline Microsoft::WRL::ComPtr<ID3D12Resource> MotionVectors(){Microsoft::WRL::ComPtr<ID3D12Resource> r;r.Attach(cvr_optics_motion_vectors());return r;}
+inline void Targets(ID3D12GraphicsCommandList* list,UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE* handles,BOOL contiguous,
+    const D3D12_CPU_DESCRIPTOR_HANDLE* depth){cvr_optics_targets(list,count,handles,contiguous,depth);}
+inline bool PrepareLensVelocity(ID3D12GraphicsCommandList* list,ID3D12PipelineState* glass,LensVelocityPass& pass){
+    pass={};cvr_optics_lens_velocity_pass raw{};if(!cvr_optics_prepare_lens_velocity(list,glass,&raw))return false;
+    pass.pipeline=raw.pipeline;pass.target.Attach(raw.target);pass.rtv=raw.rtv;pass.targets=raw.targets;return true;
+}
+inline bool GlassPipeline(ID3D12PipelineState* pso){return cvr_optics_glass_pipeline(pso);}
+inline bool BoundTargetsOf(ID3D12GraphicsCommandList* list,BoundTargets& targets){return cvr_optics_bound_targets(list,&targets);}
+inline bool LensMaskShader(D3D12_SHADER_BYTECODE& shader){return cvr_optics_shader(1,&shader);}
+inline bool SightMaskShader(D3D12_SHADER_BYTECODE& shader){return cvr_optics_shader(2,&shader);}
+inline ID3D12PipelineState* GlassMaskPipeline(ID3D12PipelineState* glass){return cvr_optics_glass_mask_pipeline(glass);}
+inline bool LensSourceResolveShader(D3D12_SHADER_BYTECODE& shader){return cvr_optics_shader(3,&shader);}
+inline bool CameraSourceResolveShader(D3D12_SHADER_BYTECODE& shader){return cvr_optics_shader(4,&shader);}
+namespace mask {
+inline bool Enabled(){return cvr_optics_mask_enabled();}
+inline bool Active(int side){return cvr_optics_mask_active(side);}
+inline bool Target(int side,Microsoft::WRL::ComPtr<ID3D12Resource>& resource,D3D12_CPU_DESCRIPTOR_HANDLE& rtv){
+    ID3D12Resource* raw{};SIZE_T handle{};if(!cvr_optics_mask_target(side,&raw,&handle))return false;
+    resource.Attach(raw);rtv={handle};return true;
+}
+inline void Drawn(int side){cvr_optics_mask_drawn(side);}
+}
+}
+// The lens source resolve: rust/crates/cvr-gpu/src/optics_source.rs (src/Render/LensSourceResolve.cpp keeps and
+// attaches the exports).
+extern "C" {
+ID3D12Resource* cvr_optics_source_scene_copied(ID3D12GraphicsCommandList*,int,const D3D12_TEXTURE_COPY_LOCATION*,UINT,UINT,UINT,
+    const D3D12_TEXTURE_COPY_LOCATION*,bool hasBox);
+void cvr_optics_source_view_dispatched(int,const void*);
+void cvr_optics_source_set_stabilize(int);
+int cvr_optics_source_get_stabilize();
+void cvr_optics_source_list_reset(ID3D12GraphicsCommandList*);
+void cvr_optics_source_execute(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*,cvr::optics::source::ExecuteFn);
+}
+namespace cvr::optics::source {
+inline ID3D12Resource* SceneCopied(ID3D12GraphicsCommandList* list,int side,const D3D12_TEXTURE_COPY_LOCATION* dst,
+    UINT x,UINT y,UINT z,const D3D12_TEXTURE_COPY_LOCATION* src,const D3D12_BOX* box){
+    return cvr_optics_source_scene_copied(list,side,dst,x,y,z,src,box!=nullptr);}
+inline void ViewDispatched(int side,const void* workContext){cvr_optics_source_view_dispatched(side,workContext);}
+inline void SetStabilize(int percent){cvr_optics_source_set_stabilize(percent);}
+inline int GetStabilize(){return cvr_optics_source_get_stabilize();}
+inline void ListReset(ID3D12GraphicsCommandList* list){cvr_optics_source_list_reset(list);}
+inline void Execute(ID3D12CommandQueue* queue,UINT n,ID3D12CommandList* const* lists,ExecuteFn execute){
+    cvr_optics_source_execute(queue,n,lists,execute);}
+}
+// The camera-scope source resolve: rust/crates/cvr-gpu/src/optics_camera.rs (src/Render/CameraSourceResolve.cpp keeps
+// and attaches the exports).
+extern "C" {
+void cvr_optics_camera_copy_node_begin(const void*);
+void cvr_optics_camera_copy_node_end();
+bool cvr_optics_camera_node_active();
+void cvr_optics_camera_target_bound(ID3D12GraphicsCommandList*,ID3D12Resource*);
+void cvr_optics_camera_copied(ID3D12GraphicsCommandList*,ID3D12Resource*);
+void cvr_optics_camera_barriers(ID3D12GraphicsCommandList*,UINT,const D3D12_RESOURCE_BARRIER*);
+void cvr_optics_camera_list_reset(ID3D12GraphicsCommandList*);
+void cvr_optics_camera_execute(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*,cvr::optics::source::ExecuteFn);
+}
+namespace cvr::optics::camera {
+inline void CopyNodeBegin(const void* workContext){cvr_optics_camera_copy_node_begin(workContext);}
+inline void CopyNodeEnd(){cvr_optics_camera_copy_node_end();}
+inline bool NodeActive(){return cvr_optics_camera_node_active();}
+inline void TargetBound(ID3D12GraphicsCommandList* list,ID3D12Resource* resource){cvr_optics_camera_target_bound(list,resource);}
+inline void Copied(ID3D12GraphicsCommandList* list,ID3D12Resource* destination){cvr_optics_camera_copied(list,destination);}
+inline void Barriers(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RESOURCE_BARRIER* barriers){cvr_optics_camera_barriers(list,count,barriers);}
+inline void ListReset(ID3D12GraphicsCommandList* list){cvr_optics_camera_list_reset(list);}
+inline void Execute(ID3D12CommandQueue* queue,UINT n,ID3D12CommandList* const* lists,source::ExecuteFn execute){
+    cvr_optics_camera_execute(queue,n,lists,execute);}
+}
+#endif

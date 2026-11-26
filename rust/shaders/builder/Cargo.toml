@@ -1,0 +1,11 @@
+[package]
+name = "cvr-shader-builder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The port's shaders from Rust to DXIL: rust-gpu (SPIR-V), naga (HLSL with D3D12's registers), DXC (DXIL, validated)."
+
+[dependencies]
+spirv-builder = { version = "0.11", default-features = false, features = ["use-compiled-tools"] }
+naga = { version = "30", features = ["spv-in", "hlsl-out"] }

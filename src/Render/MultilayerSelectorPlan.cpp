@@ -8,6 +8,7 @@
 
 namespace cvr::stereo::multilayer_selectors {
 namespace {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's sites are multilayer_selectors.rs' (AuditedSites is the test variants')
 constexpr std::array<SiteDefinition,10> Sites{{
     {"%520","%519","%306",100,Transform::Raw},
     {"%624","%623","%306",108,Transform::High16},
@@ -20,6 +21,8 @@ constexpr std::array<SiteDefinition,10> Sites{{
     {"%1129","%1128","%777",104,Transform::Low16},
     {"%1187","%1186","%777",104,Transform::High16},
 }};
+#endif
+#if !CVR_RUST_VRIK
 void Require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 uint32_t Dword(std::span<const uint8_t> bytes,size_t offset){
     Require(bytes.data() && offset<=bytes.size() && 4<=bytes.size()-offset,"Selector DWORD exceeds its exact view bytes");
@@ -68,8 +71,89 @@ bool SamePlan(const ReadPlan& a,const ReadPlan& b){return a.family==b.family && 
     a.resourceOffset==b.resourceOffset && a.byteExtent==b.byteExtent;}
 uint32_t Index(uint32_t value,Transform transform){switch(transform){case Transform::Raw:return value;case Transform::Low16:return value&65535;
     case Transform::High16:return value>>16;}throw std::runtime_error("Unsupported multilayer selector transformation");}
+#endif
 }
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 std::span<const SiteDefinition> AuditedSites(){return Sites;}
+#endif
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/multilayer_selectors.rs (tools/single_pass_tests/multilayer_selector_plan_test
+// runs its cases against them in its Rust variant). The strings stay here, lent to the rules, which hand back numbers.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+namespace {
+struct RustStr {const char* ptr;size_t len;};
+struct RustView {
+    RustStr root;uint32_t visibility,shaderRegister,space,parameter,tableOffset,numElements;uint64_t firstElement,resourceWidth;
+    uint32_t structureByteStride,format,dimension,componentMapping,flags;bool explicitDescription;
+};
+struct RustIdentity {
+    RustStr familyRoot,familyVertex,familyPixel,b4Root;uint32_t b4Visibility,b4Register,b4Space,b4Parameter,b4TableOffset;
+    const uint8_t* b4;size_t b4Len;
+};
+struct RustNumbers {uint32_t baseRecord,mask,firstRecord,recordSpan;uint64_t resourceOffset;uint32_t byteExtent;};
+struct RustError {const char* message;size_t length;};
+struct RustSelection {uint32_t site,value,selected;};
+struct RustUse {uint32_t offset,count;};
+struct RustEnumerationView {const RustSelection* selections;size_t selectionCount;const uint32_t* offsets;size_t offsetCount;const RustUse* uses;size_t useCount;};
+struct RustRecords;struct RustEnumeration;
+static_assert(sizeof(RustStr)==16 && sizeof(RustView)==80 && sizeof(RustIdentity)==104 && sizeof(RustNumbers)==32,
+    "mirrored by multilayer_selectors.rs");
+extern "C" {
+RustRecords* cvr_ml_plan(const RustIdentity*,const RustView*,RustNumbers*,RustError*);
+const uint32_t* cvr_ml_records(const RustRecords*,size_t*);
+void cvr_ml_free(RustRecords*);
+RustEnumeration* cvr_ml_enumerate(const RustIdentity*,const RustView*,const RustNumbers*,const uint32_t*,size_t,const RustView*,
+    uint64_t,const uint8_t*,size_t,RustEnumerationView*,RustError*);
+void cvr_ml_enumeration_free(RustEnumeration*);
+}
+RustStr Lend(const std::string& text){return {text.data(),text.size()};}
+RustView Lend(const StructuredView& v){
+    return {Lend(v.key.rootSha256),v.key.visibility,v.key.shaderRegister,v.key.space,v.key.parameter,v.key.tableOffset,v.numElements,
+        v.firstElement,v.resourceWidth,v.structureByteStride,v.format,v.dimension,v.componentMapping,v.flags,v.explicitDescription};
+}
+RustIdentity Lend(const source_selectors::FamilyKey& f,const source_selectors::CbvKey& k,const uint8_t* b4,size_t length){
+    return {Lend(f.rootSha256),Lend(f.vertexSha256),Lend(f.pixelSha256),Lend(k.rootSha256),k.visibility,k.shaderRegister,k.space,
+        k.parameter,k.tableOffset,b4,length};
+}
+}
+bool PlanRead(const source_selectors::FamilyKey& family,const source_selectors::OwnedCbvBytes& b4,const StructuredView& view,ReadPlan& output,std::string& error){
+    output={};error.clear();try{
+        const auto identity=Lend(family,b4.key,b4.bytes.data(),b4.bytes.size());const auto lent=Lend(view);
+        RustNumbers numbers{};RustError failure{};
+        const auto records=cvr_ml_plan(&identity,&lent,&numbers,&failure);
+        if(!records){error.assign(failure.message,failure.length);return false;}
+        struct Release{RustRecords* records;~Release(){cvr_ml_free(records);}}release{records};
+        size_t count{};const auto data=cvr_ml_records(records,&count);
+        ReadPlan result;result.family=family;result.b4Key=b4.key;std::copy(b4.bytes.begin(),b4.bytes.end(),result.b4Bytes.begin());
+        result.view=view;result.baseRecord=numbers.baseRecord;result.mask=numbers.mask;result.firstRecord=numbers.firstRecord;
+        result.recordSpan=numbers.recordSpan;result.records.assign(data,data+count);result.resourceOffset=numbers.resourceOffset;
+        result.byteExtent=numbers.byteExtent;result.conservativeRecordSuperset=true;result.originalSiteCoverageComplete=true;
+        output=std::move(result);return true;
+    }catch(...){output={};error="Multilayer read-plan exception";return false;}
+}
+bool Enumerate(const ReadPlan& plan,const RecordSnapshot& snapshot,source_selectors::Result& output,std::string& error){
+    output={};error.clear();try{
+        const auto identity=Lend(plan.family,plan.b4Key,plan.b4Bytes.data(),plan.b4Bytes.size());
+        const auto planView=Lend(plan.view),snapshotView=Lend(snapshot.view);
+        const RustNumbers numbers{plan.baseRecord,plan.mask,plan.firstRecord,plan.recordSpan,plan.resourceOffset,plan.byteExtent};
+        RustEnumerationView view{};RustError failure{};
+        const auto enumeration=cvr_ml_enumerate(&identity,&planView,&numbers,plan.records.data(),plan.records.size(),&snapshotView,
+            snapshot.resourceOffset,snapshot.bytes.data(),snapshot.bytes.size(),&view,&failure);
+        if(!enumeration){error.assign(failure.message,failure.length);return false;}
+        struct Release{RustEnumeration* e;~Release(){cvr_ml_enumeration_free(e);}}release{enumeration};
+        source_selectors::Result pending;pending.family=plan.family;
+        for(size_t i=0;i<view.selectionCount;++i){const auto& s=view.selections[i];pending.selections.push_back({s.site,s.value,s.selected,s.selected});}
+        if(view.offsetCount){
+            source_selectors::TableSelection table;table.key={std::string(RootSha256),5,31,1,0,0,DeclaredExtent};
+            table.offsets.assign(view.offsets,view.offsets+view.offsetCount);table.count=table.offsets.back()+1;
+            for(size_t i=0;i<view.useCount;++i)table.uses.push_back({view.uses[i].offset,view.uses[i].count,0});
+            pending.tables.push_back(std::move(table));
+        }
+        pending.evaluatedSites=uint32_t(pending.selections.size());pending.selectorEvaluationComplete=true;output=std::move(pending);return true;
+    }catch(...){output={};error="Multilayer selector enumeration exception";return false;}
+}
+#endif
+#else
 bool PlanRead(const source_selectors::FamilyKey& family,const source_selectors::OwnedCbvBytes& b4,const StructuredView& view,ReadPlan& output,std::string& error){
     output={};error.clear();try{output=Make(family,b4,view);return true;
     }catch(const std::exception& exception){error=exception.what();return false;}catch(...){error="Multilayer read-plan exception";return false;}
@@ -96,4 +180,5 @@ bool Enumerate(const ReadPlan& plan,const RecordSnapshot& snapshot,source_select
         pending.evaluatedSites=uint32_t(pending.selections.size());pending.selectorEvaluationComplete=true;output=std::move(pending);return true;
     }catch(const std::exception& exception){error=exception.what();return false;}catch(...){error="Multilayer selector enumeration exception";return false;}
 }
+#endif
 }

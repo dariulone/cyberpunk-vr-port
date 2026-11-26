@@ -1,5 +1,8 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // Lines of text under a hung screen (Render/Caption.hpp).
 #include "Render/Caption.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's caption; the Rust build's is rust/crates/cvr-gpu/src/caption.rs (the header calls it).
 #include <d2d1.h>
 #include <dwrite.h>
 #include <algorithm>
@@ -230,3 +233,5 @@ void Caption::Shutdown() {
     failed_ = false;
 }
 }  // namespace cvr::render
+#endif
+#endif

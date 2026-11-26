@@ -7,6 +7,32 @@ target_compile_features(gpu_stage_tests PRIVATE cxx_std_20)
 target_compile_definitions(gpu_stage_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(gpu_stage_tests PRIVATE d3d12 dxgi)
 add_test(NAME gpu_stage_lifetime COMMAND gpu_stage_tests)
+# The same program against the Rust profile (rust/crates/cvr-gpu through cvr_rust.lib) with the C++ exports it is handed,
+# and both traces compared (times blanked).
+option(CVR_GPU_STAGE_TESTS_RUST "Also run the tests against the Rust profiles" ON)
+if(CVR_GPU_STAGE_TESTS_RUST)
+    include(../../cmake/RustStaticlib.cmake)
+    add_executable(gpu_stage_tests_rust main.cpp ../../src/Render/GpuStageProfile.cpp)
+    target_include_directories(gpu_stage_tests_rust PRIVATE ../../include)
+    target_compile_features(gpu_stage_tests_rust PRIVATE cxx_std_20)
+    target_compile_definitions(gpu_stage_tests_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    target_link_libraries(gpu_stage_tests_rust PRIVATE d3d12 dxgi)
+    cvr_link_rust(gpu_stage_tests_rust)
+    add_test(NAME gpu_stage_lifetime_rust COMMAND gpu_stage_tests_rust)
+    add_executable(scene_gpu_tests_rust scene.cpp ../../src/Render/SceneGpuProfile.cpp)
+    target_include_directories(scene_gpu_tests_rust PRIVATE ../../include)
+    target_compile_features(scene_gpu_tests_rust PRIVATE cxx_std_20)
+    target_compile_definitions(scene_gpu_tests_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    target_link_libraries(scene_gpu_tests_rust PRIVATE d3d12 dxgi)
+    cvr_link_rust(scene_gpu_tests_rust)
+    add_test(NAME scene_gpu_profile_rust COMMAND scene_gpu_tests_rust)
+    add_test(NAME scene_gpu_parity
+             COMMAND ${CMAKE_COMMAND} -DCPP=$<TARGET_FILE:scene_gpu_tests> -DRUST=$<TARGET_FILE:scene_gpu_tests_rust>
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/ParityTrace.cmake)
+    add_test(NAME gpu_stage_parity
+             COMMAND ${CMAKE_COMMAND} -DCPP=$<TARGET_FILE:gpu_stage_tests> -DRUST=$<TARGET_FILE:gpu_stage_tests_rust>
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/ParityTrace.cmake)
+endif()
 add_executable(scene_gpu_tests scene.cpp ../../src/Render/SceneGpuProfile.cpp ../../src/Render/CommandResources.cpp)
 target_include_directories(scene_gpu_tests PRIVATE ../../include)
 target_compile_features(scene_gpu_tests PRIVATE cxx_std_20)

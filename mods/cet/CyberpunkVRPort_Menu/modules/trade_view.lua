@@ -41,6 +41,14 @@ local function tip(kit,p,ui,side,x,y,w,h,compare,price)
   local t=Tooltip.spawn(kit,p,ui,side=="sell" and ItemDisplayContext.VendorPlayer or ItemDisplayContext.Vendor,x,y,w,h,compare,price)
   if t then s.tips[#s.tips+1]=t end
 end
+-- QUEST ITEMS FIRST (issue #258): a quest's item (Wilson's Dying Night) heads the list whatever the sort, keeping
+-- the chosen order within each part
+local function questFirst(list)
+  local out={};for _,v in ipairs(list) do if v.quest then out[#out+1]=v end end
+  if #out==0 then return list end
+  for _,v in ipairs(list) do if not v.quest then out[#out+1]=v end end
+  return out
+end
 local function sortKey(s) return s.filter..":"..s.sorts.sell..":"..s.sorts.buy end
 local function filtered(snapshot,side,filter)
   local out={};for _,v in ipairs(snapshot[side]) do if filter=="all" or filter==v.category then out[#out+1]=v end end
@@ -56,7 +64,7 @@ function V.draw(kit,p,p2)
     s.loading=s.loading or {key=sortKey(s),filter=s.filter,modes={sell=s.sorts.sell,buy=s.sorts.buy}}
     return
   end
-  s.stamp=D.signature(visit);s.poll=kit.S.time
+  s.stamp=s.snapshotStamp or D.signature(visit);s.poll=kit.S.time
   U.comparison(kit,p,H,s.comparison,function() s.comparison=not s.comparison;C.redraw(kit) end,"tradeComparison")
   -- ranged and melee weapons each in a tab (issue #221)
   local filters={{"all","ВСЁ","ALL"},{"ranged","ОГНЕСТРЕЛЬНОЕ","RANGED"},{"melee","ХОЛОДНОЕ","MELEE"},{"clothing","ОДЕЖДА","CLOTHING"},{"mods","МОДИФИКАЦИИ","MODS"},{"consumable","РАСХОДНИКИ","CONSUMABLES"},{"other","ДРУГОЕ","OTHER"}}
@@ -101,6 +109,12 @@ function V.draw(kit,p,p2)
           -- favourite, iconic (issue #221): the backpack's star, and the word in yellow
           if v.favorite then star(c,xx+36,24,10,K.YELLOW,1,2) end
           if v.iconic then K.text(c,xx+width-196,4,150,30,tr(kit,"КУЛЬТОВОЕ","ICONIC"),19,K.YELLOW,"right") end
+          -- Leave the top-right slot to the equipped check or blueprint label when present.
+          if v.quest then
+            local badgeX=xx+((v.equipped or v.recipe) and 52 or width-40)
+            K.image(c,badgeX,10,28,28,K.ATLAS.phone,"circle",K.YELLOW,1)
+            K.text(c,badgeX,9,28,30,"!",23,K.BLACK,"center")
+          end
           if marking then
             -- the selection box, ticked when marked
             K.cutFrame(c,xx+width-52,44,34,34,marked and K.YELLOW or K.CYAN,marked and 1 or .6,5,2)
@@ -193,14 +207,16 @@ function V.update(kit)
     local load=s.loading;local deadline=os.clock()+.004
     if not load.snapshot then
       if s.snapshot then load.snapshot=s.snapshot
-      elseif not load.data then load.data=D.beginSnapshot(s.ctx,visit);return
+      -- the stamp is taken when the read begins: a change while it is read a slice a frame shows as a new stamp
+      elseif not load.data then load.stamp=D.signature(visit);load.data=D.beginSnapshot(s.ctx,visit);return
       else load.snapshot=D.stepSnapshot(s.ctx,visit,load.data,deadline);if not load.snapshot then return end end
     end
     load.sorted=load.sorted or {};local side=not load.sorted.sell and "sell" or "buy"
     load.sort=load.sort or Sort.begin(filtered(load.snapshot,side,load.filter),load.modes[side])
     local sorted=Sort.step(load.sort,deadline)
-    if sorted then load.sorted[side]=sorted;load.sort=nil end
+    if sorted then load.sorted[side]=questFirst(sorted);load.sort=nil end
     if load.sorted.sell and load.sorted.buy then
+      if load.stamp then s.snapshotStamp=load.stamp end
       s.snapshot=load.snapshot;s.sorted=load.sorted;s.sortedKey=load.key;s.loading=nil
       C.redraw(kit)
     end

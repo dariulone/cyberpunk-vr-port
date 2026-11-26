@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "ปิดโดยค่าเริ่มต้นเพื่อให้ cyberpunkvrport.log สะอาด เปิดเฉพาะ\nเมื่อเก็บการวินิจฉัย ClipCursor / ความลึก / ฮุก",
   ["FRAMEGEN"] = "สร้างเฟรม",
   ["Enable frame generation"] = "เปิดการสร้างเฟรม",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "ขณะเปิดการสร้างเฟรม การทำให้มือนุ่มนวลจะทำงานที่อัตราของตัวเองคูณ xr_hand_lerp_framegen_scale (1.25; 0 คือปิด)",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "ขณะเปิดการสร้างเฟรม การทำให้มือนุ่มนวลจะทำงานที่อัตราของตัวเองคูณ xr_hand_lerp_framegen_scale (1.10; 0 คือปิด)",
   ["Frame generator"] = "ตัวสร้างเฟรม",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

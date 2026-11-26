@@ -6,6 +6,27 @@
 #include <atomic>
 #include <new>
 #include <mutex>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The snapshots at the actual call: rust/crates/cvr-render/src/source_cbv_snapshot_receipt.rs (the arena, the receipt
+// with its pins and pool ranges, the registration and its recovery, the proofs; the switches and the pool failure
+// row are the moved exports'). This half lends the graph parent's revalidation.
+namespace cvr::stereo::source_cbv_snapshot {
+static_assert(sizeof(Request)==488 && sizeof(PrivateCbv)==72 && sizeof(PreparedCopies)==48,"mirrored by source_cbv_snapshot_receipt.rs");
+extern "C" {
+void cvr_scsn_scope_enter(uint64_t,uint64_t,uint64_t,indirect_copy::detail::ScopeStamp*);
+void cvr_scsn_scope_exit(const indirect_copy::detail::ScopeStamp*);
+bool cvr_scsn_matches_recorded(const PreparedCopies*,const PrivateCbv*);
+}
+struct SnapshotArena::Storage:IUnknown {};   // the Rust storage's IUnknown face
+SnapshotArena::SnapshotArena()=default;SnapshotArena::~SnapshotArena()=default;
+ActualCallScope::ActualCallScope(ID3D12GraphicsCommandList* list,uint64_t generation,uint64_t occurrence)noexcept{
+    cvr_scsn_scope_enter(reinterpret_cast<uintptr_t>(list),generation,occurrence,&stamp_);}
+ActualCallScope::~ActualCallScope(){cvr_scsn_scope_exit(&stamp_);}
+bool MatchesRecordedPrivateCbv(const PreparedCopies& proof,const PrivateCbv& value)noexcept{return cvr_scsn_matches_recorded(&proof,&value);}
+}  // namespace cvr::stereo::source_cbv_snapshot
+#endif
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SourceCbvSnapshotsEnable{},CyberpunkVR_SourceCbvSnapshotsUploadEnable{};
@@ -340,3 +361,4 @@ bool ValidateSourceSubmission(const PreparedCopies& proof,ID3D12CommandQueue* qu
     failure=Failure::None;return true;
 }catch(...){failure=Failure::Exception;return false;}
 }
+#endif

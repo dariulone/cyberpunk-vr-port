@@ -23,7 +23,6 @@
 // tags or constants for the evaluate's viewport and frame, an odd width) runs the engine's evaluate unchanged,
 // counted in CyberpunkVR_DebugEngineStereoDlss.
 #include "Stereo/EngineStereoDlss.hpp"
-#include "Stereo/ScopeDlssState.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/IdleDlssContext.hpp"
 #include "Render/SceneGpuProfile.hpp"
@@ -33,6 +32,7 @@
 #include <MinHook.h>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <mutex>
 #ifndef SL_FEATURE_FUN_IMPORT_STATIC
@@ -40,11 +40,42 @@
 #endif
 #include <sl_dlss.h>
 
-// Share the SDK ABI with the private scope RR options hook.
-#include <sl_dlss_d.h>
+// Ray Reconstruction's options (Streamline's sl_dlss_d.h, MIT; not in externals/streamline): what the split reads
+// and writes of them. The engine's copy keeps its own structVersion, so Streamline reads only what it declared.
+namespace sl {
+enum class DLSSDPreset : uint32_t { eDefault };
+enum class DLSSDNormalRoughnessMode : uint32_t { eUnpacked, ePacked };
+// {0AD87504-774E-4BF3-9633-A44D1F7F9CB8}
+SL_STRUCT_BEGIN(DLSSDOptions, StructType({ 0x0ad87504, 0x774e, 0x4bf3, { 0x96, 0x33, 0xa4, 0x4d, 0x1f, 0x7f, 0x9c, 0xb8 } }), kStructVersion3)
+    DLSSMode mode = DLSSMode::eOff;
+    uint32_t outputWidth = INVALID_UINT;
+    uint32_t outputHeight = INVALID_UINT;
+    float sharpness = 0.0f;
+    float preExposure = 1.0f;
+    float exposureScale = 1.0f;
+    Boolean colorBuffersHDR = Boolean::eTrue;
+    Boolean indicatorInvertAxisX = Boolean::eFalse;
+    Boolean indicatorInvertAxisY = Boolean::eFalse;
+    DLSSDNormalRoughnessMode normalRoughnessMode = DLSSDNormalRoughnessMode::eUnpacked;
+    float4x4 worldToCameraView;
+    float4x4 cameraViewToWorld;
+    Boolean alphaUpscalingEnabled = Boolean::eFalse;
+    DLSSDPreset dlaaPreset = DLSSDPreset::eDefault;
+    DLSSDPreset qualityPreset = DLSSDPreset::eDefault;
+    DLSSDPreset balancedPreset = DLSSDPreset::eDefault;
+    DLSSDPreset performancePreset = DLSSDPreset::eDefault;
+    DLSSDPreset ultraPerformancePreset = DLSSDPreset::eDefault;
+    DLSSDPreset ultraQualityPreset = DLSSDPreset::eDefault;
+SL_STRUCT_END()
+}  // namespace sl
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
 // 1 = DLSS per eye under engine stereo (default); 0 = the engine's one evaluate over both eyes. Live.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoDlssPerEye{1};
 // [0] evaluates split per eye, [1] passed through (another feature / mode off), [2] no tags for the viewport,
 // [3] no constants for the viewport and frame, [4] tags without a colour input and output of even width,
@@ -90,7 +121,30 @@ extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoR
 // [0] RR evaluates split per eye, [1] RR passed through (no recorded options / mode off), [2] eye options set,
 // [3] RR options calls seen, [4] eye view matrices moved, [5] view matrices left (layout not recognised).
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoRr[6] = {};
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's split is rust/crates/cvr-render/src/engine_stereo_dlss.rs, Streamline's structures mirrored in
+// rust/crates/cvr-render/src/streamline.rs (asserted here against the headers); this file keeps the exports above and
+// the C++ face.
+static_assert(sizeof(sl::Resource) == 112 && sizeof(sl::ResourceTag) == 64 && sizeof(sl::ViewportHandle) == 40 &&
+                  sizeof(sl::Constants) == 456 && sizeof(sl::DLSSOptions) == 88 && sizeof(sl::DLSSDOptions) == 224,
+              "Streamline's structures are mirrored in rust/crates/cvr-render/src/streamline.rs");
+static_assert(offsetof(sl::Resource, native) == 40 && offsetof(sl::Resource, state) == 64 &&
+                  offsetof(sl::Resource, gpuVirtualAddress) == 88 && offsetof(sl::ResourceTag, resource) == 32 &&
+                  offsetof(sl::ResourceTag, type) == 40 && offsetof(sl::ResourceTag, extent) == 48 &&
+                  offsetof(sl::Constants, jitterOffset) == 352 && offsetof(sl::Constants, cameraPos) == 376 &&
+                  offsetof(sl::Constants, cameraRight) == 400 && offsetof(sl::Constants, depthInverted) == 444 &&
+                  offsetof(sl::Constants, minRelativeLinearDepthObjectSeparation) == 452 &&
+                  offsetof(sl::DLSSOptions, dlaaPreset) == 60 && offsetof(sl::DLSSOptions, useAutoExposure) == 84 &&
+                  offsetof(sl::DLSSDOptions, normalRoughnessMode) == 60 && offsetof(sl::DLSSDOptions, worldToCameraView) == 64 &&
+                  offsetof(sl::DLSSDOptions, alphaUpscalingEnabled) == 192 && offsetof(sl::DLSSDOptions, dlaaPreset) == 196,
+              "Streamline's fields are mirrored in rust/crates/cvr-render/src/streamline.rs");
+
+extern "C" {
+}
+
+#else
 namespace cvr::engine_stereo::dlss {
 namespace {
 constexpr uint32_t kEyeViewport[2]{0x43565201u, 0x43565202u};
@@ -411,7 +465,7 @@ sl::Result TrackedFree(sl::Feature feature,const sl::ViewportHandle& viewport) {
 sl::Result HookedSetOptions(const sl::ViewportHandle& viewport, const sl::DLSSOptions& options) {
     std::lock_guard lock(mutex);
     const uint32_t v = ViewportValue(&viewport);
-    if (!OwnViewport(v) && v != scope_dlss::kViewport) {
+    if (!OwnViewport(v)) {
         CopyOptions(options, v);
         ++CyberpunkVR_DebugEngineStereoDlss[7];
     }
@@ -433,7 +487,7 @@ void CopyRrOptions(const sl::DLSSDOptions& options, uint32_t v) {
 sl::Result HookedSetRrOptions(const sl::ViewportHandle& viewport, const sl::DLSSDOptions& options) {
     std::lock_guard lock(mutex);
     const uint32_t v = ViewportValue(&viewport);
-    if (!OwnViewport(v) && v != scope_dlss::kViewport) {
+    if (!OwnViewport(v)) {
         CopyRrOptions(options, v);
         ++CyberpunkVR_DebugEngineStereoRr[3];
     }
@@ -584,7 +638,7 @@ void LogOnce(const TagSet& t, const ConstantSet& c, const sl::DLSSOptions& o, bo
 void RecordTags(const void* viewport, const void* list, uint32_t count, SetTagFn original) {
     if (!Enabled() || !viewport || !list || !count) return;
     const uint32_t v = ViewportValue(viewport);
-    if (OwnViewport(v) || v == scope_dlss::kViewport) return;
+    if (OwnViewport(v)) return;
     std::lock_guard lock(mutex);
     setTag = original;
     CopyTags(v, static_cast<const sl::ResourceTag*>(list), count);
@@ -593,7 +647,7 @@ void RecordTags(const void* viewport, const void* list, uint32_t count, SetTagFn
 void RecordConstants(const sl::Constants& values, const sl::FrameToken& frame, const sl::ViewportHandle& viewport) {
     if (!Enabled()) return;
     const uint32_t v = ViewportValue(&viewport);
-    if (OwnViewport(v) || v == scope_dlss::kViewport) return;
+    if (OwnViewport(v)) return;
     std::lock_guard lock(mutex);
     CopyConstants(values, uint32_t(frame), v);
 }
@@ -651,7 +705,7 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
     uint32_t viewport = 0;
     const int at = FindViewport(inputs, count, &viewport);
     std::lock_guard lock(mutex);
-    if (at < 0 || OwnViewport(viewport) || viewport == scope_dlss::kViewport || !setTag || !setOptions) { ++debug[1]; return false; }
+    if (at < 0 || OwnViewport(viewport) || !setTag || !setOptions) { ++debug[1]; return false; }
     if (rr && (!setRrOptions || !engineRrOptions.valid || engineRrOptions.viewport != viewport ||
                engineRrOptions.values.mode == sl::DLSSMode::eOff)) {
         ++CyberpunkVR_DebugEngineStereoRr[1];
@@ -894,3 +948,4 @@ sl::Result EvaluateOriginal(sl::Feature feature,const sl::FrameToken& frame,cons
 int EvaluatingEye() { return evaluatingEye; }
 
 }  // namespace cvr::engine_stereo::dlss
+#endif

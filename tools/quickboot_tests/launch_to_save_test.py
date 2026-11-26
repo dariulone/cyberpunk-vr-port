@@ -377,10 +377,10 @@ class WindowTests(unittest.TestCase):
         with patch.object(boot, 'process_ids', return_value={7}), patch.object(boot, 'windows_for', return_value=[row]), \
              patch.object(boot, 'process_path', return_value=Path('C:/WindowsApps/OpenAI.Codex_1/app/ChatGPT.exe')):
             self.assertEqual(boot.find_codex_window(0), 200)
-            with patch.object(boot, 'windows_for', return_value=[row, dict(row, hwnd=300)]):
+            with patch.object(boot, 'windows_for', return_value=[row, dict(row, hwnd=300, width=1200)]):
                 self.assertEqual(boot.find_codex_window(300), 300)
-                with self.assertRaises(RuntimeError):
-                    boot.find_codex_window(0)
+                # two Codex windows and neither had focus: the larger one gets it back
+                self.assertEqual(boot.find_codex_window(0), 300)
             with patch.object(boot, 'process_path', return_value=Path('C:/WindowsApps/OpenAI.ChatGPT_1/app/ChatGPT.exe')):
                 with self.assertRaises(RuntimeError):
                     boot.find_codex_window(0)

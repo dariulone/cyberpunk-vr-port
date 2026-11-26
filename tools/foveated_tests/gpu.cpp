@@ -14,7 +14,10 @@ void Check(bool value,const char* text){if(!value)throw std::runtime_error(text)
 void Hr(HRESULT value){Check(SUCCEEDED(value),"D3D12 failure");}
 void Barrier(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES from,D3D12_RESOURCE_STATES to){
     D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={resource,0,from,to};list->ResourceBarrier(1,&b);}
-int main()try{
+// "trace" prints a hash of every byte read back (the prepared crops, both motions and the composite), so the C++ and
+// the Rust build compare bit for bit (cmake/ParityTrace.cmake).
+int main(int argc,char** argv)try{
+    const bool trace=argc>1 && std::strcmp(argv[1],"trace")==0;uint64_t hash=1469598103934665603ull;
     ComPtr<ID3D12Debug> debug;Hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));debug->EnableDebugLayer();
     ComPtr<IDXGIFactory4> factory;Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));ComPtr<IDXGIAdapter> adapter;Hr(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)));
     ComPtr<ID3D12Device> device;Hr(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device)));
@@ -71,6 +74,12 @@ int main()try{
     queue->ExecuteCommandLists(1,lists);cvr::gpu::SubmitCommandResources(queue.Get(),std::move(resources));
     ComPtr<ID3D12Fence> fence;Hr(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)));Hr(queue->Signal(fence.Get(),1));
     const auto event=CreateEventW(nullptr,FALSE,FALSE,nullptr);Hr(fence->SetEventOnCompletion(1,event));Check(WaitForSingleObject(event,5000)==WAIT_OBJECT_0,"GPU timeout");CloseHandle(event);
+    for(auto* r:{&centerDepth,&centerMotion,&peripheralMotion,&centerColor,&composite}){
+        void* p{};Hr(r->buffer->Map(0,nullptr,&p));const auto& f=r->fp.Footprint;
+        for(unsigned y=0;y<f.Height;++y){const auto* row=static_cast<const uint8_t*>(p)+y*f.RowPitch;
+            for(unsigned i=0;i<f.RowPitch;++i){hash^=row[i];hash*=1099511628211ull;}}
+        r->buffer->Unmap(0,nullptr);
+    }
     for(auto* r:{&centerDepth,&centerMotion,&peripheralMotion,&centerColor}){
         void* p{};Hr(r->buffer->Map(0,nullptr,&p));
         for(unsigned y=0;y<24;++y)for(unsigned x=0;x<32;++x){const auto* row=static_cast<const char*>(p)+y*r->fp.Footprint.RowPitch;
@@ -90,5 +99,6 @@ int main()try{
     composite.buffer->Unmap(0,nullptr);
     ComPtr<ID3D12InfoQueue> info;Hr(device.As(&info));for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T n{};info->GetMessage(i,nullptr,&n);std::vector<char> b(n);auto* m=reinterpret_cast<D3D12_MESSAGE*>(b.data());info->GetMessage(i,m,&n);
         if(m->Severity<=D3D12_MESSAGE_SEVERITY_WARNING){std::cerr<<m->pDescription<<'\n';throw std::runtime_error("D3D12 validation");}}
+    if(trace){std::printf("foveated_gpu trace %016llx\n",static_cast<unsigned long long>(hash));return 0;}
     std::cout<<"PASS GPU center color/depth crop, per-region pixel-motion scaling and full output composition\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

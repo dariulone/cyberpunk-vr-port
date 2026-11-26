@@ -15,7 +15,7 @@ foreach(case grab_offset one_hand one_hand_top two_hands handoff lock_reversal t
              prediction_boundaries prediction_freshness prediction_tracking prediction_jitter prediction_model)
     add_test(NAME driving_${case} COMMAND driving_tests ${case})
 endforeach()
-add_executable(driving_grab_tests grab.cpp ../../src/Anim/WheelGrab.cpp)
+add_executable(driving_grab_tests grab.cpp ../../src/Anim/WheelGrab.cpp ../../src/Anim/CharacterRigState.cpp)
 target_compile_features(driving_grab_tests PRIVATE cxx_std_20)
 target_include_directories(driving_grab_tests PRIVATE ../../include ../../externals/RED4ext.SDK/include
     ../../externals/minhook/include ../../build/_deps/openxr-src/include ../../build/_deps/imgui-src)

@@ -21,6 +21,46 @@ struct Invariants {
     bool nativeOwnershipProved{},resourceOrderCompiled{},nativeWaitReceiptsProved{},executionPermitted{};
 };
 namespace detail {
+#if CVR_RUST_VRIK
+// The helpers: rust/crates/cvr-render/src/paired_cpu_frontier.rs (tools/single_pass_tests/paired_cpu_frontier_test runs its
+// cases against them in its Rust variant). Sets are lent flattened, in their order.
+using paired_frontier::detail::RustLink;
+using paired_frontier::detail::RustLinks;
+using paired_frontier::detail::RustIds;
+extern "C" {
+size_t cvr_pcf_cycle(const uint32_t*,size_t,const RustLink*,size_t,uint32_t*);
+bool cvr_pcf_empty_join(const graph_snapshot::Node*);
+size_t cvr_pcf_combine(uint32_t,const uint32_t*,size_t,RustLinks,RustLinks,RustLink*);
+}
+inline Edges Combine(uint32_t which,const std::set<uint32_t>& nodes,const std::array<Edges,2>& edges){
+    const std::vector<uint32_t> ids(nodes.begin(),nodes.end());
+    const auto cpu=paired_frontier::detail::Flat(edges[0]),order=paired_frontier::detail::Flat(edges[1]);
+    std::vector<RustLink> result(ids.size()+cpu.size()+order.size());
+    result.resize(cvr_pcf_combine(which,ids.data(),ids.size(),{cpu.data(),cpu.size()},{order.data(),order.size()},result.data()));
+    return paired_frontier::detail::Unflat({result.data(),result.size()});
+}
+inline Edges Union(const std::array<Edges,2>& edges){return Combine(1,{},edges);}
+// Event 2*id is CPU-ready; 2*id+1 is ordered emission. Native reverse waits are NOT inferred.
+inline Edges Lifted(const std::set<uint32_t>& nodes,const std::array<Edges,2>& edges){return Combine(0,nodes,edges);}
+inline std::vector<uint32_t> Cycle(const std::set<uint32_t>& nodes,const Edges& edges){
+    const std::vector<uint32_t> ids(nodes.begin(),nodes.end());const auto flat=paired_frontier::detail::Flat(edges);
+    std::vector<uint32_t> result(ids.size()+flat.size()+1);
+    result.resize(cvr_pcf_cycle(ids.data(),ids.size(),flat.data(),flat.size(),result.data()));return result;
+}
+inline bool EmptyJoin(const graph_snapshot::Node& node){return cvr_pcf_empty_join(&node);}
+// Plan::BuildCandidate past its source checks: its source lent to Rust, its members lent back until cvr_pcf_free.
+struct RustSource {
+    const graph_snapshot::Node* nodes;size_t nodeCount;uint32_t boundary,earlyTail;uint32_t roles[5];RustIds peerPrefix;RustLinks links[4];
+};
+struct RustPlan {uint32_t result,failure;RustLinks links[10];RustIds ids[7];Invariants invariants;};
+struct RustBuilt;
+static_assert(sizeof(Invariants)==18 && sizeof(RustSource)==128 && sizeof(RustPlan)==304 && offsetof(RustPlan,invariants)==280,
+    "mirrored by paired_cpu_frontier.rs");
+extern "C" {
+RustBuilt* cvr_pcf_build(const RustSource*,RustPlan*);
+void cvr_pcf_free(RustBuilt*);
+}
+#else
 inline Edges Union(const std::array<Edges,2>& edges){auto result=edges[0];result.insert(edges[1].begin(),edges[1].end());return result;}
 // Event 2*id is CPU-ready; 2*id+1 is ordered emission. Native reverse waits are NOT inferred.
 inline Edges Lifted(const std::set<uint32_t>& nodes,const std::array<Edges,2>& edges){
@@ -47,6 +87,7 @@ inline bool EmptyJoin(const graph_snapshot::Node& node){
         !Field<uint32_t>(node.bytes,12) && !Field<uint64_t>(node.bytes,16) &&
         std::all_of(node.definition.begin(),node.definition.end(),[](auto byte){return byte==0;});
 }
+#endif
 }
 
 // Source-bound topology only. No native jobs, resource ownership or GPU permission is produced.
@@ -59,6 +100,30 @@ public:
             !sourcePlan.Matches(*source,sourcePlan.ImageBase()))return result_;
         source_=std::make_shared<const graph_snapshot::Snapshot>(*source);base_=sourcePlan.ImageBase();
         boundary_=sourcePlan.SelectedBoundary();earlyTail_=sourcePlan.EarlyTail();
+#if CVR_RUST_VRIK
+        fingerprint_=sourcePlan.SourceFingerprint();original_=sourcePlan.Original();
+        // The rules past the source checks: paired_cpu_frontier.rs; a rejection keeps the members computed so far, as here.
+        const auto& main=sourcePlan.EyeRoles()[0];const auto& peer=sourcePlan.EyeRoles()[1];
+        using paired_frontier::detail::Flat;using paired_frontier::detail::Unflat;
+        const auto cpu=Flat(original_[0]),order=Flat(original_[1]),proposedCpu=Flat(sourcePlan.Proposed()[0]),
+            proposedOrder=Flat(sourcePlan.Proposed()[1]);
+        const detail::RustSource lent{source_->nodes.data(),source_->nodes.size(),uint32_t(boundary_),earlyTail_,
+            {main.solidReady,main.discard,peer.collector,peer.solidReady,peer.discard},{peer.prefix.data(),peer.prefix.size()},
+            {{cpu.data(),cpu.size()},{order.data(),order.size()},{proposedCpu.data(),proposedCpu.size()},
+             {proposedOrder.data(),proposedOrder.size()}}};
+        detail::RustPlan built{};
+        struct Release{detail::RustBuilt* built;~Release(){detail::cvr_pcf_free(built);}}release{detail::cvr_pcf_build(&lent,&built)};
+        const auto ids=[](const detail::RustIds& from){return std::vector<uint32_t>(from.data,from.data+from.count);};
+        const auto set=[](const detail::RustIds& from){return std::set<uint32_t>(from.data,from.data+from.count);};
+        for(uint32_t phase=0;phase<2;++phase){
+            proposed_[phase]=Unflat(built.links[phase]);removed_[phase]=Unflat(built.links[2+phase]);added_[phase]=Unflat(built.links[4+phase]);
+        }
+        incoming_=Unflat(built.links[6]);sharedOwnerOrders_=Unflat(built.links[7]);
+        restoredOwnerOrders_=Unflat(built.links[8]);reversedOwnerOrders_=Unflat(built.links[9]);
+        early_=set(built.ids[0]);synthetic_=set(built.ids[1]);barriers_=set(built.ids[2]);frontier_=set(built.ids[3]);
+        witness_=ids(built.ids[4]);originalRawCycle_=ids(built.ids[5]);candidateRawCycle_=ids(built.ids[6]);
+        invariants_=built.invariants;failure_=Failure(built.failure);result_=Result(built.result);return result_;
+#else
         fingerprint_=sourcePlan.SourceFingerprint();original_=sourcePlan.Original();proposed_=sourcePlan.Proposed();
         std::map<uint32_t,const graph_snapshot::Node*> nodes;std::set<uint32_t> ids;
         for(const auto& node:source_->nodes){const auto id=node.handle&0xDFFFFFFFu;ids.insert(id);nodes[id]=&node;}
@@ -170,6 +235,7 @@ public:
         if(!invariants_.unmovedCpuEdgesPreserved || !invariants_.barriersPropagated || !invariants_.producersBeforeMainDiscard ||
             !invariants_.noMainPostDiscardToPeerReady)return result_;
         failure_=Failure::None;result_=Result::CandidateNeedsOwnershipAndResourceCompile;return result_;
+#endif
     }catch(...){*this=Plan{};failure_=Failure::Allocation;return result_;}
 
     bool Matches(const graph_snapshot::Snapshot& current,uint64_t imageBase)const{

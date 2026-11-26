@@ -124,7 +124,7 @@ def continue_game(args):
     check()
     # QuickBoot runs in the plugin's Lua host, from its lua folder (launch_to_save.py's default mods root); the old
     # CET mods folder no longer exists, and reading there left the world "never ready".
-    status_path = game / 'red4ext/plugins/cyberpunkvrport/lua' / boot.MOD_NAME / 'quickboot_status.json'
+    status_path = boot.port_folder(game) / 'lua' / boot.MOD_NAME / 'quickboot_status.json'
     previous = boot.user32.GetForegroundWindow()
     deadline = time.monotonic() + args.timeout
     presses, next_press = 0, 0.0
@@ -170,7 +170,7 @@ def measure(args):
     check = checker(pid, state['started'], state['baselineReporters'])
     check()
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    symbols = resolve(pid, game / DLL, list(cost.NAMES))
+    symbols = resolve(pid, boot.port_folder(game) / 'cyberpunkvrport.dll', list(cost.NAMES))
     reader = Reader(pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
     try:
         probe = cost.LiveProbe(reader, symbols, pid, check)
@@ -180,7 +180,7 @@ def measure(args):
         def image(row):
             if row['control']:
                 images[row['label']] = screenshot(args.out.with_name(f"{args.out.stem}-{row['label']}.bmp"), check)
-        results, cleanup = cost.run(probe, game / 'red4ext/plugins/cyberpunkvrport/config/vrport.ini', on_interval=image if args.images else None)
+        results, cleanup = cost.run(probe, boot.port_folder(game) / 'config/vrport.ini', on_interval=image if args.images else None)
         value = dict(pid=pid, dll=symbols['sha256'], label=args.label, scene=before, images=images, cleanup=cleanup, results=results)
         args.out.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
         cost.validate(results)

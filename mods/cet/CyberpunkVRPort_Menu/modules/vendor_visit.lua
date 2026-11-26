@@ -50,6 +50,7 @@ local function eligible(panel)
   local ok,object=pcall(function() return Game.FindEntityByID(panel.data.entityID) end)
   if not ok or not object then return nil end
   local isRipper,ripper=pcall(function() return object:IsRipperdoc() end)
+  local isGlam,glam=pcall(function() return object:IsGlamdoc() end)
   local qs=Game.GetQuestsSystem()
   local vendorID=MarketSystem.GetVendorID(object)
   if not TDBID.IsValid(vendorID) then return nil end
@@ -57,11 +58,14 @@ local function eligible(panel)
   if ripper and vendorID==TweakDBID.new("Vendors.wat_lch_ripperdoc_01") and qs:GetFactStr("q001_ripperdoc_done")==0 then return nil end
   local tutorial=(qs:GetFactStr("mq048_active")>0 and qs:GetFactStr("mq048_done")==0) or qs:GetFactStr("ep1_standalone")>0
   if ripper and tutorial and qs:GetFactStr("ep1_ripperdoc_tutorial_seen")==0 then return nil end
-  return object,ripper
+  return object,ripper,isGlam and glam==true
+end
+function V.section(visit)
+  return visit.glamdoc and "glamdoc" or visit.ripperdoc==false and "trade" or "cyberware"
 end
 function V.begin(shared,panel,scenario)
   if not Availability.enabled() then return false end
-  local vendor,ripper=eligible(panel);if not vendor then return false end
+  local vendor,ripper,glam=eligible(panel);if not vendor then return false end
   if shared.vendorTradeOpening and shared.vendorTradeOpening.entityHash==tostring(panel.data.entityID.hash) then return false end
   -- Older CET override layers can still call this shared function after a hot update.
   -- Let them reach the original OnEnterScenario instead of creating another visit or swallowing it.
@@ -69,7 +73,7 @@ function V.begin(shared,panel,scenario)
   if scenario and existing and tostring(existing.vendor:GetEntityID().hash)==tostring(vendor:GetEntityID().hash) then return false end
   if scenario then V.hidePresentation(shared) end
   local manager=VendorDataManager.new();manager:Initialize(Game.GetPlayer(),vendor:GetEntityID())
-  local visit={vendor=vendor,manager=manager,panel=panel,scenario=scenario,pending=true,ripperdoc=ripper,
+  local visit={vendor=vendor,manager=manager,panel=panel,scenario=scenario,pending=true,ripperdoc=ripper,glamdoc=glam,
     started=shared.vendorClock or 0,nativeHandoff=scenario~=nil}
   shared.ripperSession=visit
   if scenario then
@@ -100,6 +104,14 @@ function V.pollNative(shared)
 end
 function V.bind(shared)
   shared.vendorRouting=V
+  if not shared.glamdocScenarioRoutingBound then
+    shared.glamdocScenarioRoutingBound=true
+    Override("MenuScenario_Vendor","OnSwitchToGlamdoc",function(self,userData,wrapped)
+      if shared.vendorNativeHandoff then return true end
+      if userData and shared.vendorRouting.begin(shared,userData.vendorData,self) then return true end
+      return wrapped(userData)
+    end)
+  end
   if not shared.vendorEarlyPresentationBound then
     shared.vendorEarlyPresentationBound=true
     Override("MenuScenario_Idle","OnLeaveScenario",function(self,nextScenario,wrapped)

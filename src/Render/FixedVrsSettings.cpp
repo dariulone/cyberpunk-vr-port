@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 
+#if !CVR_RUST_VRIK
+// The C++ build's policy; the Rust build's is rust/crates/cvr-render/src/vrs.rs (the header calls it).
 namespace cvr::vrs {
 Settings Normalize(Settings s) {
     const auto percent=[](float x,float fallback){return std::isfinite(x)?std::clamp(x,20.f,100.f):fallback;};
@@ -50,3 +52,4 @@ bool EligiblePipeline(const D3D12_GRAPHICS_PIPELINE_STATE_DESC& d) {
     return true;
 }
 }
+#endif

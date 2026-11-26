@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // AnimDumps -- writing down what the engine's animation objects actually contain.
 //
 // Every non-obvious fact the animation work in this project rests on came out of one of these dumps:
@@ -77,6 +78,8 @@
 #include "Natives/NativeHelpers.hpp"
 #include "Natives/NativeState.hpp"
 
+#if !CVR_RUST_VRIK
+// The C++ build's dumps; the Rust build's are rust/crates/cvr-ffi/src/anim_dumps.rs.
 static void DumpFunctionDetails(std::ofstream& aOut, RED4ext::CBaseFunction* aFunc)
 {
     if (!aFunc)
@@ -217,7 +220,7 @@ RED4ext::Handle<RED4ext::ent::IOrientationProvider> CreateStaticOrientationProvi
     return RED4ext::Handle<RED4ext::ent::IOrientationProvider>(provider);
 }
 
-void AppendPlayerControllerIKState(std::ofstream& aOut)
+void AppendPlayerControllerIKState(std::ostream& aOut)
 {
     auto* playerEntity = FindPlayerEntity();
     if (!playerEntity)
@@ -824,6 +827,8 @@ void DumpMetaRigTracks(std::ofstream& aOut, RED4ext::anim::MetaRig* aMetaRig, co
     }
 }
 
+#if !CVR_RUST_VRIK
+// The C++ build's setters; the Rust build's are rust/crates/cvr-ffi/src/anim_inputs.rs.
 bool ResolveRootMetaRigTrackPreset(int32_t aMode, RED4ext::CName& aOut)
 {
     switch (aMode)
@@ -1085,6 +1090,8 @@ int32_t SetRootGraphVectorVariable(const RED4ext::CName& aName, const RED4ext::V
     return updated;
 }
 
+#endif
+
 static void DumpAnimatedResourceDetails(std::ofstream& aOut, RED4ext::ent::AnimatedComponent* aAnimated, const char* aPrefix)
 {
     if (!aAnimated)
@@ -1220,3 +1227,5 @@ void DumpEntityAnimationInfo(std::ofstream& aOut, RED4ext::ent::Entity* aEntity,
 
     aOut << "\n";
 }
+#endif
+#endif

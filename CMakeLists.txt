@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CyberpunkVRPort VERSION 0.2.45 LANGUAGES CXX C ASM_MASM)
+project(CyberpunkVRPort VERSION 0.2.5 LANGUAGES CXX C ASM_MASM)
 
 # One compiler process per core inside every target, the fetched and bundled libraries included: `cmake --build
 # --parallel` only spreads whole projects, and a full rebuild otherwise compiles each target one file at a time.
@@ -58,7 +58,7 @@ FetchContent_MakeAvailable(yaml-cpp)
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 # redscript's script compiler (scc_lib.dll, MIT), built from its sources with cargo: the plugin compiles the game's
-# scripts with it when redscript itself is not installed (Core/ScriptCompiler.cpp). Only the C API library is built.
+# scripts with it when redscript itself is not installed (rust/crates/cvr-host/src/scripts.rs). Only the C API library is built.
 # The released line (0.5.x, what redscript's mod page ships), not the 1.0 previews: 1.0.0-preview.22 put up a
 # modal "requires migration" dialog on struct `new` that held the game until the engine's watchdog, and compiled the
 # breach indicator's wrap so its breach anchor stayed zero (the diamond slid with the head).
@@ -103,13 +103,8 @@ foreach(entry
        "${CVR_TWEAKDB_NAMES_DIR}/${CVR_NAMES_FILE}" EXPECTED_HASH SHA256=${CVR_NAMES_SHA256} TLS_VERIFY ON)
 endforeach()
 
-set(MINHOOK_SOURCES
-    externals/minhook/src/buffer.c
-    externals/minhook/src/hook.c
-    externals/minhook/src/trampoline.c
-    externals/minhook/src/hde/hde32.c
-    externals/minhook/src/hde/hde64.c
-)
+# MinHook (externals/minhook, v1.3.4-14-gd94c64d) is compiled once, into cvr_rust.lib (rust/crates/cvr-engine/build.rs):
+# the Rust hook manager and the C++ half's MH_* calls share that one instance.
 
 
 add_library(imgui STATIC
@@ -119,7 +114,6 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
-    ${MINHOOK_SOURCES}
 )
 target_include_directories(imgui PUBLIC
     ${imgui_SOURCE_DIR}
@@ -170,7 +164,35 @@ file(GLOB_RECURSE CPVR_SOURCES CONFIGURE_DEPENDS
 )
 # The Lua host is its own library (src/Lua/CMakeLists.txt), with its own definitions and dependencies.
 list(FILTER CPVR_SOURCES EXCLUDE REGEX "/src/Lua/")
+# main's new C++ not yet ported to Rust (cmake/MainPendingRust.txt): out of every build of this branch until it is.
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/MainPendingRust.txt CVR_MAIN_PENDING REGEX "^src/")
+foreach(path IN LISTS CVR_MAIN_PENDING)
+    list(REMOVE_ITEM CPVR_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/${path})
+endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/MainPendingRust.txt)
 add_subdirectory(src/Lua)
+# The player's solve: src/Anim/CharacterRig.cpp and HandSnapshot.cpp, or with CVR_RUST_VRIK their Rust port (rust/crates/cvr-rig/src/vrik,
+# the same C names over the same globals, src/Anim/CharacterRigState.cpp) and the C forms of the C++ it calls
+# (src/Anim/CharacterRigRust.cpp). tools/vrik_tests builds both and compares them.
+option(CVR_RUST_VRIK "The player's solve (VRIK) from Rust" ON)
+if(CVR_RUST_VRIK)
+    list(FILTER CPVR_SOURCES EXCLUDE REGEX "/src/Anim/(CharacterRig|HandSnapshot|ReloadPose|HandGestures|Cyberware|LeftHanded|HeadAimWeapon|FkRecorder|AdsEyeAlign|AdsMuzzleStabilizer|SmokingPose|ReloadHandOff|WeaponRig|WheelGrab|Recoil|GraspPose|TwoHandGrip)\\.cpp$")
+    list(FILTER CPVR_SOURCES EXCLUDE REGEX "/src/Hooks/AnimPoseBody\\.cpp$")
+    list(FILTER CPVR_SOURCES EXCLUDE REGEX "/src/Runtimes/(Haptics|FingerGrip)\\.cpp$")
+    list(FILTER CPVR_SOURCES EXCLUDE REGEX "/src/Camera/(CameraLink|CameraMath|PoseIdentity)\\.cpp$")
+    list(FILTER CPVR_SOURCES EXCLUDE REGEX "/src/Hooks/CyberwareChord\\.cpp$")
+else()
+    list(FILTER CPVR_SOURCES EXCLUDE REGEX "/src/(Anim/CharacterRigRust|Camera/CameraRust|Camera/PoseIdentityRust|Hooks/RoomscaleRust|Hooks/WaterLadderRust|Hooks/InputRust)\\.cpp$")
+endif()
+if(CVR_RUST_VRIK)
+    # The sources whose Rust build compiles nothing (their code is Rust's; the C++ build and the Rust test variants keep
+    # them): cmake/RustBuildEmptySources.txt.
+    file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RustBuildEmptySources.txt CVR_RUST_EMPTY_SOURCES REGEX "^src/")
+    foreach(path IN LISTS CVR_RUST_EMPTY_SOURCES)
+        list(REMOVE_ITEM CPVR_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/${path})
+    endforeach()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RustBuildEmptySources.txt)
+endif()
 
 # Keep the folder shape in the IDE -- Hooks/, Runtimes/, Anim/, Utils/ are the reading order.
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CPVR_SOURCES})
@@ -194,6 +216,10 @@ set(CPVR_ASM_SOURCES
 # MASM, said outright: LuaJIT's build (src/Lua) enables CMake's generic ASM language, and an enabled language is
 # global -- by extension alone these would go to it, not to ml64.
 set_source_files_properties(${CPVR_ASM_SOURCES} PROPERTIES LANGUAGE ASM_MASM)
+if(CVR_RUST_VRIK)
+    # The Rust build's thunks are Rust's: rust/crates/cvr-render/src/asm_thunks (the same code through global_asm!).
+    set(CPVR_ASM_SOURCES)
+endif()
 add_library(cyberpunkvrport_stereo SHARED
     ${CPVR_SOURCES}
     ${CPVR_ASM_SOURCES}
@@ -201,6 +227,49 @@ add_library(cyberpunkvrport_stereo SHARED
 )
 include(cmake/WorldMarkerShaders.cmake)
 cvr_world_marker_shaders(cyberpunkvrport_stereo)
+# The Rust half while both languages share this DLL (docs/rust-migration-plan.md): cvr_rust.lib from rust/, called
+# through include/Rust/CvrRust.h. Since stage 2 it is not optional: it owns the plugin's entry points (exported by
+# name below), the log, the plugin's folders, the build gate, the script compiler, MinHook and the stick input. The
+# C++-only reference DLL is built from commit 7ae067a5 with -DCVR_WITH_RUST=OFF (docs/rust-migration/baseline.md).
+set(CVR_RUST_FEATURES plugin)
+if(CVR_RUST_VRIK)
+    list(APPEND CVR_RUST_FEATURES vrik)
+    # The hook files whose work is Rust's keep their registration (and so the install order) under this switch.
+    target_compile_definitions(cyberpunkvrport_stereo PRIVATE CVR_RUST_VRIK=1)
+    # The Lua host puts its InternalCall handler behind the Rust side's hook (src/Lua/cet/scripting/FunctionOverride.cpp).
+    target_compile_definitions(cvr_lua PRIVATE CVR_RUST_VRIK=1)
+    # One address resolver for every C++ file of the DLL (include/Core/PortAddressResolver.hpp): RED4ext's when it
+    # runs, else the address library the game ships -- the port's own loader runs without RED4ext. The Lua host (cvr_lua)
+    # takes it through its precompiled header (src/Lua/cet/reverse/Relocation.h).
+    set(CVR_RESOLVER_FI "/FI${CMAKE_CURRENT_SOURCE_DIR}/include/Core/PortAddressResolver.hpp")
+    target_compile_options(cyberpunkvrport_stereo PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CVR_RESOLVER_FI}>)
+    # The SDK is built as a static library (RED4EXT_STATIC_LIB): its UniversalRelocBase::Resolve is compiled there, so
+    # the override has to be seen by its own files too.
+    if(TARGET RED4ext.SDK)
+        target_compile_options(RED4ext.SDK PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CVR_RESOLVER_FI}>)
+    endif()
+endif()
+include(cmake/RustStaticlib.cmake)
+cvr_link_rust(cyberpunkvrport_stereo)
+target_link_options(cyberpunkvrport_stereo PRIVATE /EXPORT:Main /EXPORT:Query /EXPORT:Supports)
+if(CVR_RUST_VRIK)
+    # The exported variables Rust defines: the tools read them by name, as they read the C++ ones (rust/exported-data.txt).
+    file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/rust/exported-data.txt CVR_RUST_EXPORTED_DATA REGEX "^[A-Za-z_][A-Za-z0-9_]*$")
+    foreach(name IN LISTS CVR_RUST_EXPORTED_DATA)
+        target_link_options(cyberpunkvrport_stereo PRIVATE /EXPORT:${name},DATA)
+    endforeach()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/rust/exported-data.txt)
+    # The exported functions Rust defines (rust/crates/cvr-render/src/api_exports.rs).
+    file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/rust/exported-functions.txt CVR_RUST_EXPORTED_FUNCTIONS REGEX "^[A-Za-z_][A-Za-z0-9_]*$")
+    foreach(name IN LISTS CVR_RUST_EXPORTED_FUNCTIONS)
+        target_link_options(cyberpunkvrport_stereo PRIVATE /EXPORT:${name})
+    endforeach()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/rust/exported-functions.txt)
+endif()
+# The C++ headers whose logic Rust has taken over call it (each matched bit for bit by its test suite's trace case):
+# the body's turn and bend (tools/body_rotation_tests), roomscale, the crouch, the view's anchor and the scene and input
+# policies (tools/roomscale_tests).
+target_compile_definitions(cyberpunkvrport_stereo PRIVATE CVR_RUST_BODY=1 CVR_RUST_ROOM=1)
 include(cmake/NativeFramegen.cmake)
 target_compile_features(cyberpunkvrport_stereo PRIVATE cxx_std_20)
 string(REGEX REPLACE "^v" "" CVR_REDSCRIPT_VERSION ${CVR_REDSCRIPT_TAG})
@@ -253,10 +322,14 @@ target_include_directories(cyberpunkvrport_stereo PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/include
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/src
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/src/hde
+    # NightCoop's SDK header (MIT), for Natives/NightCoopBridge.cpp; nothing is linked
+    ${CMAKE_CURRENT_SOURCE_DIR}/externals/nightcoop-sdk/include
 )
 if(MSVC)
     target_compile_options(cyberpunkvrport_stereo PRIVATE
-        $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive- /EHsc>)
+        $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive- /EHsc>
+        # every core: the Visual Studio generator otherwise compiles the ~400 sources one after another (12 minutes)
+        $<$<COMPILE_LANGUAGE:CXX>:/MP>)
     # SYMBOLS IN THE RELEASE BUILD. A crash landed inside this DLL and there was nothing to read it
     # with: no PDB here, no cdb or windbg on the machine, and dumpbin only opens PE files. Placing
     # CyberpunkVR_Stereo.dll+0x459AF took disassembling the whole image and matching the faulting
@@ -296,4 +369,6 @@ add_custom_command(TARGET cyberpunkvrport_stereo POST_BUILD
 #     cmake --build build --config Release --target xr_probe_layer
 add_subdirectory(tools/xr_probe)
 # rtti_dump_plugin -- patch-day RED4ext plugin: the running game's RTTI layouts as JSON (tools/rtti_dump).
-add_subdirectory(tools/rtti_dump)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/rtti_dump/CMakeLists.txt")
+    add_subdirectory(tools/rtti_dump)
+endif()

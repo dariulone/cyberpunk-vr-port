@@ -4,19 +4,73 @@
 #include <windows.h>
 #include <intrin.h>
 #include <utility>
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The game-code contracts: rust/crates/cvr-render/src/code_tables.rs (through ReadProcessMemory).
+// The image's size: rust/crates/cvr-render/src/image_size.rs.
+// The frames, reads and leases: rust/crates/cvr-render/src/ia_binding.rs (the engine's memory through ReadProcessMemory,
+// the walks through cvr-engine's unwinder, the thread's TLS array from GS).
+extern "C" {
+bool cvr_iab_native_compatible();
+void cvr_iab_acquire(const cvr::stereo::geometry::NativeBuffer*,uint64_t,uint64_t,cvr::stereo::geometry::BufferLease*);
+void cvr_iab_read_state(ID3D12GraphicsCommandList*,const cvr::stereo::geometry::BufferLease*,cvr::stereo::geometry::ReadState*);
+void cvr_iab_bound_index(const D3D12_INDEX_BUFFER_VIEW*,cvr::stereo::geometry::BufferLease*);
+void cvr_iab_bound_vertices(UINT,UINT,const D3D12_VERTEX_BUFFER_VIEW*,cvr::stereo::geometry::BufferLease*);
+// The indirect binding (BoundIndirect, RevalidateIndirect) and its failure, the code contract.
+uint32_t cvr_iab_last_failure();
+bool cvr_iab_bound_indirect(ID3D12GraphicsCommandList*,ID3D12CommandSignature*,UINT,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64,
+    const cvr::stereo::native_recording::Lease*,bool,cvr::stereo::geometry::IndirectBinding*);
+bool cvr_iab_revalidate_indirect(ID3D12GraphicsCommandList*,const cvr::stereo::native_recording::Lease*,const cvr::stereo::geometry::IndirectBinding*,bool);
+}
+static_assert(sizeof(cvr::stereo::geometry::IndirectBinding)==392 && offsetof(cvr::stereo::geometry::IndirectBinding,context)==88 &&
+    offsetof(cvr::stereo::geometry::IndirectBinding,recording)==112 && offsetof(cvr::stereo::geometry::IndirectBinding,rawRecord)==164 &&
+    offsetof(cvr::stereo::geometry::IndirectBinding,recordAddress)==344 && offsetof(cvr::stereo::geometry::IndirectBinding,callerRva)==368 &&
+    offsetof(cvr::stereo::geometry::IndirectBinding,fullBacking)==384,"mirrored by ia_binding.rs");
+static_assert(sizeof(cvr::stereo::geometry::BufferLease)==80 && sizeof(cvr::stereo::geometry::NativeBuffer)==48 &&
+    sizeof(cvr::stereo::geometry::IndirectFrame)==24 && sizeof(cvr::stereo::camera_upload::Context)==24,"mirrored by ia_binding.rs");
+#endif
+#endif
 
 namespace cvr::stereo::geometry {
 namespace {
+#if !CVR_RUST_VRIK
 thread_local IndirectBindingFailure indirectFailure{};
 constexpr GUID initialStateKey{0xb7b50d38,0xf497,0x4fc3,{0xa3,0xc1,0x62,0x40,0x21,0x37,0x63,0x20}};
+#endif
+#if CVR_RUST_VRIK
+}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool NativeIaCompatible(){return cvr_iab_native_compatible();}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+BufferLease AcquireBuffer(const NativeBuffer& native,uint64_t address,uint64_t bytes) {
+    BufferLease result;cvr_iab_acquire(&native,address,bytes,&result);return result;
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+ReadState ReadStateAtDraw(ID3D12GraphicsCommandList* list,const BufferLease& source) {
+    ReadState state;cvr_iab_read_state(list,&source,&state);return state;
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+BufferLease BoundIndex(const D3D12_INDEX_BUFFER_VIEW& view){BufferLease result;cvr_iab_bound_index(&view,&result);return result;}
+std::array<BufferLease,16> BoundVertices(UINT start,UINT count,const D3D12_VERTEX_BUFFER_VIEW* views) {
+    std::array<BufferLease,16> result{};cvr_iab_bound_vertices(start,count,views,result.data());return result;
+}
+#endif
+#else
 bool Read(void*,uint64_t address,void* output,size_t bytes) {
     SIZE_T copied{};return address && address<=UINT64_MAX-bytes &&
         ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<const void*>(address),output,bytes,&copied) && copied==bytes;
 }
 bool Hash(uint64_t rva,size_t bytes,uint64_t expected) {
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+#if CVR_RUST_VRIK
+    return cvr_code_hash(base,rva,bytes,expected,2048);
+#else
     std::array<uint8_t,2048> data{};if(!base || base>UINT64_MAX-rva || bytes>data.size() || !Read(nullptr,base+rva,data.data(),bytes))return false;
     uint64_t value=14695981039346656037ull;for(size_t i=0;i<bytes;++i)value=(value^data[i])*1099511628211ull;return value==expected;
+#endif
 }
 bool Native(bool index,UINT start,UINT count,std::array<NativeBuffer,16>& output) {
     if(!NativeIaCompatible())return false;
@@ -44,6 +98,9 @@ bool CurrentIndirectContext(camera_upload::Context& out){
     out={context,state,list};return bool(out);
 }
 uint64_t NativeImageBytes(){
+#if CVR_RUST_VRIK
+    static const uint64_t bytes=cvr_image_bytes_above(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)),0x413AE0);return bytes;
+#else
     static const uint64_t bytes=[]()->uint64_t{
         const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));IMAGE_DOS_HEADER dos{};IMAGE_NT_HEADERS64 nt{};
         if(!Read(nullptr,base,&dos,sizeof(dos)) || dos.e_magic!=IMAGE_DOS_SIGNATURE || dos.e_lfanew<=0 || dos.e_lfanew>0x100000 ||
@@ -53,6 +110,7 @@ uint64_t NativeImageBytes(){
             nt.OptionalHeader.SizeOfImage>UINT64_MAX-base)return 0;
         return nt.OptionalHeader.SizeOfImage;
     }();return bytes;
+#endif
 }
 bool IndirectOrigin(uint64_t game,IndirectFrame& output){
     const auto imageBytes=NativeImageBytes();if(!game || !imageBytes)return false;
@@ -148,6 +206,25 @@ std::array<BufferLease,16> BoundVertices(UINT start,UINT count,const D3D12_VERTE
     for(UINT i=0;i<count;++i)result[i]=AcquireBuffer(sources[i],views[i].BufferLocation,views[i].SizeInBytes);
     return result;
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+IndirectBindingFailure LastIndirectBindingFailure(){return IndirectBindingFailure(cvr_iab_last_failure());}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool BoundIndirect(ID3D12GraphicsCommandList* list,ID3D12CommandSignature* signature,UINT maximum,ID3D12Resource* arguments,UINT64 offset,
+    ID3D12Resource* countBuffer,UINT64 countOffset,const native_recording::Lease& recording,IndirectBinding& output) {
+    IndirectBinding pending;
+    if(!cvr_iab_bound_indirect(list,signature,maximum,arguments,offset,countBuffer,countOffset,&recording,probe::internalCommands,&pending))return false;
+    output=std::move(pending);return true;
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool RevalidateIndirect(ID3D12GraphicsCommandList* list,const native_recording::Lease& recording,const IndirectBinding& saved) {
+    return cvr_iab_revalidate_indirect(list,&recording,&saved,probe::internalCommands);
+}
+#endif
+#else
 bool NativeIndirectCompatible(){
     static const bool result=[](){for(const auto& code:indirect_binding_detail::Contract)if(!Hash(code.rva,code.bytes,code.hash))return false;return true;}();
     return result;
@@ -219,4 +296,5 @@ bool RevalidateIndirect(ID3D12GraphicsCommandList* list,const native_recording::
         indirect_binding_detail::Decode(game,finalFrame,finalContext,call,Read,nullptr,finalRecord) && indirect_binding_detail::SameRecord(finalRecord,fresh);
     if(valid)indirectFailure=IndirectBindingFailure::None;return valid;
 }catch(...){indirectFailure=IndirectBindingFailure::Exception;return false;}
+#endif
 }

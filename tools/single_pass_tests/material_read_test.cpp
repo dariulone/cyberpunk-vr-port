@@ -28,7 +28,7 @@ bool Read(void* user,uint64_t address,void* out,size_t bytes){
         if(memory.changeRegistry)memory.registryValue+=8;
         else memory.record[16]^=8;
     }
-    if(address==game+0x3438A28 && bytes==8){std::memcpy(out,&memory.registryValue,8);return true;}
+    if(address==game+0x3BCDCA8 && bytes==8){std::memcpy(out,&memory.registryValue,8);return true;}
     if(address==recordAddress && bytes==memory.record.size()){
         std::memcpy(out,memory.record.data(),bytes);return true;
     }

@@ -1,0 +1,53 @@
+[hooks] pre-device  AftermathDiagnostics     skipped (disabled)
+[hooks] post-stereo ViewKey                  skipped (disabled)
+[hooks] boot        JobTimeline              skipped (disabled)
+[hooks] boot        LocateCamera             ok
+[hooks] boot        PatchCamera              ok
+[hooks] boot        FinalCamera              ok
+[hooks] boot        CameraPitch              ok
+[hooks] boot        CameraFov                ok
+[hooks] boot        ProjectionCommit         ok
+[hooks] boot        ScopeGraphDag            ok
+[hooks] boot        VrcamGbufferPartitions   ok
+[hooks] boot        ProjAspectCopy           skipped (disabled)
+[hooks] boot        ProjAspectCall           skipped (disabled)
+[hooks] boot        ProjStage                ok
+[hooks] boot        RebindCensus             ok
+[hooks] boot        LodFov                   ok
+[hooks] boot        LodFovThreshold          ok
+[hooks] boot        BodyYawCensus            ok
+[hooks] boot        MenuMode                 ok
+[hooks] boot        ForceHeadingUpdate       ok
+[hooks] boot        OnFootDeltaHead          ok
+[hooks] boot        RoomscaleMovement        ok
+[hooks] boot        FreeDeltaHead            ok
+[hooks] boot        OnFootMoveXY             ok
+[hooks] boot        BodyHeading              ok
+[hooks] boot        WeaponAim                ok
+[hooks] boot        PatchBuffer              skipped (disabled)
+[hooks] boot        CameraPoseTransport      ok
+[hooks] boot        HudPanel                 ok
+[hooks] boot        WorldSpaceBlendCamera    ok
+[hooks] boot        PhysicalOpticsSurface    ok
+[hooks] boot        MenuSurface              ok
+[hooks] boot        WorldMarkers             ok
+[hooks] boot        PanzerSteering           ok
+[hooks] boot        VendorRoute              ok
+[hooks] boot        PromptIcons              ok
+[hooks] boot        PanzerWeaponAim          ok
+[hooks] boot        SettingsRes              ok
+[hooks] boot        PhotoModeCapture         ok
+[hooks] boot        BackgroundPad            ok
+[hooks] boot        KeypadCursor             ok
+[hooks] boot        WorldTouch               ok
+[hooks] boot        SurveillanceBody         ok
+[hooks] boot        StoryAttention           ok
+[hooks] boot        NvidiaReflex             ok
+[hooks] boot        DlssRes                  ok
+[hooks] boot        LeftHandedAnimation      ok
+[hooks] boot        NativeSetterMetaWrite    skipped (disabled)
+[hooks] boot        NativeSetterMetaConsume  skipped (disabled)
+[hooks] boot        NativeSetterClear        skipped (disabled)
+[hooks] boot        XInput                   ok
+[hooks] boot        SwimmingActions          ok
+[hooks] 43 of 52 installed.

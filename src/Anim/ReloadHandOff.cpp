@@ -40,17 +40,11 @@
 #include <cstdint>
 #include <cstring>
 
+// The switches and probes, defined in src/Anim/CharacterRigState.cpp (the Rust port shares them).
 extern "C" {
-// 1 = both arms follow the native reload animation; 0 = the controllers keep them.
-__declspec(dllexport) int   CyberpunkVR_VrikReloadHandOff = 1;
-// Seconds to reach the animation, and to come back to the controllers.
-__declspec(dllexport) float CyberpunkVR_ReloadHandOffInSec  = 0.20f;
-__declspec(dllexport) float CyberpunkVR_ReloadHandOffOutSec = 0.30f;
-// How long before the reload can end the hands start back.
-__declspec(dllexport) float CyberpunkVR_ReloadHandOffLeadSec = 0.15f;
-// [0] weight, [1] wanted (0/1), [2] seconds in the reload, [3] seconds it was expected to take (-1 unknown),
-// [4..6] the animated right hand relative to the chest (m), [7] reloads entered.
-__declspec(dllexport) float CyberpunkVR_ReloadHandOffStats[8] = {};
+__declspec(dllexport) extern int   CyberpunkVR_VrikReloadHandOff;
+__declspec(dllexport) extern float CyberpunkVR_ReloadHandOffInSec,CyberpunkVR_ReloadHandOffOutSec,CyberpunkVR_ReloadHandOffLeadSec;
+__declspec(dllexport) extern float CyberpunkVR_ReloadHandOffStats[8];
 }
 
 namespace cvr::anim {
@@ -73,9 +67,10 @@ float    g_rate = 0.0f;      // the ramp's slope at the last update, per second
 std::atomic<int64_t> g_lastQpc{0};
 
 float Ease(float b) { return b * b * (3.0f - 2.0f * b); }
-int64_t Qpc() { LARGE_INTEGER c{}; QueryPerformanceCounter(&c); return c.QuadPart; }
+// The hands' layers' counter (Anim/CharacterRig.hpp): QPC, or the tests' clock.
+int64_t Qpc() { return VRIK_ClockQpc(); }
 double  QpcSeconds(int64_t ticks) {
-    static const double freq = [] { LARGE_INTEGER f{}; QueryPerformanceFrequency(&f); return static_cast<double>(f.QuadPart); }();
+    const double freq = VRIK_ClockQpcFrequency();
     return freq > 0.0 ? static_cast<double>(ticks) / freq : 0.0;
 }
 

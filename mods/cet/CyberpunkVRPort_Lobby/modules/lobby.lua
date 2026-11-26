@@ -55,6 +55,7 @@ local Engrams = require('modules/engrams')
 local Intro = require('modules/intro')
 local Setup = require('modules/setup')
 local Sound = require('modules/sound')
+local Controls = require('modules/controls')
 
 -- The place's entities and screens, all in its frame (make_lobby_scene.py writes the list).
 local SCENE = require("modules/scene_list")
@@ -120,8 +121,18 @@ local function openMenu()
   if SCENE.holo ~= nil then
     local T = Mainmenu.texts()
     local texts = { back = T.back, more = "" }
-    local main = function() Holo.open(S.anchor, SCENE.holo, Mainmenu.root(Holo, Creation, Engrams), texts) end
-    if Setup.needed() then Holo.open(S.anchor, SCENE.holo, Setup.root(Holo, main), texts) else main() end
+    -- the controls board stands beside the menu (modules/controls.lua); a menu opened again takes it down first
+    local board = function() Holo.board(Controls.BOARD, Controls.drawBoard) end
+    local main = function()
+      Holo.open(S.anchor, SCENE.holo, Mainmenu.root(Holo, Creation, Engrams), texts)
+      board()
+    end
+    if Setup.needed() then
+      Holo.open(S.anchor, SCENE.holo, Setup.root(Holo, main), texts)
+      board()
+    else
+      main()
+    end
   else
     Terminal.open(S.anchor, SCENE.screens.terminal)
   end

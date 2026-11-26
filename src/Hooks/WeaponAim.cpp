@@ -46,10 +46,49 @@
 #include <intrin.h>
 #include <MinHook.h>
 
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugWaInstalled = 0;
-extern "C" __declspec(dllexport) uintptr_t CyberpunkVR_GazeTargetState = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_GazeTargetUpdates = 0;
+// The family's exports, defined in src/Hooks/WeaponAimState.cpp (both builds).
+#if !CVR_RUST_VRIK
+extern "C" int CyberpunkVR_DebugWaInstalled;
+extern "C" uintptr_t CyberpunkVR_GazeTargetState;
+extern "C" uint64_t CyberpunkVR_GazeTargetUpdates;
+extern "C" int CyberpunkVR_HitscanFromMuzzle;
+extern "C" int CyberpunkVR_DebugPhysicalRayPatched;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayCalls;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayMine;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayOriginWrites;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayForwardWrites;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayConeRays;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayRecoil;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayForeign;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayLeftGun;
+extern "C" float CyberpunkVR_DebugDualShot[4];
+extern "C" uint32_t CyberpunkVR_DebugDualShotRecord[3];
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayStaleMuzzle;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRaySightLine;
+extern "C" float CyberpunkVR_DebugPhysicalRaySightLift[4];
+extern "C" float CyberpunkVR_DebugPhysicalRayRawForward[4];
+extern "C" float CyberpunkVR_DebugPhysicalRayOutForward[4];
+extern "C" int32_t CyberpunkVR_ConeCentreFromCamera;
+extern "C" uint64_t CyberpunkVR_DebugConeFirstRay;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRayShared;
+extern "C" int CyberpunkVR_HitscanSharedRay;
+extern "C" unsigned long long CyberpunkVR_DebugPhysicalRaySharedMissing;
+extern "C" uint64_t CyberpunkVR_DebugPhysicalRayKeys[64];
+#endif
 
+
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/weapon_aim.rs: the three hooks, the takeover targeting and the gaze centring. The rest of
+// the plugin keeps calling them by their C++ names.
+extern "C" void cvr_weapon_aim_bind(uintptr_t eval,uintptr_t exe,uintptr_t poseCopy,uintptr_t targeting);
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+extern "C" void CvrWeaponAimBind(uintptr_t eval,uintptr_t exe,uintptr_t poseCopy,uintptr_t targeting) {
+    cvr_weapon_aim_bind(eval,exe,poseCopy,targeting);
+}
+#endif
+#else
+// OpenXR's session through src/Hooks/HookServices.cpp, as the Rust port reads it, so tools/vrik_tests can run both.
+extern "C" bool cvr_cpp_xr_session_running();
 // ------------------------------------------------------------------------------------------------
 // FILE-SCOPE OBJECTS HERE ARE `inline`, NOT `static`, AND THAT IS LOAD-BEARING. This file was a
 // header carrying its implementation; with `static`, a second including TU got its own copy of every
@@ -63,17 +102,17 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_GazeTargetUpdates = 0;
 typedef void* (*WaTargetingUpdateFn)(void*, void*, void*, void*);
 inline WaTargetingUpdateFn OrigWaTargetingUpdate = nullptr;
 
-extern "C" inline void* Hooked_WaTargetingUpdate(void* rcx, void* rdx, void* r8, void* r9) {
+extern "C" void* Hooked_WaTargetingUpdate(void* rcx, void* rdx, void* r8, void* r9) {
     void* result=OrigWaTargetingUpdate(rcx, rdx, r8, r9);
     if(g_remoteCamOn.load(std::memory_order_acquire) &&
        g_takeoverEntityId.load(std::memory_order_acquire) && DeviceCamActive() &&
-       g_menuModeValue==0 && !cvr::vrui::CapturesInput() && OpenXRManager::Get().IsSessionRunning()) {
+       g_menuModeValue==0 && !cvr::vrui::CapturesInput() && cvr_cpp_xr_session_running()) {
         const auto player=cvr::roomscale::PlayerIdentity();
         uint64_t entity{};
         if(player && ReadU64Safe(player+0x48,&entity))
             cvr::camera::RefreshTakeoverTargeting(rcx,player,entity);
     }
-    if(g_menuModeValue==0 && !cvr::vrui::CapturesInput() && OpenXRManager::Get().IsSessionRunning()) {
+    if(g_menuModeValue==0 && !cvr::vrui::CapturesInput() && cvr_cpp_xr_session_running()) {
         const auto player=cvr::roomscale::PlayerIdentity();uint64_t entity{};
         if(player && ReadU64Safe(player+0x48,&entity)) {
             const bool centered=cvr::camera::CenterHeadGaze(rcx,player,entity,cvr::gaze::Read().tangentY);
@@ -91,7 +130,7 @@ extern "C" inline void* Hooked_WaTargetingUpdate(void* rcx, void* rdx, void* r8,
 typedef void* (*WaPoseCopyFn)(void*, void*, void*, void*);
 inline WaPoseCopyFn OrigWaPoseCopy = nullptr;
 
-extern "C" inline void* Hooked_WaPoseCopy(void* rcx, void* rdx, void* r8, void* r9) {
+extern "C" void* Hooked_WaPoseCopy(void* rcx, void* rdx, void* r8, void* r9) {
     const auto poseSource=cvr::camera::CapturePoseAddress(reinterpret_cast<uintptr_t>(rdx));
     void* result = OrigWaPoseCopy(rcx, rdx, r8, r9);
     cvr::camera::TransferPoseAddress(poseSource,reinterpret_cast<uintptr_t>(rcx));
@@ -122,32 +161,15 @@ static inline void* WaAllocRelayNear(uint8_t* target) {
 // at the two exact evaluator callsites inside that function. Everything about how those addresses,
 // the owner test and the cone centre were established is in docs/cp2077-hitscan-physicalray-muzzle.md.
 // ================================================================================================
-extern "C" __declspec(dllexport) int CyberpunkVR_HitscanFromMuzzle = 1;
 
-extern "C" __declspec(dllexport) int CyberpunkVR_DebugPhysicalRayPatched = 0;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayCalls = 0;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayMine = 0;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayOriginWrites = 0;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayForwardWrites = 0;
 // Rays redirected with the camera cone centre available.
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayConeRays = 0;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayRecoil = 0;
 // Rays that reached the callsite but are not the local player's weapon: the character's own ground
 // probes, world effects, anyone else's gun. Expected to be far larger than the shot counts.
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayForeign = 0;
 // Player shots sent out of the LEFT gun's barrel (two guns in hand).
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayLeftGun = 0;
 // The last two-gun shot as WaLeftGunFired saw it: left (1) or right (0), the path that decided (1 record, 2 one
 // trigger, 3 both triggers in turn, 0 none), left and right trigger; the shot's record and the two published.
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugDualShot[4] = {};
-extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugDualShotRecord[3] = {};
 // Ours by the game's own mark, but the published muzzle was nowhere near the ray. Should stay 0.
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayStaleMuzzle = 0;
 // Rays started on the sight line (Hooks/SightLine.hpp) instead of at the muzzle, and the last lift.
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRaySightLine = 0;
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugPhysicalRaySightLift[4] = {};
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugPhysicalRayRawForward[4] = {};
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugPhysicalRayOutForward[4] = {};
 
 // NO READABILITY PROBE IN THIS FILE ANY MORE. There was one -- WaReadable, a VirtualQuery wrapper --
 // and behind it a per-thread region cache, both there to make three syscalls per ray affordable. The
@@ -196,12 +218,10 @@ inline volatile LONG s_waRecoilSeqSeenLeft = -1;
 // the game's accuracy roll on a single shot. 0 = centre it on the shot's FIRST RAY, the way the
 // projectile path already centres on the first pellet, so a single shot lands on the barrel and a
 // pattern keeps its shape.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_ConeCentreFromCamera = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugConeFirstRay = 0;
 
 // The camera as the LOCATE site published it. Declared here the way the overlay declares it, which
 // is the same value the barrel dot is drawn from -- so the dot and the bullet share one frame.
-extern volatile float g_lastLocateQuat[4];
+extern "C" volatile float g_lastLocateQuat[4];
 
 // ------------------------------------------------------------------------------------------------
 // WHOSE RAY IS THIS. THE GAME ANSWERS IT ITSELF, SO DO NOT GUESS.
@@ -377,13 +397,9 @@ static bool WaLeftGunFired(const void* aBlackboard, float* pos, float* fwd) {
 // consumers read those back: the hit landed twice, once where the barrel pointed and once where the
 // camera did. Publish the ray actually cast -- origin and the final forward, pellet spread included --
 // through the engine's own typed setter. From the TofuExpress fork (2026-10-16).
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRayShared = 0;
 // 1 (default) = publish the cast ray into the shot's shared data; 0 = leave the engine's camera ray (A/B).
-extern "C" __declspec(dllexport) int CyberpunkVR_HitscanSharedRay = 1;
 // Shots whose shared data did not carry both keys: nothing is written then, so no entry is ever ADDED.
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRaySharedMissing = 0;
 // The last player shot's shared-data keys, diagnostics only: [0] = count, then up to 63 keys.
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPhysicalRayKeys[64] = {};
 
 // Whether the shot's container already holds both keys. Same three fields WaPlayerOwnedWeapon reads,
 // on the same object the engine's evaluator has just used successfully.
@@ -501,7 +517,7 @@ static void WaRotateVector(const float* q, const float* v, float* out) {
     out[2] = v[2] + q[3]*tz + (q[0]*ty - q[1]*tx);
 }
 
-extern "C" inline char Hooked_WaPhysicalRayOrigin(void* rcx, void* rdx, float* out) {
+extern "C" char Hooked_WaPhysicalRayOrigin(void* rcx, void* rdx, float* out) {
     s_waPhysicalRayMine = false;
     s_waPhysicalRayMuzzleSeq = 0xFFFFFFFFu;
     s_waPhysicalRayContext = nullptr;
@@ -615,7 +631,7 @@ extern "C" inline char Hooked_WaPhysicalRayOrigin(void* rcx, void* rdx, float* o
     return result;
 }
 
-extern "C" inline char Hooked_WaPhysicalRayForward(void* rcx, void* rdx, float* out) {
+extern "C" char Hooked_WaPhysicalRayForward(void* rcx, void* rdx, float* out) {
     const char result = s_waPhysicalRayEvalOrig ? s_waPhysicalRayEvalOrig(rcx, rdx, out) : 0;
     const bool redirect = s_waPhysicalRayMine;
     const bool haveCentre = s_waPhysicalRayHaveCentre;
@@ -758,6 +774,11 @@ inline bool InstallWeaponPhysicalRayHook() {
     return true;
 }
 
+// For tools/vrik_tests: the evaluator, the image the setter lives in, and the two originals the detours call.
+extern "C" void CvrWeaponAimBind(uintptr_t eval,uintptr_t exe,uintptr_t poseCopy,uintptr_t targeting) {
+    s_waPhysicalRayEvalOrig=reinterpret_cast<WaPhysicalRayEvalFn>(eval);g_waExeBase=exe;
+    OrigWaPoseCopy=reinterpret_cast<WaPoseCopyFn>(poseCopy);OrigWaTargetingUpdate=reinterpret_cast<WaTargetingUpdateFn>(targeting);
+}
 // The camera pose bookkeeping asks for the copy hook itself (Hooks/CameraPoseTransport.cpp), so it
 // must not depend on the rest of this family having installed.
 bool EnsureCameraPoseCopyHook() {
@@ -773,6 +794,10 @@ bool EnsureCameraPoseCopyHook() {
     if(MH_CreateHook(target,&Hooked_WaPoseCopy,reinterpret_cast<void**>(&OrigWaPoseCopy))!=MH_OK)return false;
     return MH_EnableHook(target)==MH_OK;
 }
+#endif
+#if CVR_RUST_VRIK
+// The hook family registers from rust/crates/cvr-render/src/hook_table.rs (with its kill switch).
+#else
 namespace {
 bool InstallWeaponAimAtBoot() { return InstallWeaponAimHooks(); }
 
@@ -791,6 +816,8 @@ constexpr int kEnableWeaponAimFamily = 1;
 bool WeaponAimWanted() { return kEnableWeaponAimFamily != 0; }
 }
 CVR_HOOK_IF("WeaponAim", ::cvr::hooks::Stage::Boot, 80, InstallWeaponAimAtBoot, WeaponAimWanted);
+#endif
+#if !CVR_RUST_VRIK
 
 // INSTALLED AT BOOT, not on a script's say-so: the CET Weapon module's call three seconds after load
 // was measured not to happen at all in one session. Its native (InstallWeaponAimHook) stays, and a
@@ -810,3 +837,4 @@ bool InstallWeaponAimHooks() {
     CyberpunkVR_DebugWaInstalled = ok ? 1 : 0;
     return ok;
 }
+#endif

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // GameThreadQueues -- the game thread does not run render jobs while it waits.
 //
 // The game thread waits for its frame's job counters through sub_1405D3CFC -> FlushCounter
@@ -24,13 +25,25 @@
 #include <cstring>
 #include <intrin.h>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // 1 = the game thread leaves dispatcher queue 1 (render jobs) to the workers while it waits. Live for A/B.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GameThreadSkipRenderQueue{0};
+#endif
 // [0] dequeues, [1] jobs taken from queue 3, [2] from queue 2, [3] dequeues that found nothing on 3 and 2
 // while queue 1 had jobs (left to the workers).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_GameThreadQueueStats[4]{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 // THE WAIT FOR THE WORLD TICK RUNS THE LUA HOST'S COLLECTOR. The world tick (sub_14069C788) hands its jobs to the
 // dispatcher and waits for them in sub_1405D3CFC, the game thread taking jobs too; ~9-12 ms of a frame in the city,
 // most of it with nothing to take. Inside that wait (and only there: the same dequeue serves every counter wait,
@@ -42,8 +55,15 @@ __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_GameThreadQueueStats[4]{
 // samples). 0 / 64 / 256 PAUSEs per empty dequeue measured 13.66 / 13.63 / 13.65 ms (2026-10-17).
 
 // The Lua host's collector slice (src/Lua/HostGc.cpp).
+#if !CVR_RUST_VRIK
 extern "C" void CvrLuaIdleWork();
+#endif
 
+#if CVR_RUST_VRIK
+// THE DEQUEUE AND THE WAIT ARE RUST'S (rust/crates/cvr-render/src/game_thread_queues.rs); the registration stays here, so
+// the install pass and its log are as they were.
+// The Rust build registers these detours from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 namespace cvr {
 namespace detail {
 namespace {
@@ -132,3 +152,5 @@ CVR_DETOUR("[gt-queues] game thread counter wait sub_1405D3CFC", WORLD_TICK_WAIT
 
 }  // namespace detail
 }  // namespace cvr
+#endif
+#endif

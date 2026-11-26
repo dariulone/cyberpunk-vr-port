@@ -32,11 +32,58 @@ enum class ChangedDetail:uint32_t {
     DoubleSnapshot=1u<<12,Read=1u<<13,GraphCapture=1u<<14,OwnerCapture=1u<<15,
     CacheSlot=1u<<16,Fingerprint=1u<<17
 };
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/graph_definition.rs (tools/single_pass_tests/definition_source_test runs its
+// cases against them in its Rust variant). SourceReceipt owns the Rust receipt; its members stay here for the accessors.
+namespace detail {
+struct RustOwner {uint64_t perViewGraph;definition_owner::RustPlanFields plan;};
+struct RustReceipt {
+    uint32_t lastUse,definitionSlots;uint64_t key,allocator;NativeVector ownerVector;
+    const RustOwner* owners;size_t ownerCount;const Mapping* mappings;size_t mappingCount;
+    uint64_t cacheBase,graph,slot,base,fingerprint;uint32_t failure,changedDetails,policy,contentPolicy;bool ready;
+};
+struct RustHeld;
+static_assert(sizeof(Mapping)==24 && sizeof(RustOwner)==80 && sizeof(RustReceipt)==136,"mirrored by graph_definition.rs");
+extern "C" {
+RustHeld* cvr_gd_capture(uint64_t,uint64_t,const graph_snapshot::Node*,size_t,const graph_snapshot::Edge*,size_t,uint32_t,uint64_t,
+    ReadMemory,uint32_t,uint32_t,RustReceipt*);
+bool cvr_gd_matches(const RustHeld*,ReadMemory,uint32_t*);
+void cvr_gd_free(RustHeld*);
+}
+}
+#endif
 
 // A read-only mapping, not a lease, native-exclusive section, generation monitor or move.
 // Equal bytes cannot exclude allocator ABA; runtime mutation hooks supply that proof.
 class SourceReceipt {
 public:
+#if CVR_RUST_VRIK
+    bool Capture(uint64_t cacheBase,uint64_t compositeGraph,const graph_snapshot::Snapshot& source,
+                 uint64_t imageBase,ReadMemory read,CacheUsePolicy policy=CacheUsePolicy::StableCounter,
+                 DefinitionContentPolicy contentPolicy=DefinitionContentPolicy::ImmutablePrefix)try{
+        [[maybe_unused]] const auto priorSource=source_;
+        *this=SourceReceipt{};detail::RustReceipt out{};
+        const auto held=detail::cvr_gd_capture(cacheBase,compositeGraph,source.nodes.data(),source.nodes.size(),source.edges.data(),
+            source.edges.size(),source.failure,imageBase,read,uint32_t(policy),uint32_t(contentPolicy),&out);
+        if(held)rust_=std::shared_ptr<detail::RustHeld>(held,detail::cvr_gd_free);
+        cacheBase_=out.cacheBase;graph_=out.graph;slot_=out.slot;base_=out.base;
+        policy_=CacheUsePolicy(out.policy);contentPolicy_=DefinitionContentPolicy(out.contentPolicy);
+        failure_=Failure(out.failure);changedDetails_=out.changedDetails;
+        if(!held)return false;
+        snapshot_.lastUse=out.lastUse;snapshot_.definitionSlots=out.definitionSlots;snapshot_.key=out.key;
+        snapshot_.allocator=out.allocator;snapshot_.ownerVector=out.ownerVector;
+        for(size_t i=0;i<out.ownerCount;++i)
+            snapshot_.owners.push_back({out.owners[i].perViewGraph,definition_owner::MovePlan::Restored(out.owners[i].plan)});
+        snapshot_.mappings.assign(out.mappings,out.mappings+out.mappingCount);
+        source_=std::make_shared<const graph_snapshot::Snapshot>(source);fingerprint_=out.fingerprint;ready_=true;return true;
+    }catch(...){*this=SourceReceipt{};failure_=Failure::Allocation;return false;}
+    bool MatchesBefore(ReadMemory read,uint32_t* changedDetails=nullptr)const{
+        if(changedDetails)*changedDetails=0;
+        if(!ready_ || !source_ || !rust_)return false;
+        uint32_t detail{};const auto same=detail::cvr_gd_matches(rust_.get(),read,&detail);
+        if(changedDetails)*changedDetails=detail;return same;
+    }
+#else
     bool Capture(uint64_t cacheBase,uint64_t compositeGraph,const graph_snapshot::Snapshot& source,
                  uint64_t imageBase,ReadMemory read,CacheUsePolicy policy=CacheUsePolicy::StableCounter,
                  DefinitionContentPolicy contentPolicy=DefinitionContentPolicy::ImmutablePrefix)try{
@@ -71,6 +118,7 @@ public:
         if(current.fingerprint_!=fingerprint_)detail|=Bit(ChangedDetail::Fingerprint);
         if(changedDetails)*changedDetails=detail;return !detail;
     }
+#endif
     bool Ready()const{return ready_;}
     Failure Rejection()const{return failure_;}
     uint32_t ChangedDetails()const{return changedDetails_;}
@@ -97,6 +145,7 @@ private:
         std::vector<Owner> owners;
         std::vector<Mapping> mappings;
     };
+#if !CVR_RUST_VRIK
     struct Range {uint64_t begin{},end{};};
     static bool Pointer(uint64_t value){return value && !(value&7);}
     static bool Overlap(Range a,Range b){return a.begin<b.end && b.begin<a.end;}
@@ -222,6 +271,7 @@ private:
         if(const auto detail=GraphDifference(after,expected,contentPolicy_))return Changed(detail);
         return true;
     }
+#endif
     Snapshot snapshot_;
     std::shared_ptr<const graph_snapshot::Snapshot> source_;
     uint64_t cacheBase_{},graph_{},slot_{},base_{},fingerprint_{};
@@ -229,5 +279,8 @@ private:
     uint32_t changedDetails_{};
     CacheUsePolicy policy_=CacheUsePolicy::StableCounter;
     DefinitionContentPolicy contentPolicy_=DefinitionContentPolicy::ImmutablePrefix;
+#if CVR_RUST_VRIK
+    std::shared_ptr<detail::RustHeld> rust_;
+#endif
 };
 }

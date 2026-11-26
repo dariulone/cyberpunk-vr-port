@@ -1,17 +1,44 @@
-// Exercises the production shader registry with COM lifetime semantics and deterministic address reuse.
+// Exercises the production shader registry with COM lifetime semantics and deterministic address reuse, and the shader
+// census. "trace" prints the counters and the census rows instead, so the C++ build and the Rust build
+// (rust/crates/cvr-render/src/shader_patches.rs) can be compared (cmake/ParityTrace.cmake).
+//   hidden_area_pipeline_lifetime [signed shader fixture | trace]
 #include "Render/HiddenAreaShaders.hpp"
+#include "Core/Paths.hpp"
 #include <windows.h>
 #include <dxgi.h>
 #include <atomic>
 #include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <new>
 #include <stdexcept>
+#include <string>
 
 extern "C" int GetMenuMode(){return 0;}
 extern "C" {std::atomic<uint32_t> CyberpunkVR_HiddenAreaEnabled{0};}
-extern "C" std::atomic<uint32_t> CyberpunkVR_ViewDirPatch;
+extern "C" std::atomic<uint32_t> CyberpunkVR_ViewDirPatch,CyberpunkVR_ViewDirPatchLoaded,CyberpunkVR_ViewDirPatchBuilt,
+    CyberpunkVR_ViewDirPatchFailed,CyberpunkVR_HiddenAreaPatchRegistered,CyberpunkVR_ShaderCensus,CyberpunkVR_ShaderCensusRecording;
+extern "C" std::atomic<uint64_t> CyberpunkVR_ViewDirPatchBinds,CyberpunkVR_ShaderCensusPipelines;
+struct CensusRow { uint32_t node; int32_t side; uint32_t kind, x, y, z; uint64_t hash; uint32_t count, bytes; uint64_t pso; };
+extern "C" CensusRow CyberpunkVR_ShaderCensusLog[512];
+namespace cvr::engine_stereo { bool Enabled(){return false;} }
+// The plugin's folders are beside the test: the Rust build finds them from the module's own folder, the C++ build's
+// views of them are these.
+static std::wstring ExeFolder(){wchar_t exe[32768]{};GetModuleFileNameW(nullptr,exe,32768);return std::filesystem::path(exe).parent_path().wstring();}
+#if !CVR_RUST_VRIK
+namespace cvr::paths {
+const std::wstring& Dir(Folder folder) {
+    static std::wstring dirs[9];
+    static const wchar_t* names[9]{L"",L"shaders",L"grips",L"archive",L"config",L"log",L"scripts",L"redscript",L"lua"};
+    auto& d=dirs[size_t(folder)];
+    if(d.empty()){d=ExeFolder()+L"\\";if(*names[size_t(folder)])d+=std::wstring(names[size_t(folder)])+L"\\";}
+    return d;
+}
+std::string DirA(Folder folder){std::string a;for(wchar_t ch:Dir(folder))a.push_back(char(ch));return a;}
+}
+#endif
 namespace {
 int liveTwins=0;
 void Require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
@@ -51,14 +78,18 @@ uint64_t Hash(const uint8_t* bytes,size_t count){uint64_t h=1469598103934665603u
 }
 int main(int argc,char** argv){
     try{
-        Require(argc==2,"Expected signed shader fixture path");
+        const bool trace=argc>1 && std::strcmp(argv[1],"trace")==0;
+        const char* fixture=argc>1 && !trace?argv[1]:CVR_FIXTURE;
         namespace s=cvr::hidden_area::shaders;
+        // The census records from the first call on: its switch file is in the log folder.
+        std::filesystem::create_directories(std::filesystem::path(ExeFolder())/L"log");
+        std::ofstream(std::filesystem::path(ExeFolder())/L"log"/L"cvr_shader_census.txt").put('1');
         const uint8_t patchedBytes[]{1,2,3,4},nativeBytes[]{5,6,7,8};
         const D3D12_SHADER_BYTECODE patched{patchedBytes,4},native{nativeBytes,4};
         wchar_t exe[32768]{};Require(GetModuleFileNameW(nullptr,exe,32768)!=0,"Executable path");
-        auto folder=std::filesystem::path(exe).parent_path()/L"view_dir";std::filesystem::create_directories(folder);
+        auto folder=std::filesystem::path(exe).parent_path()/L"shaders"/L"view_dir";std::filesystem::create_directories(folder);
         char name[32];sprintf_s(name,"%016llx.dxil",static_cast<unsigned long long>(Hash(patchedBytes,4)));
-        std::filesystem::copy_file(argv[1],folder/name,std::filesystem::copy_options::overwrite_existing);
+        std::filesystem::copy_file(fixture,folder/name,std::filesystem::copy_options::overwrite_existing);
         Require(s::HasPatch(patched)&&!s::HasPatch(native),"Fixture mapping");
         CyberpunkVR_ViewDirPatch=1;
         alignas(FakePso) std::byte storage[sizeof(FakePso)];
@@ -101,7 +132,46 @@ int main(int argc,char** argv){
         Require(s::Bind(reused,0)==reused,"Failed twin creation must retain original");
         reused->Release();
         Require(liveTwins==0,"No live replacement objects remain");
-        puts("PASS: PSO address reuse, repeated registration, owner destruction and failure fallbacks");
+
+        // The census: dispatches and full-screen draws by compute/pixel shader (mode 1), instanced draws by vertex
+        // shader (2), every draw by vertex (3) or pixel shader (4), each shader dumped once.
+        auto* counted=new(storage) FakePso;
+        s::PipelineCreated(counted,{},patched,native);
+        const auto record=[&](uint32_t mode){
+            CyberpunkVR_ShaderCensus=mode;
+            s::Command(7,0,counted,s::Kind::Dispatch,8,4,1);s::Command(7,0,counted,s::Kind::Dispatch,8,4,1);
+            s::Command(7,1,counted,s::Kind::Draw,3,1,0);s::Command(7,1,counted,s::Kind::Draw,300,1,0);
+            s::Command(9,0,counted,s::Kind::DrawIndexed,36,10,0);s::Command(9,1,counted,s::Kind::Draw,6,10,0);
+            s::Command(11,0,nullptr,s::Kind::DispatchRays,1920,1080,1);
+        };
+        for(uint32_t mode=0;mode<=4;++mode)record(mode);
+        CyberpunkVR_ShaderCensus=0;
+        counted->Release();
+        unsigned rows=0;uint64_t census=1469598103934665603ull;
+        for(auto row:CyberpunkVR_ShaderCensusLog) {
+            if(!row.count)break;
+            ++rows;
+            // Addresses differ between runs: the pipeline is named by what it is.
+            row.pso=row.pso==reinterpret_cast<uint64_t>(counted)?1:row.pso?2:0;
+            const auto* bytes=reinterpret_cast<const uint8_t*>(&row);
+            for(size_t i=0;i<sizeof(row);++i){census^=bytes[i];census*=1099511628211ull;}
+        }
+        const auto& first=CyberpunkVR_ShaderCensusLog[0];
+        // Mode 1: the dispatch (twice), the 3-vertex draw, the ray dispatch; 2: both instanced draws; 3 and 4: three draw rows each.
+        if(rows!=11)std::printf("census rows %u\n",rows);
+        Require(CyberpunkVR_ShaderCensusRecording==1 && rows==11,"Census rows");
+        Require(first.node==7 && first.kind==1 && first.count==2 && first.hash==Hash(patchedBytes,4) && first.bytes==4,"Census dispatch row");
+        Require(std::filesystem::exists(std::filesystem::path(ExeFolder())/L"log"/L"cvr_shaders"/std::filesystem::path(name)),
+                "Census shader dump");
+        if(trace) {
+            std::printf("pipeline_lifetime trace registered=%u loaded=%u built=%u failed=%u binds=%llu census=%016llx rows=%u "
+                        "pipelines=%llu creates=%u\n",CyberpunkVR_HiddenAreaPatchRegistered.load(),CyberpunkVR_ViewDirPatchLoaded.load(),
+                        CyberpunkVR_ViewDirPatchBuilt.load(),CyberpunkVR_ViewDirPatchFailed.load(),
+                        static_cast<unsigned long long>(CyberpunkVR_ViewDirPatchBinds.load()),static_cast<unsigned long long>(census),rows,
+                        static_cast<unsigned long long>(CyberpunkVR_ShaderCensusPipelines.load()),creates);
+            return 0;
+        }
+        puts("PASS: PSO address reuse, repeated registration, owner destruction and failure fallbacks, shader census");
         return 0;
     }catch(const std::exception& e){printf("FAIL: %s\n",e.what());return 1;}
 }

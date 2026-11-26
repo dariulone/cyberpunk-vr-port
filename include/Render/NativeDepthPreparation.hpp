@@ -26,6 +26,33 @@ constexpr uint32_t MaxPackets=32768;
 enum Counter:uint32_t {Main,Prepared,Vrcam,InputSame,OutputSame,Changed,Missing,Replaced,Failure,
                        OutputDifferent,Stale,TooLate,RawCount,FinalCount,NativeCount,FirstDifference,CounterCount};
 
+#if CVR_RUST_VRIK
+}
+// The snapshot and the cache: rust/crates/cvr-render/src/eager_depth.rs (the packets and counters copied back).
+extern "C" {
+void* cvr_eager_depth_capture(uint64_t buckets,cvr::stereo::eager_depth::Read,const cvr::stereo::eager_depth::Packet** data,size_t* count);
+void cvr_eager_depth_snapshot_free(void*);
+void* cvr_eager_depth_cache_new();
+void cvr_eager_depth_cache_free(void*);
+void cvr_eager_depth_cache_reset(void*,uint32_t* counts);
+bool cvr_eager_depth_cache_intercept(void*,const cvr::stereo::eager_depth::Api*,uint32_t frame,uint64_t mainView,uint64_t eyeView,bool beforeMainDraw,
+    uint32_t mode,void* context,void* buckets,void* output,uint32_t flags0,uint32_t flags1,uint32_t* counts);
+bool cvr_eager_depth_intercept(cvr::stereo::eager_depth::Prepare,cvr::stereo::eager_depth::Gather,cvr::stereo::eager_depth::Filter,
+    cvr::stereo::eager_depth::Finalize,void*,void*,void*,uint32_t,uint32_t);
+void cvr_eager_depth_begin_run();
+void cvr_eager_depth_end_run();
+}
+namespace cvr::stereo::eager_depth {
+class Snapshot {
+public:
+    std::vector<Packet> packets;
+    bool Capture(uint64_t buckets,Read read){
+        const Packet* data{};size_t count{};void* captured=cvr_eager_depth_capture(buckets,read,&data,&count);
+        if(!captured)return false;
+        packets.assign(data,data+count);cvr_eager_depth_snapshot_free(captured);return true;
+    }
+};
+#else
 class Snapshot {
 public:
     std::vector<Packet> packets;
@@ -56,6 +83,7 @@ private:
         return read(buckets,after.data(),sizeof(after)) && after==heads;
     }
 };
+#endif
 
 // Native gather consumes 28 heads of {unused,next,data,unused,count} nodes.
 // Only the packet array is borrowed, and only for the synchronous native call.
@@ -69,6 +97,28 @@ struct OwnedBuckets {
 };
 static_assert(offsetof(OwnedBuckets::Node,count)==32 && sizeof(OwnedBuckets::Node)==40);
 
+#if CVR_RUST_VRIK
+class Cache {
+public:
+    std::array<uint32_t,CounterCount> counts{};
+    Cache():rust_(cvr_eager_depth_cache_new()){}
+    ~Cache(){cvr_eager_depth_cache_free(rust_);}
+    Cache(const Cache&)=delete;
+    Cache& operator=(const Cache&)=delete;
+    void Reset(){cvr_eager_depth_cache_reset(rust_,counts.data());}
+    bool Intercept(const Api& api,uint32_t frame,uint64_t mainView,uint64_t eyeView,bool beforeMainDraw,uint32_t mode,
+                   void* context,void* buckets,void* output,uint32_t flags0,uint32_t flags1){
+        return cvr_eager_depth_cache_intercept(rust_,&api,frame,mainView,eyeView,beforeMainDraw,mode,context,buckets,output,flags0,flags1,counts.data());
+    }
+private:
+    void* rust_;
+};
+inline bool Intercept(Prepare prepare,Gather gather,Filter filter,Finalize finalize,void* context,void* buckets,void* output,uint32_t flags0,uint32_t flags1){
+    return cvr_eager_depth_intercept(prepare,gather,filter,finalize,context,buckets,output,flags0,flags1);
+}
+inline void BeginRun(){cvr_eager_depth_begin_run();}
+inline void EndRun(){cvr_eager_depth_end_run();}
+#else
 class Cache {
 public:
     std::array<uint32_t,CounterCount> counts{};
@@ -151,6 +201,7 @@ private:
 bool Intercept(Prepare,Gather,Filter,Finalize,void*,void*,void*,uint32_t,uint32_t);
 void BeginRun();
 void EndRun();
+#endif
 }
 
 extern "C" {

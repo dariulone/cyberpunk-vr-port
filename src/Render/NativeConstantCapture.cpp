@@ -12,7 +12,48 @@
 #include <mutex>
 #include <stdexcept>
 #include <unordered_map>
+#if CVR_RUST_VRIK
+// The capture's checks: rust/crates/cvr-render/src/constant_capture_checks.rs (the family's uses as
+// stereo_family_contracts' ResourceUse).
+extern "C" bool cvr_ncc_single_cbvs(const void*,size_t);
+extern "C" bool cvr_ncc_same_target(const D3D12_RESOURCE_DESC*,const D3D12_RESOURCE_DESC*);
+// The capture's state -- the lock, the readers, the switch, the ledger (constant_ledger.rs), the held families, the
+// submissions, the resets, the deferred bindings and the registered trace's collection:
+// rust/crates/cvr-render/src/constant_capture_state.rs. This half lends it the exported rows, the descriptors' current
+// CBV and the families (a family's CBV uses at a draw, held and released), and keeps the pair's copy and the bank's pass.
+struct RustCbvUse {uint64_t descriptor,heap,address;uint32_t bytes,parameter,offset,visibility,shaderRegister,expected,state,pad;};
+struct RustCaptureSource {uint64_t family,list,root,sequence;uint32_t side,frame;};
+struct RustCaptureHost {
+    std::atomic<uint32_t>* enable,*seq,*failure,*drawCount,*bindingCount,*payloadCount,*blobBytes,*pending;
+    uint64_t* draws,*bindings,*payloads,*blob;
+    bool(*resolveCbv)(uint64_t,uint64_t*,uint64_t*,uint32_t*);
+    bool(*uses)(const void*,uint64_t,uint64_t,void*,void(*)(void*,const RustCbvUse*));
+    void*(*hold)(const void*);void(*release)(void*);
+};
+static_assert(sizeof(RustCbvUse)==56 && sizeof(RustCaptureSource)==40 && sizeof(RustCaptureHost)==16*8,"mirrored by constant_capture_state.rs");
 extern "C" {
+void cvr_ncc2_attach(const RustCaptureHost*);
+void cvr_ncc2_lock(bool);
+void cvr_ncc2_set_reader(const void*,const void*,const void*,const void*);
+void cvr_ncc2_begin();
+void cvr_ncc2_snapshot(const RustCaptureSource*,const void*);
+void cvr_ncc2_end();
+void cvr_ncc2_before_submit(UINT,ID3D12CommandList* const*);
+void cvr_ncc2_reset(ID3D12GraphicsCommandList*);
+void cvr_ncc2_poll();
+void cvr_ncb_poll();
+bool cvr_ncc2_pair(UINT,UINT,size_t(*)[2]);
+const void* cvr_ncc2_owner(size_t);
+bool cvr_ncc2_payload(size_t,uint32_t,uint32_t,uint32_t,uint32_t,const uint8_t**,size_t*);
+}
+#endif
+extern "C" {
+#if CVR_RUST_VRIK
+// The exported state is Rust's (rust/crates/cvr-render/src/native_state_exports.rs), declared in the header.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's is rust/crates/cvr-render/src/constant_bank.rs'
+__declspec(dllexport) cvr::stereo::DepthComparisonResult CyberpunkVR_ConstantCompareData{};
+#endif
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ConstantCaptureEnable{},CyberpunkVR_ConstantCaptureSeq{},CyberpunkVR_ConstantCaptureFailure{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ConstantDrawCount{},CyberpunkVR_ConstantBindingCount{},CyberpunkVR_ConstantPayloadCount{},CyberpunkVR_ConstantBlobBytes{},CyberpunkVR_ConstantPendingLists{};
 __declspec(dllexport) uint64_t CyberpunkVR_ConstantDraws{},CyberpunkVR_ConstantBindings{},CyberpunkVR_ConstantPayloads{},CyberpunkVR_ConstantBlob{};
@@ -34,8 +75,43 @@ __declspec(dllexport) uint32_t CyberpunkVR_ConstantCompareStage{};
 __declspec(dllexport) cvr::stereo::DepthComparisonResult CyberpunkVR_ConstantCompareData{};
 __declspec(dllexport) uint64_t CyberpunkVR_ConstantBankBytes{};
 __declspec(dllexport) int32_t CyberpunkVR_ConstantBankResult{};
+#endif
 }
 namespace cvr::stereo::constants {
+#if CVR_RUST_VRIK
+namespace {
+using FamilyRef=std::shared_ptr<const families::Family>;
+struct RustMutex {void lock(){cvr_ncc2_lock(true);}void unlock(){cvr_ncc2_lock(false);}} mutex;
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's comparison is rust/crates/cvr-render/src/constant_bank.rs'
+std::unique_ptr<StereoDepthComparison> comparison;
+#endif
+static_assert(sizeof(Binding)==72 && sizeof(Draw)==32 && sizeof(Payload)==16,"mirrored by constant_ledger.rs");
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's host is rust/crates/cvr-render/src/constant_capture_state.rs' own (its families the registry's)
+const RustCaptureHost captureHost{&CyberpunkVR_ConstantCaptureEnable,&CyberpunkVR_ConstantCaptureSeq,&CyberpunkVR_ConstantCaptureFailure,
+    &CyberpunkVR_ConstantDrawCount,&CyberpunkVR_ConstantBindingCount,&CyberpunkVR_ConstantPayloadCount,&CyberpunkVR_ConstantBlobBytes,
+    &CyberpunkVR_ConstantPendingLists,&CyberpunkVR_ConstantDraws,&CyberpunkVR_ConstantBindings,&CyberpunkVR_ConstantPayloads,&CyberpunkVR_ConstantBlob,
+    [](uint64_t descriptor,uint64_t* heap,uint64_t* address,uint32_t* bytes){try{descriptors::CbvBinding now;
+        if(!descriptors::ResolveCbvAddress(descriptor,now))return false;*heap=now.heap;*address=now.address;*bytes=now.bytes;return true;}catch(...){return false;}},
+    [](const void* owner,uint64_t list,uint64_t root,void* sink,void(*push)(void*,const RustCbvUse*)){try{
+        const auto& family=**static_cast<const FamilyRef*>(owner);const auto& plan=family.pairedRoot->plan;
+        for(const auto& use:family.uses)if(use.type==D3D12_DESCRIPTOR_RANGE_TYPE_CBV) {
+            RustCbvUse u{};u.visibility=use.visibility;u.shaderRegister=use.shaderRegister;u.expected=use.bytes;
+            const auto location=std::find_if(plan.bindings.begin(),plan.bindings.end(),[&](const auto& p){return UINT(p.binding.type)==use.type &&
+                UINT(p.binding.visibility)==use.visibility && !use.space && use.count==1 && p.binding.sourceRegister==use.shaderRegister;});
+            if(location!=plan.bindings.end() && location->sourceType==D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE) {
+                u.state=1;u.parameter=location->sourceParameter;u.offset=location->sourceOffset;descriptors::CbvBinding cbv;
+                if(descriptors::ResolveCbv(reinterpret_cast<ID3D12GraphicsCommandList*>(list),root,u.parameter,u.offset,cbv)){
+                    u.state=2;u.descriptor=cbv.descriptor;u.heap=cbv.heap;u.address=cbv.address;u.bytes=cbv.bytes;}
+            }
+            push(sink,&u);
+        }
+        return true;}catch(...){return false;}},
+    [](const void* owner)->void*{try{return new FamilyRef(*static_cast<const FamilyRef*>(owner));}catch(...){return nullptr;}},
+    [](void* held){delete static_cast<FamilyRef*>(held);}};
+[[maybe_unused]] const bool captureAttached=(cvr_ncc2_attach(&captureHost),true);
+#endif
+}
+#else
 namespace {
 std::mutex mutex;
 ReadBytes reader{};ValidateBytes validator{};bool active{};
@@ -68,6 +144,25 @@ UINT Intern(std::vector<uint8_t> bytes,uint64_t hash) {
     blob.insert(blob.end(),bytes.begin(),bytes.end());interned.emplace(std::move(bytes),id);return id;
 }
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+#if CVR_RUST_TEST_FACADES   // the plugin's callers reach constant_capture_state.rs directly; the Rust test variants call these
+void SetReader(ReadBytes read,ValidateBytes validate,MarkPosition mark,ResolvePosition resolve){
+    cvr_ncc2_set_reader(reinterpret_cast<const void*>(read),reinterpret_cast<const void*>(validate),reinterpret_cast<const void*>(mark),
+        reinterpret_cast<const void*>(resolve));
+}
+void BeforeSubmit(UINT count,ID3D12CommandList* const* lists){cvr_ncc2_before_submit(count,lists);}
+void Reset(ID3D12GraphicsCommandList* list){cvr_ncc2_reset(list);}
+#endif
+void Begin(){cvr_ncc2_begin();}
+void Snapshot(const native_probe::DrawRecord& source,std::shared_ptr<const families::Family> family) {
+    if(!family)return;
+    const RustCaptureSource draw{family->id,source.list,source.root,source.sequence,source.side,source.frame};cvr_ncc2_snapshot(&draw,&family);
+}
+void End(){cvr_ncc2_end();}
+#endif
+#else
 void SetReader(ReadBytes read,ValidateBytes validate,MarkPosition mark,ResolvePosition resolve){
     std::lock_guard lock(mutex);reader=read;validator=validate;markPosition=mark;resolvePosition=resolve;
 }
@@ -158,6 +253,30 @@ void Reset(ID3D12GraphicsCommandList* list) {
         for(UINT j=draw.first;j<draw.first+draw.count;++j){if(bindings[j].status==128)--deferredCount;bindings[j].status=64;}}
     pending.erase(found);Publish();CyberpunkVR_ConstantCaptureSeq.fetch_add(1);
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's pair copies are rust/crates/cvr-render/src/constant_bank.rs'
+bool CopyConstantPair(UINT left,UINT right,PairInput& output) {
+    std::lock_guard lock(mutex);if(CyberpunkVR_ConstantCaptureFailure.load() || left==right)return false;
+    size_t at[2]{};if(!cvr_ncc2_pair(left,right,&at))return false;
+    const auto* held=static_cast<const FamilyRef*>(cvr_ncc2_owner(at[0]));auto family=held?*held:nullptr;
+    static_assert(sizeof(families::ResourceUse)==24,"mirrored by stereo_family_contracts.rs");
+    if(!family || !cvr_ncc_single_cbvs(family->uses.data(),family->uses.size()))return false;
+    PairInput result;result.family=family;const auto& plan=family->pairedRoot->plan;
+    result.bytes.resize(plan.bindings.size());result.pairs.resize(plan.bindings.size());
+    for(size_t i=0;i<plan.bindings.size();++i) {
+        auto& pair=result.pairs[i];pair.binding=plan.bindings[i].binding;
+        for(UINT eye=0;eye<2;++eye) {
+            const uint8_t* data{};size_t bytes{};
+            if(!cvr_ncc2_payload(at[eye],plan.bindings[i].sourceParameter,plan.bindings[i].sourceOffset,UINT(pair.binding.visibility),
+                pair.binding.sourceRegister,&data,&bytes))return false;
+            auto& copy=result.bytes[i][eye];copy.assign(data,data+bytes);pair.eyes[eye].constants=copy;
+        }
+    }
+    output=std::move(result);return true;
+}
+#endif
+#else
 bool CopyConstantPair(UINT left,UINT right,PairInput& output) {
     std::lock_guard lock(mutex);if(CyberpunkVR_ConstantCaptureFailure.load() || left==right)return false;
     const auto find=[&](UINT sequence){return std::find_if(draws.begin(),draws.end(),[&](const auto& d){return d.sequence==sequence && d.flags==7;});};
@@ -180,6 +299,8 @@ bool CopyConstantPair(UINT left,UINT right,PairInput& output) {
     }
     output=std::move(result);return true;
 }
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's bank request is rust/crates/cvr-render/src/constant_bank.rs'
 void Poll() {
     PollRegisteredIntent();
     if(comparison && CyberpunkVR_ConstantCompareState.load()==1) {
@@ -187,6 +308,9 @@ void Poll() {
         if(hr!=S_FALSE){CyberpunkVR_ConstantCompareSeq.fetch_add(1);CyberpunkVR_ConstantCompareData=result;CyberpunkVR_ConstantCompareResult=hr;
             CyberpunkVR_ConstantCompareState=SUCCEEDED(hr)?2:3;comparison.reset();CyberpunkVR_ConstantCompareSeq.fetch_add(1);}
     }
+#if CVR_RUST_VRIK
+    cvr_ncc2_poll();   // the registered trace's collection and the deferred bindings (constant_capture_state.rs)
+#else
     static bool collecting{};
     const bool requested=CyberpunkVR_ConstantCaptureEnable.load(std::memory_order_relaxed)!=0;
     if(requested && !collecting){ClearRegistered();collecting=true;}
@@ -220,6 +344,7 @@ void Poll() {
         }
     }
     if(!requested && collecting && !CyberpunkVR_ConstantPendingLists.load()){ClearRegistered(true);collecting=false;}
+#endif
     const auto request=CyberpunkVR_ConstantBankRequest.exchange(0);if(!request)return;
     if(CyberpunkVR_ConstantCompareState.load()==1){CyberpunkVR_ConstantBankResult=E_PENDING;CyberpunkVR_ConstantBankDone=request;return;}
     const bool compareDepth=CyberpunkVR_ConstantBankCompareDepth.load()!=0;
@@ -275,8 +400,12 @@ void Poll() {
                                 const auto& candidate=eye.state.targets.resources[slot];
                                 if(!candidate){supported=false;continue;}
                                 const auto d=candidate->GetDesc();
+#if CVR_RUST_VRIK
+                                supported&=cvr_ncc_same_target(&d,&desc);
+#else
                                 supported&=d.Dimension==desc.Dimension && d.Width==desc.Width && d.Height==desc.Height && d.Format==desc.Format &&
                                     d.DepthOrArraySize==1 && d.MipLevels==1 && d.SampleDesc.Count==1;
+#endif
                             }
                             if(!supported)break;
                             CyberpunkVR_ConstantBankPassStage=2;
@@ -312,4 +441,10 @@ void Poll() {
         CyberpunkVR_ConstantCompareResult=E_FAIL;CyberpunkVR_ConstantCompareState=3;CyberpunkVR_ConstantCompareSeq.fetch_add(1);}
     CyberpunkVR_ConstantBankDone.store(request,std::memory_order_release);
 }
+#else
+// The comparison's read, the capture's poll and the bank request: rust/crates/cvr-render/src/constant_bank.rs.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void Poll(){PollRegisteredIntent();cvr_ncb_poll();}
+#endif
+#endif
 }

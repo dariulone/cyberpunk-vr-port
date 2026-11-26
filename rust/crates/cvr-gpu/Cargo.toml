@@ -1,0 +1,25 @@
+[package]
+name = "cvr-gpu"
+description = "The port's Direct3D 12 helpers (stage 4, docs/rust-migration-plan.md): the objects a command list uses kept alive until the GPU has run it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cvr-body = { path = "../cvr-body" }
+cvr-crt = { path = "../cvr-crt" }
+cvr-engine = { path = "../cvr-engine" }
+cvr-host = { path = "../cvr-host" }
+windows-numerics = "0.3"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Performance", "Win32_System_Threading"] }
+windows = { version = "0.62", features = ["Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D_Fxc", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_Security", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_Performance"] }
+
+[lints]
+workspace = true
+
+[features]
+# The plugin's Rust build (cvr-render's rust-build): the runtime tables the C++ half used to attach are built
+# here from the plugin's exports; a test program without it attaches its own.
+plugin-tables = []
+# The WARP bench of the passes' compute shaders (src/bench.rs): the tests' only, the DLL never builds it.
+bench = []

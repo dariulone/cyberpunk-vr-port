@@ -8,32 +8,10 @@
 #include <memory>
 #include <array>
 #include <atomic>
-#include <cmath>
 #include "Runtimes/HudFollow.hpp"
 #include "Render/HudPanel.hpp"
 
 namespace cvr::hud {
-// Numeric guard, not full layer validation (handles, image rectangles and extensions
-// remain the runtime's responsibility). XrPosef requires unit length within 1%.
-inline bool Submittable(const XrCompositionLayerQuad& quad) {
-    const auto& p=quad.pose.position;const auto& q=quad.pose.orientation;
-    const double norm2=double(q.x)*q.x+double(q.y)*q.y+double(q.z)*q.z+double(q.w)*q.w;
-    return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) &&
-        std::isfinite(norm2) && norm2>=0.99*0.99 && norm2<=1.01*1.01 &&
-        std::isfinite(quad.size.width) && std::isfinite(quad.size.height) &&
-        quad.size.width>0.0f && quad.size.height>0.0f;
-}
-// Compact only the optional layer list supplied by the caller, preserving order.
-// The primary world/menu layer is deliberately not inferred from a layer type.
-inline uint32_t FilterSubmittableQuads(const XrCompositionLayerBaseHeader** layers,uint32_t count) {
-    uint32_t kept=0;
-    for(uint32_t i=0;i<count;++i) {
-        const auto* layer=layers[i];
-        if(layer && (layer->type!=XR_TYPE_COMPOSITION_LAYER_QUAD ||
-            Submittable(*reinterpret_cast<const XrCompositionLayerQuad*>(layer)))) layers[kept++]=layer;
-    }
-    return kept;
-}
 struct PoseDebug {
     uint64_t frames=0;
     int64_t displayTime=0;
@@ -43,15 +21,46 @@ struct PoseDebug {
     uint64_t sourceSerial=0,sourceTick=0;
 };
 static_assert(sizeof(PoseDebug)==96 && offsetof(PoseDebug,sourceSerial)==80);
+#if CVR_RUST_VRIK
+}
+// The quad is rust/crates/cvr-xr/src/hud_quad.rs; this class holds one.
+extern "C" {
+void* cvr_xr_hud_quad_new(unsigned channel);
+void cvr_xr_hud_quad_free(void* quad);
+const XrCompositionLayerBaseHeader* cvr_xr_hud_quad_prepare(void* quad, uint64_t session, uint64_t space, void* device, void* queue,
+    bool enabled, bool tracked, const XrPosef* head, uint64_t origin, int64_t displayTime, const XrVector3f* eyeOffsets, float bodyYaw);
+const XrCompositionLayerBaseHeader* cvr_xr_hud_quad_second_eye(const void* quad);
+void cvr_xr_hud_quad_shutdown(void* quad);
+}
+namespace cvr::hud {
+class Quad {
+public:
+    explicit Quad(Channel value=Channel::Main):rust(cvr_xr_hud_quad_new(static_cast<unsigned>(value))){}
+    ~Quad() { cvr_xr_hud_quad_free(rust); }
+    Quad(const Quad&) = delete;
+    Quad& operator=(const Quad&) = delete;
+    const XrCompositionLayerBaseHeader* Prepare(XrSession session, XrSpace space,
+        ID3D12Device* device, ID3D12CommandQueue* queue, bool enabled,
+        bool tracked, const XrPosef& head, uint64_t origin,
+        XrTime displayTime=0, const XrVector3f* eyeOffsets=nullptr, float bodyYaw=0) {
+        return cvr_xr_hud_quad_prepare(rust, reinterpret_cast<uint64_t>(session), reinterpret_cast<uint64_t>(space), device, queue,
+                                       enabled, tracked, &head, origin, displayTime, eyeOffsets, bodyYaw);
+    }
+    const XrCompositionLayerBaseHeader* SecondEye() const { return cvr_xr_hud_quad_second_eye(rust); }
+    void Shutdown() { cvr_xr_hud_quad_shutdown(rust); }
+    // The Rust quad, for rust/crates/cvr-xr/src/hud_quad.rs cvr_xr_hud_layers.
+    void* Raw() const { return rust; }
+private:
+    void* rust;
+};
+#else
 class Quad {
 public:
     explicit Quad(Channel value=Channel::Main):channel(value){}
     const XrCompositionLayerBaseHeader* Prepare(XrSession session, XrSpace space,
         ID3D12Device* device, ID3D12CommandQueue* queue, bool enabled,
         bool tracked, const XrPosef& head, uint64_t origin,
-        XrTime displayTime=0, const XrVector3f* eyeOffsets=nullptr, float bodyYaw=0,
-        const XrCompositionLayerBaseHeader* mainLayer=nullptr,
-        const XrCompositionLayerBaseHeader* mainSecondEye=nullptr,bool completedSource=false);
+        XrTime displayTime=0, const XrVector3f* eyeOffsets=nullptr, float bodyYaw=0);
     const XrCompositionLayerBaseHeader* SecondEye() const {
         return secondEye ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&rightLayer) : nullptr;
     }
@@ -73,18 +82,11 @@ private:
     size_t copyCursor=0;
     Microsoft::WRL::ComPtr<ID3D12Fence> fence;
     uint64_t fenceValue=0, originSerial=0, lastStamp=0;
-    // width x height: the published image (the canvas last copied), what the layer shows as its sub-image.
-    // capacityW x capacityH: the swapchain, which only ever grows (Ensure): a canvas that changes size (the minimap's
-    // with and without the quest band under it) is copied into its corner, the swapchain is not remade.
-    uint32_t width=0,height=0,capacityW=0,capacityH=0;
-    std::vector<uint64_t> imageContent;   // per swapchain image: the size last copied into it (w | h << 32)
-    Microsoft::WRL::ComPtr<ID3D12Resource> blank;   // capacity-sized, zero (transparent): clears an image's old content
+    uint32_t width=0,height=0;
     uint32_t acquiredIndex=0;
     bool acquired=false;
-    bool submissionFailed=false,publishedMasked=false,publishedLootVisible=false,publishedWindshieldMap=false;
-    float publishedWindshieldSplit=1.0f;
+    bool submissionFailed=false,publishedMasked=false,publishedLootVisible=false;
     uint64_t publishedTick=0;
-    Rect publishedHudRect{};
     HANDLE event=nullptr;
     Follow follow;
     DisplayClock clock;
@@ -96,5 +98,6 @@ private:
     XrCompositionLayerQuad layer{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerQuad rightLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
 };
+#endif
 }
 extern "C" __declspec(dllexport) extern std::atomic<uint64_t> CyberpunkVR_HudSubmittedFrames;

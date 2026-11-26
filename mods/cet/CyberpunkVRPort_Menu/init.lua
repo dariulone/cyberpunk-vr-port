@@ -109,12 +109,88 @@ local function hotLoad()
   return req("modules/menu"), req("modules/wheel")
 end
 
+-- RUST (stage 6): bit 30 of VRRustMechanics -- the menu itself (modules/menu.lua and every section it draws: messages,
+-- settings, gameplay with its views and data, the vendor / stash / load visits) and the weapon wheel (modules/wheel.lua)
+-- are the plugin's (rust/crates/cvr-ffi/src/mechanics/menu*.rs). The game's hooks stay here -- the glitch override, the
+-- in-game menu controller, the vendor routing, the stash, the menu's own save listener -- and report to VRMenuHook /
+-- VRMenuLoadNames; an Override takes the plugin's answer.
+local function rustOwns()
+  return type(VRRustMechanics) == "function" and math.floor(VRRustMechanics() / 1073741824) % 2 == 1
+end
+local rust = false
+local MARKER = -7392000
+local function hook(kind, a, b, name)
+  return VRMenuHook(kind, a, b, name or CName.new("None")) == true
+end
+local function rustHooks()
+  ObserveAfter("gameuiInGameMenuGameController", "OnInitialize", function(self) hook(14, self, nil) end)
+  Override("MenuScenario_Idle", "OnLeaveScenario", function(self, nextScenario, wrapped)
+    hook(1, self, nil, nextScenario)
+    return wrapped(nextScenario)
+  end)
+  ObserveAfter("MenuScenario_Vendor", "OnEnterScenario", function(self) hook(2, self, nil) end)
+  ObserveBefore("MenuScenario_Vendor", "OnLeaveScenario", function(self, nextScenario) hook(3, self, nil, nextScenario) end)
+  Override("UISystem", "RequestVendorMenu", function(self, data, scenario, wrapped)
+    if hook(4, self, data) then return end
+    if not scenario or NameToString(scenario) == "None" or NameToString(scenario) == "" then scenario = CName.new("MenuScenario_Vendor") end
+    return wrapped(data, scenario)
+  end)
+  Override("MenuScenario_Vendor", "OnEnterScenario", function(self, previous, userData, wrapped)
+    hook(5, self, userData)
+    return wrapped(previous, userData)
+  end)
+  Override("MenuScenario_Vendor", "OnSwitchToVendor", function(self, userData, wrapped)
+    if hook(6, self, userData) then return true end
+    return wrapped(userData)
+  end)
+  Override("MenuScenario_Vendor", "OnSwitchToRipperDoc", function(self, userData, wrapped)
+    if hook(7, self, userData) then return true end
+    return wrapped(userData)
+  end)
+  ObserveBefore("VendorHubMenuGameController", "OnInitialize", function(self) hook(8, self, nil) end)
+  ObserveAfter("VendorHubMenuGameController", "OnSetUserData", function(self, data) hook(9, self, data) end)
+  ObserveBefore("VendorHubMenuGameController", "OnUninitialize", function(self) hook(10, self, nil) end)
+  Override("VendorHubMenuGameController", "SetupMenuTabs", function(self, tutorialFinished, wrapped)
+    wrapped(tutorialFinished)
+    hook(11, self, nil)
+  end)
+  ObserveAfter("MenuScenario_Vendor", "OnSwitchToVendor", function(self) hook(12, self, nil) end)
+  Override("gameuiInGameMenuGameController", "OnOpenStorage", function(self, value, wrapped)
+    if hook(13, self, FromVariant(value)) then return true end
+    return wrapped(value)
+  end)
+  Override("LoadGameMenuGameController", "OnSavesForLoadReady", function(self, names, wrapped)
+    if not (self.sourceIndex and self.sourceIndex <= MARKER) then return wrapped(names) end
+    VRMenuLoadNames(self.sourceIndex, table.concat(names or {}, "\n"))
+    return true
+  end)
+  Override("LoadGameMenuGameController", "OnSaveMetadataReady", function(self, info, wrapped)
+    if not (self.sourceIndex and self.sourceIndex <= MARKER) then return wrapped(info) end
+    hook(16, self, info)
+    return true
+  end)
+end
+
 registerForEvent("onInit", function()
+  -- THE RUST BUILD HOOKS ALL OF THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of
+  -- VRRustMechanics2): the glitch override and every hook below.
+  if type(VRRustMechanics2) == "function" and math.floor(VRRustMechanics2() / 2) % 2 == 1 then
+    rust = true
+    print("[VRMenu] ready (Rust owns the menu, the wheel and their hooks)")
+    return
+  end
   -- The engine glitches any world screen whose owner is neither a Device nor a Vehicle (the wrist
   -- readout's finding); the menu's entity is neither.
   pcall(function()
     Override("IWorldWidgetComponent", "StartGlitching", function(self, intensity, lifetime, wrapped) end)
   end)
+  rust = rustOwns()
+  if rust then
+    local ok, err = pcall(rustHooks)
+    if not ok then print("[VRMenu] hooks: " .. tostring(err)) end
+    print("[VRMenu] ready (Rust owns the menu and the wheel)")
+    return
+  end
   -- The hub opens through the in-game menu controller, which is made with each session.
   pcall(function()
     ObserveAfter("gameuiInGameMenuGameController", "OnInitialize", function(self) shared.menuController = self end)
@@ -124,11 +200,13 @@ registerForEvent("onInit", function()
 end)
 
 registerForEvent("onUpdate", function(dt)
+  if rust then return end
   Menu.update(dt)
   Wheel.update(dt, Menu.isOpen())
 end)
 
 registerForEvent("onShutdown", function()
+  if rust then return end
   Wheel.release()
   Menu.release()
 end)

@@ -86,4 +86,15 @@ end} end} end
 local worldVisit={}
 V.openSession(worldVisit);V.openSession(worldVisit);V.closeSession(worldVisit);V.closeSession(worldVisit)
 assert(#notifications==2 and notifications[1] and notifications[2]==false,"one native open/close notification per visit restores vendor dialogue")
+assert(V.section({ripperdoc=true})=="cyberware" and V.section({ripperdoc=false})=="trade")
+object.IsGlamdoc=function()return true end
+shared.ripperSession=nil;shared.vendorNativeHandoff=nil
+assert(V.begin(shared,panel,nil) and shared.ripperSession.glamdoc,"glamdoc visit was not recognized")
+assert(V.section(shared.ripperSession)=="glamdoc","glamdoc was routed to generic trade")
+local glamOverride
+shared.glamdocScenarioRoutingBound=nil
+Override=function(class,method,callback)if class=="MenuScenario_Vendor" and method=="OnSwitchToGlamdoc" then glamOverride=callback end end
+V.bind(shared);assert(glamOverride,"native Glamdoc transition not intercepted")
+shared.vendorNativeHandoff=shared.ripperSession
+assert(glamOverride({},nil,function()error("fullscreen glamdoc must not open during handoff")end)==true)
 print("PASS: native hub lifecycle, duplicate override passthrough, menu exit gate and timeout recovery")

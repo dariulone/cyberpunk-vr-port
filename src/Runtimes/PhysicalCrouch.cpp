@@ -5,14 +5,26 @@
 #include "Camera/CameraState.hpp"
 #include <chrono>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) float CyberpunkVR_PhysicalCrouchDepth=0;
 __declspec(dllexport) int CyberpunkVR_PhysicalCrouchDesired=0;
 __declspec(dllexport) int CyberpunkVR_PhysicalCrouchApplied=0;
 __declspec(dllexport) int CyberpunkVR_PhysicalCrouchActual=0;
 // 1: while the body walks after the head the bend tracker reads a bob as a step (Anim/BodyBend.hpp BendWalkBobDrop)
 __declspec(dllexport) int CyberpunkVR_BendWalkMode=1;
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+// The posture, the crouch and the bridge: rust/crates/cvr-xr/src/posture.rs. The exports above stay here.
+// cvr_cpp_live_physical_crouch: rust/crates/cvr-render/src/xr_manager_services.rs.
+#else
 namespace {
 uint64_t NowUs() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -66,3 +78,4 @@ bool OpenXRManager::PhysicalCrouchRequested() {
     return m_frameSample.valid && m_frameSample.originSerial==GetTrackingOriginSerial() &&
         Fresh(now,m_frameSampleStampUs,150000) && m_frameSample.physicalCrouch;
 }
+#endif

@@ -1,4 +1,6 @@
 #include "Render/NativeUploadShadow.hpp"
+#if !CVR_RUST_VRIK
+// The C++ build's watched buffer; the Rust build's is rust/crates/cvr-render/src/upload_shadow.rs (the header calls it).
 #include <windows.h>
 #include <d3d12.h>
 #include <atomic>
@@ -53,3 +55,4 @@ void Observe(ID3D12Resource* destination,uint64_t offset,ID3D12Resource* source,
     }catch(const std::bad_alloc&){rejected=true;shadow.Reset();}
 }
 }
+#endif

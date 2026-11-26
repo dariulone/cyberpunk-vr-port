@@ -228,8 +228,14 @@ static void ClearReleasesMetadataCapacity(Fixture& fixture){
     for(size_t index=0;index<holes;++index)intent::Invalidate(destination.Get(),index*256+1,1);
     auto stats=intent::GetStatistics();Require(stats.structuredRanges==holes+1 && stats.structuredBytes==size-holes,
         "Capacity cleanup fragmentation precondition failed");
+#if CVR_RUST_VRIK
+    // The Rust cache's allocations do not pass through this program's operator new: its unit test
+    // (rust/crates/cvr-render/src/source_intent.rs, empty_releases_structured_capacity) holds Clear's release instead.
+    intent::Clear();
+#else
     largestRelease=0;watchCapacityRelease=true;intent::Clear();watchCapacityRelease=false;
     Require(largestRelease.load()>=stats.structuredRanges*sizeof(uint64_t),"Clear retained the structured metadata allocation");
+#endif
     stats=intent::GetStatistics();Require(!stats.currentBytes && !stats.rangeCount && !stats.structuredBytes && !stats.structuredRanges &&
         stats.livePayloadBytes==size && Equal(retained.Bytes(),std::span<const uint8_t>(data).first(1)),"Capacity cleanup changed retained bytes or counts");
     Require(intent::MarkStructuredView(destination.Get(),&view) && fixture.Observe(destination.Get(),0,source.Get(),0,128),"Released metadata storage could not resume");

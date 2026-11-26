@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // Dred -- what killed the device, when D3D12 will not say.
 //
 // A device-removed HRESULT on its own carries no information: the call that returned it is usually not
@@ -28,6 +29,7 @@
 #include <d3d12sdklayers.h>
 #include <cstring>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
 extern volatile int g_verboseLog; // gate per-frame spam (ClipCursor / depth-diag)
 extern "C" void PrepareStartupLiveControls();
@@ -41,7 +43,11 @@ extern "C" UINT GetForcedDisplayModeHeight();
 extern "C" UINT GetForcedWindowWidth();
 extern "C" UINT GetForcedWindowHeight();
 extern "C" int GetMenuMode();
+#endif
 
+#if CVR_RUST_VRIK
+// DRED, the GPU diagnostics and the dump are rust/crates/cvr-gpu/src/gpu_diag.rs; the C++ names their callers use stay.
+#else
 void RememberDredDevice(ID3D12Device* device) {
     if (!device) {
         return;
@@ -358,3 +364,5 @@ static void DumpDred(const Microsoft::WRL::ComPtr<ID3D12Device>& device, HRESULT
     LogDredBreadcrumbs(dred.Get());
     LogDredPageFault(dred.Get());
 }
+#endif
+#endif

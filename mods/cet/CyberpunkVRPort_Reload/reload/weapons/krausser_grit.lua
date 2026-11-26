@@ -34,6 +34,7 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_barrel' },
 
     slide = {
+        ejectLiveRound = true,
         slot       = 'vrp_mechanism',
         which      = 1, bone = 4,
         -- 53.5 and 53.7 mm in the two empty takes, along the bone's local -Z: straight back along the bore. No stop:

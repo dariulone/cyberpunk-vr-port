@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "معطّل افتراضيًا للحفاظ على نظافة cyberpunkvrport.log. فعّله فقط\nعند التقاط تشخيصات ClipCursor / العمق / الخطافات.",
   ["FRAMEGEN"] = "توليد الإطارات",
   ["Enable frame generation"] = "تفعيل توليد الإطارات",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "أثناء تفعيل توليد الإطارات يعمل تنعيم اليد بمعدله مضروبًا في xr_hand_lerp_framegen_scale (1.25؛ و0 يعطّله).",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "أثناء تفعيل توليد الإطارات يعمل تنعيم اليد بمعدله مضروبًا في xr_hand_lerp_framegen_scale (1.10؛ و0 يعطّله).",
   ["Frame generator"] = "مولّد الإطارات",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

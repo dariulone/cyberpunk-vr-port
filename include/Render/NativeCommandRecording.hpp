@@ -7,6 +7,20 @@
 #include <cstdint>
 #include <span>
 
+#if CVR_RUST_VRIK
+// THE CONTRACT IS RUST'S (rust/crates/cvr-render/src/native_recording.rs): the pure parts below and the module.
+namespace cvr::stereo::native_recording::detail { struct SubmissionState; }
+extern "C" {
+uint64_t cvr_native_recording_fingerprint(const uint8_t* bytes, size_t len);
+bool cvr_native_recording_caller(uint64_t base, uint64_t address, uint32_t rva);
+bool cvr_native_recording_execute_origin(uint64_t base, uint64_t imageBytes, uint64_t caller, const uint64_t* frames, size_t count);
+bool cvr_native_recording_context_matches(cvr::stereo::camera_upload::Context expected, uint64_t list, uint64_t actualList,
+                                          uint64_t state, UINT kind, uint64_t submitted);
+bool cvr_native_recording_before_submit_state(cvr::stereo::native_recording::detail::SubmissionState* state, UINT occurrences,
+                                              bool native);
+void cvr_native_recording_submitted_state(cvr::stereo::native_recording::detail::SubmissionState* state);
+}
+#endif
 namespace cvr::stereo::native_recording {
 namespace detail {
 inline constexpr uint32_t ResetReturn=0x3E626A,ExecuteReturn=0x3E124F;
@@ -25,6 +39,26 @@ inline constexpr std::array<Code,11> Contract{{
     {0x3E1360,403,0x9C8B7DC7F6242F45ull},{0x3E14F4,167,0x13230B2BADF1035Bull},
     {0x5B4110,77,0xFA1D4E49FE87F2EEull}
 }};
+#if CVR_RUST_VRIK
+inline uint64_t Fingerprint(std::span<const uint8_t> bytes){return cvr_native_recording_fingerprint(bytes.data(),bytes.size());}
+inline bool Caller(uint64_t base,uint64_t address,uint32_t rva){return cvr_native_recording_caller(base,address,rva);}
+inline constexpr size_t MaxUnwoundFrames=64;
+// Frames must come from the OS unwinder, in nearest-to-farthest order.
+inline bool ExecuteOrigin(uint64_t base,uint64_t imageBytes,uint64_t caller,std::span<const uint64_t> frames){
+    return cvr_native_recording_execute_origin(base,imageBytes,caller,frames.data(),frames.size());
+}
+inline bool ContextMatches(camera_upload::Context expected,uint64_t list,uint64_t actualList,uint64_t state,UINT kind,uint64_t submitted){
+    return cvr_native_recording_context_matches(expected,list,actualList,state,kind,submitted);
+}
+struct SubmissionState {
+    UINT pending{};bool submitted{},rejected{};
+    bool Fresh()const{return !pending && !submitted && !rejected;}
+    bool BeforeSubmit(UINT occurrences,bool native){return cvr_native_recording_before_submit_state(this,occurrences,native);}
+    bool Validating()const{return pending==1 && !submitted && !rejected;}
+    void Submitted(){cvr_native_recording_submitted_state(this);}
+};
+static_assert(sizeof(SubmissionState)==8,"mirrored by SubmissionState in rust/crates/cvr-render/src/native_recording.rs");
+#else
 inline uint64_t Fingerprint(std::span<const uint8_t> bytes){
     uint64_t hash=14695981039346656037ull;for(const auto byte:bytes)hash=(hash^byte)*1099511628211ull;return hash;
 }
@@ -56,6 +90,7 @@ struct SubmissionState {
     bool Validating()const{return pending==1 && !submitted && !rejected;}
     void Submitted(){if(pending){--pending;submitted=true;}}
 };
+#endif
 }
 struct Lease {
     Microsoft::WRL::ComPtr<IUnknown> token;

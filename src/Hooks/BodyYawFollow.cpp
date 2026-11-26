@@ -1,6 +1,8 @@
-#include "Runtimes/HeadLedBodyTurn.hpp"
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
-// Estimates physical body heading from HMD/controllers. BodyHeading.cpp feeds
+// Estimates physical body heading from HMD/controllers. THE FOLLOWER IS RUST'S with CVR_RUST_VRIK
+// (rust/crates/cvr-rig/src/vrik/body_yaw_follow.rs): this file is then empty, and the C++ API forwards from
+// src/Hooks/RoomscaleRust.cpp. BodyHeading.cpp feeds
 // each request to the native movement adapter and retains only committed
 // heading. View tracking has a separate reference and never cancels this output.
 
@@ -27,46 +29,36 @@
 #include <cmath>
 #include <chrono>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 
-// ---- controls -----------------------------------------------------------------------------------
-//
-// The switch itself lives in LiveControls (xr_physical_body_rotation, persisted); this mirror exists
-// so the pose path and the camera write have one plain symbol to test on their hot paths.
-extern "C" __declspec(dllexport) int   CyberpunkVR_BodyYawFollow        = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrikNativePairPublished = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrikNativePairRejected = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrikNativePairPhaseMiss = 0;
-// FIVE DEGREES OF FREE LOOK, per the roomscale movement requirement.
-//
-// Glances inside the cone leave the body still. Crossing it starts a short
-// body-only catch-up toward the centre, restoring the full free-look zone.
-// Camera tracking consumes its independent reference immediately.
-extern "C" __declspec(dllexport) float CyberpunkVR_BodyYawFollowDeadDeg = 5.0f;
-// Hybrid: the hands' share of the body's turn, 0 (head cone) .. 1 (tracked); fades between the two.
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugHybridTrackedWeight = 0.0f;
-// Hybrid: the hands' heading and the neck limit's pull on top of it (degrees, the follower's offset convention).
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugHybridHandsDeg = 0.0f;
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugHybridNeckPullDeg = 0.0f;
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugHybridAlignDeg = 0.0f;   // hands' alignment to the body
-extern "C" __declspec(dllexport) int   CyberpunkVR_DebugHybridEstimate = 0;      // 1: the hands' estimate is valid
-// The head-led turn: looking down (0/1), the head's yaw, the body's (degrees, the model's [0, 360)), re-seeds
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugHeadLedTurn[4] = {};
-// The body's turning speed (deg/s), upright and looking down alike; Runtimes/HeadLedBodyTurn.hpp kDefaultBodyTurnConfig
-extern "C" __declspec(dllexport) int CyberpunkVR_BodyTurnSpeedDps = 300;
-// The upright cone (deg): a look within it of where the body last re-aimed leaves the body; kDefaultBodyTurnConfig
-extern "C" __declspec(dllexport) int CyberpunkVR_BodyUprightConeDeg = 10;
-// The hands' estimator's last update (TrackedBodyYaw::Trace): delta, wristMean, headDelta, headLead, accepted, evidence,
-// residual, target (radians / seconds / metres), then the gate bits as a float-sized integer
-extern "C" __declspec(dllexport) float CyberpunkVR_DebugTrackedTrace[8] = {};
-extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugTrackedGates = 0;
+// The exports are src/Hooks/BodyHooksState.cpp's (both builds).
+extern "C" {
+extern int CyberpunkVR_BodyYawFollow,CyberpunkVR_DebugHybridEstimate,CyberpunkVR_BodyYawFinalValid,CyberpunkVR_PlayerEntityValid;
+extern uint64_t CyberpunkVR_DebugVrikNativePairPublished,CyberpunkVR_DebugVrikNativePairRejected,CyberpunkVR_DebugBodyFollowCalls,CyberpunkVR_DebugBodyFollowApplied;
+extern float CyberpunkVR_BodyYawFollowDeadDeg,CyberpunkVR_DebugHybridTrackedWeight,CyberpunkVR_DebugHybridHandsDeg,CyberpunkVR_DebugHybridNeckPullDeg,CyberpunkVR_DebugHybridAlignDeg;
+extern float CyberpunkVR_DebugTrackedTrace[8],CyberpunkVR_BodyYawRealignRad,CyberpunkVR_DebugBodyFollowOffsetDeg,CyberpunkVR_DebugBodyFollowErrDeg,CyberpunkVR_BodyYawFinalRad;
+extern float CyberpunkVR_PlayerEntityPos[3],CyberpunkVR_PlayerEntityQuat[4];
+#if !CVR_RUST_VRIK
+extern uint32_t CyberpunkVR_DebugTrackedGates;
+#endif
+}
+
+#if !CVR_RUST_VRIK
+// src/Hooks/HookServices.cpp and src/Camera/CameraServices.cpp, which tools/vrik_tests replaces; the clocks are the
+// solve's (VRIK_ClockMs, VRIK_SteadyNs), which the tests set.
+extern "C" {
+uint64_t cvr_cpp_xr_tracking_origin_serial();
+bool cvr_cpp_xr_acquire_frame_head(OpenXRHeadPose* out);
+bool cvr_cpp_xr_body_tracking_frame(cvr::body::TrackingFrame* out);
+}
 
 namespace {
 cvr::roomscale::BodyYawFollower s_yawFollower;
 cvr::body::TrackedBodyYaw s_trackedBody;
 cvr::body::RotationMode s_bodyRotationMode=cvr::body::RotationMode::Off;
 cvr::body::HybridBodyYaw s_hybridBody;
-cvr::body::HeadLedBodyTurn s_headLedBody;
 std::mutex s_yawFollowerMutex;
 std::atomic<uint32_t> s_nativePairSeq{0};
 std::mutex s_nativePairWriter;
@@ -89,7 +81,7 @@ struct CurrentBodyFrame {
 
 bool VRIK_ReadCurrentBodyFrame(float* p,float* q,float* trackingYaw) {
     std::lock_guard lock(s_currentBodyFrame.mutex);
-    const auto now=GetTickCount64();
+    const auto now=VRIK_ClockMs();
     if(!s_currentBodyFrame.owner || s_currentBodyFrame.owner!=cvr::roomscale::PlayerIdentity() ||
        now<s_currentBodyFrame.stamp || now-s_currentBodyFrame.stamp>250)return false;
     for(int k=0;k<3;++k)p[k]=s_currentBodyFrame.position[k];
@@ -118,7 +110,7 @@ void VRIK_PublishNativeCameraPair(const int32_t* centre,const int32_t* bodyBase,
     s_nativePair.consumerEpoch.store(g_VrikFrameEpoch.load(std::memory_order_relaxed),std::memory_order_relaxed);
     s_nativePair.owner.store(owner,std::memory_order_relaxed);
     s_nativePair.origin.store(origin,std::memory_order_relaxed);
-    s_nativePair.stampMs.store(GetTickCount64(),std::memory_order_relaxed);
+    s_nativePair.stampMs.store(VRIK_ClockMs(),std::memory_order_relaxed);
     s_nativePairSeq.fetch_add(1,std::memory_order_release);
     if(ownerStable && pair.valid)CVR_DIAGNOSTIC(++CyberpunkVR_DebugVrikNativePairPublished);
     else CVR_DIAGNOSTIC(++CyberpunkVR_DebugVrikNativePairRejected);
@@ -147,7 +139,7 @@ bool VRIK_ReadNativeTransformSnapshot(VrikTransformSnapshot* out) {
         if(before!=s_nativePairSeq.load(std::memory_order_acquire))continue;
         using namespace cvr::camera;
         const auto state=CameraPacketStatus(owner,origin,stamp,cvr::roomscale::PlayerIdentity(),
-            OpenXRManager::Get().GetTrackingOriginSerial(),GetTickCount64(),value.valid!=0,value.unavailable!=0);
+            cvr_cpp_xr_tracking_origin_serial(),VRIK_ClockMs(),value.valid!=0,value.unavailable!=0);
         value.valid=state==CameraPacketState::Valid;
         value.unavailable=state==CameraPacketState::Unavailable;
         *out=value;return true;
@@ -155,26 +147,9 @@ bool VRIK_ReadNativeTransformSnapshot(VrikTransformSnapshot* out) {
     return false;
 }
 
-// Legacy export name retained for tooling: committed body-to-tracking angle.
-extern "C" __declspec(dllexport) float CyberpunkVR_BodyYawRealignRad = 0.0f;
+#endif
 
-// Readable live: the same realign in degrees, the head-against-body residual, and the two counters.
-extern "C" __declspec(dllexport) float    CyberpunkVR_DebugBodyFollowOffsetDeg = 0.0f;
-extern "C" __declspec(dllexport) float    CyberpunkVR_DebugBodyFollowErrDeg = 0.0f;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBodyFollowCalls = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugBodyFollowApplied = 0;
-
-// THE BODY'S TRUE YAW, radians, game convention -- the engine's own value, read at the store site.
-// The pose path converts world->model with this while the follower is on: model space IS the entity
-// frame, so the entity's actual angle is the only correct converter, and the camera heading (which we
-// expressed in the independent tracking frame) is not it.
-extern "C" __declspec(dllexport) float CyberpunkVR_BodyYawFinalRad = 0.0f;
-extern "C" __declspec(dllexport) int   CyberpunkVR_BodyYawFinalValid = 0;
-// The player's frame, published so nothing in the pose path has to ask CET for it.
-extern "C" __declspec(dllexport) float CyberpunkVR_PlayerEntityPos[3]  = { 0.0f, 0.0f, 0.0f };
-extern "C" __declspec(dllexport) float CyberpunkVR_PlayerEntityQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-extern "C" __declspec(dllexport) int   CyberpunkVR_PlayerEntityValid = 0;
-
+#if !CVR_RUST_VRIK
 namespace {
 
 // The HMD's yaw relative to the recenter base, radians, about the XR vertical (+Y).
@@ -182,7 +157,7 @@ bool HeadYawRelBase(float* outYaw,float* outDownDegrees,float* outBend,uint64_t*
     OpenXRHeadPose hp{};
     // This starts the next native move. Read the same input latch as CCT, not
     // the completed previous move that camera/IK consumers still own.
-    if (!OpenXRManager::Get().AcquireFrameHeadSample(&hp,nullptr,nullptr,nullptr,false) || !hp.valid) return false;
+    if (!cvr_cpp_xr_acquire_frame_head(&hp) || !hp.valid) return false;
     *origin = hp.originSerial;
     *outDownDegrees=cvr::roomscale::HeadDownDegrees(hp.oriX,hp.oriY,hp.oriZ,hp.oriW);
     *outBend=hp.bodyBend.angle;
@@ -205,7 +180,7 @@ void RefreshFollowerState(float observedOffset) {
                             cvr::roomscale::PhysicalBodyHeadingOwned());
     if(mode!=s_bodyRotationMode || !s_yawFollower.Enabled()){
         s_trackedBody.Reset(observedOffset,mode!=cvr::body::RotationMode::Hybrid);
-        s_hybridBody.Reset();s_headLedBody.Reset();s_bodyRotationMode=mode;
+        s_hybridBody.Reset();s_bodyRotationMode=mode;
     }
     PublishFollowerState();
 }
@@ -227,7 +202,6 @@ extern "C" void BodyYawFollowRelease() {
     s_yawFollower.Reset();
     s_trackedBody.Reset(0,s_bodyRotationMode!=cvr::body::RotationMode::Hybrid);
     s_hybridBody.Reset();
-    s_headLedBody.Reset();
     PublishFollowerState();
 }
 
@@ -240,7 +214,7 @@ extern "C" float BodyYawFollowStep(float observedOffset) {
     const bool haveHead=HeadYawRelBase(&hmdYaw,&headDownDegrees,&bodyBend,&origin,&yawDefined);
     cvr::body::TrackingFrame bodyFrame{};
     const bool haveBody=cvr::body::NeedsBodyTracking(static_cast<cvr::body::RotationMode>(g_liveControls.xrBodyRotationMode)) &&
-        OpenXRManager::Get().GetBodyTrackingFrame(&bodyFrame);
+        cvr_cpp_xr_body_tracking_frame(&bodyFrame);
     std::lock_guard lock(s_yawFollowerMutex);
     CVR_DIAGNOSTIC(++CyberpunkVR_DebugBodyFollowCalls);
     RefreshFollowerState(observedOffset);
@@ -249,8 +223,7 @@ extern "C" float BodyYawFollowStep(float observedOffset) {
         s_trackedBody.Suspend();s_hybridBody.Suspend();return 0;
     }
     s_yawFollower.Observe(observedOffset,origin);
-    const auto now=static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count());
+    const auto now=static_cast<uint64_t>(VRIK_SteadyNs()/1000);
     CVR_DIAGNOSTIC(CyberpunkVR_DebugBodyFollowErrDeg=yawDefined?
         std::remainder(hmdYaw-s_yawFollower.Offset(),6.28318530718f)*57.2957795f:0);
     cvr::body::YawEstimate result{};
@@ -267,33 +240,6 @@ extern "C" float BodyYawFollowStep(float observedOffset) {
             if(result.valid)result=s_trackedBody.Predict(now);
         }
         else s_trackedBody.Suspend();
-    }
-    if(s_bodyRotationMode==cvr::body::RotationMode::HeadLed){
-        // The head-led turn (Runtimes/HeadLedBodyTurn.hpp): the head alone decides; no follow zone, no controllers.
-        CyberpunkVR_BodyYawFollowDeadDeg=0;
-        if(!yawDefined)return 0;
-        const float bodyDeg=s_yawFollower.Offset()*57.2957795f;
-        // started from the body as it stands; started again if the body was turned from outside (a reset, a teleport):
-        // a missed apply is not that -- the model's own heading carries on and the next request catches the body up
-        if(!s_headLedBody.Seeded() || std::fabs(cvr::body::TurnDeltaAngle(s_headLedBody.Output(),bodyDeg))>20.0f) {
-            s_headLedBody.Seed(bodyDeg);
-            CyberpunkVR_DebugHeadLedTurn[3]+=1;
-        }
-        const float dt=std::clamp(s_yawFollower.SinceLast(now),0.0f,.25f);
-        const float pitch=-headDownDegrees;   // up positive
-        auto config=cvr::body::kDefaultBodyTurnConfig;
-        const int speed=CyberpunkVR_BodyTurnSpeedDps;
-        if(speed>0 && speed<=3600)config.upperSpeedDps=config.lowerSpeedDps=float(speed);
-        const int cone=CyberpunkVR_BodyUprightConeDeg;
-        if(cone>0 && cone<=90)config.upperToleranceDeg=float(cone);
-        const float out=s_headLedBody.Step(hmdYaw*57.2957795f,pitch,dt,config);
-        CyberpunkVR_DebugHeadLedTurn[0]=pitch<cvr::body::kLookDownAngleDeg ? 1.0f:0.0f;
-        CyberpunkVR_DebugHeadLedTurn[1]=cvr::body::TurnClampAxis(hmdYaw*57.2957795f);
-        CyberpunkVR_DebugHeadLedTurn[2]=out;
-        const float step=s_yawFollower.Set(out*.01745329252f,now,origin);
-        PublishFollowerState();
-        if(step!=0)CVR_DIAGNOSTIC(++CyberpunkVR_DebugBodyFollowApplied);
-        return step;
     }
     if(s_bodyRotationMode==cvr::body::RotationMode::Hybrid){
         const auto command=s_hybridBody.Step({hmdYaw,headDownDegrees,bodyBend,s_yawFollower.Offset(),
@@ -352,7 +298,7 @@ extern "C" void BodyYawFollowTick(float engineZ, float engineW, const float* eng
         for(int k=0;k<4;++k)s_currentBodyFrame.rotation[k]=currentEntityQuat[k];
         s_currentBodyFrame.trackingYaw=BodyTrackingYaw(yaw);
         s_currentBodyFrame.owner=cvr::roomscale::PlayerIdentity();
-        s_currentBodyFrame.stamp=GetTickCount64();
+        s_currentBodyFrame.stamp=VRIK_ClockMs();
     }
 
     // Camera/owner pairing is published by the completed camera write itself.
@@ -375,3 +321,5 @@ extern "C" void BodyYawFollowTick(float engineZ, float engineW, const float* eng
 // engine invokes every frame and nobody implements. Claiming it worked, but it never fired for the
 // player (0 calls against 6552 counted player frames), so the player's state uses a provider of a
 // different class. Still an extension point for other characters.
+#endif
+#endif

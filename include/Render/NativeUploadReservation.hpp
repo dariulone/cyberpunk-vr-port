@@ -14,9 +14,40 @@ inline constexpr uint64_t AllocatorFnv=0x6B65A1650C2F23E4ull;
 inline constexpr uint8_t RetryDisplacement=uint8_t(int32_t(RetryRva)-int32_t(WitnessRva+7));
 inline constexpr size_t MaxRows=4096,MaxRings=64;
 inline constexpr size_t MaxXstateBytes=16384;
+#if CVR_RUST_VRIK
+// The rules below: rust/crates/cvr-render/src/upload_reservation.rs (tools/single_pass_tests/upload_reservation_test
+// runs its cases against them in its Rust variant); the ledger is an owned Rust handle.
+struct Witness;struct Row;struct Reservation;struct Range;struct ExternalInstallPlan;struct ExternalInstallReceipt;
+extern "C" {
+bool cvr_ur_valid_xstate(uint64_t,uint64_t,uint64_t);
+uint64_t cvr_ur_fnv(const uint8_t*,size_t);
+uint64_t cvr_ur_external_plan_checksum(const ExternalInstallPlan*);
+uint64_t cvr_ur_external_receipt_checksum(const ExternalInstallReceipt*);
+bool cvr_ur_valid_external_plan(const ExternalInstallPlan*);
+bool cvr_ur_matches_external_patched_body(const ExternalInstallPlan*,const std::array<uint8_t,AllocatorBytes>*);
+bool cvr_ur_valid_external_receipt(const ExternalInstallPlan*,const ExternalInstallReceipt*);
+bool cvr_ur_valid_witness(const Witness*);
+void* cvr_ur_ledger_new(size_t,size_t,uint64_t);
+void cvr_ur_ledger_free(void*);
+void cvr_ur_ledger_reset(void*,uint64_t);
+bool cvr_ur_ledger_begin_generation(void*,uint64_t,uint64_t,uint64_t);
+void cvr_ur_ledger_end_generation(void*,uint64_t);
+void cvr_ur_ledger_quarantine_all(void*);
+uint64_t cvr_ur_ledger_observe(void*,const Witness*,uint64_t,Row*,bool);
+uint64_t cvr_ur_ledger_find(void*,uint64_t,Reservation*);
+uint64_t cvr_ur_ledger_validate_range(void*,const Reservation*,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,Range*);
+size_t cvr_ur_ledger_count(void*);
+const Row* cvr_ur_ledger_rows(void*);
+bool cvr_ur_ledger_exhausted(void*);
+}
+#endif
+#if CVR_RUST_VRIK
+inline bool ValidXstate(uint64_t enabled,uint64_t supported,uint64_t bytes)noexcept{return cvr_ur_valid_xstate(enabled,supported,bytes);}
+#else
 inline bool ValidXstate(uint64_t enabled,uint64_t supported,uint64_t bytes)noexcept {
     return (enabled&3)==3 && !(enabled&~supported) && bytes>=576 && bytes<=MaxXstateBytes;
 }
+#endif
 enum class Status:uint64_t {
     Ignored,Captured,UnknownGeneration,InvalidWitness,Capacity,Quarantined,
     UnknownReservation,GenerationMismatch,RangeMismatch,Disabled,GuardMismatch,
@@ -38,11 +69,15 @@ struct Reservation {
     bool operator==(const Reservation&)const=default;
 };
 struct Range {uint64_t absoluteBegin{},absoluteEnd{},physicalOffset{},paddedBytes{},logicalBytes{};};
+#if CVR_RUST_VRIK
+inline uint64_t Fnv(const uint8_t* bytes,size_t count)noexcept{return cvr_ur_fnv(bytes,count);}
+#else
 inline uint64_t Fnv(const uint8_t* bytes,size_t count)noexcept {
     uint64_t hash=14695981039346656037ull;
     for(size_t i=0;i<count;++i)hash=(hash^bytes[i])*1099511628211ull;
     return hash;
 }
+#endif
 inline constexpr uint64_t ExternalPlanVersion=0x55504C414E303031ull,ExternalReceiptVersion=0x5550524543303031ull;
 inline constexpr std::array<uint8_t,7> OriginalWitnessBytes{0x75,0xE9,0x33,0xD2,0x48,0x8B,0xC1};
 enum class ExternalInstallState:uint32_t {Idle,Prepared,Accepted,PrepareRejected,ReceiptRejected,UnsupportedRequest,LegacyOwned};
@@ -67,14 +102,25 @@ static_assert(std::is_standard_layout_v<ExternalInstallPlan> && std::is_triviall
     offsetof(ExternalInstallPlan,original)==472 && offsetof(ExternalInstallPlan,patch)==479 && offsetof(ExternalInstallPlan,relayCode)==486);
 static_assert(std::is_standard_layout_v<ExternalInstallReceipt> && std::is_trivially_copyable_v<ExternalInstallReceipt> &&
     sizeof(ExternalInstallReceipt)==144 && offsetof(ExternalInstallReceipt,checksum)==136);
+#if CVR_RUST_VRIK
+inline uint64_t ExternalPlanChecksum(const ExternalInstallPlan& value)noexcept{return cvr_ur_external_plan_checksum(&value);}
+#else
 inline uint64_t ExternalPlanChecksum(const ExternalInstallPlan& value)noexcept {
     const auto* bytes=reinterpret_cast<const uint8_t*>(&value);uint64_t hash=14695981039346656037ull;
     for(size_t i=0;i<sizeof(value);++i){const auto byte=i>=offsetof(ExternalInstallPlan,checksum) &&
         i<offsetof(ExternalInstallPlan,checksum)+sizeof(value.checksum)?uint8_t(0):bytes[i];hash=(hash^byte)*1099511628211ull;}return hash;
 }
+#endif
+#if CVR_RUST_VRIK
+inline uint64_t ExternalReceiptChecksum(const ExternalInstallReceipt& value)noexcept{return cvr_ur_external_receipt_checksum(&value);}
+#else
 inline uint64_t ExternalReceiptChecksum(const ExternalInstallReceipt& value)noexcept {
     return Fnv(reinterpret_cast<const uint8_t*>(&value),offsetof(ExternalInstallReceipt,checksum));
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ValidExternalPlan(const ExternalInstallPlan& value)noexcept{return cvr_ur_valid_external_plan(&value);}
+#else
 inline bool ValidExternalPlan(const ExternalInstallPlan& value)noexcept {
     if(value.version!=ExternalPlanVersion || !value.nonce || !value.processId || value.processId>UINT32_MAX || !value.processCreationTime ||
         !value.gameBase || value.gameBase>UINT64_MAX-AllocatorRva-AllocatorBytes || value.allocatorAddress!=value.gameBase+AllocatorRva ||
@@ -98,11 +144,23 @@ inline bool ValidExternalPlan(const ExternalInstallPlan& value)noexcept {
     return displacement>=0?(returnAddress<=UINT64_MAX-uint64_t(displacement) && returnAddress+uint64_t(displacement)==value.relayAddress):
         (returnAddress>=uint64_t(-displacement) && returnAddress-uint64_t(-displacement)==value.relayAddress);
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool MatchesExternalPatchedBody(const ExternalInstallPlan& value,const std::array<uint8_t,AllocatorBytes>& current)noexcept{
+    return cvr_ur_matches_external_patched_body(&value,&current);
+}
+#else
 inline bool MatchesExternalPatchedBody(const ExternalInstallPlan& value,const std::array<uint8_t,AllocatorBytes>& current)noexcept {
     constexpr size_t witness=WitnessRva-AllocatorRva;
     for(size_t i=0;i<current.size();++i)if(current[i]!=(i>=witness && i<witness+value.patch.size()?value.patch[i-witness]:value.guard[i]))return false;
     return true;
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ValidExternalReceipt(const ExternalInstallPlan& plan,const ExternalInstallReceipt& receipt)noexcept{
+    return cvr_ur_valid_external_receipt(&plan,&receipt);
+}
+#else
 inline bool ValidExternalReceipt(const ExternalInstallPlan& plan,const ExternalInstallReceipt& receipt)noexcept {
     return ValidExternalPlan(plan) && receipt.version==ExternalReceiptVersion && receipt.nonce==plan.nonce && receipt.planChecksum==plan.checksum &&
         receipt.processId==plan.processId && receipt.processCreationTime==plan.processCreationTime &&
@@ -112,12 +170,48 @@ inline bool ValidExternalReceipt(const ExternalInstallPlan& plan,const ExternalI
         receipt.patchVerified==1 && receipt.cacheFlushed==1 && receipt.detachSucceeded==1 && !receipt.win32Error &&
         receipt.checksum==ExternalReceiptChecksum(receipt);
 }
+#endif
+#if CVR_RUST_VRIK
+inline bool ValidWitness(const Witness& value)noexcept{
+    static_assert(sizeof(Witness)==72 && sizeof(Reservation)==56 && sizeof(Range)==40,"mirrored by upload_reservation.rs");
+    return cvr_ur_valid_witness(&value);
+}
+#else
 inline bool ValidWitness(const Witness& value)noexcept {
     return (value.flags&0x40) && value.ring && value.ring<=UINT64_MAX-0x18 && value.capacity && value.bytes &&
         value.bytes<=value.capacity && value.oldHead<=value.absoluteBegin && value.absoluteBegin<=UINT64_MAX-value.bytes &&
         value.absoluteEnd==value.absoluteBegin+value.bytes && value.absoluteEnd-value.oldHead<=value.capacity &&
         value.absoluteBegin%value.capacity<=value.capacity-value.bytes;
 }
+#endif
+#if CVR_RUST_VRIK
+template<size_t Rows=MaxRows,size_t Rings=MaxRings>class Ledger {
+    static_assert(Rows && Rings);
+public:
+    explicit Ledger(uint64_t observerEpoch=1)noexcept:handle_(cvr_ur_ledger_new(Rows,Rings,observerEpoch)){}
+    ~Ledger(){cvr_ur_ledger_free(handle_);}
+    Ledger(const Ledger&)=delete;Ledger& operator=(const Ledger&)=delete;
+    void Reset(uint64_t observerEpoch)noexcept{cvr_ur_ledger_reset(handle_,observerEpoch);}
+    bool BeginGeneration(uint64_t ring,uint64_t generation,uint64_t capacity)noexcept{
+        return cvr_ur_ledger_begin_generation(handle_,ring,generation,capacity);
+    }
+    void EndGeneration(uint64_t ring)noexcept{cvr_ur_ledger_end_generation(handle_,ring);}
+    void QuarantineAll()noexcept{cvr_ur_ledger_quarantine_all(handle_);}
+    Status Observe(const Witness& value,uint64_t thread,Row& output,bool capacityStable=true)noexcept{
+        return Status(cvr_ur_ledger_observe(handle_,&value,thread,&output,capacityStable));
+    }
+    Status Find(uint64_t sequence,Reservation& output)const noexcept{return Status(cvr_ur_ledger_find(handle_,sequence,&output));}
+    Status ValidateRange(const Reservation& reservation,uint64_t localOffset,uint64_t physicalOffset,
+        uint64_t paddedBytes,uint64_t logicalBytes,uint64_t backingBytes,Range& output)const noexcept{
+        return Status(cvr_ur_ledger_validate_range(handle_,&reservation,localOffset,physicalOffset,paddedBytes,logicalBytes,backingBytes,&output));
+    }
+    size_t Count()const noexcept{return cvr_ur_ledger_count(handle_);}
+    const Row& At(size_t i)const noexcept{return cvr_ur_ledger_rows(handle_)[i];}
+    bool Exhausted()const noexcept{return cvr_ur_ledger_exhausted(handle_);}
+private:
+    void* handle_;
+};
+#else
 template<size_t Rows=MaxRows,size_t Rings=MaxRings>class Ledger {
     static_assert(Rows && Rings);
     struct Ring {uint64_t address{},generation{},capacity{};bool quarantined{};};
@@ -198,6 +292,7 @@ private:
     std::array<Row,Rows> rows_{};std::array<Ring,Rings> rings_{};
     uint64_t epoch_{1},sequence_{};size_t count_{},ringCount_{};bool exhausted_{};
 };
+#endif
 // The real CALL at the witness supplies a valid unwind return address.
 // The installer selects full enabled XSAVE state, or legacy FXSAVE only when
 // OSXSAVE is absent. The fixed area includes alignment slack and is never grown.
@@ -209,6 +304,43 @@ struct alignas(16) ThunkFrame {
 };
 static_assert(offsetof(ThunkFrame,flags)==0x78 && offsetof(ThunkFrame,nativeStack)==0x80 &&
     offsetof(ThunkFrame,xstateAddress)==0x90 && offsetof(ThunkFrame,xstate)==0xB0 && sizeof(ThunkFrame)==0x40F0);
+#if CVR_RUST_VRIK
+// The runtime: rust/crates/cvr-render/src/upload_reservation_runtime.rs.
+extern "C" {
+void cvr_ur_rt_prepare_code_guards(uintptr_t);
+bool cvr_ur_rt_compatible();
+bool cvr_ur_rt_install(uintptr_t,bool);
+bool cvr_ur_rt_remove(bool);
+bool cvr_ur_rt_installed();
+void cvr_ur_rt_poll_installation(uintptr_t);
+bool cvr_ur_rt_begin_generation(uint64_t,uint64_t,uint64_t);
+void cvr_ur_rt_end_generation(uint64_t);
+uint64_t cvr_ur_rt_find(uint64_t,Reservation*);
+uint64_t cvr_ur_rt_validate_range(const Reservation*,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,Range*);
+void cvr_ur_rt_clear();
+}
+inline void PrepareCodeGuards(uintptr_t gameBase)noexcept{cvr_ur_rt_prepare_code_guards(gameBase);}
+inline bool Compatible()noexcept{return cvr_ur_rt_compatible();}
+// The host must establish process-thread quiescence for the seven-byte patch.
+// The false default prevents activation during ordinary concurrent execution.
+inline bool Install(uintptr_t gameBase,bool threadsQuiescent=false)noexcept{return cvr_ur_rt_install(gameBase,threadsQuiescent);}
+inline bool Remove(bool threadsQuiescent=false)noexcept{return cvr_ur_rt_remove(threadsQuiescent);}
+inline bool Installed()noexcept{return cvr_ur_rt_installed();}
+// No patch is written here. Explicit requests prepare one retained relay/plan,
+// then accept the detached debugger receipt after exact current-code checks.
+// External removal is intentionally unsupported; retain the relay until exit.
+inline void PollInstallation(uintptr_t gameBase=0)noexcept{cvr_ur_rt_poll_installation(gameBase);}
+inline bool BeginGeneration(uint64_t ring,uint64_t generation,uint64_t capacity)noexcept{
+    return cvr_ur_rt_begin_generation(ring,generation,capacity);
+}
+inline void EndGeneration(uint64_t ring)noexcept{cvr_ur_rt_end_generation(ring);}
+inline Status Find(uint64_t sequence,Reservation& output)noexcept{return Status(cvr_ur_rt_find(sequence,&output));}
+inline Status ValidateRange(const Reservation& reservation,uint64_t localOffset,uint64_t physicalOffset,uint64_t paddedBytes,
+    uint64_t logicalBytes,uint64_t backingBytes,Range& output)noexcept{
+    return Status(cvr_ur_rt_validate_range(&reservation,localOffset,physicalOffset,paddedBytes,logicalBytes,backingBytes,&output));
+}
+inline void Clear()noexcept{cvr_ur_rt_clear();}
+#else
 void PrepareCodeGuards(uintptr_t gameBase)noexcept;
 bool Compatible()noexcept;
 // The host must establish process-thread quiescence for the seven-byte patch.
@@ -226,6 +358,7 @@ Status Find(uint64_t sequence,Reservation& output)noexcept;
 Status ValidateRange(const Reservation&,uint64_t localOffset,uint64_t physicalOffset,uint64_t paddedBytes,
     uint64_t logicalBytes,uint64_t backingBytes,Range& output)noexcept;
 void Clear()noexcept;
+#endif
 }
 extern "C" {
 __declspec(dllexport) extern std::atomic<uint32_t> CyberpunkVR_UploadReservationEnable;

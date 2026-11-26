@@ -1,0 +1,12 @@
+[package]
+name = "cvr-body"
+description = "The player's body (stage 3): body yaw from head and hands, follow zone, look-down cone, bend tracker, prediction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cvr-crt = { path = "../cvr-crt" }
+
+[lints]
+workspace = true

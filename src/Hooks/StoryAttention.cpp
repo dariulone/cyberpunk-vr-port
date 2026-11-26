@@ -10,17 +10,50 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include "Utils/MemorySafe.hpp"
 #include "Utils/DebugGate.hpp"
+#include "Anim/CharacterRig.hpp"   // VRIK_ClockMs: the clock the tests can set
 #include <cstring>
 #include <limits>
 #include <mutex>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if !CVR_RUST_VRIK
 void CvrStoryAttentionDetour();
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) int CyberpunkVR_StoryAttentionHookReady{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_StoryAttentionCounters[5]{};
 // gated: player calls / Pacifica / workspot / unavailable pose / explicit clue presses
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_ReachTurns{};  // gated: look-at rays turned for a hand
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// rust/crates/cvr-rig/src/vrik/story_attention.rs: the look-at ray's callback (the thunk calls CvrStoryAttentionAfter
+// there), the attention context and the manual clue.
+extern "C" {
+void cvr_quest_publish_attention(const cvr::quest::AttentionContext* context);
+bool cvr_quest_update_manual_clue(const cvr::quest::ObjectKey* player,const cvr::quest::ObjectKey* clue);
+bool cvr_quest_consume_manual_clue_button(bool pressed,bool allowed);
+void cvr_quest_suspend_manual_clue_input();
+}
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("StoryAttention",::cvr::hooks::Stage::Boot,89,cvr_hook_story_attention_install);
+#endif
+void cvr::quest::PublishAttention(AttentionContext value) { cvr_quest_publish_attention(&value); }
+bool cvr::quest::UpdateManualClue(ObjectKey player,ObjectKey clue) { return cvr_quest_update_manual_clue(&player,&clue); }
+bool cvr::quest::ConsumeManualClueButton(bool pressed,bool allowed) { return cvr_quest_consume_manual_clue_button(pressed,allowed); }
+void cvr::quest::SuspendManualClueInput() { cvr_quest_suspend_manual_clue_input(); }
+#endif
+#else
+// The services as the Rust port asks them (src/Hooks/HookServices.cpp), so tools/vrik_tests can run both.
+extern "C" bool cvr_cpp_xr_session_running();
+extern "C" bool cvr_cpp_reach_aim_point(float* point);
 namespace {
 std::mutex attentionMutex,clueMutex;
 cvr::quest::AttentionContext context;
@@ -28,7 +61,7 @@ cvr::quest::ManualClueInput clueInput;
 cvr::quest::ObjectKey cluePlayer;
 bool Gameplay() {
     return g_menuModeValue==0 && !cvr::vrui::CapturesInput() &&
-           OpenXRManager::Get().IsSessionRunning() && !DeviceCamActive();
+           cvr_cpp_xr_session_running() && !DeviceCamActive();
 }
 bool Install() {
     auto* base=reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
@@ -65,7 +98,7 @@ void cvr::quest::PublishAttention(AttentionContext value) {
 }
 bool cvr::quest::UpdateManualClue(ObjectKey player,ObjectKey clue) {
     if(!Gameplay() || !player || player.address!=cvr::roomscale::PlayerIdentity())clue={};
-    std::lock_guard lock(clueMutex);const auto now=GetTickCount64();
+    std::lock_guard lock(clueMutex);const auto now=VRIK_ClockMs();
     if(player!=cluePlayer) {clueInput.Arm({},now);cluePlayer=player;}
     clueInput.Arm(clue,now);const bool pressed=clueInput.Take(clue,now);
     if(pressed)CVR_DIAGNOSTIC(++CyberpunkVR_StoryAttentionCounters[4]);
@@ -73,7 +106,7 @@ bool cvr::quest::UpdateManualClue(ObjectKey player,ObjectKey clue) {
 }
 bool cvr::quest::ConsumeManualClueButton(bool pressed,bool allowed) {
     std::lock_guard lock(clueMutex);
-    return clueInput.Button(pressed,allowed && Gameplay(),GetTickCount64());
+    return clueInput.Button(pressed,allowed && Gameplay(),VRIK_ClockMs());
 }
 void cvr::quest::SuspendManualClueInput() {
     std::lock_guard lock(clueMutex);clueInput.Suspend();cluePlayer={};
@@ -84,7 +117,7 @@ extern "C" void CvrStoryAttentionAfter(uintptr_t user,float* transform) {
     {std::lock_guard lock(attentionMutex);sample=context;}
     // A free hand reaching for something turns the player's own ray onto it from the eyes (Natives/Reach.hpp).
     float point[3];
-    const bool reaching=cvr::reach::AimPoint(point);
+    const bool reaching=cvr_cpp_reach_aim_point(point);
     if(sample.mode==cvr::quest::Attention::Native && !reaching)return;
     // Native +D1F2E0 locks the weak owner at user+10/+18 before QueueEvent;
     // user+8 is its EntityID. Compare all three, not proximity to the HMD.
@@ -92,7 +125,7 @@ extern "C" void CvrStoryAttentionAfter(uintptr_t user,float* transform) {
     if(!ReadU64Safe(user+8,&entity) || !ReadPtrSafe(user+0x10,&owner.address) ||
        !ReadPtrSafe(user+0x18,&owner.reference))return;
     const auto player=cvr::roomscale::PlayerIdentity();
-    if(!sample.Matches(owner,entity,player,GetTickCount64())) {
+    if(!sample.Matches(owner,entity,player,VRIK_ClockMs())) {
         uint64_t playerEntity{};
         if(reaching && player && owner.address==player && ReadU64Safe(player+0x48,&playerEntity) &&
            entity==playerEntity && cvr::reach::TurnToward(transform,point))
@@ -106,3 +139,4 @@ extern "C" void CvrStoryAttentionAfter(uintptr_t user,float* transform) {
     std::memcpy(transform+4,pose.rotation,sizeof(pose.rotation));
     CVR_DIAGNOSTIC(++CyberpunkVR_StoryAttentionCounters[static_cast<uint32_t>(sample.mode)]);
 }
+#endif

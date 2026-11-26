@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // Upscaler history mask of the scope image -- see PhysicalOpticsShaders.hpp (mask::)
 // and lens_mask_ps.hlsl.
 //
@@ -10,6 +11,23 @@
 // after the tag and the next frame starts empty. A mask nothing drew into since
 // the last tag is not tagged.
 #include "Render/PhysicalOpticsShaders.hpp"
+#if CVR_RUST_VRIK
+// The Rust build: the mask is rust/crates/cvr-gpu/src/optics.rs. The exports stay here (attached at load), and so does
+// SetTag's front, which hands Rust the list's unhooked ClearRenderTargetView.
+#include "Stereo/StereoInternal.hpp"
+#include <atomic>
+#if CVR_RUST_VRIK
+// The switch and counters are Rust's (used_moved_exports_rest.rs), attached by export_attach.rs as the plugin loads.
+#else
+extern "C" __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_OpticsLensClean{1};
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_OpticsLensMaskDraws[2]{};
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_OpticsLensMaskTags[2]{};
+extern "C" void cvr_optics_mask_attach(std::atomic<int32_t>*,std::atomic<uint64_t>*,std::atomic<uint64_t>*);
+namespace {
+const bool attached=(cvr_optics_mask_attach(&CyberpunkVR_OpticsLensClean,CyberpunkVR_OpticsLensMaskDraws,CyberpunkVR_OpticsLensMaskTags),true);
+}
+#endif
+#else
 #include "Render/RenderProbeScope.hpp"
 #include "Stereo/StereoInternal.hpp"
 #include <sl_core_types.h>
@@ -143,3 +161,5 @@ uint32_t SetTag(const void* viewport,const void* tags,uint32_t count,void* comma
     return result;
 }
 }
+#endif
+#endif

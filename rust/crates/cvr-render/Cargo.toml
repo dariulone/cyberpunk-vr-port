@@ -1,0 +1,43 @@
+[package]
+name = "cvr-render"
+description = "The port's render policies (stage 5, docs/rust-migration-plan.md): the settings and the pure geometry of the render passes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cvr-body = { path = "../cvr-body" }
+cvr-camera = { path = "../cvr-camera" }
+cvr-crt = { path = "../cvr-crt" }
+cvr-engine = { path = "../cvr-engine" }
+cvr-gpu = { path = "../cvr-gpu" }
+cvr-host = { path = "../cvr-host" }
+cvr-settings = { path = "../cvr-settings" }
+cvr-xr = { path = "../cvr-xr" }
+openxr-sys = "0.14"
+red4ext-abi = { path = "../red4ext-abi" }
+windows = { version = "0.62", features = ["Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D_Fxc", "Win32_Graphics_Direct3D_Dxc", "Win32_System_LibraryLoader", "Win32_System_Performance", "Win32_System_Threading", "Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_System_SystemInformation", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_Environment", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_Security_Cryptography", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+
+[features]
+# The stereo module's parts that read and write the C++ half's state (the profiler, the game thread's queues, the graph
+# shape probe): only the DLL, which defines that state, enables it (cvr-ffi's plugin feature).
+stereo = []
+# The parts that replace a C++ file the reference build still compiles (src/Hooks/WorldMarkers.cpp): only the Rust
+# build (cvr-ffi's vrik feature, CVR_RUST_VRIK) enables them.
+rust-build = ["stereo", "cvr-gpu/plugin-tables", "cvr-settings/plugin-tables", "cvr-xr/plugin-tables"]
+# The exported state the Rust build defines and the hooks' runtimes the single-pass probe test drives
+# (tools/single_pass_tests' native_probe_test_rust, cvr-ffi's probe-test): the exports' modules and the instance and
+# upload reservations' installation, without the plugin's other parts.
+probe-exports = []
+# tools/vrik_tests' Rust variants (cvr-ffi's rig-exports): the export modules' definitions the solve's crates reach by name
+# and the test programs do not define, generated into rig_test_exports.rs with the plugin's own initial values.
+rig-exports = []
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json = "1"
+# the WARP bench of the compute shaders (framegen's passes: FXC against the DXIL made from Rust)
+cvr-gpu = { path = "../cvr-gpu", features = ["bench"] }

@@ -1,0 +1,140 @@
+# ONE PROP RECORD PER GRENADE TYPE: Items.VRPortGrenade (Items.VRPortGrenade.yaml) per kind, each pointing at its
+# own prop entity. The belt (CyberpunkVRPort_TacticalBelt) cloned them at run time with TweakDB:CloneRecord; as data
+# they exist from the TweakDB load. Written out from the same base rather than $base: Items.VRPortGrenade, so the
+# order the files are applied in does not matter. The slot list is a whitelist the engine enforces: the belt
+# (VRPortBelt6) and either hand's own grenade slot (VRPortGrenadeLeft/Right, AttachmentSlots.VRPortGrenade.yaml: main's c026279ef).
+
+Items.VRPortGrenade_frag:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_frag
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_frag
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight
+
+Items.VRPortGrenade_flash:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_flash
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_flash
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight
+
+Items.VRPortGrenade_incendiary:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_incendiary
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_incendiary
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight
+
+Items.VRPortGrenade_biohazard:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_biohazard
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_biohazard
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight
+
+Items.VRPortGrenade_recon:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_recon
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_recon
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight
+
+Items.VRPortGrenade_cutting:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_cutting
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_cutting
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight
+
+Items.VRPortGrenade_smoke:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_smoke
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_smoke
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight
+
+Items.VRPortGrenade_emp:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_emp
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_emp
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight
+
+Items.VRPortGrenade_ozob:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_gren_ozob
+  appearanceName: default
+  friendlyName: vrp_grenade
+  equivalent: Items.VRPortGrenade_ozob
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.VRPortBelt6
+    - AttachmentSlots.VRPortGrenadeLeft
+    - AttachmentSlots.VRPortGrenadeRight

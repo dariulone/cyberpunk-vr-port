@@ -90,6 +90,8 @@
 //             (and the published [141]) one snap-delta back for the locates of the
 //             snap tick, releasing when [99] advances; the hook DEFERS the packet
 //             rotation while [99] == [150] so the held frame keeps the pre-snap pose.
+//  [225]      headset refresh rate in Hz             openxr -> CET
+//  [226]      native game FPS lock target in Hz      openxr -> CET
 //
 // ---------------------------------------------------------------------------
 // GRAVEYARD (dead -- reclaim before growing past [150])
@@ -183,6 +185,8 @@ constexpr int kRightTriggerAnalog = 160;   // 0..1, plugin -> CET
 // over it, and both together are a shake). Written by SetVRReloadOwnedHand from the reload mod,
 // read with GetVRSharedSlot by the collision mod. -1 also covers "that mod is not installed".
 constexpr int kReloadOwnedHand = 162;
+constexpr int kHeadsetRefreshHz = 225;
+constexpr int kGameFpsTargetHz  = 226;
 constexpr int kTriggerOverride    = 161;   // 0 pass / 1 block / 2 force, CET -> plugin
 // WHEEL GRAB: which hands are AT THE STEERING WHEEL, so their grip is not a gameplay button.
 // bit0 (1) = right hand, bit1 (2) = left. Raised on PROXIMITY, before the grip is pressed, so a
@@ -216,6 +220,9 @@ constexpr int kDeviceScreenOpen   = 164;
 constexpr int kDualWieldActive    = 165;
 constexpr int kDualWieldLeftFires  = 2;
 constexpr int kDualWieldRightFires = 4;
+// Brief request from rapid repeated breaks on both triggers; redscript retains
+// the native Heywood Hurricane perk, ammo, safe-state and equipment checks.
+constexpr int kDualWieldHurricane = 8;
 // The LEFT gun's barrel while two guns are in hand, world space: position [166..168], forward
 // [169..171], [172] = valid. CET -> plugin (SetVRLeftMuzzle from the reload mod's dual_wield.lua);
 // the hitscan hook sends a shot whose own muzzlePosition is nearer this barrel out of it.
@@ -233,6 +240,9 @@ constexpr int kBodyHandsOnly      = 173;
 // bolt or slide to rack. openxr -> the CET Reload mod (reload/glow.lua). Inverted so the zero-initialized block, or
 // a plugin that does not publish it, leaves the highlight on.
 constexpr int kReloadGlowOff      = 174;
+// B PRESSES ON A POPUP IN THE CAR, counted, plugin (XInput merge) -> the CET Driving mod. B stays held out of the car
+// (it is also the exit), so the radio list's own close (`cancel`) never comes; the mod closes the list on every change.
+constexpr int kVehiclePopupBack   = 175;
 constexpr int kWheelArmedRightBit = 1;
 constexpr int kWheelArmedLeftBit  = 2;
 } // namespace vrshared

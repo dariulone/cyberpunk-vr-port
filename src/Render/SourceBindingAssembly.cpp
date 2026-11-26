@@ -8,7 +8,15 @@
 #include <new>
 #include <set>
 
+#if CVR_RUST_VRIK
+// The root and view rules: rust/crates/cvr-render/src/assembly_layout.rs (tools/single_pass_tests/source_binding_assembly_test
+// runs its cases against them in its Rust variant). The ranges cross as the .cpp's Range, mirrored there.
+extern "C" {
+bool cvr_sba_srv(const D3D12_SHADER_RESOURCE_VIEW_DESC*,const D3D12_SHADER_RESOURCE_VIEW_DESC*);
+}
+#endif
 namespace cvr::stereo::source_binding_assembly {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's assembly is assembly_build.rs' and shared_table.rs'
 // The definition and construction stay private to this translation unit.
 // Public tables can retain a receipt, but cannot nominate a new table for it.
 struct OwnedSrvCoverage {
@@ -17,11 +25,34 @@ struct OwnedSrvCoverage {
     std::shared_ptr<const std::vector<OwnedSrvSlot>> slots;
 };
 namespace {
+#if !CVR_RUST_VRIK
 constexpr UINT ResourceLimit=1000000,SamplerLimit=2048;
+#endif
+#if CVR_RUST_VRIK
+// The root layouts are Rust's (assembly_layout.rs, used by assembly_build.rs).
+#else
 struct Range {UINT offset{},count{};D3D12_DESCRIPTOR_RANGE1 desc{};};
 struct Layout {UINT minimum{};bool tail{},sampler{};std::vector<Range> ranges;};
+#if CVR_RUST_VRIK
+struct LayoutHead {UINT minimum{};bool tail{},sampler{};};
+static_assert(sizeof(Range)==32 && sizeof(LayoutHead)==8,"mirrored by assembly_layout.rs");
+LayoutHead Head(const Layout& layout){return {layout.minimum,layout.tail,layout.sampler};}
+#endif
+#endif
 bool ValidScope(const Scope& s){return s.root && s.list && s.generation && s.occurrence && s.source && s.eye<2;}
+#if CVR_RUST_VRIK
+// Layouts, Extent, SlotRange, CpuHeap, CbvRange and Canonical are BuildCore's, in Rust (assembly_build.rs).
+#else
 bool Layouts(const D3D12_ROOT_SIGNATURE_DESC1& root,std::array<Layout,64>& layouts){
+#if CVR_RUST_VRIK
+    std::array<LayoutHead,64> heads{};
+    const auto push=[](void* all,UINT parameter,const void* ranges,size_t count){
+        const auto* first=static_cast<const Range*>(ranges);(*static_cast<std::array<Layout,64>*>(all))[parameter].ranges.assign(first,first+count);};
+    if(!cvr_sba_layouts(&root,heads.data(),&layouts,push))return false;
+    for(UINT p=0;p<root.NumParameters;++p){layouts[p].minimum=heads[p].minimum;layouts[p].tail=heads[p].tail;layouts[p].sampler=heads[p].sampler;}
+    return true;
+}
+#else
     if(!root.NumParameters || root.NumParameters>64 || !root.pParameters || root.Flags&(
         D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE|D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED|
         D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED))return false;
@@ -48,19 +79,32 @@ bool Layouts(const D3D12_ROOT_SIGNATURE_DESC1& root,std::array<Layout,64>& layou
         }
     }return true;
 }
+#endif
 bool Extent(const Layout& layout,UINT count){
+#if CVR_RUST_VRIK
+    const auto head=Head(layout);return cvr_sba_extent(&head,layout.ranges.empty()?nullptr:&layout.ranges.back(),count);
+#else
     const UINT limit=layout.sampler?SamplerLimit:ResourceLimit;
     if(!count || count>limit || (layout.tail?count<layout.minimum:count!=layout.minimum))return false;
     return !layout.tail || uint64_t(layout.ranges.back().desc.BaseShaderRegister)+count-layout.ranges.back().offset<=uint64_t(UINT_MAX)+1;
+#endif
 }
 const Range* SlotRange(const Layout& layout,UINT offset){
+#if CVR_RUST_VRIK
+    const auto index=cvr_sba_slot_range(layout.ranges.data(),layout.ranges.size(),offset);return index<0?nullptr:&layout.ranges[size_t(index)];
+#else
     for(const auto& range:layout.ranges)if(offset>=range.offset && uint64_t(offset)-range.offset<range.count)return &range;return nullptr;
+#endif
 }
 bool CpuHeap(ID3D12DescriptorHeap* heap,D3D12_DESCRIPTOR_HEAP_TYPE type,UINT count){
     if(!heap)return false;const auto desc=heap->GetDesc();
     return desc.Type==type && desc.Flags==D3D12_DESCRIPTOR_HEAP_FLAG_NONE && desc.NumDescriptors==count;
 }
 bool CbvRange(ID3D12Resource* resource,const D3D12_CONSTANT_BUFFER_VIEW_DESC& view,UINT reflected,UINT64 offset,bool privateBuffer){
+#if CVR_RUST_VRIK
+    return cvr_sba_cbv_range(resource,&view,reflected,offset,privateBuffer);
+}
+#else
     if(!resource || !reflected || reflected>65536 || !view.SizeInBytes || view.SizeInBytes>65536 ||
         (view.SizeInBytes&255) || reflected>view.SizeInBytes || !view.BufferLocation || (view.BufferLocation&255))return false;
     const auto desc=resource->GetDesc();const auto gpu=resource->GetGPUVirtualAddress();
@@ -70,6 +114,7 @@ bool CbvRange(ID3D12Resource* resource,const D3D12_CONSTANT_BUFFER_VIEW_DESC& vi
         if(FAILED(resource->GetHeapProperties(&heap,&flags)) || heap.Type!=D3D12_HEAP_TYPE_DEFAULT)return false;}
     return true;
 }
+#endif
 bool Canonical(const descriptors::OwnedSourceSlot& slot){
     if(slot.type==D3D12_DESCRIPTOR_RANGE_TYPE_CBV){descriptor_views::CbvResult result;return descriptor_views::DecodeCbv(slot.stamp.value,result);}
     if(slot.type==D3D12_DESCRIPTOR_RANGE_TYPE_SRV){descriptor_views::SrvResult result;return descriptor_views::DecodeSrv(slot.stamp.value,result);}
@@ -77,6 +122,7 @@ bool Canonical(const descriptors::OwnedSourceSlot& slot){
     if(slot.type==D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER){descriptor_views::SamplerResult result;return descriptor_views::DecodeSampler(slot.stamp.value,result);}
     return false;
 }
+#endif
 bool SameDevice(ID3D12Device* expected,ID3D12DeviceChild* child){
     Microsoft::WRL::ComPtr<ID3D12Device> device;return child && SUCCEEDED(child->GetDevice(IID_PPV_ARGS(&device))) && device.Get()==expected;
 }
@@ -134,15 +180,26 @@ bool ReissueCoverage(SharedBankTable& table,const Scope& source,const SharedBank
     receipt->slots=prior->slots;table.srvCoverage=std::move(receipt);return true;
 }
 bool ExactStructured(const D3D12_SHADER_RESOURCE_VIEW_DESC& view){
+#if CVR_RUST_VRIK
+    return cvr_sba_srv(&view,nullptr);
+#else
     return view.Format==DXGI_FORMAT_UNKNOWN && view.ViewDimension==D3D12_SRV_DIMENSION_BUFFER &&
         view.Shader4ComponentMapping==D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING && !view.Buffer.FirstElement &&
         view.Buffer.NumElements==8192 && view.Buffer.StructureByteStride==128 && !view.Buffer.Flags;
+#endif
 }
 bool SameSrv(const D3D12_SHADER_RESOURCE_VIEW_DESC& a,const D3D12_SHADER_RESOURCE_VIEW_DESC& b){
+#if CVR_RUST_VRIK
+    return cvr_sba_srv(&a,&b);
+#else
     return a.Format==b.Format && a.ViewDimension==b.ViewDimension && a.Shader4ComponentMapping==b.Shader4ComponentMapping &&
         a.Buffer.FirstElement==b.Buffer.FirstElement && a.Buffer.NumElements==b.Buffer.NumElements &&
         a.Buffer.StructureByteStride==b.Buffer.StructureByteStride && a.Buffer.Flags==b.Buffer.Flags;
+#endif
 }
+#if CVR_RUST_VRIK
+// NullSlot is Assemble's, in Rust (assembly_pass.rs).
+#else
 void NullSlot(ID3D12Device* device,D3D12_DESCRIPTOR_RANGE_TYPE type,D3D12_CPU_DESCRIPTOR_HANDLE target){
     if(type==D3D12_DESCRIPTOR_RANGE_TYPE_CBV){device->CreateConstantBufferView(nullptr,target);return;}
     if(type==D3D12_DESCRIPTOR_RANGE_TYPE_UAV){D3D12_UNORDERED_ACCESS_VIEW_DESC view{};view.Format=DXGI_FORMAT_R32_UINT;
@@ -153,6 +210,7 @@ void NullSlot(ID3D12Device* device,D3D12_DESCRIPTOR_RANGE_TYPE type,D3D12_CPU_DE
     D3D12_SHADER_RESOURCE_VIEW_DESC view{};view.Format=DXGI_FORMAT_R32_FLOAT;view.ViewDimension=D3D12_SRV_DIMENSION_BUFFER;
     view.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;view.Buffer.NumElements=1;device->CreateShaderResourceView(nullptr,&view,target);
 }
+#endif
 }
 bool DescribeOwnedSrvCoverage(const SharedBankTable& table,const Scope& source,OwnedSrvCoverageView& output)noexcept{
     output={};try{
@@ -172,6 +230,133 @@ bool MatchesOwnedSrvCoverage(const SharedBankTable& table,const Scope& source,UI
     }catch(...){output={};return false;}
 }
 struct GuardedValidation {const structured_snapshot_view::PrivateView* t5{};Microsoft::WRL::ComPtr<IUnknown> receipt;};
+#if CVR_RUST_VRIK
+// The plan is Rust's (rust/crates/cvr-render/src/assembly_build.rs): the input crosses as flat views (the private view's own
+// validation and its record plan computed here), and the plan's tables are materialized from Rust's, their owners
+// referenced again from the lent objects.
+struct RustStr {const char* data;size_t size;};
+struct RustOwned {Scope scope;UINT present,parameter,count;uint64_t cpuHeap,owner,identity,version,sourceGpu,sourceHeap;
+    const descriptors::OwnedSourceSlot* slots;size_t slotCount;};
+struct RustPrivateCbv {Scope scope;uint64_t value,copies;UINT parameter,offset,reflected,padded;uint64_t privateOffset,copied;
+    D3D12_CONSTANT_BUFFER_VIEW_DESC view;uint64_t resource,owner,copiesOwner,copiesList,copiesGeneration,copiesOccurrence,copiesCopied;UINT copiesCount;
+    bool finalized;};
+struct RustOriginalCbv {Scope scope;UINT parameter,offset,reflected;D3D12_CONSTANT_BUFFER_VIEW_DESC view;uint64_t resource,owner;bool certified;};
+struct RustPrivateSrv {Scope scope;uint64_t value;UINT parameter,offset;structured_snapshot_view::Scope viewScope;uint64_t viewResource,viewOwner;
+    D3D12_SHADER_RESOURCE_VIEW_DESC viewSrv;uint64_t viewSourceOffset,viewCopied;UINT viewFirstRecord,viewRecordSpan,viewRecordCount;
+    std::array<uint32_t,multilayer_selectors::MaxRecords> viewRecords;std::array<uint8_t,multilayer_selectors::B4Bytes> viewB4;bool viewValid;
+    descriptors::Value originalDescription;uint64_t originalResource;D3D12_SHADER_RESOURCE_VIEW_DESC originalView;descriptors::DescriptorStamp originalStamp;
+    uint64_t originalOwner,originalIdentity,originalVersion,originalGpu,originalHeap,resourceCookie;UINT originalCount;bool slotCertified;
+    uint64_t b4,b4Copies,b4Resource,b4Owner;UINT b4Reflected;uint64_t b4Copied,b4CopiesOwner;const uint8_t* b4Bytes;size_t b4BytesLength;
+    bool b4BytesCertified,planOk,planCoverageComplete,planSuperset;const uint32_t* planRecords;size_t planRecordCount;UINT planFirstRecord,planRecordSpan;
+    uint64_t planResourceOffset;UINT planByteExtent;};
+struct RustSelectorTable {RustStr root;uint32_t visibility,parameter,space,shaderRegisterBase,originalTableOffset,declaredExtent;const uint32_t* offsets;
+    size_t offsetCount;uint32_t count;const source_selectors::SlotInterval* uses;size_t useCount;};
+struct RustSelectors {RustStr family[3];uint32_t evaluatedSites,suppressed;bool complete,permission,permitted;const source_selectors::SiteSelection* selections;
+    size_t selectionCount;const RustSelectorTable* tables;size_t tableCount;};
+struct RustInput {Scope scope;const D3D12_ROOT_SIGNATURE_DESC1* root;const families::ResourceUse* uses;size_t useCount;const RustOwned* finite;
+    size_t finiteCount;const RustOwned* sparse;size_t sparseCount;const RustPrivateCbv* privateCbvs;size_t privateCbvCount;const RustOriginalCbv* originalCbvs;
+    size_t originalCbvCount;RustStr family[3];Scope selectorScope;const RustSelectors* selectors;bool dynamicCoverageCertified,guarded;
+    const RustPrivateSrv* privateSrvs;size_t privateSrvCount;uint64_t guardedT5,guardedReceipt;RustStr multilayer[3];};
+struct RustCopy {UINT offset,sourceOffset,count;uint64_t heap;};
+struct RustCbvRow {UINT offset;D3D12_CONSTANT_BUFFER_VIEW_DESC view;};
+struct RustSrvRow {UINT offset;D3D12_SHADER_RESOURCE_VIEW_DESC view;uint64_t resource;};
+struct RustCoverage {Scope contributor;UINT offset,compactIndex;descriptors::DescriptorStamp stamp;uint64_t resourceCookie,originalIdentity,
+    originalVersion,originalGpu,originalHeap;UINT originalCount;uint64_t originalOwner,originalCpuHeap;};
+struct RustPlanHead {Scope scope;size_t tables;const std::array<UINT,3>* missing;size_t missingCount;UINT descriptors;bool ready;};
+struct RustTableView {UINT parameter,count;Scope sourceScope;int32_t kind;const int32_t* slotTypes;size_t slotTypeCount;const RustCopy* copies;
+    size_t copyCount;const RustCbvRow* cbvs;size_t cbvCount;const RustSrvRow* srvs;size_t srvCount;uint64_t sourceRoot,sourceGpu,sourceHeap;
+    const descriptors::OwnedSourceSlot* sparseSlots;size_t sparseSlotCount;const RustCoverage* coverage;size_t coverageCount;bool sparseUnionCertified,unionStorage;
+    const uint64_t* descriptorOwners;size_t descriptorOwnerCount;const uint64_t* leases;size_t leaseCount;};
+static_assert(sizeof(Scope)==48 && sizeof(descriptors::DescriptorStamp)==176 && sizeof(descriptors::OwnedSourceSlot)==192 && sizeof(RustOwned)==128 &&
+    sizeof(RustPrivateCbv)==176 && sizeof(RustOriginalCbv)==104 && sizeof(structured_snapshot_view::Scope)==40 && sizeof(RustPrivateSrv)==1112 &&
+    sizeof(RustSelectorTable)==80 && sizeof(RustSelectors)==96 && sizeof(RustInput)==328 && sizeof(RustCopy)==24 && sizeof(RustCbvRow)==24 &&
+    sizeof(RustSrvRow)==56 && sizeof(RustCoverage)==296 && sizeof(RustPlanHead)==80 && sizeof(RustTableView)==224 &&
+    sizeof(source_selectors::SlotInterval)==12 && sizeof(source_selectors::SiteSelection)==16,"mirrored by assembly_build.rs");
+extern "C" bool cvr_sba_build_core(const void*,void**,UINT*);
+extern "C" void cvr_sba_plan_head(const void*,void*);
+extern "C" void cvr_sba_plan_table(const void*,size_t,void*);
+extern "C" void cvr_sba_plan_free(void*);
+bool BuildCore(const Input& input,const GuardedValidation* guarded,Plan& output,Failure& failure)try{
+    output={};failure=Failure::Arguments;
+    const auto at=[](const void* value){return uint64_t(reinterpret_cast<uintptr_t>(value));};
+    const auto str=[](std::string_view text){return RustStr{text.data(),text.size()};};
+    const auto owned=[&](const Scope& scope,const auto* table,const descriptors::OwnedSourceSlot* slots,size_t count){
+        return table?RustOwned{scope,1,table->parameter,table->count,at(table->cpuHeap.Get()),at(table->owner.Get()),table->identity,table->version,
+            table->sourceGpu,table->sourceHeap,slots,count}:RustOwned{scope};};
+    std::vector<RustOwned> finite,sparse;std::vector<RustPrivateCbv> cbvs;std::vector<RustOriginalCbv> originals;
+    for(const auto& q:input.finite)finite.push_back(owned(q.scope,q.table,nullptr,0));
+    for(const auto& q:input.sparse)sparse.push_back(owned(q.scope,q.table,q.table?q.table->slots.data():nullptr,q.table?q.table->slots.size():0));
+    for(const auto& q:input.privateCbvs){RustPrivateCbv c{q.scope,at(q.value),at(q.copies)};
+        if(q.value){const auto& v=*q.value;c.parameter=v.parameter;c.offset=v.offset;c.reflected=v.reflectedBytes;c.padded=v.paddedBytes;
+            c.privateOffset=v.privateOffset;c.copied=v.copiedBytes;c.view=v.view;c.resource=at(v.resource.Get());c.owner=at(v.owner.Get());}
+        if(q.copies){const auto& k=*q.copies;c.copiesOwner=at(k.owner.Get());c.copiesList=k.list;c.copiesGeneration=k.generation;
+            c.copiesOccurrence=k.occurrence;c.copiesCopied=k.copiedBytes;c.copiesCount=k.count;}
+        c.finalized=q.finalized;cbvs.push_back(c);}
+    for(const auto& v:input.originalCbvs)originals.push_back({v.scope,v.parameter,v.offset,v.reflectedBytes,v.view,at(v.resource.Get()),at(v.owner.Get()),
+        v.readEpochCertified});
+    std::vector<RustPrivateSrv> srvs(input.privateSrvs.size());std::vector<multilayer_selectors::ReadPlan> plans(input.privateSrvs.size());
+    for(size_t n=0;n<input.privateSrvs.size();++n){const auto& q=input.privateSrvs[n];auto& s=srvs[n];
+        s.scope=q.scope;s.value=at(q.value);s.parameter=q.parameter;s.offset=q.offset;
+        if(q.value){const auto& v=*q.value;s.viewScope=v.scope;s.viewResource=at(v.resource.Get());s.viewOwner=at(v.owner.Get());s.viewSrv=v.srv;
+            s.viewSourceOffset=v.sourceOffset;s.viewCopied=v.copiedBytes;s.viewFirstRecord=v.firstRecord;s.viewRecordSpan=v.recordSpan;
+            s.viewRecordCount=v.recordCount;s.viewRecords=v.records;s.viewB4=v.privateB4Bytes;s.viewValid=structured_snapshot_view::ValidatePrivateView(v);
+            // The record plan of the full T5 domain (the only resource width the plan admits).
+            multilayer_selectors::StructuredView view;view.key={std::string(multilayer_selectors::RootSha256),5,5,0,23,5};
+            view.resourceWidth=structured_snapshot_view::DomainBytes;view.numElements=8192;view.structureByteStride=128;view.dimension=1;
+            view.componentMapping=5768;view.explicitDescription=true;auto& checked=plans[n];std::string error;
+            s.planOk=multilayer_selectors::PlanRead(input.family,{{std::string(multilayer_selectors::RootSha256),5,4,0,19,0},v.privateB4Bytes},view,
+                checked,error);
+            s.planCoverageComplete=checked.originalSiteCoverageComplete;s.planSuperset=checked.conservativeRecordSuperset;
+            s.planRecords=checked.records.data();s.planRecordCount=checked.records.size();s.planFirstRecord=checked.firstRecord;
+            s.planRecordSpan=checked.recordSpan;s.planResourceOffset=checked.resourceOffset;s.planByteExtent=checked.byteExtent;}
+        s.originalDescription=q.original.description;s.originalResource=at(q.original.resource.Get());s.originalView=q.original.view;
+        s.originalStamp=q.original.stamp;s.originalOwner=at(q.originalOwner.Get());s.originalIdentity=q.originalIdentity;s.originalVersion=q.originalVersion;
+        s.originalGpu=q.originalGpu;s.originalHeap=q.originalHeap;s.resourceCookie=q.resourceCookie;s.originalCount=q.originalCount;
+        s.slotCertified=q.originalSlotCertified;s.b4=at(q.privateB4);s.b4Copies=at(q.privateB4Copies);
+        if(q.privateB4){s.b4Resource=at(q.privateB4->resource.Get());s.b4Owner=at(q.privateB4->owner.Get());s.b4Reflected=q.privateB4->reflectedBytes;
+            s.b4Copied=q.privateB4->copiedBytes;}
+        if(q.privateB4Copies)s.b4CopiesOwner=at(q.privateB4Copies->owner.Get());
+        s.b4Bytes=q.privateB4Bytes.data();s.b4BytesLength=q.privateB4Bytes.size();s.b4BytesCertified=q.privateB4BytesCertified;}
+    std::vector<RustSelectorTable> tables;RustSelectors selectors{};
+    if(input.selectors){const auto& r=*input.selectors;tables.reserve(r.tables.size());
+        for(const auto& table:r.tables){const auto& key=table.key;
+            tables.push_back({str(key.rootSha256),key.visibility,key.parameter,key.space,key.shaderRegisterBase,key.originalTableOffset,key.declaredExtent,
+                table.offsets.data(),table.offsets.size(),table.count,table.uses.data(),table.uses.size()});}
+        selectors={{str(r.family.rootSha256),str(r.family.vertexSha256),str(r.family.pixelSha256)},r.evaluatedSites,r.nativeCommandsSuppressed,
+            r.selectorEvaluationComplete,r.nativeExecutionPermission,r.nativeExecutionPermitted,r.selections.data(),r.selections.size(),tables.data(),
+            tables.size()};}
+    const RustInput lent{input.scope,input.root,input.shaderUses.data(),input.shaderUses.size(),finite.data(),finite.size(),sparse.data(),sparse.size(),
+        cbvs.data(),cbvs.size(),originals.data(),originals.size(),{str(input.family.rootSha256),str(input.family.vertexSha256),str(input.family.pixelSha256)},
+        input.selectorScope,input.selectors?&selectors:nullptr,input.dynamicCoverageCertified,guarded!=nullptr,srvs.data(),srvs.size(),
+        guarded?at(guarded->t5):0,guarded?at(guarded->receipt.Get()):0,
+        {str(multilayer_selectors::RootSha256),str(multilayer_selectors::VertexSha256),str(multilayer_selectors::PixelSha256)}};
+    void* built{};UINT reason{};
+    if(!cvr_sba_build_core(&lent,&built,&reason)){failure=Failure(reason);return false;}
+    const std::unique_ptr<void,void(*)(void*)> held(built,&cvr_sba_plan_free);
+    RustPlanHead head{};cvr_sba_plan_head(built,&head);
+    Plan pending;pending.scope_=head.scope;pending.descriptors_=head.descriptors;pending.ready_=head.ready;
+    for(size_t n=0;n<head.missingCount;++n)pending.missing_.push_back({head.missing[n][0],head.missing[n][1],head.missing[n][2]});
+    const auto unknown=[](uint64_t value){return Microsoft::WRL::ComPtr<IUnknown>(reinterpret_cast<IUnknown*>(value));};
+    for(size_t index=0;index<head.tables;++index){RustTableView v{};cvr_sba_plan_table(built,index,&v);Plan::Table table;
+        table.parameter=v.parameter;table.count=v.count;table.sourceScope=v.sourceScope;table.type=D3D12_DESCRIPTOR_HEAP_TYPE(v.kind);
+        for(size_t n=0;n<v.slotTypeCount;++n)table.slotTypes.push_back(D3D12_DESCRIPTOR_RANGE_TYPE(v.slotTypes[n]));
+        for(size_t n=0;n<v.copyCount;++n){const auto& c=v.copies[n];
+            table.copies.push_back({c.offset,c.sourceOffset,c.count,reinterpret_cast<ID3D12DescriptorHeap*>(c.heap)});}
+        for(size_t n=0;n<v.cbvCount;++n)table.cbvs.push_back({v.cbvs[n].offset,v.cbvs[n].view});
+        for(size_t n=0;n<v.srvCount;++n)table.srvs.push_back({v.srvs[n].offset,v.srvs[n].view,reinterpret_cast<ID3D12Resource*>(v.srvs[n].resource)});
+        table.sourceRoot=v.sourceRoot;table.sourceGpu=v.sourceGpu;table.sourceHeap=v.sourceHeap;
+        if(v.sparseSlotCount)table.sparseSlots.assign(v.sparseSlots,v.sparseSlots+v.sparseSlotCount);
+        for(size_t n=0;n<v.coverageCount;++n){const auto& c=v.coverage[n];
+            table.srvCoverage.push_back({c.contributor,c.offset,c.compactIndex,c.stamp,c.resourceCookie,c.originalIdentity,c.originalVersion,c.originalGpu,
+                c.originalHeap,c.originalCount,unknown(c.originalOwner),reinterpret_cast<ID3D12DescriptorHeap*>(c.originalCpuHeap)});}
+        table.sparseUnionCertified=v.sparseUnionCertified;
+        for(size_t n=0;n<v.descriptorOwnerCount;++n)table.descriptorOwners.push_back(unknown(v.descriptorOwners[n]));
+        for(size_t n=0;n<v.leaseCount;++n)table.leases.push_back(unknown(v.leases[n]));
+        pending.tables_.push_back(std::move(table));}
+    output=std::move(pending);failure=Failure::None;return true;
+}catch(const std::bad_alloc&){output={};failure=Failure::Capacity;return false;}
+catch(...){output={};failure=Failure::Exception;return false;}
+#else
 bool BuildCore(const Input& input,const GuardedValidation* guarded,Plan& output,Failure& failure)try{
     output={};failure=Failure::Arguments;
     if(!ValidScope(input.scope) || !input.root || input.shaderUses.empty() || input.shaderUses.size()>4096 ||
@@ -405,6 +590,7 @@ bool BuildCore(const Input& input,const GuardedValidation* guarded,Plan& output,
 }catch(const std::bad_alloc&){output={};failure=Failure::Capacity;return false;}
 catch(...){output={};failure=Failure::Exception;return false;}
 
+#endif
 bool Build(const Input& input,Plan& output,Failure& failure){return BuildCore(input,nullptr,output,failure);}
 
 bool BuildGuarded(const GuardedInput& supplied,GuardedPlan& output,Failure& failure)try{
@@ -491,6 +677,111 @@ HRESULT AssembleGuardedPass(ID3D12Device* device,std::span<const GuardedPlan* co
 }catch(const std::bad_alloc&){failure=Failure::Capacity;return E_OUTOFMEMORY;}
 catch(...){failure=Failure::Exception;return E_FAIL;}
 
+#if CVR_RUST_VRIK
+// The tables are assembled in Rust (rust/crates/cvr-render/src/assembly_pass.rs): the heaps, the cache and a pass's unions;
+// each assembled table comes back here (IssueTable) for its SharedBankTable and SRV coverage receipt.
+extern "C" void* cvr_sba_cache_new();
+extern "C" void cvr_sba_cache_free(void*);
+extern "C" void cvr_sba_cache_counts(const void*,uint64_t*);
+extern "C" void cvr_sba_table_view(const void*,void*);
+using RustIssue=bool(*)(void*,const void*,void*,uint64_t,UINT,bool);
+extern "C" HRESULT cvr_sba_assemble(ID3D12Device*,const void*,void*,UINT,RustIssue,void*,UINT*);
+extern "C" HRESULT cvr_sba_assemble_pass(ID3D12Device*,const void* const*,size_t,const void*,UINT,RustIssue,void*,void**,UINT*);
+extern "C" bool cvr_sba_pass_reference(const void*,size_t,size_t,const void**);
+extern "C" size_t cvr_sba_pass_index(const void*,size_t,size_t);
+extern "C" void cvr_sba_pass_commit(void*,void*);
+extern "C" void cvr_sba_pass_free(void*);
+extern "C" void* cvr_sba_plan_lend(const Scope*,bool,UINT,const void*,size_t);
+namespace {
+// A C++ plan's tables lent to Rust as they are (the plan's copies, views, slots and receipts share the Rust rows' layout:
+// a ComPtr is its pointer); the Rust plan copies them and is freed with the handle.
+using RustPlan=std::unique_ptr<void,void(*)(void*)>;
+template<class Tables> RustPlan LendPlan(const Scope& scope,bool ready,UINT descriptors,const Tables& tables){
+    using Table=typename Tables::value_type;
+    static_assert(sizeof(typename decltype(Table::copies)::value_type)==sizeof(RustCopy) &&
+        sizeof(typename decltype(Table::cbvs)::value_type)==sizeof(RustCbvRow) && sizeof(typename decltype(Table::srvs)::value_type)==sizeof(RustSrvRow) &&
+        sizeof(OwnedSrvSlot)==sizeof(RustCoverage) && sizeof(Microsoft::WRL::ComPtr<IUnknown>)==sizeof(uint64_t),"lent as the Rust rows");
+    std::vector<RustTableView> views;views.reserve(tables.size());
+    for(const auto& table:tables)views.push_back({table.parameter,table.count,table.sourceScope,int32_t(table.type),
+        reinterpret_cast<const int32_t*>(table.slotTypes.data()),table.slotTypes.size(),reinterpret_cast<const RustCopy*>(table.copies.data()),
+        table.copies.size(),reinterpret_cast<const RustCbvRow*>(table.cbvs.data()),table.cbvs.size(),reinterpret_cast<const RustSrvRow*>(table.srvs.data()),
+        table.srvs.size(),table.sourceRoot,table.sourceGpu,table.sourceHeap,table.sparseSlots.data(),table.sparseSlots.size(),
+        reinterpret_cast<const RustCoverage*>(table.srvCoverage.data()),table.srvCoverage.size(),table.sparseUnionCertified,table.unionStorage,
+        reinterpret_cast<const uint64_t*>(table.descriptorOwners.data()),table.descriptorOwners.size(),reinterpret_cast<const uint64_t*>(table.leases.data()),
+        table.leases.size()});
+    return RustPlan(cvr_sba_plan_lend(&scope,ready,descriptors,views.data(),views.size()),&cvr_sba_plan_free);
+}
+bool IssueTable(void* user,const void* rust,void* heap,uint64_t scope,UINT extent,bool keep){
+    RustTableView v{};cvr_sba_table_view(rust,&v);
+    SharedBankTable result;result.parameter=v.parameter;result.count=v.count;result.cpuHeap=static_cast<ID3D12DescriptorHeap*>(heap);
+    result.storageScope=scope;result.storageExtent=extent;
+    for(size_t n=0;n<v.leaseCount;++n)result.leases.emplace_back(reinterpret_cast<IUnknown*>(v.leases[n]));
+    if(!v.cbvCount && !v.srvCount){std::vector<OwnedSrvSlot> coverage;coverage.reserve(v.coverageCount);
+        for(size_t n=0;n<v.coverageCount;++n){const auto& c=v.coverage[n];
+            coverage.push_back({c.contributor,c.offset,c.compactIndex,c.stamp,c.resourceCookie,c.originalIdentity,c.originalVersion,c.originalGpu,
+                c.originalHeap,c.originalCount,reinterpret_cast<IUnknown*>(c.originalOwner),reinterpret_cast<ID3D12DescriptorHeap*>(c.originalCpuHeap)});}
+        if(!IssueCoverage(result,v.sourceScope,coverage,{v.sparseSlots,v.sparseSlotCount}))return false;}
+    if(keep)static_cast<std::vector<SharedBankTable>*>(user)->push_back(std::move(result));
+    return true;
+}
+}
+HRESULT Assemble(ID3D12Device* device,const Plan& plan,std::vector<SharedBankTable>& output,Failure& failure)try{
+    failure=Failure::Arguments;if(!device || !output.empty())return E_INVALIDARG;
+    std::vector<SharedBankTable> pending;pending.reserve(plan.tables_.size());probe::Scope internal;UINT reason{};
+    const auto lent=LendPlan(plan.scope_,plan.ready_,plan.descriptors_,plan.tables_);
+    const auto hr=cvr_sba_assemble(device,lent.get(),nullptr,0,&IssueTable,&pending,&reason);failure=Failure(reason);if(FAILED(hr))return hr;
+    output.swap(pending);return S_OK;
+}catch(const std::bad_alloc&){failure=Failure::Capacity;return E_OUTOFMEMORY;}
+catch(...){failure=Failure::Exception;return E_FAIL;}
+struct CpuTableCache::Storage {
+    void* rust=cvr_sba_cache_new();
+    Storage()=default;~Storage(){cvr_sba_cache_free(rust);}
+    Storage(const Storage&)=delete;Storage& operator=(const Storage&)=delete;
+};
+CpuTableCache::CpuTableCache()=default;
+CpuTableCache::~CpuTableCache()=default;
+UINT CpuTableCache::UniqueDescriptorCount()const noexcept{uint64_t counts[4]{};if(storage_)cvr_sba_cache_counts(storage_->rust,counts);return UINT(counts[0]);}
+UINT CpuTableCache::TableCount()const noexcept{uint64_t counts[4]{};if(storage_)cvr_sba_cache_counts(storage_->rust,counts);return UINT(counts[1]);}
+uint64_t CpuTableCache::HitCount()const noexcept{uint64_t counts[4]{};if(storage_)cvr_sba_cache_counts(storage_->rust,counts);return counts[2];}
+uint64_t CpuTableCache::MissCount()const noexcept{uint64_t counts[4]{};if(storage_)cvr_sba_cache_counts(storage_->rust,counts);return counts[3];}
+HRESULT Assemble(ID3D12Device* device,const Plan& plan,CpuTableCache& cache,std::vector<SharedBankTable>& output,Failure& failure,UINT limit)try{
+    failure=Failure::Arguments;if(!device || !output.empty())return E_INVALIDARG;
+    if(!cache.storage_)cache.storage_=std::make_unique<CpuTableCache::Storage>();
+    std::vector<SharedBankTable> pending;probe::Scope internal;UINT reason{};
+    const auto lent=LendPlan(plan.scope_,plan.ready_,plan.descriptors_,plan.tables_);
+    const auto hr=cvr_sba_assemble(device,lent.get(),cache.storage_->rust,limit,&IssueTable,&pending,&reason);failure=Failure(reason);
+    if(FAILED(hr))return hr;
+    output.swap(pending);return S_OK;
+}catch(const std::bad_alloc&){failure=Failure::Capacity;return E_OUTOFMEMORY;}
+catch(...){failure=Failure::Exception;return E_FAIL;}
+HRESULT AssemblePass(ID3D12Device* device,std::span<const Plan* const> plans,CpuTableCache& cache,
+    std::vector<std::vector<SharedBankTable>>& output,Failure& failure,UINT limit)try{
+    failure=Failure::Arguments;if(!device || !output.empty())return E_INVALIDARG;
+    if(!cache.storage_)cache.storage_=std::make_unique<CpuTableCache::Storage>();
+    std::vector<RustPlan> lent;std::vector<const void*> rust;lent.reserve(plans.size());rust.reserve(plans.size());
+    for(const auto* plan:plans){if(plan)lent.push_back(LendPlan(plan->scope_,plan->ready_,plan->descriptors_,plan->tables_));
+        rust.push_back(plan?lent.back().get():nullptr);}
+    std::vector<SharedBankTable> assembled;void* pass{};UINT reason{};HRESULT hr{};
+    {probe::Scope internal;hr=cvr_sba_assemble_pass(device,rust.data(),rust.size(),cache.storage_->rust,limit,&IssueTable,&assembled,&pass,&reason);}
+    failure=Failure(reason);if(FAILED(hr))return hr;
+    const std::unique_ptr<void,void(*)(void*)> held(pass,&cvr_sba_pass_free);
+    std::vector<std::vector<SharedBankTable>> result;result.reserve(plans.size());
+    for(size_t p=0;p<plans.size();++p){const auto& plan=*plans[p];auto& current=result.emplace_back();current.reserve(plan.tables_.size());
+        for(size_t t=0;t<plan.tables_.size();++t){const auto& original=plan.tables_[t];const void* combined{};
+            const bool united=cvr_sba_pass_reference(pass,p,t,&combined);const auto index=cvr_sba_pass_index(pass,p,t);
+            SharedBankTable value;value.parameter=original.parameter;value.count=original.count;value.cpuHeap=assembled[index].cpuHeap;
+            value.storageScope=assembled[index].storageScope;value.storageExtent=assembled[index].storageExtent;value.leases=original.leases;
+            if(united){RustTableView v{};cvr_sba_table_view(combined,&v);
+                for(size_t n=0;n<v.descriptorOwnerCount;++n){auto* owner=reinterpret_cast<IUnknown*>(v.descriptorOwners[n]);
+                    if(std::none_of(value.leases.begin(),value.leases.end(),[&](const auto& lease){return lease.Get()==owner;}))value.leases.emplace_back(owner);}}
+            failure=Failure::SrvOwner;
+            if(!ReissueCoverage(value,plan.scope_,assembled[index]))return E_INVALIDARG;
+            current.push_back(std::move(value));}
+    }
+    cvr_sba_pass_commit(pass,cache.storage_->rust);output.swap(result);failure=Failure::None;return S_OK;
+}catch(const std::bad_alloc&){failure=Failure::Capacity;return E_OUTOFMEMORY;}
+catch(...){failure=Failure::Exception;return E_FAIL;}
+#else
 HRESULT Assemble(ID3D12Device* device,const Plan& plan,std::vector<SharedBankTable>& output,Failure& failure)try{
     failure=Failure::Arguments;if(!device || !output.empty())return E_INVALIDARG;
     failure=Failure::NotReady;if(!plan.Ready() || !ValidScope(plan.scope_) || plan.tables_.empty())return E_INVALIDARG;
@@ -701,4 +992,6 @@ HRESULT AssemblePass(ID3D12Device* device,std::span<const Plan* const> plans,Cpu
     staged.storage_->hits+=followers;cache.storage_.swap(staged.storage_);output.swap(result);failure=Failure::None;return S_OK;
 }catch(const std::bad_alloc&){failure=Failure::Capacity;return E_OUTOFMEMORY;}
 catch(...){failure=Failure::Exception;return E_FAIL;}
+#endif
+#endif
 }

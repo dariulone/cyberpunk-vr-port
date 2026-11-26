@@ -12,6 +12,81 @@
 #include <cstring>
 #include <mutex>
 #include <vector>
+#if CVR_RUST_VRIK
+// The native instance observer is Rust (rust/crates/cvr-render/src/instance_observer_native.rs: the rings'
+// pinned backings, the writer and publication calls, the reservation witness, the ledger, the source
+// queries, the submission check and the GPU copies); these forwards keep the header's API.
+namespace cvr::stereo::instance_observer::rust_abi {
+// The C++-typed checks the Rust observer calls back.
+struct Host {
+    bool(*layout)(ID3D12PipelineState*,uint32_t);
+    bool(*shader)(ID3D12PipelineState*,const void*);
+};
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// A SourceCandidate as the Rust checks read it.
+struct CandidateView {
+    instance_ring::CompletedWriter producer;instance_ring::ReadRequest source;const uint8_t* bytes;size_t size;IUnknown* owner;bool cpu;
+};
+// QueryAtSource's result: the payload and the receipt, one reference each.
+struct SourceOut {
+    const void* payload;instance_ring::CompletedWriter producer;instance_ring::ReadRequest source;instance_ring::Publication publication;
+    size_t offset,bytes;IUnknown* owner;
+};
+// instance_snapshot_view::Input as RecordGpuCapture checks it.
+struct InputView {
+    uint64_t root,list,generation,occurrence;UINT eye;bool bytes;ID3D12PipelineState* pipeline;const void* shader;
+    D3D12_VERTEX_BUFFER_VIEW original;D3D12_DRAW_INDEXED_ARGUMENTS draw;
+};
+static_assert(sizeof(CandidateView)==296 && sizeof(SourceOut)==360 && sizeof(InputView)==96 && sizeof(native_probe::DrawRecord)==1096 &&
+    sizeof(geometry::BufferLease)==80 && sizeof(native_recording::Lease)==40,"mirrored by instance_observer_native.rs");
+#endif
+}
+extern "C" {
+void cvr_nio2_attach(const cvr::stereo::instance_observer::rust_abi::Host*);
+bool cvr_nio2_call_live(const void*);
+void cvr_nio2_call_drop(const void*);
+void cvr_nio2_returned(const void*,uint32_t);
+void cvr_nio2_published(const void*);
+}
+namespace cvr::stereo::instance_observer {
+namespace {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's host is rust/crates/cvr-render/src/instance_observer_native.rs' own
+const rust_abi::Host host{
+    [](ID3D12PipelineState* pipeline,uint32_t stride)->bool{try{const auto shader=shader_snapshot::Capture(pipeline);
+        return shader && detail::InstanceLayout(shader->input,stride);}catch(...){return false;}},
+    [](ID3D12PipelineState* pipeline,const void* shader)->bool{try{return shader_snapshot::Capture(pipeline).get()==shader;}catch(...){return false;}},
+};
+[[maybe_unused]] const bool attached=(cvr_nio2_attach(&host),true);
+#endif
+// The plugin's registration of the detours (the host is Rust's): rust/crates/cvr-render/src/engine_detours.rs
+// cvr_static_registrations.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+rust_abi::CandidateView View(const SourceCandidate& candidate)noexcept{
+    const auto bytes=candidate.cpu.Bytes();
+    return {candidate.cpu.Producer(),candidate.cpu.Source(),bytes.data(),bytes.size(),candidate.owner.Get(),bool(candidate.cpu)};
+}
+#endif
+}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+namespace detail {
+// The Rust call (one Arc reference) the Call holds.
+struct CallData {
+    const void* rust{};
+    explicit CallData(const void* value):rust(value){}
+    ~CallData(){cvr_nio2_call_drop(rust);}
+};
+}
+Call::~Call()=default;Call::Call(Call&&)noexcept=default;Call& Call::operator=(Call&&)noexcept=default;
+Call::operator bool()const noexcept{return data_ && cvr_nio2_call_live(data_->rust);}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void Returned(Call& token,uint32_t first)noexcept{if(token.data_)cvr_nio2_returned(token.data_->rust,first);}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void Returned(Call& token)noexcept{if(token.data_)cvr_nio2_published(token.data_->rust);}
+#endif
+}
+#else
 
 extern "C" {
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_NativeInstanceObserverEnable{};
@@ -556,3 +631,4 @@ void Clear()noexcept {
     state.observed.store(false,std::memory_order_release);state.lost.store(false,std::memory_order_release);query={};last=Status::Disabled;
 }
 }
+#endif

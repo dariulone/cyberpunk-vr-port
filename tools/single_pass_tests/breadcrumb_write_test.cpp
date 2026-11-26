@@ -1,10 +1,14 @@
+#include <source_location>
+#include <string>
 #include "Render/NativeBreadcrumbWrite.hpp"
 #include <cstdio>
 #include <map>
 #include <stdexcept>
 
 using namespace cvr::stereo::breadcrumb_write;
-static void Require(bool value){if(!value)throw std::runtime_error("native breadcrumb write assertion failed");}
+static void Require(bool value,std::source_location at=std::source_location::current()){
+    if(!value)throw std::runtime_error("native breadcrumb write assertion failed at line "+std::to_string(at.line()));
+}
 struct Memory {
     std::map<uint64_t,uint8_t> bytes;
     template<class T> void Put(uint64_t address,const T& value){
@@ -26,8 +30,8 @@ struct Fixture {
         Require(detail::FrameFromRegisters(Base,Base+(mode==1?detail::MarkerInReturn:detail::MarkerOutReturn),
             StackPointer,mode==1?StackPointer+0x30:0x800000000,Holder,Holder,StackLow,StackHigh,frame));
         const uint32_t stride=kind==1?4096:kind==4?2048:512,slots=kind==1?1024:kind==4?64:8,slot=3;
-        entry=Base+0x3493DD8+uint64_t(kind)*0x70;destination=Gpu+uint64_t(slot-1)*stride+12;
-        memory.Put(Base+0x3438A28,Registry);memory.Put(Registry+1,uint8_t(0));memory.Put(Base+0x3493DD0,Device);
+        entry=Base+0x3C28E38+uint64_t(kind)*0x70;destination=Gpu+uint64_t(slot-1)*stride+12;
+        memory.Put(Base+0x3BCDCA8,Registry);memory.Put(Registry+1,uint8_t(0));memory.Put(Base+0x3C28E30,Device);
         // Deliberately no TLS/context memory: late native Close no longer has it.
         memory.Put(Holder,Marker);
         memory.Put(Marker,List);memory.Put(Marker+8,kind);memory.Put(Marker+0x10,stride/4);
@@ -92,9 +96,9 @@ int main()try{
         Require(!f.Read(result,&failure) && failure==expected);};
     reject([](auto& f){f.frame.holder=0;},1);
     reject([](auto& f){f.destination++;},1);
-    reject([](auto& f){f.memory.Put(Fixture::Base+0x3438A28,uint64_t(0));},2);
+    reject([](auto& f){f.memory.Put(Fixture::Base+0x3BCDCA8,uint64_t(0));},2);
     reject([](auto& f){f.memory.Put(Fixture::Registry+1,uint8_t(1));},2);
-    reject([](auto& f){f.memory.Put(Fixture::Base+0x3493DD0,uint64_t(0));},2);
+    reject([](auto& f){f.memory.Put(Fixture::Base+0x3C28E30,uint64_t(0));},2);
     reject([](auto& f){f.memory.Put(Fixture::Holder,uint64_t(0));},2);
     reject([](auto& f){f.frame.holder=Fixture::Holder+8;},2);
     reject([](auto& f){f.memory.Put(Fixture::Marker,Fixture::List+8);},3);
@@ -141,6 +145,6 @@ int main()try{
     Require(!detail::Shape(saved,desc,heap,allocation,Fixture::Gpu));
     desc.Flags=D3D12_RESOURCE_FLAGS(desc.Flags|D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER);
     Require(detail::Shape(saved,desc,heap,allocation,Fixture::Gpu));
-    Require(detail::Contract.size()==17);
+    Require(detail::Contract.size()==16);  // 2.5: see the Contract table
     std::puts("native breadcrumb write tests passed");return 0;
 }catch(const std::exception& e){std::fprintf(stderr,"%s\n",e.what());return 1;}

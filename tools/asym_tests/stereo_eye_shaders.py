@@ -30,7 +30,12 @@ drawn once over both eyes that rebuilds the world position with the frame camera
 65-68) from an NDC over the whole frame takes, in the two-halves mode, the pixel's half and its eye's rows. The
 same twin halves the underwater murk in every mode (underwater_clarity, UNDERWATER_CLARITY).
 
-Output: <FNV-1a of the original>.dxil signed containers for `stereo_eye\\` (Render/HiddenAreaShaders.cpp
+A third recipe (eye_derivative_position, 2026-11-25, a broad specular sheen on a wet wall in one eye only,
+weirdReflection.rdc): a pass drawn once over both eyes that takes a surface normal from the screen derivatives of
+a position built with the frame camera (the rain's G-buffer wetness, static ps 6ceb2ea336059978) takes, in the
+two-halves mode, the pixel's half and its eye's clip -> world, so both eyes wet the same surface alike.
+
+Output:<FNV-1a of the original>.dxil signed containers for `stereo_eye\\` (Render/HiddenAreaShaders.cpp
 group 9, CyberpunkVR_StereoEyePatch). `--shaders` may hold pixel shaders too (static_ps).
 
   py -3.13 -B stereo_eye_shaders.py --shaders DIR_WITH_ORIGINAL_DXIL --out OUT_DIR
@@ -245,6 +250,163 @@ def underwater_clarity(ir):
     return ir
 
 
+UNION_RAY_ROWS = (21, 22)         # b12 rows 21/22: the frame camera's right / up over its tangents (world axes)
+FRAME_TEXEL_ROW = 27              # b12 row 27.zw: 1 / the frame's width and height
+FRAME_WIDTH_ROW = 3               # b0 row 3.x: the frame's full width
+
+
+def eye_derivative_position(ir):
+    """A pass drawn once over both eyes that takes a surface normal from the screen derivatives of a position built
+    with the FRAME camera.
+
+    The rain's G-buffer wetness (static ps 6ceb2ea336059978, weirdReflection.rdc event 34198: one fullscreen draw
+    over the side-by-side frame) rebuilds a camera-relative position as ray(ndc) * linear depth -- ndc over the
+    whole frame (b12 row 27.zw), the ray from the union camera's right / up (rows 21-22) -- and takes its normal
+    from the cross of the coarse x / y derivatives. A left-eye pixel at its own NDC u lands at u/2 - 1/2 of the
+    union, so the same wall came out tilted one way in one eye and the other way in the other: its wetness, and
+    with it the roughness the pass writes into the G-buffer (RT2.y), differed per eye (left 0.26 / right 0.004 at
+    the same point) and a broad specular sheen showed in one eye only. The world position the pass also builds
+    (the ripples' uv) already takes the pixel's half and its eye's rows.
+
+    In the two-halves mode the twin takes x within the pixel's half and that eye's clip -> world (b12 rows 77-80
+    left, 97-100 right: NDC x, -NDC y, depth, 1, checked on the capture by reprojecting the left eye into the right
+    to 0 px) and hands the derivatives the eye-relative position
+
+        (A.xyz * B.w - B.xyz * A.w) / (B.w * (A.w + B.w * depth)),  A = row0 * x + row1 * y + row3,  B = row2
+
+    (the world position minus the eye, B.xyz / B.w, without the subtraction of two ~1 km values). Both eyes then
+    take the same normal from the same surface. Off the mode the shader is the engine's."""
+    b0, b12 = cbv_handle(ir, 0), cbv_handle(ir, 12)
+    if not b0 or not b12:
+        return ir, 0
+    F = '%dx.types.CBufRet.f32'
+
+    def load(handle, row):
+        found = re.findall(r'(?m)^  (%\d+) = call ' + re.escape(F) + r' @dx\.op\.cbufferLoadLegacy\.f32\(i32 59, '
+                           r'%dx\.types\.Handle ' + re.escape(handle) + r', i32 ' + str(row) + r'\)', ir)
+        return found[0] if len(found) == 1 else None
+
+    def comp(ld, c):
+        found = re.findall(r'(?m)^  (%\d+) = extractvalue ' + re.escape(F) + ' ' + re.escape(ld) + ', %d$' % c, ir)
+        return found[0] if len(found) == 1 else None
+
+    right, up, texel = load(b12, UNION_RAY_ROWS[0]), load(b12, UNION_RAY_ROWS[1]), load(b12, FRAME_TEXEL_ROW)
+    if not right or not up or not texel:
+        return ir, 0
+    derivs = re.findall(r'(?m)^  %\d+ = call float @dx\.op\.unary\.f32\(i32 (83|84), float (%\d+)\)', ir)
+    xs = [v for op, v in derivs if op == '83']
+    ys = [v for op, v in derivs if op == '84']
+    if len(xs) != 3 or sorted(xs) != sorted(ys):
+        return ir, 0
+    # the y NDC (negated) against row 22.x, the x NDC against row 21.x, and the pixel x it came from
+    up_x, right_x = comp(up, 0), comp(right, 0)
+    if not up_x or not right_x:
+        return ir, 0
+    m = re.search(r'(?m)^  %\d+ = call float @dx\.op\.tertiary\.f32\(i32 46, float ' + re.escape(up_x) + r', float (%\d+), float %\d+\)', ir)
+    n = re.search(r'(?m)^  %\d+ = fmul fast float (%\d+), ' + re.escape(right_x) + '$', ir)
+    if not m or not n:
+        raise ValueError('ray rows without their NDC')
+    ny, nx = m.group(1), n.group(1)
+    # nx = (x + 0.5) * 2 * texel.z - 1: the pixel x
+    def one(pattern, what):
+        found = re.findall(pattern, ir)
+        if len(found) != 1:
+            raise ValueError(what)
+        return found[0]
+    scaled = one(r'(?m)^  ' + re.escape(nx) + r' = fadd fast float (%\d+), -1\.000000e\+00$', 'ndc x - 1')
+    twice = one(r'(?m)^  ' + re.escape(scaled) + r' = fmul fast float (%\d+), %\d+$', 'ndc x scale')
+    centred = one(r'(?m)^  ' + re.escape(twice) + r' = fmul fast float (%\d+), 2\.000000e\+00$', 'ndc x * 2')
+    px = one(r'(?m)^  ' + re.escape(centred) + r' = fadd fast float (%\d+), 5\.000000e-01$', 'pixel centre')
+    # the raw depth: the one row 26.x scales into the linear depth
+    lin = load(b12, 26)
+    lin_x = comp(lin, 0) if lin else None
+    if not lin_x:
+        raise ValueError('no depth linearisation')
+    depth = one(r'(?m)^  %\d+ = fmul fast float ' + re.escape(lin_x) + r', (%\d+)$', 'raw depth')
+    q = '%we.'
+    code = [
+        '  %smode = call %%dx.types.CBufRet.i32 @dx.op.cbufferLoadLegacy.i32(i32 59, %%dx.types.Handle %s, i32 %d)' % (q, b0, HALVES_ROW),
+        '  %son = extractvalue %%dx.types.CBufRet.i32 %smode, 0' % (q, q),
+        '  %ssbs = icmp ne i32 %son, 0' % (q, q),
+        '  %sfw = call %s @dx.op.cbufferLoadLegacy.f32(i32 59, %%dx.types.Handle %s, i32 %d)' % (q, F, b0, FRAME_WIDTH_ROW),
+        '  %sw = extractvalue %s %sfw, 0' % (q, F, q),
+        '  %shalf = fmul fast float %sw, 5.000000e-01' % (q, q),
+        '  %sright = fcmp fast oge float %s, %shalf' % (q, px, q),
+        '  %soff = select i1 %sright, float %shalf, float 0.000000e+00' % (q, q, q),
+        '  %slx = fsub fast float %s, %soff' % (q, px, q),
+        '  %slc = fadd fast float %slx, 5.000000e-01' % (q, q),
+        '  %slu = fdiv fast float %slc, %shalf' % (q, q, q),
+        '  %sl2 = fmul fast float %slu, 2.000000e+00' % (q, q),
+        '  %sex = fadd fast float %sl2, -1.000000e+00' % (q, q),
+        '  %srow0 = select i1 %sright, i32 %d, i32 %d' % (q, q, EYE_WORLD_ROWS[1], EYE_WORLD_ROWS[0]),
+    ]
+    for k in range(1, 4):
+        code.append('  %srow%d = add i32 %srow0, %d' % (q, k, q, k))
+    for k in range(4):
+        code.append('  %sr%d = call %s @dx.op.cbufferLoadLegacy.f32(i32 59, %%dx.types.Handle %s, i32 %srow%d)' % (q, k, F, b12, q, k))
+        for c, axis in enumerate('xyzw'):
+            code.append('  %sr%d%s = extractvalue %s %sr%d, %d' % (q, k, axis, F, q, k, c))
+    for axis in 'xyzw':
+        code += [
+            '  %sa0%s = fmul fast float %sr0%s, %sex' % (q, axis, q, axis, q),
+            '  %sa1%s = call float @dx.op.tertiary.f32(i32 46, float %sr1%s, float %s, float %sa0%s)' % (q, axis, q, axis, ny, q, axis),
+            '  %sa%s = fadd fast float %sa1%s, %sr3%s' % (q, axis, q, axis, q, axis),
+        ]
+    code += [
+        '  %sbd = fmul fast float %sr2w, %s' % (q, q, depth),
+        '  %sden0 = fadd fast float %saw, %sbd' % (q, q, q),
+        '  %sden = fmul fast float %sden0, %sr2w' % (q, q, q),
+    ]
+    for axis in 'xyz':
+        code += [
+            '  %sn0%s = fmul fast float %sa%s, %sr2w' % (q, axis, q, axis, q),
+            '  %sn1%s = fmul fast float %sr2%s, %saw' % (q, axis, q, axis, q),
+            '  %snum%s = fsub fast float %sn0%s, %sn1%s' % (q, axis, q, axis, q, axis),
+            '  %sp%s = fdiv fast float %snum%s, %sden' % (q, axis, q, axis, q),
+        ]
+    originals = []
+    for v in xs:
+        if v not in originals:
+            originals.append(v)
+    # which original is x / y / z: the one built from row 21.x / .y / .z
+    order = []
+    for c in range(3):
+        rc = comp(right, c)
+        hit = [v for v in originals if re.search(r'(?m)^  ' + re.escape(v) + r' = fmul fast float (%\d+), %\d+$', ir) and
+               _built_from(ir, v, rc)]
+        if len(hit) != 1:
+            raise ValueError('position component %d' % c)
+        order.append(hit[0])
+    for v, axis in zip(order, 'xyz'):
+        code.append('  %ss%s = select i1 %ssbs, float %sp%s, float %s' % (q, axis, q, q, axis, v))
+    lines = ir.split('\n')
+    first = min(i for i, l in enumerate(lines) if re.search(r'@dx\.op\.unary\.f32\(i32 8[34], ', l))
+    for i, l in enumerate(lines):
+        mm = re.search(r'@dx\.op\.unary\.f32\(i32 (83|84), float (%\d+)\)', l)
+        if mm and mm.group(2) in order:
+            lines[i] = l.replace('float %s)' % mm.group(2), 'float %ss%s)' % (q, 'xyz'[order.index(mm.group(2))]))
+    lines[first:first] = code
+    return '\n'.join(lines), 1
+
+
+def _built_from(ir, value, leaf, depth=6):
+    """`value` uses `leaf` within a few definitions."""
+    frontier, seen = [value], set()
+    for _ in range(depth):
+        nxt = []
+        for v in frontier:
+            m = re.search(r'(?m)^  ' + re.escape(v) + r' = (.*)$', ir)
+            if not m:
+                continue
+            ops = re.findall(r'%\d+', m.group(1))
+            if leaf in ops:
+                return True
+            nxt += [o for o in ops if o not in seen]
+            seen.update(ops)
+        frontier = nxt
+    return False
+
+
 def build(original):
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
@@ -254,6 +416,8 @@ def build(original):
         if world:
             ir = underwater_clarity(ir)
         sites += world
+        ir, wet = eye_derivative_position(ir)
+        sites += wet
         if not sites:
             return None, 0
         container = ham.assemble(ir, work)

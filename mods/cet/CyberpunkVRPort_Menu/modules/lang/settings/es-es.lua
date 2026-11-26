@@ -263,7 +263,7 @@ return {
   ["Off by default for a clean cyberpunkvrport.log. Enable only\nwhen capturing ClipCursor / depth / hook diagnostics."] = "Desactivado por defecto para un cyberpunkvrport.log limpio. Actívalo solo\nal capturar diagnósticos de ClipCursor / profundidad / hooks.",
   ["FRAMEGEN"] = "GEN. FOTOG.",
   ["Enable frame generation"] = "Activar generación de fotogramas",
-  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off)."] = "Con la generación de fotogramas activa, el suavizado de manos va a su frecuencia multiplicada por xr_hand_lerp_framegen_scale (1.25; 0 lo desactiva).",
+  ["While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.10; 0 turns it off)."] = "Con la generación de fotogramas activa, el suavizado de manos va a su frecuencia multiplicada por xr_hand_lerp_framegen_scale (1.10; 0 lo desactiva).",
   ["Frame generator"] = "Generador de fotogramas",
   ["FidelityFX"] = "FidelityFX",
   ["NVIDIA OFA + FidelityFX"] = "NVIDIA OFA + FidelityFX",

@@ -18,6 +18,16 @@ namespace detail {
 struct ChildKey {uint64_t object{},vtable{},work{};uint32_t slot{};};
 // Section IDs match SceneGraphExpansion mappings. Selection is deliberately
 // restricted to peer tail and main prefix, not every node of either eye.
+#if CVR_RUST_VRIK
+// The rule: rust/crates/cvr-render/src/scene_child.rs (tools/single_pass_tests/scene_child_test runs its cases
+// against it in its Rust variant).
+extern "C" bool cvr_sc_unique_child(const ChildKey*,size_t,uint32_t,uint32_t,const ChildKey*,uint32_t*);
+inline bool UniqueChild(std::span<const ChildKey> children,uint32_t view,uint32_t section,
+                        const ChildKey& observed,uint32_t& slot)noexcept{
+    static_assert(sizeof(ChildKey)==32,"mirrored by scene_child.rs");
+    return cvr_sc_unique_child(children.data(),children.size(),view,section,&observed,&slot);
+}
+#else
 inline bool UniqueChild(std::span<const ChildKey> children,uint32_t view,uint32_t section,
                         const ChildKey& observed,uint32_t& slot)noexcept{
     slot=UINT32_MAX;
@@ -32,6 +42,7 @@ inline bool UniqueChild(std::span<const ChildKey> children,uint32_t view,uint32_
     }
     if(matches!=1){slot=UINT32_MAX;return false;}return true;
 }
+#endif
 }
 struct Receipt;
 // Scope owns only C++ attribution and a live Consumer reference. It grants no

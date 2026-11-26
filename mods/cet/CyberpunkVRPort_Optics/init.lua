@@ -1,5 +1,14 @@
 local Policy = require('optics/policy')
 local Profiles = require('optics/profiles')
+local Visibility = require('optics/visibility')
+local Frames = require('optics/frames')
+local Integrated = require('optics/integrated')
+local names = {}
+local function cname(text)
+    local name = names[text]
+    if not name then name = CName.new(text);names[text] = name end
+    return name
+end
 local M = { enabled=true, path='none', magnification=1, error=nil,
     -- Counters for the test harness: camera switched off while on, stereo waits, re-applies.
     stats={ cameraOffs=0, stereoWaits=0, readyWaits=0, applies=0 } }
@@ -60,24 +69,10 @@ local HIDE = { short_06 = { glow=true, borderBoxTransp=true }, long_05 = { grid=
     sniper_01 = { interference=true, crpsshair_bg=true } }
 M.widgetsHidden = 0
 
--- Native scope HUDs whose aim mark is off their canvas centre, while the port's panel
--- is centred on the aim point: Osprey draws its target brackets 96 of 524 canvas px
--- above centre, and the shot landed under them. The port's own reticle panel widget
--- is moved by this much (canvas px), so the brackets frame the point the bullet hits.
-local HUD_SHIFT = { osprey = { x=0, y=96 } }
-
 -- Sights whose own reticle does not show in the headset get the point the bullet hits
 -- drawn by the plugin while the eye is on them (SetVRSightDot). None now: long_04's and
 -- long_06's holo reticles do show (14.10) and the dot only doubled them.
 local DOT_SIGHTS = {}
-
--- Holo panels whose reticle is drawn off the canvas centre. The panels are collimated
--- about their centre, which is the line the shot flies along (shots leave the sight line),
--- so the reticle is moved onto it. long_04: the corner frame you see is the back panel's
--- (464x208, 128 of 512 canvas px below centre) -- it stood 11 px under the bullet point
--- in a 960 px eye; the front panel's frame sits 128 above. Canvas px per component.
-local HOLO_SHIFT = { w_att__scope_long_04 = {
-    on_weapon_ui_01 = { x=0, y=128 }, on_weapon_ui_02 = { x=0, y=-128 } } }
 
 -- The eyes are settled on the player in hand: the second view (VRCAM) is enabled on it, or no
 -- second view is asked for at all. Engine stereo renders both eyes in MAIN's own frame and never
@@ -85,6 +80,8 @@ local HOLO_SHIFT = { w_att__scope_long_04 = {
 -- collimation, scope HUDs only while aiming, no camera scopes.
 local stereoMod
 local function stereoBound(player)
+    -- The Rust build runs the VRCAM selection (rust/crates/cvr-ffi/src/mechanics/vrcam_select.rs): it answers.
+    if type(VRVrcamSettled) == 'function' then return VRVrcamSettled() end
     stereoMod = stereoMod or GetMod('CyberpunkVRPort_Stereo')
     local stereo=stereoMod
     local selection=stereo and stereo.VrcamSel
@@ -118,8 +115,41 @@ local function rotate(q, v)
     return {x = i, y = j, z = k}
 end
 
+-- A skinned aperture follows its live bone, not the weapon's bind-space origin.
+-- Osprey's screen is on scope_hinge; the authored mesh centre alone describes
+-- its bind pose and points beside the displayed screen after the hinge animates.
+local function opticalFrame(weapon)
+    local binding = state.profile and Frames[state.profile.key]
+    if binding then
+        local component = state.opticSlot
+        if not component then return nil, nil, 'Optic bone slot component unavailable' end
+        local ok, found, transform = pcall(component.GetSlotTransform, component, cname(binding.slot))
+        if not (ok and found and transform) then return nil, nil, 'Optic bone slot unavailable: '..binding.slot end
+        local p, q = WorldPosition.ToVector4(transform.Position), transform.Orientation
+        local b, r = binding.point, binding.rotation
+        local offset = rotate(q, {x=b[1],y=b[2],z=b[3]})
+        return {x=p.x+offset.x,y=p.y+offset.y,z=p.z+offset.z},
+            multiply(q, {i=r[1],j=r[2],k=r[3],r=r[4]})
+    end
+    local q, p = weapon:GetWorldOrientation(), weapon:GetWorldPosition()
+    local authored = state.profile and state.profile.scopeOffset
+    local offset = rotate(q, authored or weapon:GetScopeOffset())
+    return {x=p.x+offset.x,y=p.y+offset.y,z=p.z+offset.z}, q
+end
+
 local function toggle(component, value)
     if component and component:IsEnabled() ~= value then component:Toggle(value) end
+end
+
+local function hinge(weapon, aiming)
+    local enabled=aiming and weapon~=nil and state.profile and state.profile.key=='osprey' and state.opticSlot~=nil
+    enabled=enabled==true
+    if not enabled and not state.hingeRequested then return end
+    if type(Game.VRPhysicalOpticsHinge)~='function' then M.hingeError='Optic hinge native unavailable';return end
+    local ok, accepted=pcall(Game.VRPhysicalOpticsHinge,enabled and weapon or nil,enabled)
+    state.hingeRequested=ok and accepted==true and enabled
+    M.hingeRequested=state.hingeRequested
+    M.hingeError=not ok and tostring(accepted) or (enabled and not accepted and 'Optic hinge owner not qualified' or nil)
 end
 
 -- cameraOff runs on every frame without a camera path. A camera this state did not switch on is
@@ -144,6 +174,72 @@ local function walkWidgets(widget, depth, visit)
     visit(widget)
     if depth < 6 and widget:IsA(CName.new('inkCompoundWidget')) then
         for i = 0, widget:GetNumChildren() - 1 do walkWidgets(widget:GetWidgetByIndex(i), depth + 1, visit) end
+    end
+end
+
+-- Kyubi and Hawk share these native panels. Scale only the outer dot widget
+-- on each panel, leaving the brackets, range and ammunition at native scale.
+local kyubiScale = {
+    on_weapon_ui={'dot',.40}, on_weapon_ui1321={'dot',.40},
+}
+local senkohScale = {
+    on_weapon_ui={'Layer1',.55}, on_weapon_ui7353={'Layer2',.55}, on_weapon_ui7227={'Layer3',.55},
+}
+
+local function restorePanelScale(saved)
+    pcall(function()
+        local s=saved.widget:GetScale()
+        if s.X==saved.applied.X and s.Y==saved.applied.Y then saved.widget:SetScale(saved.original) end
+    end)
+end
+
+local function clearPanelScales()
+    for _,saved in pairs(state.panelScales or {}) do restorePanelScale(saved) end
+    state.panelScales,state.scaleRules=nil,nil
+end
+
+local function attachedShort05(weapon)
+    if not weapon or not weapon:HasScope() or not ItemID or not TDBID then return false end
+    local player=Game.GetPlayer()
+    local tx=player and Game.GetTransactionSystem()
+    if not tx then return false end
+    local data=tx:GetItemData(player,weapon:GetItemID())
+    local part=data and data:GetItemPart(TweakDBID.new('AttachmentSlots.Scope'))
+    if not part then return false end
+    local id=InnerItemData.GetItemID(part)
+    return id and TDBID.ToStringDEBUG(ItemID.GetTDBID(id))=='Items.w_att_scope_short_05'
+end
+
+local function fitPanelArtwork(components, mounted)
+    local rules
+    if not mounted then
+        local player=Game and Game.GetPlayer and Game.GetPlayer()
+        local weapon=player and player:GetActiveWeapon()
+        local item=weapon and TDBID.ToStringDEBUG(ItemID.GetTDBID(weapon:GetItemID())) or ''
+        if item:find('Preset_Kyubi',1,true) then rules=kyubiScale
+        elseif item:find('Preset_Senkoh',1,true) then rules=senkohScale end
+    end
+    if rules~=state.scaleRules then clearPanelScales();state.scaleRules=rules end
+    if not rules then return end
+    state.panelScales=state.panelScales or {}
+    for name,rule in pairs(rules) do
+        local panel=components[name]
+        local root=panel and panel:IsEnabled() and panel:GetWidget()
+        local widget=root and root:GetWidgetByPathName(cname(rule[1]))
+        local saved=state.panelScales[name]
+        local original=widget and widget:GetScale()
+        -- CET can return a new wrapper for the same native widget each scan.
+        if saved and original and original.X==saved.applied.X and original.Y==saved.applied.Y then
+            saved.widget=widget
+        elseif widget then
+            if saved then restorePanelScale(saved) end
+            local applied=Vector2.new({X=original.X*rule[2],Y=original.Y*rule[2]})
+            widget:SetScale(applied)
+            state.panelScales[name]={widget=widget,original=original,applied=applied}
+        elseif saved then
+            restorePanelScale(saved)
+            state.panelScales[name]=nil
+        end
     end
 end
 
@@ -180,23 +276,39 @@ local function updateWidgets(weapon, delta)
 end
 
 local function restoreWeapon()
+    hinge(nil,false)
+    clearPanelScales()
     for _, widget in ipairs(state.hiddenWidgets or {}) do pcall(function() widget:SetVisible(true) end) end
     state.hiddenWidgets, state.widgetKey = {}, nil
+    for name,enabled in pairs(state.short05Visibility or {}) do
+        local live=state.weaponID and Game.FindEntityByID(state.weaponID)
+        if live then
+            for _,component in ipairs(Game.VREntityComponents(live)) do
+                if NameToString(component:GetName())==name then toggle(component,enabled) end
+            end
+        end
+    end
+    state.short05Visibility=nil
     -- Resolve a live entity again; never dereference cached component wrappers
     -- after equipment swaps, unloading a save, or appearance replacement.
     local weapon = state.weaponID and Game.FindEntityByID(state.weaponID)
     if weapon then
         for _, component in ipairs(Game.VREntityComponents(weapon)) do
             local name = NameToString(component:GetName())
+            local native=state.integratedVisibility and state.integratedVisibility[name]
+            if native~=nil then toggle(component,native) end
             local saved = state.originals[name]
             if saved then
+                if saved.shellVariant and tostring(component.mesh.hash)==saved.shellHash then
+                    Game.VRComponentChangeResource(component, saved.shellSource, false)
+                end
                 if saved.mask ~= nil then component.chunkMask = saved.mask end
                 if saved.visibility then component.visibilityAnimationParam = saved.visibility end
                 toggle(component, saved.enabled)
                 if saved.mask ~= nil then Game.VRComponentRefreshAppearance(component) end
             end
             if name == 'vr_optic_low' or name == 'vr_optic_surface' or name == 'vr_optic_panel'
-                or name:sub(1,17) == 'vr_optic_reticle_' then
+                or name:sub(1,17) == 'vr_optic_reticle_' or name:sub(1,11)=='vr_builtin_' then
                 toggle(component, false)
             end
         end
@@ -205,7 +317,8 @@ local function restoreWeapon()
     state.weaponID, state.weaponKey = nil, nil
     state.applied, state.profile = nil, nil
     state.low, state.lowApp = nil, nil
-    state.smart, state.dotSight = nil, nil
+    state.smart, state.dotSight, state.opticSlot = nil, nil, nil
+    state.integrated, state.integratedVisibility = nil, nil
 end
 
 local function scan(player, weapon)
@@ -216,7 +329,7 @@ local function scan(player, weapon)
         state.weaponID, state.weaponKey = id, key
     end
     if not weapon or not weapon:IsRanged() then M.path='none';cameraOff(player);return end
-    local components, profile, main, holo = {}, nil, nil, nil
+    local components, profile, main, integrated, attachment = {}, nil, nil, nil, nil
     state.dotSight = false
     for _, component in ipairs(Game.VREntityComponents(weapon)) do
         local name = NameToString(component:GetName())
@@ -224,29 +337,55 @@ local function scan(player, weapon)
         for _, prefix in ipairs(DOT_SIGHTS) do
             if name:sub(1, #prefix) == prefix then state.dotSight = true end
         end
-        for prefix, shifts in pairs(HOLO_SHIFT) do
-            if name:sub(1, #prefix) == prefix then holo = shifts end
-        end
         if Profiles[name] then profile, main = Profiles[name], component end
-        -- SkinnedMeshComponent derives from ISkinTargetComponent, not
-        -- MeshComponent. The native ADS lens/cap gates belong to this class.
-        if component:IsA(CName.new('entSkinnedMeshComponent')) then
-            local visibility = NameToString(component.visibilityAnimationParam)
-            if visibility == 'visibleWhenAiming' or visibility == 'invisibleWhenAiming' then
-                state.originals[name] = state.originals[name] or {
-                    visibility=component.visibilityAnimationParam, enabled=component:IsEnabled() }
-                component.visibilityAnimationParam = CName.new('None')
-                toggle(component, visibility == 'visibleWhenAiming')
-            end
+        local candidate=Integrated[name]
+        if candidate then
+            if candidate.attachment then attachment=candidate else integrated=candidate end
         end
     end
-    -- Holo reticles moved onto the panel centre (HOLO_SHIFT); every scan, as the widgets
-    -- spawn asynchronously and are rebuilt with the attachment.
-    for name, shift in pairs(holo or {}) do
-        local panel = components[name]
-        if panel then
-            local ok, root = pcall(function() return panel:GetWidget() end)
-            if ok and root then root:SetTranslation(Vector2.new({X=shift.x, Y=shift.y})) end
+    local mounted=weapon:HasScope()
+    local short05=attachedShort05(weapon)
+    if state.short05~=short05 then
+        state.short05=short05
+        state.short05Visibility=state.short05Visibility or {}
+        if short05 and components.WorldWidget0856 then
+            state.short05Visibility.WorldWidget0856=components.WorldWidget0856:IsEnabled()
+            toggle(components.WorldWidget0856,false)
+        elseif not short05 and state.short05Visibility.WorldWidget0856~=nil then
+            toggle(components.WorldWidget0856,state.short05Visibility.WorldWidget0856)
+            state.short05Visibility={}
+        end
+    end
+    if mounted then integrated=nil end
+    local itemName=ItemID and ItemID.GetTDBID(weapon:GetItemID()) or nil
+    if attachment then
+        integrated=(itemName==TweakDBID.new('Items.Preset_Overture_Dante') or short05) and attachment or nil
+    end
+    if profile then integrated=nil end
+    if integrated and integrated.panel and not components[integrated.panel] then integrated=nil end
+    fitPanelArtwork(components,mounted or integrated~=nil or profile~=nil)
+    if state.integrated~=integrated then
+        for name,enabled in pairs(state.integratedVisibility or {}) do toggle(components[name],enabled) end
+        state.integratedVisibility={}
+        state.integrated=integrated
+    end
+    for name,component in pairs(components) do
+        if name:sub(1,11)=='vr_builtin_' then
+            toggle(component,integrated~=nil and (name==integrated.surface or name==integrated.panel))
+        elseif integrated and (integrated.hide[name]
+            or (integrated.key=='dante' and (name=='WorldWidget0856' or name=='WorldWidget0352'))) then
+            if state.integratedVisibility[name]==nil then state.integratedVisibility[name]=component:IsEnabled() end
+            toggle(component,false)
+        -- Some components named cap include the entire exterior housing.
+        elseif component:IsA(cname('entSkinnedMeshComponent')) or component:IsA(cname('entPhysicalMeshComponent')) then
+            local visibility = NameToString(component.visibilityAnimationParam)
+            local enabled = Visibility.enabled(name, visibility)
+            if enabled ~= nil then
+                state.originals[name] = state.originals[name] or {
+                    visibility=component.visibilityAnimationParam, enabled=component:IsEnabled() }
+                if visibility ~= 'None' then component.visibilityAnimationParam = cname('None') end
+                toggle(component, enabled)
+            end
         end
     end
     local zoom = Game.GetStatsSystem():GetStatValue(weapon:GetEntityID(), gamedataStatType.ZoomLevel)
@@ -257,17 +396,53 @@ local function scan(player, weapon)
     state.smart = sniper and evolution ~= nil and evolution:Type() == gamedataWeaponEvolution.Smart
     -- Unknown sniper layouts must retain their native display until their
     -- aperture is authored. Open sights never acquire the flat-screen zoom.
-    local path, mag = Policy.select(weapon:HasScope() or sniper, not profile and not sniper, sniper, zoom)
+    local path, mag = Policy.select(mounted or sniper, not profile and not sniper, sniper, zoom)
     if not profile then path = path == 'camera' and 'native' or path end
+    if integrated then
+        path=integrated.camera and 'camera' or 'collimator'
+        mag=integrated.camera and math.max(1,zoom) or 1
+    end
     M.path, M.magnification, M.profile = path, mag, profile and profile.key
     M.scopeOffset = profile and profile.scopeOffset
     state.profile = profile
+    if integrated then
+        state.profile=integrated
+        M.profile=integrated.key
+        if integrated.attachment and ItemID.GetTDBID(weapon:GetItemID())~=TweakDBID.new('Items.Preset_Overture_Dante') then
+            M.profile='short_05'
+        end
+        M.scopeOffset=integrated.scopeOffset
+        M.error=nil
+        if M.path~='camera' then cameraOff(player) end
+        return
+    end
+    local binding = profile and Frames[profile.key]
+    state.opticSlot = binding and components[binding.component] or nil
     local low, surface, panel = components.vr_optic_low, components.vr_optic_surface, components.vr_optic_panel
     if profile and ((not low and not profile.cameraOnly) or not surface or not panel) then
         M.path='native';M.error='Missing authored optical surface: '..profile.key
         cameraOff(player);return
     end
     if profile then
+        -- A camera panel is in front of the native cap. A shader lens sees
+        -- through it and needs the two housings with an open optical channel.
+        for part, component in pairs(components) do
+            local source, variant = Visibility.housing(part)
+            if source then
+                local saved=state.originals[part]
+                if saved and saved.shellVariant and tostring(component.mesh.hash)~=saved.shellHash then
+                    saved.shellVariant=false
+                end
+                if saved and (saved.shellVariant==true) ~= (path=='shader') then
+                    local useVariant=path=='shader'
+                    if Game.VRComponentChangeResource(component,useVariant and variant or source,false) then
+                        saved.shellSource=source
+                        saved.shellVariant=useVariant
+                        saved.shellHash=tostring(component.mesh.hash)
+                    end
+                end
+            end
+        end
         local name = NameToString(main:GetName())
         state.originals[name] = state.originals[name] or { mask=main.chunkMask, enabled=main:IsEnabled() }
         if state.originals[name].mask == nil then state.originals[name].mask = main.chunkMask end
@@ -319,11 +494,11 @@ local function scan(player, weapon)
             end
             toggle(components[layer.surface],ours)
             toggle(components[layer.panel],ours)
-            local shift = ours and HUD_SHIFT[profile.key]
+            -- The camera shader maps the authored canvas into the lens, including Osprey's rear panel.
             local panel = components[layer.panel]
             if panel then
                 local ok, root = pcall(function() return panel:GetWidget() end)
-                if ok and root then root:SetTranslation(Vector2.new({X=shift and shift.x or 0, Y=shift and shift.y or 0})) end
+                if ok and root then root:SetTranslation(Vector2.new({X=0, Y=0})) end
             end
         end
     else
@@ -343,10 +518,9 @@ local function eyeToAxis(weapon, maxBehind)
     local cx, cy, cz = t.position.x - sight.ox, t.position.y - sight.oy, t.position.z - sight.oz
     local right = cam:GetActiveCameraRight()
     local half = (GetVRSharedSlot and GetVRSharedSlot(95)) or 0.032
-    local q, wp = weapon:GetWorldOrientation(), weapon:GetWorldPosition()
-    local authored = state.profile and state.profile.scopeOffset
-    local o = authored and Vector4.new(authored.x,authored.y,authored.z,1) or weapon:GetScopeOffset()
-    local s = rotate(q, o)
+    local point, q, why = opticalFrame(weapon)
+    M.frameError = why
+    if not point then return nil end
     local f = rotate(q, {x = 0, y = 1, z = 0})
     -- The active camera is the game's own view, MAIN: one eye (the right by
     -- default) or the head centre. GetVRMainEyeOffset says which, as its offset
@@ -361,9 +535,9 @@ local function eyeToAxis(weapon, maxBehind)
     local best, bestBehind
     for _, side in ipairs({-1, 1}) do
         local along = half*side - mainEye
-        local vx = cx + right.x*along - (wp.x + s.x)
-        local vy = cy + right.y*along - (wp.y + s.y)
-        local vz = cz + right.z*along - (wp.z + s.z)
+        local vx = cx + right.x*along - point.x
+        local vy = cy + right.y*along - point.y
+        local vz = cz + right.z*along - point.z
         local behind = -(vx*f.x + vy*f.y + vz*f.z)
         if behind > -0.03 and behind < maxBehind then
             local lx, ly, lz = vx + f.x*behind, vy + f.y*behind, vz + f.z*behind
@@ -371,7 +545,7 @@ local function eyeToAxis(weapon, maxBehind)
             if not best or d < best then best, bestBehind = d, behind end
         end
     end
-    return best, bestBehind, f, Vector4.new(wp.x + s.x, wp.y + s.y, wp.z + s.z, 1)
+    return best, bestBehind, f, Vector4.new(point.x, point.y, point.z, 1)
 end
 
 -- The shot leaves the sight line while the eye is on a sight (native SetVRSightLine): the
@@ -390,13 +564,6 @@ local function sightLine(point, f)
     local along = vx*f.x + vy*f.y + vz*f.z
     SetVRSightLine(vx - f.x*along, vy - f.y*along, vz - f.z*along)
     sight.lineOn = true
-end
-
-local names = {}
-local function cname(text)
-    local name = names[text]
-    if not name then name = CName.new(text);names[text] = name end
-    return name
 end
 
 -- The zoom the aim state machine would send, at `level` and without the weapon's own
@@ -453,14 +620,17 @@ local function updateSightZoom(player, weapon, delta)
         aiming = board:GetInt(machine.UpperBody) == 6
     end
     local owned = scanning or (aiming and state.smart)
+    hinge(weapon,aiming and not owned and rule~=nil)
     local approach = 0
     if rule and not owned then
         local ok, d, behind, f, point = pcall(eyeToAxis, weapon, rule.behind)
         if not ok then d = nil end
         M.eyeToAxis = d
         sight.looking = d ~= nil and d < (sight.looking and LEAVE_AXIS or ENTER_AXIS)
-        sightLine(sight.looking and M.shotFromSight and point or nil, f)
-        if sight.looking and M.sightZoomEnabled then
+        -- Integrated displays on open-sight weapons only change the image.
+        local nativeLine=not state.integrated or state.integrated.attachment
+        sightLine(sight.looking and M.shotFromSight and nativeLine and point or nil, f)
+        if sight.looking and M.sightZoomEnabled and not (state.integrated and state.integrated.keepEyeRelief) then
             -- A split shader scope is brought closer by the view zoom itself. The eye is not
             -- moved in as well: nearer the eyepiece its glass grows faster than the far end of
             -- the tube, and the lens, magnifying less, reached the tube's edges (dark arcs in
@@ -513,6 +683,7 @@ end
 local function update(delta)
     local player = Game.GetPlayer()
     if not player then
+        hinge(nil,false)
         state = {elapsed=0, originals={}, cameraOn=false};M.path='none';M.cameraFrame=nil
         sight.active, sight.looking, M.sightZoom = false, false, 1;syncWeaponLayer(false);sightDot(false);sightLine(nil)
         if (sight.ox ~= 0 or sight.oy ~= 0 or sight.oz ~= 0) and SetVRSightApproach then SetVRSightApproach(0, 0, 0) end
@@ -548,7 +719,9 @@ local function update(delta)
     end
     local camera = player:FindComponentByName(cname('vr_optics_camera'))
     if not camera then M.error='Optics camera missing';return end
-    local q, wp = weapon:GetWorldOrientation(), weapon:GetWorldPosition()
+    local point, q, why = opticalFrame(weapon)
+    M.frameError = why
+    if not point then M.error=why;cameraOff(player);return end
     -- The catalog's player entity binds the camera to the WeaponRight slot, so its
     -- local transform is in that slot's frame and the engine carries it with the
     -- slot (and the weapon on it) when the frame renders. Placed relative to the
@@ -567,18 +740,19 @@ local function update(delta)
         ep, eq = WorldPosition.ToVector4(transform.Position), transform.Orientation
     end
     local inverse = {i = -eq.i, j = -eq.j, k = -eq.k, r = eq.r}
-    -- Some fixed sights (Osprey) report a cached scope-bone offset that differs
-    -- from the visible aperture. Use its authored center in the weapon mesh.
-    local authored = state.profile and state.profile.scopeOffset
-    local offset = authored and {x = authored.x, y = authored.y, z = authored.z} or weapon:GetScopeOffset()
-    offset.y = offset.y + .2
+    local ahead = rotate(q, {x=0,y=.2,z=0})
+    local world = {x=point.x+ahead.x,y=point.y+ahead.y,z=point.z+ahead.z}
     if state.profile and state.profile.frontCamera then
         -- Rasetsu's rear LCD is not its optical sensor. Place that sensor at
         -- the native weapon front, retaining the LCD's optical height.
+        local wp=weapon:GetWorldPosition()
+        local authored=state.profile.scopeOffset
+        local offset=authored and {x=authored.x,y=authored.y,z=authored.z} or weapon:GetScopeOffset()
+        offset.y=offset.y+.2
         offset.y = math.max(offset.y, weapon:GetMuzzleOffset().y + .02)
+        local moved=rotate(q,offset);world={x=wp.x+moved.x,y=wp.y+moved.y,z=wp.z+moved.z}
     end
-    local world = rotate(q, offset)
-    local lp = rotate(inverse, {x = wp.x+world.x-ep.x, y = wp.y+world.y-ep.y, z = wp.z+world.z-ep.z})
+    local lp = rotate(inverse, {x = world.x-ep.x, y = world.y-ep.y, z = world.z-ep.z})
     camera:SetLocalTransform(Vector4.new(lp.x, lp.y, lp.z, 0), multiply(inverse,q))
     camera.fov = Policy.cameraFov(M.magnification)
     toggle(camera, true)
@@ -599,13 +773,25 @@ local function publishPath()
 end
 
 M.update = update
+-- THE RUST BUILD RUNS THIS MOD (rust/crates/cvr-ffi/src/mechanics/optics.rs, bit 18 of VRRustMechanics). The reference
+-- build has no such native, and everything here keeps running.
+local rustOwned = nil
+local function rust()
+    if rustOwned == nil then
+        rustOwned = type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 262144) % 2 == 1
+    end
+    return rustOwned
+end
 registerForEvent('onUpdate', function(delta)
+    if rust() then return end
     local ok, err = pcall(M.update, delta)
     if not ok then M.error=tostring(err) end
     pcall(publishPath)
 end)
 
 registerForEvent('onShutdown', function()
+    if rust() then return end
+    hinge(nil,false)
     local player=Game.GetPlayer()
     if player then cameraOff(player);restoreWeapon() end
     if Game.SetVRPhysicalOpticsPath then pcall(Game.SetVRPhysicalOpticsPath, 0) end

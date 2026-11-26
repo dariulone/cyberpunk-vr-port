@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // OrientationProvider -- lifted out of src/Natives/Natives.cpp, where it was one of four instrumentation
 // subsystems sharing the tail of an 8,400-line file behind nothing but a banner comment.
@@ -76,6 +77,50 @@
 
 
 
+// The values the harness and the rest of the port read by name: defined here in both builds (the Rust build's
+// work is rust/crates/cvr-rig/src/vrik/provider.rs).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugProvEntFunc[16] = {0};
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
+extern "C" volatile uint32_t g_provMuzzleSeq = 0;          // freshness (C linkage: weapon_aim.rs)
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/cpp_services.rs (cpp_globals)
+extern "C" volatile LONG g_provRecoilSeqSeen = -1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugAtkCalls   = 0;
+extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugAtkNoMatch = 0;
+extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugAtkMask    = 0;
+extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPosProvCalls     = 0;
+extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPosProvOverrides = 0;
+extern "C" __declspec(dllexport) char CyberpunkVR_WeaponName[64] = {0};
+extern "C" __declspec(dllexport) volatile uint32_t CyberpunkVR_DualWieldRecords[2] = {};
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightZoom = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightDot = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) float CyberpunkVR_SightApproach[3] = {0.0f, 0.0f, 0.0f};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) float    CyberpunkVR_SightLineOffset[3] = {0.0f, 0.0f, 0.0f};
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_SightLineTick = 0;
+extern "C" __declspec(dllexport) int32_t  CyberpunkVR_HitscanFromSightLine = 1;
+#endif
+
+#if !CVR_RUST_VRIK
 // ============================================================================
 // ORIENTATION-PROVIDER GetOrientation VMT INSTRUMENT (the "stand at the register" plan).
 // We can't pin the GetOrientation vtable slot statically (auto-analysis off, CClass vs instance
@@ -96,7 +141,6 @@ volatile uint64_t g_provCalls[kProvNCls][kProvNSlots] = {0};
 // EXPORTED VIEW of the pistol class's slot counters (entFunc = class 2). Which vtable slot actually
 // fires on a shot is a question the dump answers only after the fact, and only if the instrument was
 // installed; this lets a live probe watch it while the trigger is pulled.
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugProvEntFunc[16] = {0};
 
 // The hand-recoil spring (src/Anim/Recoil.cpp).
 extern "C" void RecoilOnShot();
@@ -129,7 +173,6 @@ volatile float    g_provAimHit[3] = {0,0,0};
 volatile float    g_provAimNormal[3] = {0,0,0};
 volatile uint32_t g_provAimHitSeq = 0;
 volatile uint64_t g_provAimHitStampMs = 0;
-volatile uint32_t g_provMuzzleSeq = 0;          // freshness
 volatile float    g_provDeltaQ[4] = {0,0,0,1};  // mode6 cone-rotation delta (recomputed per muzzle seq)
 volatile uint32_t g_provDeltaSeq = 0xFFFFFFFF;  // seq the delta was computed for
 volatile int      g_provQuatMode = 1;      // 0=raw shared[53..56], 1=build from controller fwd shared[60..62]
@@ -185,7 +228,6 @@ static inline void ProvRotVec(const float* q, const float* v, float* o) {
 // THE ROUND'S OWN SEQUENCE, shared by every stub. Each ProvStub<C,S> is a separate function, so a
 // function-local static would give each slot its own counter -- and a hitscan round goes through two
 // slots, which would then fire the recoil twice. One round is one kick whichever slots it passes.
-volatile LONG g_provRecoilSeqSeen = -1;
 
 // ------------------------------------------------------------------------------------------------
 // WHOSE ATTACK IS THIS. FINDING THE FIELD, NOT YET USING IT.
@@ -241,13 +283,10 @@ volatile uintptr_t g_playerEntityPtr = 0;
 // The launcher DEBUG box. Used below to decide whether the out-quaternion of a slot that does
 // nothing functional is worth a VirtualQuery.
 extern "C" __declspec(dllexport) extern int CyberpunkVR_XrDeepDiag;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugAtkCalls   = 0;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugAtkNoMatch = 0;
 // bit i = the handle at attack+8*i held the player. Kept because it is the cheapest way to see the
 // gate still working: a shot of the player's should light one of the four, and nobody else's should
 // light any. The 64-qword dump this was found with is gone -- copying the attack object out on every
 // call was for the investigation, not for shipping.
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugAtkMask    = 0;
 
 // NO VirtualQuery ON THIS PATH -- the same trap WeaponRig.cpp already documents. IsReadable is a
 // kernel transition, this runs once per pellet per shooter, and three of them per call cost enough
@@ -332,8 +371,6 @@ static bool ProvIsPlayersAttack(int aClass, uintptr_t aProvider) {
 // line above it, exactly like the hitscan ray (WeaponAim.cpp, Hooks/SightLine.hpp), so the mark is
 // right for both kinds of round.
 static void* g_posProvOrig = nullptr;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPosProvCalls     = 0;
-extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPosProvOverrides = 0;
 
 static bool PosProvIsPlayersAttack(uintptr_t aProvider) {
     const uintptr_t player = g_playerEntityPtr;
@@ -819,7 +856,6 @@ extern "C" __declspec(dllexport) float CyberpunkVR_WeaponKickDeg;
 //
 // This is per-DRAW identity, not per-frame data, so it does not touch the rule that the pose path takes
 // nothing from CET: the pose path reads a string that was fixed the moment the weapon came out.
-extern "C" __declspec(dllexport) char CyberpunkVR_WeaponName[64] = {0};
 
 // The console instrumentation that found the hitscan path -- the targeting-system lookup, the
 // call counters, the argument spy, and the look-at / ray-query / aim-point levers -- lived here.
@@ -918,12 +954,6 @@ void SetVRLocomotionDetailed(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame
     aFrame->code++;
     g_VRLocomotionDetailed = state;
     if (aOut) *aOut = 1;
-}
-
-void SetVRWorldTimeScale(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t* out, int64_t) {
-    float scale=1;RED4ext::GetParameter(frame,&scale);++frame->code;
-    cvr::input::scannerHandPhysics.TimeScale(scale);
-    if(out)*out=1;
 }
 
 void SetVRScannerState(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t* out, int64_t) {
@@ -1047,8 +1077,8 @@ void SetVRReloadOwnedHand(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, v
 // offset of the two-hand hold's support point (TwoHandGrip.cpp, g_VRTwoHandSlide). Held for 300 ms per call, so
 // the mod refreshes it every frame it matters and a mod that stops cannot leave the hand displaced. Anything that
 // is not a finite few centimetres clears it.
-extern float    g_VRTwoHandSlide[3];
-extern uint64_t g_VRTwoHandSlideUntil;
+extern "C" float    g_VRTwoHandSlide[3];
+extern "C" uint64_t g_VRTwoHandSlideUntil;
 void SetVRTwoHandSlide(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
     float x = 0.0f, y = 0.0f, z = 0.0f;
     RED4ext::GetParameter(aFrame, &x);
@@ -1070,8 +1100,8 @@ void GetVRTwoHandActive(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, boo
 
 // The left CONTROLLER in model space as the hold read it, W = 1 when there is one -- under a closed hold every
 // published left wrist is the weld, which rides the gun (TwoHandGrip.cpp, g_VRTwoHandCtrlL).
-extern float g_VRTwoHandCtrlL[3];
-extern int   g_VRTwoHandCtrlLValid;
+extern "C" float g_VRTwoHandCtrlL[3];
+extern "C" int   g_VRTwoHandCtrlLValid;
 void GetVRTwoHandLeftCtrl(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t) {
     aFrame->code++;
     if (!aOut) return;
@@ -1118,7 +1148,6 @@ void SetVRLeftMuzzle(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*,
 
 // The two guns' item records (TweakDBID hashes) while two guns are in hand, so a shot can name its hand by
 // the weaponItemRecord it carries (Hooks/WeaponAim.cpp). 0 = no gun.
-extern "C" __declspec(dllexport) volatile uint32_t CyberpunkVR_DualWieldRecords[2] = {};
 void SetVRDualWieldRecords(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
     int32_t left = 0, right = 0;
     RED4ext::GetParameter(aFrame, &left); RED4ext::GetParameter(aFrame, &right);
@@ -1170,7 +1199,6 @@ void SetVRPhysicalOpticsPath(RED4ext::IScriptable*, RED4ext::CStackFrame* frame,
 // no aim trigger (zoomState Aimed, upper body unaimed). The engine then magnifies the weapon
 // layer by its own aim FOV, not by the world's zoom; LocateCamera's ADS sync, which ties the
 // two together, runs while this is set as well as while aiming.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightZoom = 0;
 void SetVRSightZoom(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, int64_t) {
     bool active=false;
     RED4ext::GetParameter(frame,&active);++frame->code;
@@ -1181,7 +1209,6 @@ void SetVRSightZoom(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, i
 // panels whose marks sit a quarter of the canvas off their centre, over a closed housing). While the
 // eye is on such a sight the optics mod sets this, and the overlay draws the barrel dot -- the point
 // the bullet hits, projected per eye with the live zoom (OverlayDebugDraw.cpp) -- as its reticle.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightDot = 0;
 void SetVRSightDot(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, int64_t) {
     bool active=false;
     RED4ext::GetParameter(frame,&active);++frame->code;
@@ -1193,7 +1220,6 @@ void SetVRSightDot(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, in
 // the sight grows in view the way it does when a real eye closes in -- the world keeps its angular
 // scale and head rotation stays 1:1, which a zoom does not. PatchCamera adds it to both eyes after
 // the head centre the body hangs off is taken, so the arms and the weapon stay where they are.
-extern "C" __declspec(dllexport) float CyberpunkVR_SightApproach[3] = {0.0f, 0.0f, 0.0f};
 void SetVRSightApproach(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, int64_t) {
     float x=0.0f, y=0.0f, z=0.0f;
     RED4ext::GetParameter(frame,&x);
@@ -1209,9 +1235,6 @@ void SetVRSightApproach(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void
 // THE SIGHT LINE (Hooks/SightLine.hpp): the optics mod's bore-to-sight-line offset, world metres,
 // refreshed every frame while the eye is on a sight; (0,0,0) clears it. The hitscan origin and the
 // holographic sights' dot take it from here.
-extern "C" __declspec(dllexport) float    CyberpunkVR_SightLineOffset[3] = {0.0f, 0.0f, 0.0f};
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_SightLineTick = 0;
-extern "C" __declspec(dllexport) int32_t  CyberpunkVR_HitscanFromSightLine = 1;
 void SetVRSightLine(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, int64_t) {
     float x=0.0f, y=0.0f, z=0.0f;
     RED4ext::GetParameter(frame,&x);
@@ -1334,4 +1357,5 @@ void ResetVRProvCounts(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void
     g_provOverrides = 0;
     for (int i = 0; i < 4; ++i) { g_provLastQ[i]=0; g_provOrigQ[i]=0; g_provCtrlQ[i]=0; g_provHmdQ[i]=0; }
 }
-
+#endif
+#endif

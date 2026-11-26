@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // Calibration -- natives lifted out of src/Natives/Natives.cpp, which held every family at once.
 //
 // Calibration and the diagnostic writer: the measured anatomy the solve is scaled
@@ -6,6 +7,8 @@
 // The cut was placed by the seam map and then SNAPPED to the nearest point at brace depth zero.
 // Boundaries taken from line numbers alone are how a split lands in the middle of a function; the
 // check is cheap and it is the same lesson as every other generator in this restructure.
+#if !CVR_RUST_VRIK
+// The C++ build's calibration natives; the Rust build's are rust/crates/cvr-rig/src/vrik/calibration.rs.
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/GameEngine.hpp>
 #include <sstream>
@@ -634,4 +637,5 @@ void DumpRuntimeClassFunctions(RED4ext::IScriptable* aContext, RED4ext::CStackFr
     out.close();
     if (aOut) *aOut = dumped;
 }
-
+#endif
+#endif

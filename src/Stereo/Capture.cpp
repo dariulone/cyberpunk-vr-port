@@ -68,8 +68,12 @@
 #include "Render/OpticsProbe.hpp"
 
 // Scope lighting and postprocessing consume the same exposure as VRCAM.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OpticsExpoMirror = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsExpoHits = 0;
+#endif
 #include "Stereo/EngineRvas.hpp"
 #include "Stereo/DetourRegistry.hpp"
 #include "Stereo/StereoInternal.hpp"
@@ -87,7 +91,11 @@ namespace detail {
 // second swapchain + a per-frame copy. Turned on from the overlay ("VRCAM Mirror"). Safe to
 // flip at any time: the present thread is started lazily from the vrcam blit submit, so with
 // this at 0 it simply never starts, and switching to 1 later starts it on the next vrcam frame.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_MirrorOutput      = 0;  // D3D11On12 mirror (OBS-style, non-blocking)
+#endif
 // The fixed resting-state GUESS that used to live here is DELETED. It was documented as a
 // "fixed GUESS fallback only" and it is exactly the shape of lie the driver's state machine
 // faults on -- see the note beside t_mirror_src_state_seen. There is a tracked state or
@@ -99,6 +107,9 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_MirrorOutput      = 0;  //
 // bright/dark alternation. hk_ResourceBarrier already tracks the resource's ACTUAL
 // state (CyberpunkVR_DebugMirrorSrcState); use THAT for the copy barrier. 1=track (fix),
 // 0=old fixed-guess behavior (for A/B).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_MirrorTrackState = 1;
 // Redirect the vrcam RenderFinal2D output RTV to our OWN committed target so the engine
 // renders the final into a stable, never-aliased resource we control. View-aware (only
@@ -116,8 +127,11 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMirrorW      = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMirrorH      = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorFrames = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMirrorLastHr = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 static std::atomic<bool> g_mirror_thread_started{false};
+#endif
 
 
 
@@ -138,6 +152,8 @@ static std::atomic<bool> g_mirror_thread_started{false};
 // above the first 64 KB, and 8-aligned; 3E7DB6CC46CD6766 fails the first of those outright. This is
 // cheap, it runs before anything can fault, and it does not depend on being allowed to handle an
 // exception that the host may claim first.
+#if CVR_RUST_VRIK
+#else
 static inline bool mirror_ptr_plausible(uintptr_t p) {
     return p >= 0x10000u && p < 0x00007FFFFFFFFFFFull && (p & 7u) == 0;
 }
@@ -151,6 +167,7 @@ static bool mirror_rd_dtex(uintptr_t comp, uintptr_t* dtex, UINT* w, UINT* h) {
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+#endif
 
 // BFS from the RTT dtex object: scan each object's first 0x400 bytes for a
 // D3D12 TEXTURE2D whose dims match the dtex (vrcam output); enqueue heap ptrs.
@@ -159,13 +176,25 @@ static bool mirror_rd_dtex(uintptr_t comp, uintptr_t* dtex, UINT* w, UINT* h) {
 // The cooked dtex is an R8G8B8A8_UNORM resource with an SRGB RTV. The old
 // dummy-device copy hook rejected UNORM and is incompatible with SL's D3D12
 // interposer. Hooks below are installed on the real game device instead.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 std::atomic<ID3D12Resource*> g_captured_vrcam_res{nullptr};
+#endif
+#if !CVR_RUST_VRIK
 static UINT g_target_w = 0, g_target_h = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMirrorFmt = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorStage = 0;
+#endif
 
+#if !CVR_RUST_VRIK
 static std::mutex g_mirror_resource_mtx;
+#endif
 
 // ---- D3D12 decoupled mirror (real second swapchain for VRCAM) --------------
 // GAME thread appends ONE CopyResource(dtex -> g_d12_mtex) into the game's OWN
@@ -174,6 +203,10 @@ static std::mutex g_mirror_resource_mtx;
 // owns its own command queue + D3D12 swapchain + window (message pump) and copies
 // g_d12_mtex into its backbuffer and Presents -> a genuine capturable backbuffer,
 // zero present cost on the game thread. (globals declared earlier.)
+#if CVR_RUST_VRIK
+// THE STABLE SNAPSHOT, THE EYE TEXTURE AND THE MIRROR'S COPY ARE RUST'S
+// (rust/crates/cvr-render/src/capture_stable.rs).
+#else
 bool d12_mirror_ensure(const D3D12_RESOURCE_DESC& src) {
     if (g_d12_mtex) return true;
     std::lock_guard<std::mutex> lk(g_d12_mtx);
@@ -206,7 +239,13 @@ bool d12_mirror_ensure(const D3D12_RESOURCE_DESC& src) {
     log("[mirror] d12 mirror-tex=%p %ux%u fmt=%u", tex, g_d12_w, g_d12_h, (unsigned)g_d12_fmt);
     return true;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE RTV HALF IS RUST'S (rust/crates/cvr-render/src/capture_rtv.rs).
+extern "C" {
+}
+#else
 static bool mirror_rgba8_fmt(DXGI_FORMAT f) {
     return f == DXGI_FORMAT_R8G8B8A8_UNORM
         || f == DXGI_FORMAT_B8G8R8A8_UNORM
@@ -219,7 +258,9 @@ static bool mirror_rgba8_fmt(DXGI_FORMAT f) {
         || f == DXGI_FORMAT_R16G16B16A16_FLOAT
         || f == DXGI_FORMAT_R10G10B10A2_UNORM;
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 bool mirror_get_resource_desc(ID3D12Resource* resource,
         D3D12_RESOURCE_DESC* desc) {
     if (!resource || !desc) return false;
@@ -230,7 +271,10 @@ bool mirror_get_resource_desc(ID3D12Resource* resource,
         return false;
     }
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 static bool mirror_target_dimensions(const D3D12_RESOURCE_DESC& desc) {
     if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D) return false;
     // PRIMARY source: the resolution encoded in the SELECTED component's name. This used to
@@ -286,7 +330,10 @@ static bool mirror_target_dimensions(const D3D12_RESOURCE_DESC& desc) {
     // parsed -- not in a per-bind predicate following a pointer nobody owns.
     return (UINT)desc.Width == tw && desc.Height == th;
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 struct MirrorRtvCandidate {
     SIZE_T handle = 0;
     ID3D12Resource* resource = nullptr;
@@ -309,14 +356,30 @@ struct MirrorRtvCandidate {
 // churns render targets), and every eviction lost a live target's mapping until the engine happened
 // to re-create that view -- a linear scan per bind on top.
 static std::unordered_map<SIZE_T, MirrorRtvCandidate> g_mirror_rtv_candidates;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 static std::atomic<uint32_t> g_mirror_rtv_candidate_count{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 static std::mutex g_mirror_rtv_candidate_mtx;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorRtvRegs = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorRtvEvicts = 0;
+#endif
 // Countdown of RTV binds inside the vrcam node still to be logged (see the [rtvpick]
 // diagnostic in hk_OMSetRenderTargets). Burns down to 0 so it costs nothing after the
 // first frames; raise it live from the debugger to sample again.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_DebugRtvPickLog = 48;
+#endif
 
 // ---- resources owned by US, not by the engine ---------------------------------------
 // The mirror recognises the VRCAM render target by shape alone: an RGBA8-family (or
@@ -332,6 +395,7 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_DebugRtvPickLog = 48;
 // because the fault is upstream of any submit.
 //
 // Anything we create ourselves registers here and is skipped by the heuristics.
+#if !CVR_RUST_VRIK
 static std::array<std::atomic<ID3D12Resource*>, 32> g_foreign_res{};
 
 extern "C" __declspec(dllexport) void CyberpunkVR_RegisterForeignResource(ID3D12Resource* r) {
@@ -388,10 +452,14 @@ static ID3D12Resource* mirror_find_bound_rtv(SIZE_T handle,
     if (view_format) *view_format = it->second.view_format;
     return it->second.resource;
 }
+#endif
 
 // Keep active RTVs by use, not creation age. Main swapchain targets are pinned
 // before the engine creates their descriptors, including startup resource churn.
+#if !CVR_RUST_VRIK
 static cvr::render::DescriptorCache<RtvDescriptorCapacity> rtvDescriptors;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_RegisterRtvSwapchain(IDXGISwapChain* swapChain) {
     if(!swapChain)return;
     DXGI_SWAP_CHAIN_DESC desc{};
@@ -435,6 +503,7 @@ static bool rtv_dim_lookup(SIZE_T handle,uint32_t* width,uint32_t* height) {
     const auto target=rtvDescriptors.Read(handle);if(!target)return false;
     *width=target->width;*height=target->height;return true;
 }
+#endif
 
 // 64, NOT 8, AND IT SAYS SO WHEN IT FILLS.
 //
@@ -448,9 +517,12 @@ static bool rtv_dim_lookup(SIZE_T handle,uint32_t* width,uint32_t* height) {
 // Exactly the shape of the upload-map bug fixed earlier -- eight slots, silently full, everything
 // after it dropped on the floor with no line in the log to say so. Same fix, and the same
 // saturation notice, because the silence was the expensive part.
+#if CVR_RUST_VRIK
+#else
 static ID3D12Resource* g_mirror_seen[64] = {};
 static int g_mirror_seen_n = 0;
 static bool g_mirror_seen_full_logged = false;
+#endif
 // Update the current vrcam output EVERY frame: the engine writes the vrcam final
 // into a small ring of persistent committed dtex targets and rotates them, so
 // capturing once => stale/black on the other frames. AddRef each unique resource
@@ -463,10 +535,21 @@ static bool g_mirror_seen_full_logged = false;
 // Three guesses have already been spent on which one it is. These counters and the watchdog below
 // cost nothing and end the argument: whichever number is climbing when the eye goes stale names
 // the branch.
+#if CVR_RUST_VRIK
+#else
 static uint64_t g_pub_rej_foreign = 0, g_pub_rej_desc = 0, g_pub_rej_dims = 0, g_pub_same = 0;
 static uint64_t g_pub_ok = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPubOk = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// THE OUTPUT'S PUBLICATION, THE OWN TARGET AND THE CASCADE TARGETS ARE RUST'S
+// (rust/crates/cvr-render/src/capture_output.rs).
+#else
  void mirror_publish_output(ID3D12Resource* resource,
         DXGI_FORMAT view_format) {
     // Watchdog: the output has not been refreshed for a second while binds keep arriving. That is
@@ -517,6 +600,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPubOk = 0;
     CyberpunkVR_DebugMirrorFmt = (uint32_t)desc.Format;
     CyberpunkVR_DebugMirrorRes = reinterpret_cast<uint64_t>(resource);
 }
+#endif
 
 // ---- THE HUD IS ITS OWN TEXTURE, AND IT CAN SIMPLY BE COPIED ---------------------------------
 //
@@ -545,16 +629,29 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPubOk = 0;
 //
 // Nothing here touches engine state: the copy is a barrier pair around a CopyResource appended to
 // the engine's own list, the same shape as mirror_stable_inline_copy, which has been stable.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int      CyberpunkVR_HudToSecondEye   = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudSnaps    = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudSnapSkips = 0;
+#endif
 
 // The HUD subsystem moved to src/Stereo/Hud.cpp.
 
 // The per-view constant-buffer probes moved to src/Stereo/ViewConstants.cpp.
 
+#if !CVR_RUST_VRIK
 extern "C" int32_t CyberpunkVR_OpticsMaterialProbe;
+#endif
+#if CVR_RUST_VRIK
+#endif
 void optics_material_snapshot(uint32_t,const void*);
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs (create_cbv)
  void STDMETHODCALLTYPE hk_CreateCBV(ID3D12Device* self,
         const D3D12_CONSTANT_BUFFER_VIEW_DESC* desc, D3D12_CPU_DESCRIPTOR_HANDLE dst) {
     cvr::stereo::descriptors::MutationScope mutation;
@@ -583,6 +680,11 @@ void optics_material_snapshot(uint32_t,const void*);
     // like that, and it is true at any resolution.
     // No counter on the unfiltered path: this site fires ~32 million times a session, and an
     // atomic on every one of them is real frame time spent on nothing.
+#if CVR_RUST_VRIK
+    // The camera constants, the grading LUT capture and the view constants: rust/crates/cvr-render/src/capture_cbv.rs.
+    if (desc) cvr_capture_cbv_views(desc->BufferLocation, desc->SizeInBytes, t_vrcam_node_active, t_current_node_work,
+                                    reinterpret_cast<uintptr_t>(g_exe_base));
+#else
     if (CyberpunkVR_CamCbProbe && desc) {
         if (desc->SizeInBytes >= 768) {
             g_cc_big.fetch_add(1, std::memory_order_relaxed);
@@ -624,8 +726,11 @@ void optics_material_snapshot(uint32_t,const void*);
     const uint32_t rva = static_cast<uint32_t>(work - base);
     cbv_probe_note(rva, cnt, t_vrcam_node_active);
     if (rva == CyberpunkVR_CbvDumpNode) cbv_dump_note(p, t_vrcam_node_active);
+#endif
 }
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs (create_rtv)
  void STDMETHODCALLTYPE hk_CreateRTV(ID3D12Device* self, ID3D12Resource* res,
         const D3D12_RENDER_TARGET_VIEW_DESC* desc, D3D12_CPU_DESCRIPTOR_HANDLE dst) {
     g_orig_CreateRTV(self, res, desc, dst);
@@ -641,10 +746,13 @@ void optics_material_snapshot(uint32_t,const void*);
     }
     mirror_register_rtv(res, format, dst);
 }
+#endif
 
 // Lazily create a committed texture matching `src`'s desc (in RENDER_TARGET) + an RTV in
 // our own heap, so the engine can render the vrcam final directly into it. One target
 // (single vrcam view for now). Returns the RTV handle, {0} on failure.
+#if CVR_RUST_VRIK
+#else
 static D3D12_CPU_DESCRIPTOR_HANDLE mirror_ensure_own_target_rtv(
         ID3D12Resource* src, DXGI_FORMAT view_format) {
     D3D12_CPU_DESCRIPTOR_HANDLE none{0};
@@ -677,6 +785,7 @@ static D3D12_CPU_DESCRIPTOR_HANDLE mirror_ensure_own_target_rtv(
         (unsigned long long)d.Width, d.Height, (unsigned)rd2.Format);
     return g_own_rtv;
 }
+#endif
 
 // The vision / outline layer moved to src/Stereo/VisionLayer.cpp.
 
@@ -722,7 +831,13 @@ static D3D12_CPU_DESCRIPTOR_HANDLE mirror_ensure_own_target_rtv(
 // repointing the sampling descriptor, not skipping a pass.
 //
 // Default 0: it has answered, and its answer needed the capture to be read correctly.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_CascRtProbe = 0;
+#endif
+#if CVR_RUST_VRIK
+#else
 namespace {
 struct CascRt { uint64_t dsv[2]; uint64_t hits[2]; };
 CascRt g_cascrt[8] = {};
@@ -759,7 +874,9 @@ void cascrt_report() {
         used ? line : "(none seen)");
 }
 }  // namespace
+#endif
 
+#if !CVR_RUST_VRIK
 void STDMETHODCALLTYPE hk_OMSetRenderTargets(
         ID3D12GraphicsCommandList* self, UINT count,
         const D3D12_CPU_DESCRIPTOR_HANDLE* handles, BOOL contiguous,
@@ -792,6 +909,9 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
         __except(EXCEPTION_EXECUTE_HANDLER) { target=nullptr; }
         if(target)cvr::camera::RecordImagePose(self,target,cvr::camera::CurrentNodePoseIdentity());
     }
+#if CVR_RUST_VRIK
+    cvr_capture_om_observe(count, reinterpret_cast<const SIZE_T*>(handles), reinterpret_cast<const SIZE_T*>(depth));
+#else
     // The cascade pass binds a DEPTH target and usually no colour one, so this is deliberately ahead of the
     // `count >= 1` gate below -- inside it the probe would never fire.
     if (CyberpunkVR_CascRtProbe && g_exe_base && depth) {
@@ -828,11 +948,18 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
         if (hud_node && bound) hud_adopt_by_node(bound);
         if (CyberpunkVR_HudNodeProbe && bound) hud_node_note(bound, t_vrcam_node_active);
     }
+#endif
     if(handles && count && t_active_view_known && (t_active_view_key!=0 || t_view_side==0) &&
        cvr::optics::probe::StageView(t_active_view_key,g_vrcam_ctx_key) &&
        t_current_node_work==reinterpret_cast<uintptr_t>(g_exe_base)+0x416600 && cvr::optics::probe::StageRequested()) {
         cvr::optics::probe::StageTarget(self,rtv_resource_lookup(handles[0].ptr));
     }
+#if CVR_RUST_VRIK
+    D3D12_CPU_DESCRIPTOR_HANDLE sub[8];
+    const bool subbed = cvr_capture_om_substitute(count, reinterpret_cast<const SIZE_T*>(handles), contiguous, &sub[0].ptr);
+    const D3D12_CPU_DESCRIPTOR_HANDLE* use = subbed ? sub : handles;
+    const BOOL use_contig = subbed ? FALSE : contiguous;
+#else
     // Track the primary bound RT dims for THIS recording thread, so the RSSetViewports/ScissorRects
     // hooks can detect the crop pass (render-res viewport on an OUTPUT-size RT) reliably -- both run
     // consecutively on the SAME thread, no dependency on which thread ran the DLSS eval.
@@ -878,9 +1005,13 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
             subbed = false; use = handles; use_contig = contiguous;
         }
     }
+#endif
     original(self, count, use, use_contig, depth);
     cvr::stereo::target_handoff::Targets(self,count,use,use_contig,depth);
     cvr::stereo::target_access::Targets(self,count,use,use_contig,depth);
+#if CVR_RUST_VRIK
+    cvr_capture_om_after(self, count, reinterpret_cast<const SIZE_T*>(handles), contiguous, subbed);
+#else
     if (subbed) {
         CVR_DIAGNOSTIC(++CyberpunkVR_DebugOwnTargetSubs);
         if (g_own_target)
@@ -1022,7 +1153,9 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
             g_mirror_pending_list.store(self, std::memory_order_release);
         }
     }
+#endif
 }
+#endif
 
 // A MILLISECOND CLOCK THAT CAN SEE A FRAME. GetTickCount64 has ~15.6 ms granularity, and the second
 // eye's staleness is interesting at 14 ms and below -- so measured with it, the age came back as exactly
@@ -1032,8 +1165,14 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
 // QPC instead, still in milliseconds so CyberpunkVR_StereoEyeMaxAgeMs keeps its units and its meaning.
 // MICROSECONDS, alongside the milliseconds the overlay and the gate use. The ms value cannot
 // express a frame; this one can.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamEyeAgeUs = 0;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 static double StableNowMs() {
     static LARGE_INTEGER s_freq = {};
     if (s_freq.QuadPart == 0) QueryPerformanceFrequency(&s_freq);
@@ -1051,6 +1190,7 @@ static bool mirror_stage_desc_matches(const D3D12_RESOURCE_DESC& a,
         a.SampleDesc.Count == b.SampleDesc.Count &&
         a.SampleDesc.Quality == b.SampleDesc.Quality;
 }
+#endif
 
 
 // Record, INTO THE ENGINE'S OWN command list, a copy of the freshly written vrcam
@@ -1082,8 +1222,14 @@ static bool mirror_stage_desc_matches(const D3D12_RESOURCE_DESC& a,
 //              also cancels the second encode, which is what shows as overexposure.
 //   0          _UNORM. The bytes are sampled raw; correct if that frame turns out to hold linear.
 // A float source is already typed and is handed back untouched, so nothing changes without the grab.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_StableSrgbView = 1;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 static DXGI_FORMAT stable_typed_format(DXGI_FORMAT f) {
     switch (f) {
         case DXGI_FORMAT_R8G8B8A8_TYPELESS:
@@ -1198,6 +1344,7 @@ static DXGI_FORMAT stable_typed_format(DXGI_FORMAT f) {
     CVR_DIAGNOSTIC(InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(
         &CyberpunkVR_DebugStableCopies)));
 }
+#endif
 
 // ---- VRCAM eye source for the OpenXR stereo submit ----------------------------------
 // Hands the submit path the VRCAM final colour for eye 1. This is the SAME resource the
@@ -1212,6 +1359,8 @@ static DXGI_FORMAT stable_typed_format(DXGI_FORMAT f) {
 // the MAIN backbuffer holds. Eye 1 therefore needs the encode pass, not a raw copy.
 // Returns null until the VRCAM node has produced its first frame (component disabled,
 // or the first frames after load).
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetVrcamEyeTexture() {
     if (CyberpunkVR_VrcamOwnTarget) {
         std::lock_guard<std::mutex> lk(g_own_target_mtx);
@@ -1221,12 +1370,15 @@ extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetVrcamEyeTexture(
     std::lock_guard<std::mutex> lk(g_stable_mtx);
     return cvr::camera::LatestSubmittedVrcamImage();
 }
+#endif
 
 // Same resource, but null once the second view has gone quiet -- the form the OpenXR submit
 // wants. Existence is not enough there: handing eye 1 a snapshot the second view stopped
 // updating pins one eye to a still image while the other keeps moving, which reads far worse
 // than dropping to mono. Age also drives the overlay's status line.
 
+#if CVR_RUST_VRIK
+#else
 extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetVrcamEyeTextureFresh() {
     const uint64_t last = g_stable_tick.load(std::memory_order_acquire);
     if (!last) { CyberpunkVR_DebugVrcamEyeAgeMs = 0xFFFFFFFFu; return nullptr; }
@@ -1290,10 +1442,13 @@ extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetVrcamEyeTextureF
     }
     return CyberpunkVR_GetVrcamEyeTexture();
 }
+#endif
 
 // Append (into the game's OWN list) a copy dtex -> g_d12_mtex. Called from the
 // barrier hook at the dtex's RENDER_TARGET->'after' transition, so dtex holds the
 // freshly rendered frame and is in 'after'; bracket the copy with matching states.
+#if CVR_RUST_VRIK
+#else
 void d12_append_mirror_copy(const CommandListVtableHook* e,
         ID3D12GraphicsCommandList* list, ID3D12Resource* dtex,
         D3D12_RESOURCE_STATES after) {
@@ -1317,6 +1472,7 @@ void d12_append_mirror_copy(const CommandListVtableHook* e,
     e->barrier_call(list, 2, b);
     g_mirror_pending_list.store(list, std::memory_order_release);
 }
+#endif
 
 // ---- and the state tracking every copy above depends on ---------------------------------------
 // The [indarg] watch that used to sit here is DELETED. It recorded every barrier moving a
@@ -1350,12 +1506,22 @@ void d12_append_mirror_copy(const CommandListVtableHook* e,
 // learns the pointer AND the state there -- no guessing, no patch to the command stream -- and the
 // epilogue of CompositionPostProcess does the copy, which is the first moment the contents are final and
 // still before anything aliases the transient's heap.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_FinalGrab = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalGrabs = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalArms = 0;
+#endif
 
 // CompositionPostProcess: the one node the finished frame is acquired, written and released inside.
+#if !CVR_RUST_VRIK
 static constexpr uint32_t COMPOSITION_NODE_RVA = 0x3E1B20;
+#endif
 
 // The second view's finished-frame target, learned from the engine's own acquire barrier in that node
 // and copied when the same node releases it.
@@ -1369,10 +1535,14 @@ static constexpr uint32_t COMPOSITION_NODE_RVA = 0x3E1B20;
 // Defined in SyncStereo.cpp beside the other per-thread render state. t_final_writes counts the
 // draws/dispatches/ExecuteIndirects recorded on that list since the acquire: the copy waits for at least
 // one, because a barrier batch arriving before any write would copy an undefined surface.
+#if !CVR_RUST_VRIK
 extern thread_local ID3D12Resource*            t_final_res;
 extern thread_local uint32_t                   t_final_state;
 extern thread_local ID3D12GraphicsCommandList* t_final_list;
+#endif
+#if !CVR_RUST_VRIK
 extern thread_local uint32_t                   t_final_writes;
+#endif
 
 // ---- the finished frame reaches the eye at the NODE EPILOGUE, exactly as the old capture does ----
 //
@@ -1385,6 +1555,8 @@ extern thread_local uint32_t                   t_final_writes;
 // (the node work-fn, the live view flag, a set of command lists): none of them is reliably true at the
 // instant the engine retires this particular resource. So the barrier hook only ARMS the slot, and this
 // is called from the second view's node epilogue in NodeDispatch.cpp.
+#if CVR_RUST_VRIK
+#else
 void final_frame_copy_now() {
     if (!t_final_res || !t_final_state || !t_final_list) return;
     if (CyberpunkVR_StableCopy && stereo_eye_capture_wanted()) {
@@ -1399,12 +1571,18 @@ void final_frame_copy_now() {
     t_final_state = 0;
     t_final_list = nullptr;
 }
+#endif
 
 // The engine's barriers by kind (vr_bench ab --counters, per window): [0] ResourceBarrier calls, [1] transitions,
 // [2] aliasing barriers (a render graph reusing heap memory between transient resources), [3] UAV barriers,
 // [4] split-barrier begins, [5] split-barrier ends, [6] transitions of all subresources, [7] time inside the
 // runtime and driver's ResourceBarrier (100 ns units). The port's own (internal) barriers are not counted.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_BarrierCounts[8]{};
+#endif
+#if !CVR_RUST_VRIK
 static uint64_t BarrierClock(){LARGE_INTEGER t;QueryPerformanceCounter(&t);return static_cast<uint64_t>(t.QuadPart);}
 static void CountBarrierTime(uint64_t start){
     static const uint64_t frequency=[]{LARGE_INTEGER f;QueryPerformanceFrequency(&f);return static_cast<uint64_t>(f.QuadPart);}();
@@ -1462,6 +1640,9 @@ void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
     // correct "before" state in its own barrier. Leaving it mirror-only meant the eye-capture
     // path would copy with a stale state -- a barrier lie, which the debug layer rejects and
     // the driver may answer with device removal.
+#if CVR_RUST_VRIK
+    cvr_capture_barriers(self, count, barriers, e != nullptr);
+#else
     if (!stereo_eye_capture_wanted() || !barriers || !e) return;
     // Placed after that gate rather than at the top of the function as in 0.1.6, because the copy
     // this arms is itself conditional on stereo_eye_capture_wanted(): arming in frames where no eye
@@ -1855,7 +2036,13 @@ void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
         CVR_DIAGNOSTIC(InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(
             &CyberpunkVR_DebugMirrorBarrierHits)));
     }
+#endif
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's capture halves are Rust's (capture_rtv.rs, capture_output.rs, capture_stable.rs, capture_hooks.rs,
+// with stereo_shared.rs's objects and the stable snapshot's image pose).
+#endif
 }  // namespace detail
 }  // namespace cvr

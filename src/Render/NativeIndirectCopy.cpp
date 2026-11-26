@@ -6,6 +6,44 @@
 #include <atomic>
 #include <new>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The native indirect copy at the actual call: rust/crates/cvr-render/src/indirect_copy_native.rs (the engine reads, the
+// receipt kept with the list, the native registration, the proof's checks and the per-thread scope ledger). The graph
+// parent's revalidation stays in NativePreparation.cpp and comes along with each call.
+namespace cvr::stereo::indirect_copy {
+static_assert(sizeof(IndirectCopyProof)==40 && offsetof(IndirectCopyProof,state)==8 &&
+    offsetof(IndirectCopyProof,recordingGeneration)==16 && offsetof(IndirectCopyProof,allocationOwner)==32 &&
+    sizeof(geometry::IndirectBinding)==392,"mirrored by indirect_copy_native.rs' Proof and ia_binding.rs' Binding");
+using ParentCheck=bool(*)(const preparation::GraphParentRecord*);
+extern "C" {
+void cvr_ic_scope_enter(uint64_t,uint64_t,uint64_t,detail::ScopeStamp*);
+void cvr_ic_scope_exit(const detail::ScopeStamp*);
+bool cvr_ic_scope_active(const detail::ScopeStamp*);
+uint32_t cvr_ic_last_failure();
+bool cvr_ic_prepare(ID3D12GraphicsCommandList*,const geometry::IndirectBinding*,const preparation::GraphParentRecord*,uint64_t,
+                    IndirectCopyProof*,ParentCheck);
+bool cvr_ic_validate(ID3D12GraphicsCommandList*,const IndirectCopyProof*,UINT64,UINT64,ParentCheck);
+}
+namespace {
+bool ParentCurrent(const preparation::GraphParentRecord* parent){return preparation::RevalidateGraphParent(*parent);}
+}
+ActualCallScope::ActualCallScope(ID3D12GraphicsCommandList* list,uint64_t generation,uint64_t position)noexcept{
+    cvr_ic_scope_enter(reinterpret_cast<uintptr_t>(list),generation,position,&stamp_);
+}
+ActualCallScope::~ActualCallScope(){cvr_ic_scope_exit(&stamp_);}
+bool ActualCallScope::Active()const noexcept{return cvr_ic_scope_active(&stamp_);}
+uint32_t LastFailure(){return cvr_ic_last_failure();}
+bool PrepareAtActualCall(ID3D12GraphicsCommandList* list,const geometry::IndirectBinding& binding,
+    const preparation::GraphParentRecord& parent,uint64_t position,IndirectCopyProof& output){
+    return cvr_ic_prepare(list,&binding,&parent,position,&output,&ParentCurrent);
+}
+bool Validate(ID3D12GraphicsCommandList* list,const IndirectCopyProof& proof,UINT64 offset,UINT64 bytes){
+    return cvr_ic_validate(list,&proof,offset,bytes,&ParentCurrent);
+}
+}
+#endif
+#else
 namespace cvr::stereo::indirect_copy {
 using Microsoft::WRL::ComPtr;
 namespace {
@@ -241,3 +279,4 @@ bool ValidateSubmission(const IndirectCopyProof& proof,ID3D12CommandQueue* queue
     failure=Failure::None;return true;
 }catch(...){failure=Failure::Exception;return false;}
 }
+#endif

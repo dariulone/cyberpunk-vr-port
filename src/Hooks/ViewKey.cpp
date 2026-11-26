@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // ViewKey -- which of the engine's views is recording on this thread.
 //
@@ -22,11 +23,25 @@
 #include <MinHook.h>
 #include <cstdint>
 
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) int CyberpunkVR_IsMainViewActive();
 extern "C" __declspec(dllexport) extern int CyberpunkVR_StereoModuleLoaded;
 extern void InitGameModuleInfo();
 extern uintptr_t g_gameModuleBase;
+#endif
 
+#if CVR_RUST_VRIK
+// The hook and the thread's view are rust/crates/cvr-rig/src/vrik/view_key.rs; the exports and the registration stay.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewKeyMainNodes = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugViewKeyOtherNodes = 0;
+#endif
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK_IF("ViewKey", ::cvr::hooks::Stage::PostStereo, 10, cvr_hook_view_key_install, cvr_hook_view_key_wanted);
+#endif
+#else
 namespace {
 // The site is the stereo module's when it is loaded; asking here keeps the answer out of the
 // installer, so the registry can report "skipped" instead of a false "ok".
@@ -119,3 +134,5 @@ bool InstallViewKeyHook() {
 }
 
 CVR_HOOK_IF("ViewKey", ::cvr::hooks::Stage::PostStereo, 10, InstallViewKeyHook, ViewKeyWanted);
+#endif
+#endif

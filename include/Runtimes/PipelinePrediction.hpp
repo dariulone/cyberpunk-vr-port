@@ -3,6 +3,27 @@
 #include <cmath>
 #include <cstdint>
 
+#if CVR_RUST_ROOM
+// rust/crates/cvr-camera/src/projection.rs; the class keeps its layout.
+namespace cvr::tracking { class PipelinePrediction; }
+extern "C" {
+void cvr_pipeline_prediction_reset(cvr::tracking::PipelinePrediction* p);
+int64_t cvr_pipeline_prediction_target(cvr::tracking::PipelinePrediction* p, int64_t display, int64_t period, int64_t fitted,
+                                       bool valid, float strength);
+}
+namespace cvr::tracking {
+class PipelinePrediction {
+    double leadNs{};
+    int64_t lastDisplay{};
+public:
+    void Reset() { cvr_pipeline_prediction_reset(this); }
+    int64_t Target(int64_t display,int64_t period,int64_t fitted,bool valid,float strength) {
+        return cvr_pipeline_prediction_target(this, display, period, fitted, valid, strength);
+    }
+};
+static_assert(sizeof(PipelinePrediction) == 16);
+}
+#else
 namespace cvr::tracking {
 // The render camera targets its estimated presentation slot, not the older XR cycle which happens
 // to be running while the engine starts that camera. Bound/slew the additional horizon so a hitch
@@ -29,3 +50,4 @@ public:
     }
 };
 }
+#endif

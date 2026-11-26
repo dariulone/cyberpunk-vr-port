@@ -3,7 +3,31 @@
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
 #include <windows.h>
+#if CVR_RUST_VRIK
+// The game-code contract: rust/crates/cvr-render/src/binding_code.rs (0 pair preparation, 1 material read, 2 material
+// binding; through ReadProcessMemory).
+#endif
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The reads are rust/crates/cvr-render/src/material_read.rs (the lease shared by layout).
+namespace cvr::stereo::material_read {
+static_assert(sizeof(material_binding::Lease)==528 && offsetof(material_binding::Lease,stamp)==160 &&
+    offsetof(material_binding::Lease,source)==336 && offsetof(material_binding::Lease,readProof)==432,"mirrored by material_read.rs");
+extern "C" {
+uint32_t cvr_mread_last_failure();
+bool cvr_mread_copy_snapshot(ID3D12GraphicsCommandList*,const material_binding::Lease*,ID3D12Resource*,uint64_t,buffer_read::Proof*);
+bool cvr_mread_validate_snapshot_submission(const material_binding::Lease*,const buffer_read::Proof*,ID3D12CommandQueue*);
+}
+uint32_t LastFailure(){return cvr_mread_last_failure();}
+bool CopySnapshot(ID3D12GraphicsCommandList* list,const material_binding::Lease& lease,ID3D12Resource* destination,
+                  uint64_t offset,buffer_read::Proof& proof){return cvr_mread_copy_snapshot(list,&lease,destination,offset,&proof);}
+bool ValidateSnapshotSubmission(const material_binding::Lease& lease,const buffer_read::Proof& proof,ID3D12CommandQueue* queue){
+    return cvr_mread_validate_snapshot_submission(&lease,&proof,queue);
+}
+}
+#endif
+#else
 namespace cvr::stereo::material_read {
 namespace {
 thread_local uint32_t failure{};
@@ -30,6 +54,9 @@ uint32_t LastFailure(){return failure;}
 bool Compatible(){
     static const bool compatible=[] {
         const auto game=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+#if CVR_RUST_VRIK
+        return cvr_binding_code(1,game);
+#else
         struct Code{uint32_t rva,bytes;uint64_t hash;};
         constexpr Code expected[]{{0x337DA0,0x180,0xB36B2D868965D718ull},
             {0x3E3BB4,0x34,0x1A0F0B6F177A422Cull},{0x337230,0x33,0x0396F3E29AEB7926ull}};
@@ -39,6 +66,7 @@ bool Compatible(){
             uint64_t hash=14695981039346656037ull;for(UINT i=0;i<code.bytes;++i)hash=(hash^bytes[i])*1099511628211ull;
             if(hash!=code.hash)return false;
         }return true;
+#endif
     }();return compatible;
 }
 bool Validate(ID3D12GraphicsCommandList* list,const material_binding::Lease& lease)try{
@@ -178,3 +206,4 @@ bool Copy(ID3D12GraphicsCommandList* list,material_binding::Lease& source,ID3D12
     }catch(...){failure=mutated?40u:8u;return false;}
 }
 }
+#endif

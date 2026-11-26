@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // SsrWideMerge -- screen-space reflections of the two eyes computed as ONE wide display.
 //
 // The SSR trace (node ScreenSpaceReflections, 0x77A100) can only reflect what its own picture shows. Under
@@ -54,10 +55,17 @@
 #include <mutex>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
+#if !CVR_RUST_VRIK
 extern "C" std::atomic<uint32_t> CyberpunkVR_AsymSsrPatch;          // Render/HiddenAreaShaders.cpp
 extern "C" std::atomic<uint32_t> CyberpunkVR_AsymSsrPatchLoaded;
+#endif
 // 1 = merge the eyes' reflections (needs the asym_ssr twins); 0 = each eye traces alone.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SsrMerge{1};
 // The same for the planar reflections.
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SsprMerge{1};
@@ -70,13 +78,23 @@ extern "C" __declspec(dllexport) float CyberpunkVR_SsrMergeTolerance = 0.03f;
 // [4] store allocation failed, [5] block/camera unreadable, [6] store capacity (entries), [7] width << 16 | height.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSsrMerge[8] = {};
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSsprMerge[8] = {};   // the same for the planar reflections
+#endif
 // The last block shipped per view (grown, 432 bytes).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugSsrBlocks[2][cvr::ssr_merge::kBlockBytes/4] = {};
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugSsprBlocks[2][cvr::ssr_merge::kBlockBytes/4] = {};
+#endif
+#if !CVR_RUST_VRIK
 extern "C" std::atomic<uint32_t> CyberpunkVR_AsymAoPatch;           // Render/HiddenAreaShaders.cpp
 extern "C" std::atomic<uint32_t> CyberpunkVR_AsymAoPatchLoaded;
+#endif
 // The cone AO's merge (channel kConeAo, tools/asym_tests/asym_ao_shaders.py ao_merge): 1 = on (needs the
 // asym_ao twins and the centre Stereo/Grading.cpp writes into the block).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_AoMerge{1};
 // 0 = merge; diagnostics: 1 = the pixels that moved towards the other eye black, 2 = the other eye's AO
 // wherever it is the same surface (open elsewhere), 3 = this eye's own AO.
@@ -86,25 +104,56 @@ extern "C" __declspec(dllexport) float CyberpunkVR_AoMergeTolerance = 0.03f;
 // samples the two eyes lost off their pictures (4: all the way at a quarter more lost).
 extern "C" __declspec(dllexport) float CyberpunkVR_AoMergeStrength = 4.0f;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugAoMerge[8] = {};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugAoBlocks[2][cvr::ssr_merge::kAoBlockBytes/4] = {};
+#endif
+#if !CVR_RUST_VRIK
 extern "C" std::atomic<uint32_t> CyberpunkVR_AsymShadowPatch;          // Render/HiddenAreaShaders.cpp
 extern "C" std::atomic<uint32_t> CyberpunkVR_AsymShadowPatchLoaded;
+#endif
 // The shadow mask's sun factor merged as one wide display (channel kShadowMask, asym_shadow_shaders.py).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_ShadowMerge{1};
 // 0 = merge; diagnostics: 1 = the pixels that moved towards the other eye fully shadowed, 2 = the other eye's
 // factor wherever it is the same surface (lit elsewhere), 3 = this eye's own factor.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ShadowMergeMode = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugShadowMerge[8] = {};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugShadowBlocks[2][cvr::ssr_merge::kShadowBlockBytes/4] = {};
+#endif
 // Diagnostic: nonzero snapshots the exposure cells (cvr::ssr_merge::BindExposureCells) into
 // CyberpunkVR_DebugExpoCells (raw entries: the cells' float3, then the frame's sums' uint3); Seq counts snapshots.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugExpoCellsRequest = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugExpoCellsSeq = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugExpoCells[2*cvr::ssr_merge::kExposureCells*3] = {};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ProbeLayoutNode = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugLayoutCount = 0;
 extern "C" __declspec(dllexport) uint8_t CyberpunkVR_DebugLayoutBytes[4*14+4*128+4*19] = {};
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's stores and bindings are rust/crates/cvr-render/src/ssr_merge.rs; the exports and the game's device
+// are attached to it by export_attach.rs as the plugin loads.
+#else
 namespace cvr::ssr_merge {
 namespace {
 using Microsoft::WRL::ComPtr;
@@ -401,3 +450,5 @@ void ProbeLayout(uint32_t node) {
     } __except(EXCEPTION_EXECUTE_HANDLER) {CyberpunkVR_DebugLayoutCount=2;}
 }
 }  // namespace cvr::ssr_merge
+#endif  // CVR_RUST_VRIK
+#endif

@@ -1,6 +1,9 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"
+#endif
 
 namespace cvr::body {
 // The locomotion adapter owns the persistent body quaternion. This separate
@@ -8,6 +11,21 @@ namespace cvr::body {
 // Readers do not reconstruct it by subtracting an estimated turn from a camera.
 class NativeBodyHeading {
 public:
+#if CVR_RUST_ROOM
+    // rust/crates/cvr-body/src/native_heading.rs; the class keeps its fields (Rust has its layout).
+    static float Wrap(float yaw) { return cvr_native_heading_wrap(yaw); }
+    void Reset() { cvr_native_heading_reset(this); }
+    bool Matches(uintptr_t owner, uint64_t origin) const { return cvr_native_heading_matches(this, owner, origin); }
+    bool OwnedBy(uintptr_t owner) const { return cvr_native_heading_owned_by(this, owner); }
+    bool Observe(uintptr_t owner, uint64_t origin, float bodyYaw) {
+        return cvr_native_heading_observe(this, owner, origin, bodyYaw);
+    }
+    void Commit(float bodyYaw, float nativeTurn) { cvr_native_heading_commit(this, bodyYaw, nativeTurn); }
+    float View() const { return m_view; }
+    float Body() const { return m_body; }
+    float CentreYaw() const { return m_centreYaw; }
+    float Offset() const { return cvr_native_heading_offset(this); }
+#else
     static float Wrap(float yaw) { return std::remainder(yaw, 6.28318530718f); }
     void Reset() { *this = {}; }
     bool Matches(uintptr_t owner, uint64_t origin) const {
@@ -34,10 +52,14 @@ public:
     float Body() const { return m_body; }
     float CentreYaw() const { return m_centreYaw; }
     float Offset() const { return Wrap(m_body - m_view); }
+#endif
 private:
     uintptr_t m_owner{};
     uint64_t m_origin{};
     float m_view{}, m_body{}, m_centreYaw{};
     bool m_valid{};
 };
+#if CVR_RUST_ROOM
+static_assert(sizeof(NativeBodyHeading) == 32);
+#endif
 }

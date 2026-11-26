@@ -8,10 +8,45 @@
 namespace cvr::stereo::preparation_schedule {
 using graph_snapshot::Field;
 using Link=std::pair<uint32_t,uint32_t>;
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/preparation_schedule.rs (tools/single_pass_tests/preparation_schedule_test runs its
+// cases against them in its Rust variant). The plan's members and the job graph's buffers stay here.
+namespace detail {
+struct RustIds {const uint32_t* data;size_t count;};
+struct RustPlan {const std::array<uint32_t,2>* cpu;size_t cpuCount;RustIds ids[4];uint32_t failure;};
+struct RustHeld;
+static_assert(sizeof(RustPlan)==88,"mirrored by preparation_schedule.rs");
+extern "C" {
+RustHeld* cvr_ps_build(const graph_snapshot::Node*,size_t,const graph_snapshot::Edge*,size_t,uint32_t,uint64_t,RustPlan*);
+void cvr_ps_free(RustHeld*);
+bool cvr_ps_reach(const std::array<uint32_t,2>*,size_t,uint32_t,uint32_t);
+bool cvr_ps_independent(const std::array<uint64_t,4>*);
+uint32_t cvr_ps_job_records(const graph_snapshot::Node*,size_t,const std::array<uint32_t,2>*,size_t,std::array<uint8_t,48>*,
+    std::array<uint32_t,6>*,uint32_t*);
+void cvr_ps_job_header(std::array<uint8_t,0x70>*,uint64_t,uint32_t,uint64_t,uint64_t);
+}
+inline std::vector<std::array<uint32_t,2>> Flat(const std::set<Link>& cpu){
+    std::vector<std::array<uint32_t,2>> flat;flat.reserve(cpu.size());for(const auto& [a,b]:cpu)flat.push_back({a,b});return flat;
+}
+inline std::vector<uint32_t> Ids(const RustIds& ids){return std::vector<uint32_t>(ids.data,ids.data+ids.count);}
+}
+#endif
 struct Plan {
     std::set<Link> cpu;
     std::vector<uint32_t> early,ready,barriers,frontier;
     uint32_t failure{};
+#if CVR_RUST_VRIK
+    bool Reach(uint32_t from,uint32_t to)const{const auto flat=detail::Flat(cpu);return detail::cvr_ps_reach(flat.data(),flat.size(),from,to);}
+    bool Build(const graph_snapshot::Snapshot& graph,uint64_t base){
+        *this={};detail::RustPlan out{};
+        const auto held=detail::cvr_ps_build(graph.nodes.data(),graph.nodes.size(),graph.edges.data(),graph.edges.size(),graph.failure,
+            base,&out);
+        struct Release{detail::RustHeld* held;~Release(){detail::cvr_ps_free(held);}}release{held};
+        for(size_t i=0;i<out.cpuCount;++i)cpu.emplace_hint(cpu.end(),out.cpu[i][0],out.cpu[i][1]);
+        early=detail::Ids(out.ids[0]);ready=detail::Ids(out.ids[1]);barriers=detail::Ids(out.ids[2]);frontier=detail::Ids(out.ids[3]);
+        failure=out.failure;return !failure;
+    }
+#else
     bool Reach(uint32_t from,uint32_t to)const{
         std::set<uint32_t> seen{from};std::vector<uint32_t> pending{from};
         for(size_t i=0;i<pending.size();++i){if(pending[i]==to)return true;
@@ -84,6 +119,7 @@ struct Plan {
         for(const auto source:barriers)for(const auto target:frontier)if(!Reach(source,target))return false;
         failure=0;return true;
     }
+#endif
 };
 
 // 0x8EA1C8 consumes these fields synchronously to create native job-group
@@ -95,6 +131,16 @@ struct JobGraph {
     std::vector<std::array<uint32_t,6>> edges;
     std::vector<uint32_t> edgeOrder;
     template<class T>void Put(size_t offset,T value){std::memcpy(header.data()+offset,&value,sizeof(value));}
+#if CVR_RUST_VRIK
+    void Build(const graph_snapshot::Snapshot& source,const Plan& plan){
+        const auto cpu=detail::Flat(plan.cpu);
+        nodes.resize(detail::cvr_ps_job_records(source.nodes.data(),source.nodes.size(),nullptr,0,nullptr,nullptr,nullptr));
+        edges.resize(cpu.size());edgeOrder.resize(cpu.size());
+        detail::cvr_ps_job_records(source.nodes.data(),source.nodes.size(),cpu.data(),cpu.size(),nodes.data(),edges.data(),edgeOrder.data());
+        detail::cvr_ps_job_header(&header,reinterpret_cast<uintptr_t>(nodes.data()),uint32_t(edges.size()),
+            reinterpret_cast<uintptr_t>(edges.data()),reinterpret_cast<uintptr_t>(edgeOrder.data()));
+    }
+#else
     void Build(const graph_snapshot::Snapshot& source,const Plan& plan){
         uint32_t size{};for(const auto& n:source.nodes)size=std::max(size,(n.handle&0xDFFFFFFFu)+1);
         nodes.resize(size);for(const auto& n:source.nodes)nodes[n.handle&0xDFFFFFFFu]=n.bytes;
@@ -104,6 +150,7 @@ struct JobGraph {
         Put(0x18,reinterpret_cast<uintptr_t>(nodes.data()));Put(0x40,uint32_t(edges.size()));
         Put(0x48,reinterpret_cast<uintptr_t>(edges.data()));Put(0x58,reinterpret_cast<uintptr_t>(edgeOrder.data()));
     }
+#endif
 };
 struct PreparedPlan {
     PreparedPlan()=default;
@@ -139,6 +186,9 @@ public:
 private:
     std::array<std::shared_ptr<const PreparedPlan>,4> recent;
 };
+#if CVR_RUST_VRIK
+inline bool Independent(const std::array<uint64_t,4>& ranges){return detail::cvr_ps_independent(&ranges);}
+#else
 inline bool Independent(const std::array<uint64_t,4>& ranges){
     // 2.5: graph container 0xE0500 (sub_140423180 add r8,0E0500h), view extent 0x3130 (2.31: 0xC5C40 / 0x22C0).
     constexpr std::array<uint64_t,4> sizes{0xE0500,0x3130,0xE0500,0x3130};
@@ -146,4 +196,5 @@ inline bool Independent(const std::array<uint64_t,4>& ranges){
         for(size_t j=0;j<i;++j)if(ranges[i]<ranges[j]+sizes[j] && ranges[j]<ranges[i]+sizes[i])return false;}
     return true;
 }
+#endif
 }

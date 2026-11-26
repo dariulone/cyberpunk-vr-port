@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // SubmitChain -- render-graph submission points that do not hold up the rest of the graph.
 //
 // A render graph hands its recorded command lists to the GPU at submission points. The Synchronize
@@ -63,9 +64,14 @@
 #include <cstdint>
 #include <intrin.h>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // 0 off, 1 chained (every view job also waits for the chain), 2 chained (only Present waits). Set from
 // xr_submit_chain (src/Core/LiveControlsPoll.cpp) when the setting changes; writable live for A/B tests.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SubmitChain{0};
 // [0] submission points chained, [1] of them submitted, [2] Present waits that had to wait, [3] their
 // QPC ticks, [4] view-job waits that had to wait, [5] their ticks, [6] waits that gave up after 500 ms,
@@ -74,22 +80,42 @@ __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_SubmitChainStats[8]{};
 // The dispatcher queue (0..3, 3 served first) the chained Close/Submit/JoinFrameSync jobs go to; -1 keeps
 // the caller's (render nodes run from queue 1, the world tick's jobs from queue 2). Live for A/B tests.
 __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_SubmitChainPriority{-1};
+#endif
 // 1 = the presenting view's Present node queues the present after the chain (see DEFERRED PRESENT); only
 // with the chain on. Set from xr_defer_present (default 1); the pause crash it was once switched off for is
 // closed (see DEFERRED PRESENT), and on 2.5 it passed 25 pause-menu round trips with a camera scope drawn.
 // Live for A/B tests.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SubmitChainDeferPresent{0};
+#endif
 // [0] presents deferred, [1] of them done, [2] Present nodes that waited for the previous one, [3] their
 // QPC ticks, [4] view jobs that waited for the deferred present, [5] their ticks, [6] presents run in the
 // node (not yet steady: start-up, menus, loading, a changed output), [7] waits that gave up after 500 ms.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DeferredPresentStats[8]{};
 // The steady-state gate, last presenting node: [0] presents with the same output, [1] presents since a
 // graph last ran the node without presenting, [2] output changes, [3] output handle changes.
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DeferredPresentGate[4]{};
 // Render-packet runs (sub_140334CC0) that waited for a deferred present: [0] count, [1] QPC ticks.
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DeferredPresentPacketWaits[2]{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE CHAIN AND THE DEFERRED PRESENT ARE RUST'S (rust/crates/cvr-render/src/submit_chain.rs, with
+// CyberpunkVR_WaitDeferredPresent, CyberpunkVR_WaitDeferredPresentForPackets and CyberpunkVR_SubmitChainConfigure); the
+// switches, counters and registrations stay here.
+extern "C" {
+extern uintptr_t cvr_submit_point_original, cvr_present_node_original, cvr_view_builder_original;
+}
+// The Rust build registers these detours from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 namespace cvr {
 namespace detail {
 namespace {
@@ -417,3 +443,5 @@ CVR_DETOUR("[submit-chain] view job builder sub_140B603D8", 0xB603D8, Detour_Vie
 
 }  // namespace detail
 }  // namespace cvr
+#endif
+#endif

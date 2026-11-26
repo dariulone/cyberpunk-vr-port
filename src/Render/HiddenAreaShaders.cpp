@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // Hidden-area shader patches and the shader census (Render/HiddenAreaShaders.hpp).
 #include "Render/HiddenAreaShaders.hpp"
 #include "Core/Paths.hpp"
@@ -6,6 +7,7 @@
 #include <windows.h>
 #include <wrl/client.h>
 #include <atomic>
+#include <iterator>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -14,6 +16,10 @@
 #include <unordered_set>
 #include <vector>
 
+#if CVR_RUST_VRIK
+// The twins and the census, with their exported switches and counters (the census log included):
+// rust/crates/cvr-render/src/shader_patches.rs and shader_patch_exports.rs. Nothing of this file remains in the Rust build.
+#else
 extern "C" int GetMenuMode();
 extern "C" std::atomic<uint32_t> CyberpunkVR_HiddenAreaEnabled;
 
@@ -627,3 +633,5 @@ void Command(uint32_t node,int side,ID3D12PipelineState* pso,Kind kind,uint32_t 
     }
 }
 }
+#endif
+#endif

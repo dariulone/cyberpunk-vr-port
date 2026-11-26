@@ -3,12 +3,37 @@
 #include <limits>
 
 namespace cvr::stereo::material_read {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/material_readback.rs (tools/single_pass_tests/material_readback_state_test runs
+// its cases against them in its Rust variant; the members stay here, mirrored there).
+extern "C" uint32_t cvr_mr_step(void*,uint32_t,uint32_t,bool,bool);
+#endif
 class ReadbackState {
 public:
     enum class Stage {Recorded,Submitting,Submitted,Sealed,Rejected};
     enum class PermitUpdate {None,Enable,Disable};
 
     // The caller initializes the permit to zero and serializes every operation.
+#if CVR_RUST_VRIK
+    PermitUpdate BeforeSubmit(uint32_t occurrences,bool valid,bool currentRecordingOwned) {
+        static_assert(sizeof(Stage)==4,"mirrored by material_readback.rs");
+        return PermitUpdate(cvr_mr_step(this,0,occurrences,valid,currentRecordingOwned));
+    }
+    void Submitted() {cvr_mr_step(this,1,0,false,false);}
+    void ResetBeforeSubmit() {cvr_mr_step(this,2,0,false,false);}
+    void Invalidated() {cvr_mr_step(this,3,0,false,false);}
+    bool CanSeal(bool fencesComplete) const {return cvr_mr_step(const_cast<ReadbackState*>(this),4,0,fencesComplete,false)!=0;}
+    // True authorizes the caller's permanent zero write before mapping readback.
+    bool Seal(bool fencesComplete) {return cvr_mr_step(this,5,0,fencesComplete,false)!=0;}
+    bool DisarmRejected(bool fencesComplete) {return cvr_mr_step(this,6,0,fencesComplete,false)!=0;}
+    Stage State() const {return stage_;}
+    bool ReplayObserved() const {return replayed_;}
+    uint32_t PendingSubmissions() const {return pending_;}
+    bool PermitEnabled() const {return enabled_;}
+    bool PermitMayBeInFlight(bool fencesComplete) const {
+        return cvr_mr_step(const_cast<ReadbackState*>(this),7,0,fencesComplete,false)!=0;
+    }
+#else
     PermitUpdate BeforeSubmit(uint32_t occurrences,bool valid,bool currentRecordingOwned) {
         if(!occurrences)return PermitUpdate::None;
         if(!currentRecordingOwned){
@@ -57,6 +82,7 @@ public:
         // The original completion fences cannot certify a replay's completion.
         return enabled_ && (pending_ || replayed_ || (submitted_ && !fencesComplete));
     }
+#endif
 private:
     Stage stage_=Stage::Recorded;
     uint32_t pending_{};

@@ -9,22 +9,88 @@
 #include <mutex>
 #include <vector>
 #include <new>
+#if CVR_RUST_VRIK
+// The game-code contracts: rust/crates/cvr-render/src/code_tables.rs (through ReadProcessMemory).
+#endif
 
 extern "C" {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's are rust/crates/cvr-render/src/geometry_packets.rs'
 __declspec(dllexport) uint32_t CyberpunkVR_GeometryPacketRecordBytes=sizeof(cvr::stereo::packets::Record);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryPacketHookCompatible{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryPacketRequest{0},CyberpunkVR_GeometryPacketState{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryPacketSeq{0},CyberpunkVR_GeometryPacketCount{0},CyberpunkVR_GeometryPacketDataCount{0};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // as above
 __declspec(dllexport) cvr::stereo::packets::Record CyberpunkVR_GeometryPacketRecords[cvr::stereo::packets::RecordCapacity]{};
 __declspec(dllexport) cvr::stereo::packets::Packet CyberpunkVR_GeometryPacketData[cvr::stereo::packets::PacketCapacity]{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryPacketResolve{0},CyberpunkVR_GeometryPacketInputCount{0},CyberpunkVR_GeometryPacketInputFailure{0};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // as above
 __declspec(dllexport) uint32_t CyberpunkVR_GeometryPacketInputBytes=sizeof(cvr::stereo::packets::Inputs);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 __declspec(dllexport) uint64_t CyberpunkVR_GeometryPacketInputs{};
 __declspec(dllexport) uint64_t CyberpunkVR_GeometryPacketInputBlob{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryPacketInputBlobBytes{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryOriginMode{1},CyberpunkVR_GeometryOriginCompatible{},CyberpunkVR_GeometryOriginVerified{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_GeometryOriginStats[4]{};
+#endif
 }
+#if CVR_RUST_VRIK
+// The capture, the inputs, the stack walks and the draw geometry: rust/crates/cvr-render/src/geometry_packets.rs (the
+// engine's memory through ReadProcessMemory, the walks through cvr-engine's unwinder). The exports' definitions above
+// and the preparation's pairing stay here, lent through the runtime; ResolveLive's vectors stay its caller's.
+struct CvrGeometryPacketRuntime {
+    cvr::stereo::packets::Record* records;cvr::stereo::packets::Packet* data;
+    std::atomic<uint32_t>* request;std::atomic<uint32_t>* state;std::atomic<uint32_t>* seq;std::atomic<uint32_t>* count;
+    std::atomic<uint32_t>* dataCount;std::atomic<uint32_t>* resolve;std::atomic<uint32_t>* inputCount;
+    std::atomic<uint32_t>* inputFailure;uint64_t* inputs;uint64_t* inputBlob;std::atomic<uint32_t>* inputBlobBytes;
+    std::atomic<uint32_t>* originMode;std::atomic<uint32_t>* originCompatible;std::atomic<uint32_t>* originVerified;
+    std::atomic<uint64_t>* originStats;
+};
+extern "C" {
+void cvr_gp_attach(const CvrGeometryPacketRuntime*);
+void cvr_gp_frame_boundary(bool);
+void cvr_gp_begin(uint32_t,int,const void*,const void*,const void*,cvr::stereo::packets::Ticket*);
+void cvr_gp_end(uint64_t,uint32_t);
+void cvr_gp_draw_origin(const cvr::stereo::packets::DrawOrigin*);
+}
+static_assert(sizeof(cvr::stereo::packets::Ticket)==16 && sizeof(cvr::stereo::packets::MappedInstances)==32,"mirrored by geometry_packets.rs");
+namespace cvr::stereo::packets {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's runtime is rust/crates/cvr-render/src/geometry_packets.rs' own
+namespace {
+const CvrGeometryPacketRuntime kRuntime{CyberpunkVR_GeometryPacketRecords,CyberpunkVR_GeometryPacketData,
+    &CyberpunkVR_GeometryPacketRequest,&CyberpunkVR_GeometryPacketState,&CyberpunkVR_GeometryPacketSeq,&CyberpunkVR_GeometryPacketCount,
+    &CyberpunkVR_GeometryPacketDataCount,&CyberpunkVR_GeometryPacketResolve,&CyberpunkVR_GeometryPacketInputCount,
+    &CyberpunkVR_GeometryPacketInputFailure,&CyberpunkVR_GeometryPacketInputs,&CyberpunkVR_GeometryPacketInputBlob,
+    &CyberpunkVR_GeometryPacketInputBlobBytes,&CyberpunkVR_GeometryOriginMode,&CyberpunkVR_GeometryOriginCompatible,
+    &CyberpunkVR_GeometryOriginVerified,CyberpunkVR_GeometryOriginStats};
+[[maybe_unused]] const bool kAttached=(cvr_gp_attach(&kRuntime),true);
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's draw origin callbacks are engine_detours.rs'
+void EnterDrawOrigin(DrawOrigin origin){cvr_gp_draw_origin(&origin);}
+void LeaveDrawOrigin(){cvr_gp_draw_origin(nullptr);}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+void FrameBoundary(bool liveInputs){cvr_gp_frame_boundary(liveInputs);}
+Ticket Begin(uint32_t node,int side,const void* renderer,const void* arguments,const void* span){
+    Ticket ticket;cvr_gp_begin(node,side,renderer,arguments,span,&ticket);return ticket;
+}
+void End(Ticket ticket){cvr_gp_end(ticket.epoch,ticket.index);}
+#endif
+}
+#else
 namespace cvr::stereo::packets {
 namespace {
 std::mutex mutex;
@@ -128,6 +194,11 @@ bool ResolveLive(uint64_t renderer,std::span<const Packet> packets,std::vector<I
 }
 static bool DrawGeometryCompatible(uint32_t stride){
     static const auto compatible=[]{
+#if CVR_RUST_VRIK
+        // The ordinary flush (its consumer detour excluded) and the skinned flush and gather.
+        const auto game=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        return std::array{cvr_code_table(0,game),cvr_code_table(1,game)};
+#else
         struct Region {uint32_t rva,bytes;uint64_t hash;};
         // Exclude the existing 15-byte consumer detour, not its body. 2.5: the flush only moved its
         // constant scratch (+0x1C0 -> +0x200, 448 -> 512 bytes); the consumer body is read in NativePacketInputs.hpp.
@@ -144,6 +215,7 @@ static bool DrawGeometryCompatible(uint32_t stride){
             return true;
         };
         return std::array{verify(ordinary),verify(skinned)};
+#endif
     }();
     return compatible[0] && (stride==48 || (stride==64 && compatible[1]));
 }
@@ -290,3 +362,4 @@ void End(Ticket ticket) {
     CyberpunkVR_GeometryPacketSeq.fetch_add(1,std::memory_order_release);
 }
 }
+#endif

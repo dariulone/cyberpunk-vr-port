@@ -58,27 +58,27 @@ static void Slots(){
 }
 static void Creators(){
     Memory m;detail::CreationFrame frame;detail::Creation created;
-    frame.rva=0x1F01A6;frame.rsp=0x1000;frame.rbx=0x2000;m.Put<uint64_t>(0x1030,0x3000);m.Put<uint64_t>(0x1038,256);
+    frame.rva=0x333C1A;frame.rsp=0x1000;frame.rbx=0x2000;m.Put<uint64_t>(0x1030,0x3000);m.Put<uint64_t>(0x1038,256);
     Require(detail::DecodeCreation(frame,Memory::Read,&m,created) && created.resource==0x3000 && created.offset==256 && created.cpu==0x2000,"Fresh standalone uploader creator decode failed");
     Require(!created.logicalBytes && !created.reservedBytes && !created.completedProducerRva,"Standalone creation invented direct b5 write provenance");
-    frame={};frame.rva=0x1F2960;frame.rbx=0x3000;frame.r15=512;frame.r14=0x4000;frame.r13=112;frame.r12=256;m.Put<uint64_t>(0x4078,0x5000);
+    frame={};frame.rva=0x3362A0;frame.rbx=0x3000;frame.r15=512;frame.r14=0x4000;frame.r13=112;frame.r12=256;m.Put<uint64_t>(0x4078,0x5000);
     Require(detail::DecodeCreation(frame,Memory::Read,&m,created) && created.resource==0x3000 && created.context==0x4000 && created.cpu==0x5000 && created.offset==512 &&
         created.logicalBytes==112 && created.reservedBytes==256 && created.completedProducerRva==detail::DirectMemcpyReturnRva && detail::DirectProducer(created,256),
         "Dynamic b5 actual resource/offset/completed logical write decode failed");
-    frame={};frame.rva=0x1F0BF7;frame.r14=0x6000;frame.r13=0x4000;frame.rdi=0x7000;frame.r12=768;
-    m.Put<uint64_t>(frame.r14+0x149DF68,0x3000);m.Put<uint64_t>(frame.rdi+0x28,0x8000);
+    frame={};frame.rva=0x3346B1;frame.r14=0x6000;frame.r13=0x4000;frame.rdi=0x7000;frame.r12=768;
+    m.Put<uint64_t>(frame.r14+0x14F2240,0x3000);m.Put<uint64_t>(frame.rdi+0x28,0x8000);
     m.Put<uint32_t>(frame.rdi-0xC,71);m.Put<uint32_t>(frame.rdi-8,71);
     Require(detail::DecodeCreation(frame,Memory::Read,&m,created) && created.resource==0x3000 && created.context==0x4000 && created.cpu==0x8000 && created.offset==768 && created.handle==71,"Transient exact native creator/key decode failed");
     Require(!created.logicalBytes && !created.reservedBytes && !created.completedProducerRva && !detail::DirectProducer(created,256),
         "Transient pre-write creation invented a completed direct memcpy");
     m.Put<uint32_t>(frame.rdi-8,72);Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"Mismatched transient map key accepted");
     m.Put<uint32_t>(frame.rdi-8,71);
-    frame.rva=0x1F0BF8;Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"A nearby address was accepted as a creator");
-    frame.rva=0x1F0BF7;frame.r14=UINT64_MAX;Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"Creator registry overflow was accepted");
-    frame={};frame.rva=0x1F01A6;frame.rsp=UINT64_MAX;Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"Creator stack overflow was accepted");
-    frame={};frame.rva=0x1F2960;frame.r14=0x4000;frame.r15=256;Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"Missing live API resource was accepted");
-    Require(detail::DirectCreation(0,5,0x1F2960),"Exact direct VS b5 creator precedence was rejected");
-    Require(!detail::DirectCreation(1,5,0x1F2960) && !detail::DirectCreation(0,4,0x1F2960) && !detail::DirectCreation(0,5,0x1F0BF7),"Direct creator exception escaped VS b5");
+    frame.rva=0x3346B2;Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"A nearby address was accepted as a creator");
+    frame.rva=0x3346B1;frame.r14=UINT64_MAX;Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"Creator registry overflow was accepted");
+    frame={};frame.rva=0x333C1A;frame.rsp=UINT64_MAX;Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"Creator stack overflow was accepted");
+    frame={};frame.rva=0x3362A0;frame.r14=0x4000;frame.r15=256;Require(!detail::DecodeCreation(frame,Memory::Read,&m,created),"Missing live API resource was accepted");
+    Require(detail::DirectCreation(0,5,0x3362A0),"Exact direct VS b5 creator precedence was rejected");
+    Require(!detail::DirectCreation(1,5,0x3362A0) && !detail::DirectCreation(0,4,0x3362A0) && !detail::DirectCreation(0,5,0x3346B1),"Direct creator exception escaped VS b5");
 }
 static void DirectProducerCounts(){
     Memory memory;memory.Put<uint64_t>(0x4078,0x5000);
@@ -100,7 +100,7 @@ static void DirectProducerCounts(){
     Require(detail::DecodeCreation(frame,Memory::Read,&memory,creation),"Valid direct producer did not recover after rejected extent");
     const auto valid=creation;creation.completedProducerRva++;
     Require(!detail::DirectProducer(creation,256),"Nearby return address manufactured completed producer provenance");
-    creation=valid;creation.caller=0x1F0BF7;Require(!detail::DirectProducer(creation,256),"Another creator reused direct producer facts");
+    creation=valid;creation.caller=0x3346B1;Require(!detail::DirectProducer(creation,256),"Another creator reused direct producer facts");
     creation=valid;creation.logicalBytes=257;Require(!detail::DirectProducer(creation,256),"Logical producer exceeded its reserved bytes");
     frame.rva=detail::DirectCreatorRva+1;
     Require(!detail::DecodeCreation(frame,Memory::Read,&memory,creation) && creation==detail::Creation{},"Nearby creator accepted valid-looking counts");
@@ -155,7 +155,7 @@ static void UploadWriters(){
     for(UINT n=UINT(scopes.size());n;--n)Require(ledger.Cancel(scopes[n-1]),"Bounded writer stack could not unwind");
     Require(!ledger.Enter({},71,448).nonce && !ledger.Enter(context,0,448).nonce && !ledger.Enter(context,0x100001,448).nonce &&
         !ledger.Enter(context,71,0).nonce && !ledger.Enter(context,71,65537).nonce,"Unknown recording/handle/prefix entered a writer");
-    const std::array<uint64_t,3> path{0x1F0BF7,0x1F098D,0x1F08AF};
+    const std::array<uint64_t,3> path{0x3346B1,0x334469,0x33434B};
     Require(detail::UploadWriterPath(path),"Exact native BufUpload creator ancestry rejected");
     auto escaped=path;escaped[1]=0x2200FF;Require(!detail::UploadWriterPath(escaped),"Pointer-returning 220068 origin was certified by an outer writer");
     escaped=path;++escaped[2];Require(!detail::UploadWriterPath(escaped),"Nearby native caller manufactured writer ancestry");

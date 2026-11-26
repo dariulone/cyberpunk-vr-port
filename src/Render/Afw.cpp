@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Render/Afw.hpp"
 #include "Render/AfwPlugin.hpp"
 #include "Render/Osr.hpp"
@@ -10,12 +11,19 @@
 #include <cmath>
 #include <mutex>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // Diagnostics: [0] frames warped, [1] fallbacks, [2] plugin state (0 not tried, 1 loaded, -1 failed); of the warped
 // frames whose renderer frame directly follows the last warped one, [3] drawn for the other eye than that one, [4] for
 // the same eye; [5] warped frames after a gap in the renderer's frames.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<int64_t> CyberpunkVR_AfwStats[6]{};
 // Tuning, read every frame (tools write it into the running game): [0] the warp mode (pd::FrameWarpMode), [1] the
 // motion vectors' type (pd::MVType; 3 = from the frame before: Normal after a frame drawn for the same eye, else
@@ -27,8 +35,20 @@ __declspec(dllexport) std::atomic<int64_t> CyberpunkVR_AfwStats[6]{};
 __declspec(dllexport) int32_t CyberpunkVR_AfwTune[8] = {3, 3, 250, 0, 0, 0, 1, 0};
 // Extra factor on the motion vectors' scale, x and y (-1 flips one).
 __declspec(dllexport) float CyberpunkVR_AfwMotionScale[2] = {1.0f, 1.0f};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// AFW IS RUST'S (rust/crates/cvr-render/src/afw.rs, afw_cameras.rs): OSR or PureDark's plugin, the eye a frame is
+// drawn for, the fallbacks; the exports above stay here.
+
+namespace cvr::afw {
+static_assert(sizeof(WarpRequest) == 88 && offsetof(WarpRequest, out) == 80 && sizeof(Stats) == 24);
+
+}  // namespace cvr::afw
+#else
 namespace cvr::afw {
 namespace {
 
@@ -420,3 +440,5 @@ bool Warp(const WarpRequest& q) {
 }
 
 }  // namespace cvr::afw
+#endif
+#endif

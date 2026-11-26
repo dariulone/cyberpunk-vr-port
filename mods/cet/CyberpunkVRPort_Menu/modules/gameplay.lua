@@ -10,7 +10,8 @@ local LABELS = {
   en = { character="CHARACTER", journal="JOURNAL", codex="DATABASE", timeskip="WAIT",
     attributes="Attributes", perks="Perks", skills="Skills", level="Level", points="Attribute points",
     perkPoints="Perk points", relic="Relic", upgrade="UPGRADE +1", buy="LEARN", refund="REFUND",
-    confirm="CONFIRM", cancel="CANCEL", back="BACK", requires="Requires", cost="Cost",
+    confirm="CONFIRM", cancel="CANCEL", yes="YES", back="BACK", requires="Requires", cost="Cost",
+    upgradeQuestion="Spend 1 attribute point?", upgradeHint="Future +1 clicks spend points immediately.",
     active="Active", completed="Completed", failed="Failed", all="All", track="TRACK OBJECTIVE",
     tracked="Tracked", optional="Optional", choose="Select an entry", empty="No entries",
     readError="Unable to read game data", retry="RETRY", skip="SKIP", hours="hours", now="Now",
@@ -20,7 +21,8 @@ local LABELS = {
   ru = { character="ПЕРСОНАЖ", journal="ЖУРНАЛ", codex="БАЗА ДАННЫХ", timeskip="ОЖИДАНИЕ",
     attributes="Характеристики", perks="Способности", skills="Навыки", level="Уровень", points="Очки характеристик",
     perkPoints="Очки способностей", relic="Биочип", upgrade="ПОВЫСИТЬ +1", buy="ИЗУЧИТЬ", refund="ВЕРНУТЬ ОЧКИ",
-    confirm="ПОДТВЕРДИТЬ", cancel="ОТМЕНА", back="НАЗАД", requires="Требуется", cost="Стоимость",
+    confirm="ПОДТВЕРДИТЬ", cancel="ОТМЕНА", yes="ДА", back="НАЗАД", requires="Требуется", cost="Стоимость",
+    upgradeQuestion="Потратить 1 очко характеристики?", upgradeHint="В дальнейшем нажатие +1 сразу потратит очко.",
     active="Активные", completed="Завершённые", failed="Проваленные", all="Все", track="ОТСЛЕЖИВАТЬ ЦЕЛЬ",
     tracked="Отслеживается", optional="Необязательно", choose="Выберите запись", empty="Нет записей",
     readError="Не удалось прочитать данные игры", retry="ПОВТОРИТЬ", skip="ПОДОЖДАТЬ", hours="ч.", now="Сейчас",
@@ -186,13 +188,26 @@ function G.codex(kit,p,p2)
   list(kit,p2,"p2","p2",kit.P2X,110,DETAIL,details,880)
 end
 
+-- A queued purchase may land between the click's redraw and its scheduled refresh.
+-- Invalidate the snapshot before drawing or recording the new point totals.
+local function refreshCharacter(s)
+  local ok,signature=pcall(D.signature,"character")
+  if not ok or signature==s.signature then return false end
+  Jobs.drop("character");Jobs.dropPrefix("perks:")
+  s.confirm=nil
+  s.attributePrompt=nil
+  s.signature=signature
+  return true
+end
+
 function G.build(kit,p,p2)
   local s,t=state(kit)
   s.images={};s.watch={};s.reading=nil
   if s.resetList then kit.S.keepScroll=nil;s.resetList=nil end
+  if kit.S.section=="character" then refreshCharacter(s) end
   local ok,err=pcall(G[kit.S.section],kit,p,p2)
   local viewKey=kit.S.section..":"..tostring(s.attribute)..":"..tostring(s.skills)..":"..tostring(s.tarot)
-    ..":"..tostring(s.perk~=nil or s.attributeInfo==true)..":"..tostring(s.journalInspect~=nil)
+    ..":"..tostring(s.perk~=nil)..":"..tostring(s.journalInspect~=nil)
   if ok and s.viewKey~=viewKey and (kit.S.section=="character" or kit.S.section=="tarot") then
     local m1,m2=p:GetMargin(),p2:GetMargin()
     kit.slideIn("p1",p,m1.left,m1.top,0,0,22)
@@ -202,10 +217,6 @@ function G.build(kit,p,p2)
   s.viewKey=viewKey
   s.error=not ok and tostring(err) or nil
   s.lastPoll=kit.S.time
-  if kit.S.section=="character" then
-    local signatureOK,signature=pcall(D.signature,kit.S.section,s.quest)
-    if signatureOK then s.signature=signature end
-  end
   if not ok then
     print("[VRMenu] "..kit.S.section..": "..tostring(err))
     kit.toast(t.readError)
@@ -214,7 +225,7 @@ function G.build(kit,p,p2)
 end
 
 function G.leave(kit)
-  local s=state(kit);s.confirm=nil;s.lastPoll=nil;s.signature=nil;s.images={};s.watch={};s.reading=nil
+  local s=state(kit);s.confirm=nil;s.attributePrompt=nil;s.lastPoll=nil;s.signature=nil;s.images={};s.watch={};s.reading=nil
 end
 
 -- Keys the panel on screen drew from: a newer result redraws it (or goes to its own handler), and a
@@ -280,11 +291,7 @@ function G.update(kit)
     if ok and s.clock and (c.minute~=s.clock.minute or c.hour~=s.clock.hour or c.allowed~=s.clock.allowed or c.hidden~=s.clock.hidden) then redraw(kit) end
   elseif kit.S.section=="character" then
     -- (the journal, codex, shards and tarot are watched through their jobs above)
-    local ok,signature=pcall(D.signature,kit.S.section,s.quest)
-    if ok and signature~=s.signature then
-      s.confirm=nil
-      -- points or levels moved: the kept character read is stale
-      Jobs.drop("character");Jobs.dropPrefix("perks:")
+    if refreshCharacter(s) then
       local detail=kit.S.views.p2
       local offset=detail and detail.offset
       redraw(kit)

@@ -12,12 +12,58 @@ struct NodeGroups {uint64_t begin{},end{};uint32_t incoming{},outgoing{};bool op
 static_assert(sizeof(NativeArray)==16 && sizeof(NodeGroups)==24);
 struct Mapping {uint32_t node{},ordinal{};NodeGroups groups;bool operator==(const Mapping&)const=default;};
 enum class Failure:uint32_t {None,Arguments,Caller,Source,Owner,Header,Count,Groups,Changed,Allocation};
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/native/graph_jobs.rs through graph_jobs_abi.rs
+// (tools/single_pass_tests/graph_jobs_test runs its cases against them in its Rust variant).
+struct RustPlan;struct RustLeaseSet;
+struct RustSourceView {const graph_snapshot::Node* nodes;size_t nodeCount;const graph_snapshot::Edge* edges;size_t edgeCount;uint32_t failure;};
+struct RustPlanView {
+    uint64_t ownerAddress,owner,graph,groupsAddress,base;NativeArray array;const Mapping* mapping;size_t mappingCount;
+    RustSourceView source;bool ready;
+};
+struct RustPlanOut {uint32_t failure;std::array<uint64_t,8> diagnostic;uint64_t owner;NativeArray array;const Mapping* mapping;size_t mappingCount;};
+static_assert(sizeof(Mapping)==32 && sizeof(RustPlanView)==120 && sizeof(RustPlanOut)==112,"mirrored by graph_jobs_abi.rs");
+extern "C" {
+RustPlan* cvr_gj_plan_capture(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,const RustSourceView*,ReadMemory,RustPlanOut*);
+void cvr_gj_plan_free(RustPlan*);
+bool cvr_gj_plan_matches(const RustPlanView*,ReadMemory);
+RustLeaseSet* cvr_gj_leases_new(const JobLeaseApi*);
+void cvr_gj_leases_free(RustLeaseSet*);
+bool cvr_gj_leases_capture(RustLeaseSet*,const RustPlanView*,ReadMemory);
+bool cvr_gj_leases_complete(const RustLeaseSet*,uint32_t,uint32_t,bool);
+bool cvr_gj_leases_state(const RustLeaseSet*,size_t*);
+}
+#endif
 
 // Only after the original 0x32D60C returns, while its caller still owns the
 // 24-byte group array. This receipt identifies native groups, not a lifetime
 // lease by itself. Worker/context refcount +8 is NOT the job-group refcount.
 class CapturePlan {
 public:
+#if CVR_RUST_VRIK
+    bool Capture(uint64_t renderOwner,uint64_t graph,uint64_t groups,uint64_t caller,uint64_t imageBase,
+                 const graph_snapshot::Snapshot& source,ReadMemory read)try{
+        [[maybe_unused]] const auto previousSource=source_;
+        *this=CapturePlan{};
+        const RustSourceView view{source.nodes.data(),source.nodes.size(),source.edges.data(),source.edges.size(),source.failure};
+        RustPlanOut out{};const auto plan=cvr_gj_plan_capture(renderOwner,graph,groups,caller,imageBase,&view,read,&out);
+        failure_=Failure(out.failure);diagnostic_=out.diagnostic;
+        if(!plan)return false;
+        struct Release{RustPlan* plan;~Release(){cvr_gj_plan_free(plan);}}release{plan};
+        mapping_.assign(out.mapping,out.mapping+out.mappingCount);
+        ownerAddress_=renderOwner;owner_=out.owner;graph_=graph;groupsAddress_=groups;array_=out.array;base_=imageBase;
+        source_=std::make_shared<const graph_snapshot::Snapshot>(source);ready_=true;return true;
+    }catch(...){*this=CapturePlan{};failure_=Failure::Allocation;return false;}
+    bool Matches(ReadMemory read)const{
+        if(!ready_ || !source_)return false;
+        const auto view=RustView();return cvr_gj_plan_matches(&view,read);
+    }
+    RustPlanView RustView()const{
+        const RustSourceView source=source_?RustSourceView{source_->nodes.data(),source_->nodes.size(),source_->edges.data(),
+            source_->edges.size(),source_->failure}:RustSourceView{};
+        return {ownerAddress_,owner_,graph_,groupsAddress_,base_,array_,mapping_.data(),mapping_.size(),source,ready_ && source_};
+    }
+#else
     bool Capture(uint64_t renderOwner,uint64_t graph,uint64_t groups,uint64_t caller,uint64_t imageBase,
                  const graph_snapshot::Snapshot& source,ReadMemory read)try{
         [[maybe_unused]] const auto previousSource=source_;
@@ -45,6 +91,7 @@ public:
         return now.Capture(ownerAddress_,graph_,groupsAddress_,base_+QueueReturn,base_,*source_,read) &&
             now.owner_==owner_ && now.array_==array_ && now.mapping_==mapping_;
     }
+#endif
     bool Ready()const{return ready_;}
     Failure Rejection()const{return failure_;}
     uint64_t OwnerAddress()const{return ownerAddress_;}
@@ -57,6 +104,7 @@ public:
     const std::vector<Mapping>& Nodes()const{return mapping_;}
     std::shared_ptr<const graph_snapshot::Snapshot> Source()const{return source_;}
 private:
+#if !CVR_RUST_VRIK
     struct Snapshot {uint64_t owner{};NativeArray array;std::vector<NodeGroups> groups;bool operator==(const Snapshot&)const=default;};
     static bool Pointer(uint64_t value){return value && !(value&7);}
     bool ReadOnce(ReadMemory read,uint64_t renderOwner,uint64_t graph,uint64_t groups,
@@ -94,6 +142,7 @@ private:
         failure_=Failure::Changed;
         return read(renderOwner,&ownerAfter,8) && ownerAfter==out.owner && read(groups,&headerAfter,sizeof(headerAfter)) && headerAfter==out.array;
     }
+#endif
     std::shared_ptr<const graph_snapshot::Snapshot> source_;
     NativeArray array_;std::vector<Mapping> mapping_;
     uint64_t ownerAddress_{},owner_{},graph_{},groupsAddress_{},base_{};
@@ -101,6 +150,28 @@ private:
     std::array<uint64_t,8> diagnostic_{};
 };
 
+#if CVR_RUST_VRIK
+class LeaseSet {
+public:
+    explicit LeaseSet(JobLeaseApi api):rust_(cvr_gj_leases_new(&api)){}
+    ~LeaseSet(){cvr_gj_leases_free(rust_);}
+    LeaseSet(const LeaseSet&)=delete;
+    LeaseSet& operator=(const LeaseSet&)=delete;
+    // The native group array still owns its groups during both validation
+    // passes. Native retain/release callbacks must not throw.
+    bool Capture(const CapturePlan& plan,ReadMemory read)try{
+        const auto view=plan.RustView();return cvr_gj_leases_capture(rust_,&view,read);
+    }catch(...){return false;}
+    bool Complete()const{return cvr_gj_leases_complete(rust_,0,0,true);}
+    // Bind selection to the held ordinal/handle mapping, never to a later raw
+    // graph or group-array read. This is completion, not execution permission.
+    bool Complete(uint32_t ordinal,uint32_t handle)const{return cvr_gj_leases_complete(rust_,ordinal,handle,false);}
+    bool Sealed()const{size_t nodes{};return cvr_gj_leases_state(rust_,&nodes);}
+    size_t Nodes()const{size_t nodes{};cvr_gj_leases_state(rust_,&nodes);return nodes;}
+private:
+    RustLeaseSet* rust_;
+};
+#else
 class LeaseSet {
 public:
     explicit LeaseSet(JobLeaseApi api):api_(api){}
@@ -134,4 +205,5 @@ private:
     JobLeaseApi api_;std::vector<std::unique_ptr<NativeJobLease>> leases_;bool sealed_{};
     std::vector<Mapping> mapping_;
 };
+#endif
 }

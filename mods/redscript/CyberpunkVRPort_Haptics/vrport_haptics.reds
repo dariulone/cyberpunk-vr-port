@@ -15,26 +15,6 @@
 //
 // This file intentionally stays in the global namespace: the plugin registers plain global natives.
 
-native func VRHapticEvent(kind: Int32, hands: Int32) -> Void;
-
-func VRPortGuardHands(player: ref<PlayerPuppet>) -> Int32 {
-  let ts: ref<TransactionSystem> = GameInstance.GetTransactionSystem(player.GetGame());
-  let weapon: ref<WeaponObject> = ts.GetItemInSlot(player, t"AttachmentSlots.WeaponRight") as WeaponObject;
-  let left: ref<WeaponObject>;
-  if IsDefined(weapon) {
-    let id: ItemID = weapon.GetItemID();
-    if WeaponObject.IsOfType(id, gamedataItemType.Wea_Fists) || WeaponObject.IsOfType(id, gamedataItemType.Cyb_StrongArms)
-      || WeaponObject.IsOfType(id, gamedataItemType.Cyb_MantisBlades) {
-      return 3;
-    };
-    return 2;
-  };
-  left = ts.GetItemInSlot(player, t"AttachmentSlots.WeaponLeft") as WeaponObject;
-  if IsDefined(left) && !WeaponObject.IsCyberwareWeapon(left.GetItemID()) {
-    return 1;
-  };
-  return 2;
-}
 
 @wrapMethod(DamageSystem)
 private func ModifyHitData(hitEvent: ref<gameHitEvent>) -> Void {

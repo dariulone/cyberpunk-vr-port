@@ -42,24 +42,10 @@
 #include "Camera/CameraState.hpp"
 #include "Hooks/Hook.hpp"
 
-static float GetDesiredGameHorizontalFov() {
-    //   gameFov(+0x410) = 2 * atan( tan(targetRenderVfov/2) * 16/9 )
-    // CP2077's +0x410 is a "horizontal FOV AT 16:9": the engine LOCKS the vertical =
-    // 2*atan(tan(fov/2)*9/16) then widens horizontal for the render aspect. Feed it
-    // the 16:9-horizontal that back-derives to our TARGET render vertical (= lens *
-    // overscan), so the game renders OVERSCANNED. The submit FOV is set to the same
-    // target (ApplyForcedProjectionFov), and the runtime crops both to the lens ->
-    // correct visible scale + ATW margin = no stretch on head turn.
-    const float targetVfov = GetTargetRenderVfovDeg();
-    if (targetVfov > 1.0f) {
-        const float halfVRad = targetVfov * 0.5f * 3.1415926535f / 180.0f;
-        const float gameHalfH = std::atan(std::tan(halfVRad) * (16.0f / 9.0f));
-        const float gameFovDeg = gameHalfH * 2.0f * 180.0f / 3.1415926535f;
-        if (gameFovDeg > 1.0f && gameFovDeg < 179.0f) return gameFovDeg;
-    }
-    const float runtimeFov = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
-    return runtimeFov > 1.0f ? runtimeFov : 0.0f;
-}
+// The exports (CyberpunkVR_CoherentHandAnchor, CyberpunkVR_CamFinalRowOrder) are src/Camera/CameraLinkState.cpp's; the runtime's
+// view separation comes through src/Camera/CameraServices.cpp, which tools/vrik_tests replaces.
+extern "C" int CyberpunkVR_CamFinalRowOrder;
+extern "C" float cvr_cpp_xr_runtime_ipd();
 
 float GetWorldScale() {
     // Uniform world scale. Multiplies both the eye separation and the head-
@@ -71,7 +57,7 @@ float GetWorldScale() {
 float GetDesiredHalfIpd() {
     // Auto per-person/per-headset: the half-IPD comes straight from the OpenXR
     // runtime view separation, so it already adapts to whoever is wearing the HMD.
-    const float runtimeIpd = OpenXRManager::Get().GetRuntimeIpd();
+    const float runtimeIpd = cvr_cpp_xr_runtime_ipd();
     const float halfIpd = runtimeIpd > 0.001f ? runtimeIpd * 0.5f : 0.032f;
     // Eye-separation = runtime half-IPD x ipdScale x worldScale x stereoScale.
     // The neutral baseline is ipdScale=1.0 (raw runtime IPD, typically
@@ -101,8 +87,8 @@ extern "C" float CyberpunkVRPort_HalfIpd() { return GetDesiredHalfIpd(); }
 // in between -- which is why it wobbles when the head moves and sits still when it does not.
 //
 // Locate publishes a framed recipe through CameraLink. Model-space calibration
-// follows entity yaw; physical tracking follows entityYaw - bodyRealign.
-extern "C" __declspec(dllexport) int CyberpunkVR_CoherentHandAnchor = 1;
+// follows entity yaw; physical tracking follows entityYaw - bodyRealign. (The switch, CyberpunkVR_CoherentHandAnchor, is
+// CameraLinkState.cpp's.)
 
 float cvr::camera::BodyAnchorYaw(float fallback) {
     if (g_isInVehicle || !CyberpunkVR_EngineBodyYawValid) return fallback;
@@ -186,8 +172,8 @@ static void BuildGameViewRowsFromQuaternion(const float* q, float* outViewRows) 
 // So the stored basis is R with the Y and Z columns exchanged -- the game's "X right, Y forward,
 // Z up" against the quaternion's "X right, Y up, Z forward" -- and that is exactly the transpose
 // of what BuildGameViewRowsFromQuaternion emits. The original convention was right; writing the
-// rows straight was my error. 0 keeps the straight form available for comparison.
-extern "C" __declspec(dllexport) int CyberpunkVR_CamFinalRowOrder = 1;
+// rows straight was my error. 0 keeps the straight form available for comparison. (CyberpunkVR_CamFinalRowOrder:
+// CameraLinkState.cpp.)
 
 // Write the orientation into the RENDER CAMERA's own basis rows, the ones the view-matrix bake
 // reads (component +0xC0/+0xD0/+0xE0, i.e. rsiPtr + 20/24/28 floats -- rsiPtr is component+0x70).

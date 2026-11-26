@@ -1,3 +1,5 @@
+#include <source_location>
+#include <string>
 #include "Render/NativeSubmissionFrontier.hpp"
 #include <cstdio>
 #include <map>
@@ -5,7 +7,9 @@
 #include <stdexcept>
 
 using namespace cvr::stereo::submission_frontier;
-static void Require(bool value){if(!value)throw std::runtime_error("submission frontier assertion failed");}
+static void Require(bool value,std::source_location at=std::source_location::current()){
+    if(!value)throw std::runtime_error("submission frontier assertion failed at line "+std::to_string(at.line()));
+}
 struct Memory {
     std::map<uint64_t,uint8_t> bytes;uint64_t changeAddress{};uint32_t changeReads{};
     template<class T>void Put(uint64_t address,const T& value){
@@ -18,7 +22,7 @@ struct Memory {
     }
 };
 struct Fixture {
-    static constexpr uint64_t Base=0x140000000,Renderer=0x200000,Header=Renderer+0x4C50,Table=0x220000,Registry=0x400000;
+    static constexpr uint64_t Base=0x140000000,Renderer=0x200000,Header=Renderer+0x4C60,Table=0x220000,Registry=0x400000;
     static constexpr uint64_t Context0=0x80000,Context1=0x80100,List0=0x90000,List1=0x90100;
     Memory memory;uint32_t end=87,mode=1;uint64_t caller=Base+detail::CallerReturn;
     Fixture(){
@@ -28,7 +32,7 @@ struct Fixture {
         Context(7,Context0,List0);Context(8,Context1,List1);
     }
     void Context(uint32_t id,uint64_t context,uint64_t list){
-        memory.Put(Registry+0xD1AD98+uint64_t(id-1)*16,context);
+        memory.Put(Registry+0xD6EDA8+uint64_t(id-1)*16,context);
         memory.Put(context+0x30,list);memory.Put(context+0x60,uint64_t(0xA0000+id*0x100));
         memory.Put(context+0x68,uint32_t(1));memory.Put(context+0x630,uint64_t(0xB0000+id*0x100));memory.Put(context+0x638,uint64_t(0));
     }
@@ -45,7 +49,7 @@ struct BoundaryFixture {
         for(uint32_t i=0;i<rows.size();++i){auto& row=rows[i];row.list=lists[i]=0x10000+i*0x100;
             if(!i)continue;
             row.context=0x20000+i*0x100;row.generation=80000+i;row.token=0x30000+i*0x100;row.registry=0x40000;
-            row.work=Fixture::Base+0x1EC1D0;row.name=0x50000+i;
+            row.work=Fixture::Base+0x332D5C;row.name=0x50000+i;
             row.graph={19,77,13,11,0x60000,7242777683317427689ull,18};
             row.slot=83+i;row.node=i==1?109:24+i;row.view=i==1?1:0;row.match=detail::MatchKind::Matched;row.qualified=true;
         }
@@ -115,7 +119,7 @@ int main()try{
     Require(last.Capture(range,failure) && range.slots.size()==1 && range.slots.front().index==255);
     Fixture invalid;invalid.memory.Put(Fixture::Table+85*4,uint32_t(129));
     Require(invalid.Capture(range,failure) && range.slots[1].failure==detail::Failure::ContextId && !range.slots[1].context.address);
-    Fixture absent;absent.memory.bytes.erase(Fixture::Registry+0xD1AD98+6*16);
+    Fixture absent;absent.memory.bytes.erase(Fixture::Registry+0xD6EDA8+6*16);
     Require(absent.Capture(range,failure) && range.slots[1].failure==detail::Failure::Context);
     Fixture changed;changed.memory.changeAddress=Fixture::Context0+0x30;
     Require(changed.Capture(range,failure) && range.slots[1].failure==detail::Failure::Context);
@@ -125,7 +129,7 @@ int main()try{
     Require(ledger->Add({copied.list,copied.address,10,100,1,0,true}));
     // The native range transfer may clear/recycle the entire bank. A real token
     // validator, rather than another bank lookup, decides the later submission.
-    good.memory.Put(Fixture::Registry+0xD1AD98+6*16,uint64_t(0));good.memory.Put(Fixture::Table+85*4,uint32_t(0));
+    good.memory.Put(Fixture::Registry+0xD6EDA8+6*16,uint64_t(0));good.memory.Put(Fixture::Table+85*4,uint32_t(0));
     const auto valid=[](uint32_t,uint32_t& reason){reason=0;return true;};
     auto match=ledger->Observe(copied.list,valid);Require(match.kind==detail::MatchKind::Matched && match.entry==0);
     Require(ledger->At(0).context==Fixture::Context0 && ledger->At(0).generation==10);
@@ -152,7 +156,9 @@ int main()try{
     for(uint32_t i=0;i<detail::MaxRows;++i)Require(ledger->Add({uint64_t(i)+1,1,1,1,1,i,false}));
     Require(!ledger->Add({1,1,1,1,1,0,false}) && ledger->Size()==detail::MaxRows);
     Require(!detail::NativeId(0) && !detail::NativeId(UINT32_MAX) && detail::NativeId(1));
-    for(const auto& code:detail::Contract)Require(code.rva && code.bytes && code.bytes<=512 && code.hash);
+    // 2.5: the hook row (sub_1422701F0) is rewritten but not re-audited -- the header leaves its hash 0, so it never
+    // matches and the hook stays uninstalled. Every other row is a real audited span.
+    for(const auto& code:detail::Contract)Require(code.rva && code.bytes && code.bytes<=512 && (code.hash || code.rva==detail::HookRva));
 
     BoundaryFixture boundaryFixture;Boundary boundary;detail::BoundaryFailure boundaryFailure{};
     Require(boundaryFixture.Find(boundary,boundaryFailure) && boundaryFailure==detail::BoundaryFailure::None);

@@ -39,6 +39,10 @@
 #include "Camera/CameraLink.hpp"
 #include "Hooks/Hook.hpp"
 
+#if CVR_RUST_VRIK
+// The Rust build's first launch is rust/crates/cvr-ffi/src/first_launch.rs (the preset's merge, the flag's rewrite,
+// the borderless window), entered from rust/crates/cvr-render/src/cpp_services.rs (first_launch_entry).
+#else
 // Rewrite the one key in place. PersistLiveControlsUiState rewrites the whole file, but that only
 // runs when the overlay saves; this has to survive a launch where the player never opens it, and
 // it must not throw away anything else the file carries.
@@ -171,3 +175,4 @@ extern "C" void ApplyFirstLaunchGameSettings() {
     for(const auto& skipped:installed.skipped)
         Log("FirstLaunch: preset's %s not applied (not in this game build, or a value it would not read)\n",skipped.c_str());
 }
+#endif

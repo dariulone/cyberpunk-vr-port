@@ -17,6 +17,13 @@
 #include <cstdint>
 #include <string>
 
+#if CVR_RUST_VRIK
+// The globals are Rust's: rust/crates/cvr-ffi/src/vrik_state_exports.rs (Anim/VrikState.hpp and Anim/WeaponAimState.hpp
+// declare them with C linkage); the two log paths stay here for their C++ callers.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // its callers (Anim/ReloadPose.cpp, TwoHandGrip.cpp, Natives/HandBody.cpp) are the test variants'
+std::string VRGripPath(const char* name) { return cvr::paths::FileA(cvr::paths::Folder::Grips, name); }
+#endif
+#else
 // ---- Weapon-aim (Hooks/WeaponAim.cpp). Its ~150 experiment globals, and the PrepareAttack and
 //      live-projectile finders', went with their hooks on 2026-10-17. ----
 volatile uintptr_t g_waExeBase = 0;
@@ -30,11 +37,11 @@ HANDLE g_hMapFile = NULL;
 // NOT static: the pose path in src/Anim/VrikHook.cpp uses this, and used to reach it only
 // because it was textually included into this file. See Anim/VrikState.hpp.
 float* g_pSharedHands = nullptr;
-bool g_chunkDebugEnabled = false;
-bool g_chunkDebugWasEnabled = false;
-int32_t g_chunkDebugComponentIndex = -1;
-int32_t g_chunkDebugHand = 1; // 0 = left, 1 = right
-int32_t g_chunkDebugBitSlots[4] = {0, -1, -1, -1};
+extern "C" bool g_chunkDebugEnabled = false;  // C linkage: rust/crates/cvr-ffi/src/hand_natives.rs
+extern "C" bool g_chunkDebugWasEnabled = false;
+extern "C" int32_t g_chunkDebugComponentIndex = -1;
+extern "C" int32_t g_chunkDebugHand = 1; // 0 = left, 1 = right
+extern "C" int32_t g_chunkDebugBitSlots[4] = {0, -1, -1, -1};
 int32_t g_animInputTestMode = 0; // 0 off, 1 constant test pose, 2 mapped VR local positions
 int32_t g_animParamPersistentPreset = 0;
 float g_animParamPersistentValue = 0.0f;
@@ -154,13 +161,13 @@ volatile int       g_WeaponPartWriteOn = 0;
 // Why arming succeeded or failed, stage by stage. [0] animated object found, [1] trackBufA set, [2] trackBufB set,
 // [3] metaRig bone count, [4] parts matched, [5] animated components the PLAYER entity owns, [6] how many of those
 // were not "root". Reported through VRWeaponRigStatus with negative slots.
-volatile int       g_WeaponRigDiag[8] = {};
+extern "C" volatile int       g_WeaponRigDiag[8] = {};
 // The component names found, so a name can be read rather than guessed at.
-char        g_WeaponRigNames[512] = {};
+extern "C" char        g_WeaponRigNames[512] = {};
 
 // The parts a firearm's rig carries, in the order script sees them. Taken from the Silverhand's own bone list
 // (tools/emit_weapon_collision_data.py prints it); a name absent from another weapon's rig simply resolves to -1.
-const char* kWeaponPartNames[] = {
+extern "C" const char* kWeaponPartNames[9] = {
     "mag_std", "front_slider", "back_slider", "rotator", "weapon_trigger",
     "hammer", "bullet", "bullet_reload", "barrel",
 };
@@ -191,11 +198,11 @@ volatile float     g_VROffLX = 0.0f, g_VROffLY = 0.0f, g_VROffLZ = 0.0f;
 // 0 = unset -> the gizmo-path arm-bone scaling (VRIK_ArmScale) is disabled. Published by the
 // auto-calibration into shared slots [77]/[78]; read in PollVRCalibFromShared.
 volatile float     g_VRUserArmLenR = 0.0f, g_VRUserArmLenL = 0.0f;
-volatile float     g_VRUserEyeHeight = 0.0f; // T-pose HMD floor height (metres); for Phase 3 body scale
+extern "C" volatile float     g_VRUserEyeHeight = 0.0f; // T-pose HMD floor height (metres); for Phase 3 body scale
 // Phase 2 body-under-HMD: bend the spine so the chest sits under the HMD (fixes head-ahead-of-
 // body + gizmo!=hand). Tunable via the overlay; defaults are a first guess to refine from diag.
 volatile int       g_VRBodyUnderHMD = 1;
-volatile int       g_VRNeutralizeAnimGraph = 1;
+extern "C" volatile int       g_VRNeutralizeAnimGraph = 1;  // C linkage: rust/crates/cvr-ffi/src/anim_inputs.rs
 volatile float     g_VRChestDrop = 0.40f;   // eyes -> chest down (m)
 volatile float     g_VRChestFwd  = -0.05f;  // eyes -> chest forward(+)/back(-) (m)
 volatile float     g_VRHeadDrop  = 0.08f;   // head bone sits this far ABOVE the eyes/HMD (m)
@@ -221,7 +228,11 @@ volatile int       g_VRIKFreshTotal = 0;
 // 0 = the hands snapshot's copy of shared [104..107], which is what it was: a second capture of
 // the same publisher, refreshed on the HANDS' cadence, leaving the rotation between two view
 // publications in the hand frame -- visible only while the head turns.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) volatile int CyberpunkVR_VrikHandFrameOneLatch = 1;
+#endif
 volatile int       CyberpunkVR_VrikHandFrameAlign = 1;
 volatile float     g_VRIKDbgChestTgt[3] = {0,0,0};
 // Anatomical offset from the HMD to the SHOULDER joint, in HMD-LOCAL OpenXR axes
@@ -269,7 +280,7 @@ volatile int       g_VRFppCamIdx[5] = { -1, -1, -1, -1, -1 };
 volatile int       g_VRCamBoneFreeze = 4;
 // Clean-pair XY slew rate (m/s), live via SetVRPairSlew. 1.0 = compromise default
 // (0.5 tested "floaty", raw tested "flash-lurch"); see the limiter in SetVRTransforms.
-volatile float     g_VRPairSlewRate = 1.0f;
+extern "C" volatile float     g_VRPairSlewRate = 1.0f;
 // Clean-pair one-tick PREDICTION factor (ticks of lead), live via SetVRPairLead.
 // The visible sprint-transient jerk is NOT the 20cm camera-lead motion itself (view
 // and body ride it TOGETHER) -- it is the solve->render clock skew (~1 tick): the
@@ -288,7 +299,7 @@ volatile float     g_VRPairSlewRate = 1.0f;
 // during sprint), in which case the pair faithfully reproduces it and the avatar really is in front
 // of the eye; or the backwards-step animation pitches the torso forward into view, which is a pose
 // question and not an anchor one. Measure which before touching either.
-volatile float     g_VRPairLeadTicks = 0.0f;
+extern "C" volatile float     g_VRPairLeadTicks = 0.0f;
 volatile int       g_VRUseHeadRelative = 1;
 volatile int       g_VRDiagCapture = 0;
 float              g_VRDiagBones[32 * 7] = {0};
@@ -302,7 +313,7 @@ volatile int       g_VRSmokeFingerHave    = 0;
 volatile int       g_VRSmokeFingerCount   = 0;
 int                g_VRSmokeFingerIdx[32] = {0};
 float              g_VRSmokeFingerRot[32][4] = {{0}};
-char               g_VRSmokeFingerName[32][48] = {};   // finger bone names (name-keyed dump/load)
+extern "C" char    g_VRSmokeFingerName[32][48] = {};   // finger bone names (name-keyed dump/load)
 // Cigarette slot = WeaponRight bone (28, child of RightHand): moving its LOCAL transform
 // moves the attached cig so it sits in the captured finger pinch. Full T+R (unlike fingers,
 // rotation-only). Live nudge (OffP/OffQ) lets the pose be fine-tuned in VR then baked.
@@ -386,7 +397,7 @@ volatile int       g_VRSmokeFingerHaveL    = 0;
 volatile int       g_VRSmokeFingerCountL   = 0;
 int                g_VRSmokeFingerIdxL[32] = {0};
 float              g_VRSmokeFingerRotL[32][4] = {{0}};
-char               g_VRSmokeFingerNameL[32][48] = {};
+extern "C" char    g_VRSmokeFingerNameL[32][48] = {};
 volatile int       g_VRSmokeLighterIdx    = -1;   // WeaponLeft bone
 volatile int       g_VRSmokeLighterHave   = 0;
 volatile int       g_VRSmokeLighterEnable = 1;
@@ -416,7 +427,6 @@ float              g_VRSmokeCigLRot[4]  = {0.0f, 0.0f, 0.0f, 1.0f};
 // Full-arm IK (g_VRBind == 4): bone hierarchy + chain indices (resolved in VRIK_DoArmPlayer).
 int16_t            g_VRBoneParent[VRIK_MAX_BONES] = {0};
 volatile int       g_VRBoneCount = 0;
-volatile int       g_VRBodyFemale = -1;
 volatile int       g_VRFKCount = 0;   // solver-touched bone prefix (0 = use full count)
 volatile int       g_VRRightUpperArmIdx = -1; // RightArm  (upper-arm start / shoulder joint)
 volatile int       g_VRRightForeArmIdx  = -1; // RightForeArm (elbow)
@@ -453,3 +463,4 @@ volatile float     g_VRIKDbgElbowL[3]   = {0,0,0};
 volatile float     g_VRIKDbgLensL[2]    = {0,0};
 volatile float     g_VRIKDbgLocalL[4]   = {0,0,0,0};
 volatile float     g_VRIKDbgLens[2]     = {0,0};
+#endif

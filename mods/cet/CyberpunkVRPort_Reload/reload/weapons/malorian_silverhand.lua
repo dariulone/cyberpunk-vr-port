@@ -141,6 +141,7 @@ return {
     --     worse). Do not retry bone-driving a held magazine.
     mag = {
         enabled    = true,
+        chamberOnRack = 'dry',          -- the empty reload needs a slide stroke; a tactical swap keeps its chamber
         slot       = 'vrp_mag_std',      -- world locator of the well (measured: this slot does NOT ride the bone)
         which      = 0,                  -- the MAGAZINE rig (5 bones: mag_plug, magazine, magazine_reload, mag_std,
                                          -- mag_stdr). No bone of it is written any more -- see showTrack.

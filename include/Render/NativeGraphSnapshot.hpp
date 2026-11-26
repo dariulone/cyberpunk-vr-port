@@ -11,10 +11,31 @@ struct Edge {uint32_t handle{},order{};std::array<uint8_t,24> bytes{};bool opera
 static_assert(sizeof(Node)==104 && sizeof(Edge)==32);
 using Read=bool(*)(uint64_t,void*,size_t);
 template<class T,size_t N>T Field(const std::array<uint8_t,N>& bytes,size_t offset){T value{};std::memcpy(&value,bytes.data()+offset,sizeof(value));return value;}
+#if CVR_RUST_VRIK
+// The capture: rust/crates/cvr-render/src/native/graph_snapshot.rs through graph_snapshot_abi.rs
+// (tools/single_pass_tests/graph_snapshot_test runs its cases against it in its Rust variant).
+struct RustGraph;
+struct RustGraphView {const Node* nodes;size_t nodeCount;const Edge* edges;size_t edgeCount;};
+extern "C" {
+RustGraph* cvr_gs_capture(uint64_t,Read,RustGraphView*,uint32_t*);
+void cvr_gs_free(RustGraph*);
+}
+#endif
 struct Snapshot {
     std::vector<Node> nodes;
     std::vector<Edge> edges;
     uint32_t failure{};
+#if CVR_RUST_VRIK
+    bool Capture(uint64_t graph,Read read){
+        nodes.clear();edges.clear();failure=1;
+        RustGraphView view{};const auto captured=cvr_gs_capture(graph,read,&view,&failure);
+        if(!captured)return false;
+        struct Release{RustGraph* graph;~Release(){cvr_gs_free(graph);}}release{captured};
+        // The records read so far stay, as the C++ rules leave them on a refusal.
+        nodes.assign(view.nodes,view.nodes+view.nodeCount);edges.assign(view.edges,view.edges+view.edgeCount);
+        return !failure;
+    }
+#else
     bool Capture(uint64_t graph,Read read){
         nodes.clear();edges.clear();failure=1;
         std::array<uint8_t,0x70> header{};
@@ -54,5 +75,6 @@ struct Snapshot {
             (edgeCount && (!read(edgeOrder,edgesAfter.data(),edgeCount*4ull) || edgesAfter!=edgeIds)))return false;
         failure=0;return true;
     }
+#endif
 };
 }

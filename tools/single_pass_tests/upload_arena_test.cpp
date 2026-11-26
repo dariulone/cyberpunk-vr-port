@@ -18,9 +18,9 @@ static Memory ReadyMemory(){
     value.Set<uint64_t>(0x28,arena::NativeCapacity);value.Set<uint64_t>(0x50,0x300000);value.Set<uint64_t>(0x60,0x100000000);return value;
 }
 int main()try{
-    Require(arena::ReadyRva==0x915C64 && arena::ReadyBytes==249 && arena::ReadyFnv==0xFF20A4D4F912F92Bull,"Ready original guard changed");
-    Require(arena::ResetRva==0x915D60 && arena::ResetBytes==143 && arena::ResetFnv==0x81DB72CACEBD5681ull,"Reset original guard changed");
-    Require(arena::DestroyRva==0x91BDE8 && arena::DestroyBytes==88 && arena::DestroyFnv==0x17A16E7BEE7AFB4Cull,"Destroy original guard changed");
+    Require(arena::ReadyRva==0xB82990 && arena::ReadyBytes==249 && arena::ReadyFnv==0xFF20A4D4F912F92Bull,"Ready original guard changed");
+    Require(arena::ResetRva==0xB82A8C && arena::ResetBytes==143 && arena::ResetFnv==0x81DB72CACEBD5681ull,"Reset original guard changed");
+    Require(arena::DestroyRva==0x5B30DC && arena::DestroyBytes==88 && arena::DestroyFnv==0x17A16E7BEE7AFB4Cull,"Destroy original guard changed");
     auto memory=ReadyMemory();arena::ArenaFields fields;
     Require(arena::detail::ReadArena(Memory::Read,&memory,memory.base,fields) && arena::detail::ReadyFields(fields),"Exact original arena fields rejected");
     Require(fields.ring==memory.base+0x18 && fields.resource==0x300000 && fields.mapped==0x100000000 && fields.cacheCount==8,"Arena fields borrowed unrelated native offsets");

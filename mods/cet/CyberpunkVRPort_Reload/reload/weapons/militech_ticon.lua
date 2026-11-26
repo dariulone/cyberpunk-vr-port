@@ -36,6 +36,7 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_end_slider' },
 
     slide = {
+        ejectLiveRound = false,
         slot       = 'vrp_end_slider',
         which      = 1, bone = 5,
         -- MEASURED live, which corrects the animation on both ends: the bone rests at Z -41.8 (well, -40.8 in the

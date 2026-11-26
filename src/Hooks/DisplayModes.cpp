@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // DisplayModes -- making the VR resolution appear in the game's own mode list.
 //
 // The engine will not render at a resolution its enumeration does not contain, and the headset's
@@ -11,6 +12,10 @@
 // The adapter and output hooks exist only to reach the outputs: an IDXGIOutput is obtained from an
 // adapter, and there is no other point at which one can be intercepted.
 
+#if CVR_RUST_VRIK
+// The Rust build's hooks are rust/crates/cvr-gpu/src/display_modes.rs; the names Hooks/SwapChain.cpp calls forward there.
+#include "Hooks/SwapChainInternal.hpp"
+#else
 #include <MinHook.h>
 #include "Hooks/SwapChainInternal.hpp"
 #include <thread>
@@ -191,3 +196,5 @@ void InstallAdapterHook(IDXGIAdapter* adapter) {
     void** vtable = *objectVtable;
     PatchVtableMethod(vtable, 7, reinterpret_cast<void*>(&HookedEnumOutputs));
 }
+#endif
+#endif

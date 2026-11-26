@@ -26,8 +26,14 @@ SRWLOCK hookLock = SRWLOCK_INIT;
 
 void Simulate(void* scene, float dt, void* completion, void* scratch, uint32_t scratchSize, bool control) {
     cvr::frameorder::Note('S');
-    cvr::heldbody::BeforeSimulate(scene, dt);
-    cvr::physhands::BeforeSimulate(scene, dt);
+    {
+        struct PoseScope {
+            PoseScope(){cvr::physhands::BeginPhysicsPoseFrame();}
+            ~PoseScope(){cvr::physhands::EndPhysicsPoseFrame();}
+        } pose;
+        cvr::heldbody::BeforeSimulate(scene, dt);
+        cvr::physhands::BeforeSimulate(scene, dt);
+    }
     originalSimulate(scene, dt, completion, scratch, scratchSize, control);
     cvr::frameorder::Note('s');
 }

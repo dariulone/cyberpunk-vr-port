@@ -6,9 +6,42 @@
 
 #include <windows.h>
 #include <d3d12.h>
+#include <cstdint>
 #include <mutex>
 #include <wrl.h>
 
+#if CVR_RUST_VRIK
+// The pass: rust/crates/cvr-gpu/src/srgb_pass.rs.
+extern "C" {
+void* cvr_gpu_srgb_pass_new();
+void cvr_gpu_srgb_pass_free(void* pass);
+bool cvr_gpu_srgb_pass_ensure(const void* pass, ID3D12Device* device, int format, uint32_t width, uint32_t height);
+bool cvr_gpu_srgb_pass_record(const void* pass, ID3D12GraphicsCommandList* cmdList, ID3D12Resource* source,
+                              ID3D12Resource* destination, uint32_t descriptorIndex);
+void cvr_gpu_srgb_pass_shutdown(const void* pass);
+}
+class SrgbToLinearPass {
+public:
+    SrgbToLinearPass() : m_rust(cvr_gpu_srgb_pass_new()) {}
+    ~SrgbToLinearPass() { cvr_gpu_srgb_pass_free(m_rust); }
+    SrgbToLinearPass(const SrgbToLinearPass&) = delete;
+    SrgbToLinearPass& operator=(const SrgbToLinearPass&) = delete;
+    // outputFormat: the swapchain's typed format (the render target view). Multi-call safe.
+    bool EnsureInitialized(ID3D12Device* device, DXGI_FORMAT outputFormat, uint32_t width, uint32_t height) {
+        return cvr_gpu_srgb_pass_ensure(m_rust, device, static_cast<int>(outputFormat), width, height);
+    }
+    // source in PIXEL_SHADER_RESOURCE, destination in RENDER_TARGET. descriptorIndex < 6: one per submit
+    // command list (three) and eye, so a list still in flight never has its descriptors rewritten.
+    bool Record(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* source, ID3D12Resource* destination, uint32_t descriptorIndex) {
+        return cvr_gpu_srgb_pass_record(m_rust, cmdList, source, destination, descriptorIndex);
+    }
+    void Shutdown() { cvr_gpu_srgb_pass_shutdown(m_rust); }
+    // The Rust pass, for rust/crates/cvr-render/src/xr_cycle_end.rs.
+    void* Raw() const { return m_rust; }
+private:
+    void* m_rust;
+};
+#else
 class SrgbToLinearPass {
 public:
     SrgbToLinearPass() = default;
@@ -35,3 +68,4 @@ private:
     uint32_t m_width = 0;
     uint32_t m_height = 0;
 };
+#endif

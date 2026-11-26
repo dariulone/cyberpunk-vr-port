@@ -22,6 +22,9 @@ Character.Player_Puppet_Base:
     - !append-once AttachmentSlots.VRPortBelt4
     - !append-once AttachmentSlots.VRPortBelt5
     - !append-once AttachmentSlots.VRPortBelt6
+    - !append-once AttachmentSlots.VRPortGrenadeLeft
+    - !append-once AttachmentSlots.VRPortGrenadeRight
+    - !append-once AttachmentSlots.VRPortGrenadeFlight
     # THE GAME'S OWN GRENADE BELT SLOTS. Every grenade record lists them in placementSlots (checked on
     # Items.GrenadeFragRarePlus: WeaponLeft, GrenadeLeft, GrenadeRight) while the player character does
     # not, so AddItemToSlot refuses without this. Registering them makes the attach SUCCEED -- and it

@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // Physical contacts on original world screens. Use the game's mesh/UV picker,
 // including mesh-bound curved displays, rather than an assumed rectangle or gaze.
 #include "Natives/NativeFunctions.hpp"
@@ -14,6 +15,12 @@
 #include <cmath>
 #include <cstring>
 
+#if CVR_RUST_VRIK
+// The call patch, the thunk's callback and VRWorldTouchPointer are rust/crates/cvr-rig/src/vrik/world_touch.rs (with
+// CvrWorldTouchTriangleOriginal); the thunk (src/Hooks/WorldTouchTriangleThunk.asm) and the registration stay.
+extern "C" bool cvr_hook_world_touch_install();
+CVR_HOOK("WorldTouch",::cvr::hooks::Stage::Boot,88,cvr_hook_world_touch_install);
+#else
 extern "C" { void* CvrWorldTouchTriangleOriginal{}; void CvrWorldTouchTriangleThunk(); }
 
 namespace {
@@ -147,3 +154,5 @@ void VRWorldTouchPointer(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,
         out->PushBack(sample);out->PushBack(point);
     }
 }
+#endif
+#endif

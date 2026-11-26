@@ -1,5 +1,3 @@
-#include "Runtimes/HapticRouting.hpp"
-#include "Runtimes/Haptics.hpp"
 // LiveControlsPoll -- reading the forty-odd live controls, once per tick, off the game threads.
 //
 // The controls are volatile scalars that hooks read directly (see Core/LiveControls.hpp for why there
@@ -19,7 +17,6 @@
 #include "Anim/WheelRange.hpp"
 #include "Hooks/Reflex.hpp"
 #include "Hooks/ReflexOptions.hpp"
-#include "Stereo/ScopeResolution.hpp"
 #include <windows.h>
 #include <psapi.h>
 #include <xinput.h>
@@ -52,6 +49,7 @@ namespace overlay { extern bool g_drawBarrelCross; }
 #include "Utils/MemorySafe.hpp"
 #include "Core/Telemetry.hpp"
 #include "Core/LiveControls.hpp"
+#include "Core/LiveControlsParse.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
 #include "Anim/ScenePolicy.hpp"
 #include "Core/VrCoreShared.hpp"
@@ -60,6 +58,9 @@ namespace overlay { extern bool g_drawBarrelCross; }
 #include "Camera/CameraLink.hpp"
 #include "Hooks/Hook.hpp"
 
+#if CVR_RUST_VRIK
+// THE POLL, THE CET RECENTER REQUEST AND THE HOTKEYS ARE RUST'S (rust/crates/cvr-render/src/live_controls_poll.rs).
+#else
 // Poll the CET VRIK mod's recenter request (written with an incrementing counter on
 // save load / OnGameAttached); recenter when the counter changes.
 static void PollVrikRecenterRequest() {
@@ -90,6 +91,7 @@ static void PollVrikRecenterRequest() {
         Log("VRIK recenter request (save load) -> recentering. counter=%d\n", counter);
     }
 }
+#endif
 
 // Tracking-smoothing accessors (atomics live in openxr_manager.cpp). The proxy
 // owns their ini persistence: parse -> Set* on file change, Get* -> write on Save.
@@ -99,10 +101,13 @@ extern "C" float GetHmdTrackingSmooth(); extern "C" void SetHmdTrackingSmooth(fl
 // block are taken from MAIN for the second view. One bit per candidate, deliberately -- see
 // src/Stereo/Grading.cpp for the offsets and what each one measured. Live, because the bisect belongs to
 // whoever is looking at the picture.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_GradeMirrorMask;
+#endif
 // The extra environment-handle slots: nine 8-byte fields in the graph context laid out as three
 // elements of stride 0x3A0 -- the shape of a blended area-params list, and hdrLut/ldrLut ride in one
 // of them. One bit per slot, 0 by default: refcounted handles, so a wrong one can kill the process.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_EnvExtraMask;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_WaterMirror;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_WaterAssign;
@@ -113,34 +118,61 @@ extern "C" __declspec(dllexport) extern int   CyberpunkVR_SceneStickYawTier;
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_BlockDiff;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_BlockDiffNode;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_BlockDiffSize;
+#endif
 // Which render-mask categories the second view is granted, one bit per row of kRenderMasks in
 // src/Stereo/NodeDispatch.cpp. A category the view lacks makes the engine REFUSE whole nodes to it:
 // bit 10 ClearLighting is what CRenderNode_HistogramUpdate asks for, and without it the second
 // view's auto-exposure never runs at all.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_RenderMaskGrant;
+#endif
 // xr_stage_replay: MAIN replays VRCAM's recorded RenderElements stages with its own camera instead of
 // recording them (src/Render/StageReplay.cpp, docs/single-pass-stage-replay-20261008.md). Applied
 // only when the setting itself changes, so an unrelated ini edit never resets live test controls.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_StageReplaySetting = 0;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_StageReplayConfigure(int enable);
+#endif
+#if !CVR_RUST_VRIK
 static int g_appliedStageReplay = -1;
+#endif
 // xr_vrcam_gbuffer_partitions: the second eye records its G-buffer in worker partitions like MAIN
 // does (src/Render/StageReplay.cpp, ApplyPartitions). Independent of xr_stage_replay; the engine
 // clamps a render-to-texture view to one partition, a 2 ms single-thread job on the frame's
 // critical path in the city.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_VrcamGbufferPartitionsSetting = 1;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_VrcamGbufferPartitionsConfigure(int enable);
+#endif
+#if !CVR_RUST_VRIK
 static int g_appliedGbufferPartitions = -1;
+#endif
 // xr_scope_gbuffer_partitions: the same for the camera scope's view. Off by default: the scope's
 // G-buffer is short (0.3 ms), and a view whose cost is its passes' serial stage latencies gets slower
 // with more passes -- 18.3 against 17.8 ms per frame with a Grad drawn (Pacifica, uncapped).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_ScopeGbufferPartitionsSetting = 0;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_ScopeGbufferPartitionsConfigure(int enable);
+#endif
 // xr_scope_graph_dag: the camera scope's render graph is built with MAIN's job dependencies instead of
 // the one chain the engine makes of a render-to-texture view (src/Stereo/ScopeGraphDag.cpp). Default 1:
 // Megabuilding H10, Grad at the eye, fresh launches 26.2 -> 19.0 ms, the scope view's window 15.0 -> 4.9 ms.
 // Applies when the scope's graph is next built (drawing the weapon).
+#if !CVR_RUST_VRIK
 extern "C" volatile uint32_t CyberpunkVR_ScopeGraphDag;
+#endif
 // xr_submit_chain: each render-graph submission point gets its own job-stage chain, so a graph's
 // Synchronize nodes no longer wait for the previous batch's ExecuteCommandLists (src/Stereo/SubmitChain.cpp,
 // docs/gpu-not-full-20261016.md). 0 off, 1 view jobs and Present wait for the chain, 2 only Present
@@ -149,113 +181,184 @@ extern "C" volatile uint32_t CyberpunkVR_ScopeGraphDag;
 // frame went 23.85 -> 21.47 ms with the deferred present, the scope view's Synchronize nodes no longer
 // waiting for their Submit; holstered (game-thread bound) no change. Applied only when the setting
 // changes, so a live CyberpunkVR_SubmitChain test value survives ini edits.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_SubmitChainSetting = 1;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_SubmitChainConfigure(int mode);
+#endif
+#if !CVR_RUST_VRIK
 static int g_appliedSubmitChain = -1;
+#endif
 // The deferred present (SubmitChain.cpp) and the game thread leaving render jobs to the workers
 // (GameThreadQueues.cpp): both live, both off by default, as ini keys so a launch that looks wrong can be
 // A/B-ed without a debugger. Applied only on a change, like the chain, so a live test value survives edits.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SubmitChainDeferPresent;
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GameThreadSkipRenderQueue;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_DeferPresentSetting = 1;
 extern "C" __declspec(dllexport) int CyberpunkVR_GtSkipRenderQueueSetting = 0;
+#endif
 // xr_submit_chain_rev: the revision of those switches' defaults an ini has. Every ini written before
 // revision 1 holds xr_submit_chain=0 and xr_defer_present=0 -- the A/B values of the 2026-10-17 hunt for
 // grey materials, whose cause was async compute on the graphics queue, not these -- so an ini below it gets
 // the chain (1) and the deferred present (1) once, and is written back with the revision; a player's own
 // choice after that stays. 0 = not seen yet (no key, or no poll so far).
+#if !CVR_RUST_VRIK
 static constexpr int kSubmitChainRev = 1;
+#endif
+#if CVR_RUST_VRIK   // named: the UI's table (rust/crates/cvr-render/src/live_controls_ui.rs) reads it
+#else
 static int g_submitChainRev = 0;
+#endif
+#if !CVR_RUST_VRIK
 static bool g_submitChainRevWrite = false;
 static int g_appliedDeferPresent = -1, g_appliedGtSkipRenderQueue = -1;
+#endif
 // Which of the second view's viewData holes are filled from MAIN, one bit per entry in
 // kViewDataHoles (src/Stereo/ViewReuse.cpp). Live so the untried entries can be bisected without a
 // build, which is what had kept three of them untried.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_ViewDataFixMask;
+#endif
 // The viewData ranges mirrored from MAIN into the second view. Bit 12 is the colour-grade
 // section at +0x640: without it the second eye renders every environment with the identity
 // grade, which is why a braindance has no green cast there and no bloom.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_EnvMirrorMask;
+#endif
 // The second eye's camera in a braindance: bit 1 raises the engine's rebuild flag at comp+0xA00,
 // bit 2 writes a fresh pose in first. 0 restores the behaviour every build up to now had, where the
 // flag was never raised and the view was rebuilt only when the engine happened to mark it itself.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdCamDirty;
+#endif
 // Bit 1 = the second eye, bit 2 = MAIN: push the component's transform every frame and call its
 // own vtable+0x240 notify, which is what makes the engine consume it. 1 ships.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdPushTransform;
+#endif
 // 1 = MAIN's viewpoint in a braindance comes from the same per-frame scene pose the second eye is
 // placed with, so all four quantities that position the pair move at one cadence. 1 ships.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdMainPosFromScene;
+#endif
 // 1 = the second eye is placed relative to MAIN's own located position for this frame; 0 = relative
 // to the scene pose the script publishes. 1 ships -- it takes the script out of the pair's geometry.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdPushBase;
+#endif
 // 1 = while the braindance push owns the second eye, PatchCamera stops composing its own rotation
 // and stops adding the head delta and the eye separation for that eye. One composition, one writer.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdOneComposition;
+#endif
 // 1 = in the braindance EDITOR the second eye takes MAIN's own base, so the pair stops sitting at
 // two different heights. Playback is untouched by this -- there the scene pose is the base.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdEditorAlign;
+#endif
 // 1 = the head is composed onto the scene rotation the ENGINE has for this frame, taken from the
 // located buffer at entry; 0 = onto the pose the CET script publishes, which is not per frame.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdBaseFromLocate;
+#endif
 // 1 = in a braindance MAIN's orientation is taken from whatever PatchCamera last composed, which is
 // only as often as a camera is patched -- 3.4 times a second there. 0 = LocateCamera composes its
 // own every frame. It had no live key until now, so every test of it so far ran at the default.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdQuatFromWriteSite;
+#endif
 // Where the second eye takes its position from: 0 its own attachment, 1 MAIN's base in a
 // braindance, 2 MAIN's base always. See the note beside the export in VrCore.cpp.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_VrcamPosFromMain;
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_DevCamInLocate;
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_LensHeadWrite;
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_InputDefaultInUi;
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_PopupMagBlockMs;
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_DevCamAnyName;
+#endif
 // The node whose square dispatch draws the scanner outline, and the switch for replacing its shader.
 // Live in the ini because the candidates come from a measurement ([viscs] names them) and trying one
 // must not cost a rebuild: the node is read at every dispatch, so a change takes effect at once.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_VisionCsNode;
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_VisionCsSwap;
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_VisionCsDim;
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_VisionCsOrd;
+#endif
 // Sends EVERY draw item down the scene branch of the engine's plane router, so the first-person
 // plane is drawn with the scene's parameter block instead of its own. 0 by default -- see
 // src/Stereo/WeaponPlane.cpp for what the weapon plane buys and what giving it up costs.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_WeaponPlaneAsScene;
+#endif
 // Nops the per-object plane filter in the render gather, so an object on the first-person plane is
 // not dropped before its highlight can be drawn. 0 by default.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_HighlightAnyPlane;
+#endif
 // Sends EVERY draw item to the scene draw-list bucket, so the first-person plane stops being a
 // separate pile at all. 0 by default.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_PlaneBucketScene;
+#endif
 // Declared rather than included: this file has no other business with the stereo internals, and
 // the definition lives in src/Stereo/WeaponPlane.cpp.
 namespace cvr { namespace detail { void weapon_plane_sync(); void highlight_any_plane_sync();
                                   void plane_bucket_scene_sync(); } }
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern float CyberpunkVR_DevCamTolM;
+#endif
 // 1 = in a braindance MAIN's half-IPD goes into the located buffer instead of its camera
 // component, which renders nothing there. 0 restores the component write.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdIpdInLocate;
+#endif
 // 1 = the braindance head base is the located buffer's own quaternion (fresh), 0 = the pose the
 // CET script publishes for the scene camera (a tick old).
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdQuatFromBuffer;
+#endif
 // The light cull's capability grant, and the read-only probe of its three gates.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CapGrant;
+#endif
 // Copies MAIN's fov/zoom/near/far onto the second view's camera, many times per frame.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_ForceVrcamCam;
+#endif
 // Which of MAIN's camera fields the second view takes: 1 fov, 2 zoom, 4 near, 8 far.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_VrcamCamFields;
+#endif
 // 0 off, 1 the engine's whole pass (it also ERASES faded entries from a list MAIN shares),
 // 2 the same apply walked here with nothing removed. 2 is the one to use.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_RunViewParams;
+#endif
 // The exposure readback: 0 off, 1 a line every 8 s, 2 a line every 200 ms for catching a flash.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_ExpoProbe;
+#endif
 // 1 = count ExecuteIndirect per frame-graph node and per view, and print [indirect] every 10 s.
 // It names the node the second view replays with an argument buffer that is not built.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_IndirectCensus;
+#endif
 // 1 = never declare a StateBefore for a foreign resource unless it was observed. Costs the eye
 // capture on every frame where no barrier for that resource was seen -- i.e. stereo. Default 0.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_NoStateLies;
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_StableCopy;
+#endif
 // THE REUSE MODES, AS LIVE KEYS. Each one makes an engine function RETURN EARLY for the second
 // view -- distant render/prepare, local shadow maps, GI, reflection probes -- so the second view
 // reuses MAIN's result instead of building its own. That is wanted, and it is also the only
@@ -270,41 +373,63 @@ extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_StableCopy;
 //
 // None of these had a live key, which is why none had ever been bisected against the crash.
 // They are keys now so the four can be walked in ONE session instead of four rebuilds.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_DistantReuseMode;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_LocalShadowReuseMode;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_GiReuseMode;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_ProbeReuseMode;
+#endif
 // 1 = the second view takes MAIN's exposure adaptation. Which fields is the mask below, DECIMAL:
 // one bit per float, 27 = the adaptation set, 127 = the whole buffer (which whitens the eye).
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_ExpoMirror;
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_ExpoFieldMask;
+#endif
 // Which readers of viewData+0x168 get MAIN's composition state, for the duration of that call:
 // 1 CompositionPostProcess, 2 the RT declarations, 4 DrawHUD, 8 the fifth reader. Never
 // DrawComposition, which is the one that crashes on it. Start at 3.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CompLendScoped;
+#endif
 // The UNSCOPED composition lend, restored from the 0.1.6 render: it puts the borrowed state in the
 // block on every dispatch of our view, which is what lets the second view run its composition at
 // all. The scoped variant beside it deliberately withholds DrawComposition; this one does not.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CompLendSet;
+#endif
 // The other half of that lend: the second eye's copy is taken from the FINISHED frame, at the
 // epilogue of the composition node that writes it, instead of from the mid-chain target. Only
 // meaningful while the lend is armed, because without it that node does not run for this view.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_FinalGrab;
+#endif
 // Which member of the 8-bit family a TYPELESS eye snapshot is typed as. 1 = _UNORM_SRGB, so the
 // sampler decodes and ColorBlit's sRGB target re-encodes -- a round trip. 0 = _UNORM, sampled raw.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_StableSrgbView;
+#endif
 // Byte-compares the light array and the particle-lighting uploads between the views.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_LightContent;
+#endif
 // 0 = no LOD override at all, both eyes on the engine's own value. LodFov.cpp records what the
 // debugger found at that site: the gate keys on a stack-local field that is not the fov.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_FixLodEnable;
+#endif
 // The port's OWN HUD composite into the second eye. Made live because the engine's own HUD now
 // reaches that view through DrawComposition + CompositionPostProcess (xr_comp_lend_set), so this
 // path is a candidate for retirement and wants an A/B without a rebuild.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudToSecondEye;
+#endif
 // xr_vive_trackers: kept here so a save keeps it; Fbt/Game/Trackers.cpp reads it when the session starts.
+#if CVR_RUST_VRIK   // named: the UI's table (rust/crates/cvr-render/src/live_controls_ui.rs) reads it
+#else
 static int g_viveTrackersSetting = 0;
+#endif
 // The HUD in front of the world and the prompt at its object's depth (Runtimes/HudClearance.hpp, InteractionDepth.hpp).
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_InteractionAnchor;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudClearance;
 extern "C" __declspec(dllexport) extern float    CyberpunkVR_HudClearanceGrow;
@@ -314,21 +439,29 @@ extern "C" __declspec(dllexport) extern int      CyberpunkVR_AutoRecenter;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_FingerBones;
 extern "C" __declspec(dllexport) extern float    CyberpunkVR_FingerSpread;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_FingerSpreadOn;
+#endif
 // 1 = each eye renders its own off-centre window and is submitted with it (src/Stereo/AsymProjection.cpp);
 // 0 = the old symmetric frustum sized to the widest half-angle. 2 = test values (CyberpunkVR_AsymTest).
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_AsymProjection;
+#endif
 // 0..1: how far each eye's window reaches towards the other's on its inner side (1 = both eyes the same
 // horizontal range, which keeps screen-space effects identical between the eyes).
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) float CyberpunkVR_AsymInnerGuard;
+#endif
 // The port's OWN copy of the vision/outline layer into the second eye. It exists from the time the
 // second view had no composition of its own and nothing drew the layer there; since the second view
 // builds its own frame the engine draws it, and this copy is a second pass over the same pixels.
 // Live so the two can be compared without a rebuild.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_VisionToSecondEye;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudInBraindance;
+#endif
 // 1 = inject the composition group into the second view's RTT graph through the engine's own pass
 // adders. Needed because that view is built by SCENE_INCR, which contains neither the build-bit-82
 // block nor the final builder that MAIN reaches composition through -- so forcing the bit cannot work.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_VrcamCompositionGroup;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_TwoHandRadius;
 extern "C" __declspec(dllexport) extern int   CyberpunkVR_TwoHandAim;
@@ -356,6 +489,7 @@ extern "C" __declspec(dllexport) extern float CyberpunkVR_RecoilClimbMaxDeg;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_RecoilClimbMs;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandRecoilReturnMs;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandRecoilReturnPow;
+#endif
 // WHERE THE SCANNER'S HUD SITS -- four movable pieces of it, as (x, y, scale) each. Written by the
 // in-game editor through VRScannerSlotSet, read back by the CyberpunkVRPort_ScannerHud redscript.
 //
@@ -404,6 +538,7 @@ extern "C" __declspec(dllexport) extern float CyberpunkVR_HandRecoilReturnPow;
 //
 // The tuned numbers are kept in this comment rather than in the array: if the panels ever need moving
 // again, the in-game editor is the way -- hold RIGHT SHIFT while scanning -- and it writes the ini.
+#if !CVR_RUST_VRIK   // defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs
 extern "C" __declspec(dllexport) float CyberpunkVR_ScannerSlots[21] = {
       0.0f,    0.0f, 1.000f,   // the scanner frame
       0.0f,    0.0f, 1.000f,   // the details panel
@@ -413,27 +548,281 @@ extern "C" __declspec(dllexport) float CyberpunkVR_ScannerSlots[21] = {
       0.0f,    0.0f, 1.000f,   // left_panel: the script list and its heading
       0.0f,    0.0f, 1.000f,   // right_panel: the description block
 };
+#endif
 // The hand filter is UEVR-form now and lives in FlushHandsToShared; its speed is this.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpSpeed;
+#endif
 // THE FILTER'S SPEED FOLLOWS WHAT IS IN THE HAND. The filter trades tracking noise against lag,
 // and which of the two hurts depends on what the hand is doing: a blade is swung and any lag reads
 // as the weapon trailing the arm; a sniper is held still and aimed, where the noise is what shows
 // and the lag costs nothing. 0 in any of these means "use the base" (xr_hand_lerp_speed), which is
 // also what empty hands and an unnamed weapon get.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpPistol;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpRifle;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpShotgun;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpSniper;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpMelee;
+#endif
 // What every hand rate above is multiplied by under frame generation; 0 = no filter there.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpFramegenScale;
+#endif
 // 1 = hand offsets measured from the filtered head (the one they are re-anchored on).
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int CyberpunkVR_HandRelToFilteredHead;
+#endif
 // 1 = the published hand pose is located once per frame, for that frame's instant.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern int CyberpunkVR_HandLocatePerFrame;
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/stereo_api.rs
 extern "C" __declspec(dllexport) bool GetWeaponAimEnabled() {
     return OpenXRManager::Get().GetWeaponAimEnable();
+}
+#endif
+
+#if CVR_RUST_VRIK
+static_assert(sizeof(LiveControlsValues) == 1088, "mirrored by rust/crates/cvr-settings/src/live_controls.rs");
+// The poll's table is built in rust/crates/cvr-render/src/live_controls_poll.rs; its C++ services (the subsystems'
+// struct, its default members and the parse that fills it, stay here):
+static_assert(sizeof(LiveControlsSubsystems) == 956 && alignof(LiveControlsSubsystems) == 4, "live_controls_poll.rs");
+// LiveControlsSubsystems is seeded, applied and dropped by rust/crates/cvr-render/src/live_controls_poll.rs.
+// cvr_cpp_xr_use_threaded_submit: rust/crates/cvr-render/src/xr_manager_loop.rs.
+#else
+// The loop's initial values: the live state an ini without the key leaves alone (include/Core/LiveControlsParse.hpp).
+static void SeedLiveControls(LiveControlsValues& v, LiveControlsSubsystems& s) {
+    v.xrWeaponLaserDot = false;
+    v.xrHeadOffsetX = 0.0f;
+    v.xrHeadOffsetY = 0.0f;
+    v.xrHeadOffsetZ = 0.0f;
+    v.xrRecenter = 0;
+    v.xrMonoSubmit = 1;
+    v.xrThreadedSubmit = CyberpunkVR_ThreadedMonoSubmit;
+    v.xrWindowWidth = 0;
+    v.xrWindowHeight = 0;
+    v.xrForceFov = 0.0f;
+    v.xrMenuRect = 0;
+    v.xrMenuFov = 65.4f;
+    v.xrMenuFollowDeg = 60.0f;
+    v.xrHudPanel = 1;
+    v.xrHudFollowDeg = 60.0f;
+    v.xrHudFov = 65.4f;
+    v.xrHudDistance = 1.5f;
+    v.xrInteractionPanel = 1;
+    v.xrInteractionFollowDeg = 0.0f;
+    v.xrInteractionDistance = 2.0f;
+    v.xrInteractionFov = 75.0f;
+    v.xrLootFollowDeg = 0.0f;
+    v.xrHudFollowMode = 0;
+    v.xrHudStereoDepth = 1;
+    v.xrHudBrightness = 1.0f;
+    v.xrHudShadow = 1.0f;
+    v.xrHudGlow = 1.0f;
+    v.monoCascades = CyberpunkVR_MonoCascades.load(std::memory_order_relaxed);
+    v.monoMode = CyberpunkVR_MonoMode;
+    v.afw = CyberpunkVR_Afw==cvr::afw::kModeAfw;
+    v.osr = CyberpunkVR_Afw==cvr::afw::kModeOsr;
+    v.scopeStabilize = cvr::optics::source::GetStabilize();
+    v.nvidiaReflex = cvr::reflex::DefaultMode;
+    v.fpsCap = 1;
+    v.lobby = 1;
+    v.lobbyAmbient = 1;
+    v.xrPitchSign = 1.0f;
+    v.xrPitchScale = 1.35f;
+    v.xrSyncSequential = 1;
+    v.xr3DofMovement = 0;
+    v.xrFirstLaunch = 1;
+    v.xrMotionPredictMs = 0.0f;
+    v.xrStereoScale = 1.0f;
+    v.xrWorldScale = 1.0f;
+    v.xrIpdScale = 1.0f;
+    v.xrSharpness = 0.0f;
+    v.xrSharpmix = cvr::sharpen::DefaultAmount;
+    v.xrReuseLastFrame = 0;
+    v.xrPairLock = 0;
+    v.xrRenderPoseSubmit = 1;
+    v.xrPoseLag = 1;
+    v.xrRuntime = 0;
+    v.xrDepthSubmit = 1;
+    v.xrMovementControl = g_liveControls.xrMovementControl;
+    v.xrDisableMouseY = g_liveControls.xrDisableMouseY;
+    v.xrXInputHook = g_liveControls.xrXInputHook != 0 ? g_liveControls.xrXInputHook : 1;
+    v.xrSnapTurn = g_liveControls.xrSnapTurn;
+    v.xrHmdSmooth = GetHmdTrackingSmooth();
+    v.xrHandLerp = CyberpunkVR_HandLerpSpeed;
+    v.xrLerpPistol = CyberpunkVR_HandLerpPistol;
+    v.xrLerpRifle = CyberpunkVR_HandLerpRifle;
+    v.xrLerpShotgun = CyberpunkVR_HandLerpShotgun;
+    v.xrLerpSniper = CyberpunkVR_HandLerpSniper;
+    v.xrLerpMelee = CyberpunkVR_HandLerpMelee;
+    v.xrLerpFramegen = CyberpunkVR_HandLerpFramegenScale;
+    v.xrGradeMirrorMask = CyberpunkVR_GradeMirrorMask;
+    v.xrEnvExtraMask = CyberpunkVR_EnvExtraMask;
+    v.xrWaterMirror = CyberpunkVR_WaterMirror;
+    v.xrWaterAssign = CyberpunkVR_WaterAssign;
+    v.xrViewDataDiff = CyberpunkVR_ViewDataDiff;
+    v.xrLutSrcLend = CyberpunkVR_LutSrcLend;
+    v.xrSceneYawDps = CyberpunkVR_SceneStickYawDps;
+    v.xrSceneYawTier = CyberpunkVR_SceneStickYawTier;
+    v.xrBlockDiff = CyberpunkVR_BlockDiff;
+    v.xrBlockDiffNode = CyberpunkVR_BlockDiffNode;
+    v.xrBlockDiffSize = CyberpunkVR_BlockDiffSize;
+    v.xrRenderMaskGrant = CyberpunkVR_RenderMaskGrant;
+    v.xrStageReplay = CyberpunkVR_StageReplaySetting;
+    v.xrGbufferPartitions = CyberpunkVR_VrcamGbufferPartitionsSetting;
+    v.xrScopeGbufferPartitions = CyberpunkVR_ScopeGbufferPartitionsSetting;
+    v.xrScopeGraphDag = CyberpunkVR_ScopeGraphDag ? 1 : 0;
+    v.xrSubmitChain = CyberpunkVR_SubmitChainSetting;
+    v.xrDeferPresent = CyberpunkVR_DeferPresentSetting;
+    v.xrGtSkipRenderQueue = CyberpunkVR_GtSkipRenderQueueSetting;
+    v.xrSubmitChainRev = 0;
+    v.xrViewDataFixMask = CyberpunkVR_ViewDataFixMask;
+    v.xrEnvMirrorMask = CyberpunkVR_EnvMirrorMask;
+    v.xrBdCamDirty = CyberpunkVR_BdCamDirty;
+    v.xrBdPushTransform = CyberpunkVR_BdPushTransform;
+    v.xrBdMainPosScene = CyberpunkVR_BdMainPosFromScene;
+    v.xrBdPushBase = CyberpunkVR_BdPushBase;
+    v.xrBdOneComp = CyberpunkVR_BdOneComposition;
+    v.xrBdEditorAlign = CyberpunkVR_BdEditorAlign;
+    v.xrBdBaseFromLocate = CyberpunkVR_BdBaseFromLocate;
+    v.xrCompLendSet = CyberpunkVR_CompLendSet;
+    v.xrFinalGrab = CyberpunkVR_FinalGrab;
+    v.xrStableSrgbView = CyberpunkVR_StableSrgbView;
+    v.xrBdQuatWriteSite = CyberpunkVR_BdQuatFromWriteSite;
+    v.xrVrcamPosFromMain = CyberpunkVR_VrcamPosFromMain;
+    v.xrDevCamInLocate = CyberpunkVR_DevCamInLocate;
+    v.xrLensHeadWrite = CyberpunkVR_LensHeadWrite;
+    v.xrInputDefaultInUi = CyberpunkVR_InputDefaultInUi;
+    v.xrPopupMagBlockMs = CyberpunkVR_PopupMagBlockMs;
+    v.xrDevCamAnyName = CyberpunkVR_DevCamAnyName;
+    v.xrDevCamTolM = CyberpunkVR_DevCamTolM;
+    v.xrBdIpdInLocate = CyberpunkVR_BdIpdInLocate;
+    v.xrBdQuatFromBuffer = CyberpunkVR_BdQuatFromBuffer;
+    v.xrCapGrant = CyberpunkVR_CapGrant;
+    v.xrForceVrcamCam = CyberpunkVR_ForceVrcamCam;
+    v.xrVrcamCamFields = CyberpunkVR_VrcamCamFields;
+    v.xrRunViewParams = CyberpunkVR_RunViewParams;
+    v.xrExpoProbe = CyberpunkVR_ExpoProbe;
+    v.xrIndirectCensus = CyberpunkVR_IndirectCensus;
+    v.xrNoStateLies = CyberpunkVR_NoStateLies;
+    v.xrStableCopy = CyberpunkVR_StableCopy;
+    v.xrDistantReuse = CyberpunkVR_DistantReuseMode;
+    v.xrLocalShadowReuse = CyberpunkVR_LocalShadowReuseMode;
+    v.xrGiReuse = CyberpunkVR_GiReuseMode;
+    v.xrProbeReuse = CyberpunkVR_ProbeReuseMode;
+    v.xrExpoMirror = CyberpunkVR_ExpoMirror;
+    v.xrExpoFieldMask = CyberpunkVR_ExpoFieldMask;
+    v.xrCompLendScoped = CyberpunkVR_CompLendScoped;
+    v.xrLightContent = CyberpunkVR_LightContent;
+    v.xrFixLod = CyberpunkVR_FixLodEnable;
+    v.xrHudTo2 = CyberpunkVR_HudToSecondEye;
+    v.xrInteractionAnchor = CyberpunkVR_InteractionAnchor;
+    v.xrHudClearance = CyberpunkVR_HudClearance;
+    v.xrHudClearanceGrow = CyberpunkVR_HudClearanceGrow;
+    v.xrHudClearanceHands = CyberpunkVR_HudClearanceHands;
+    v.xrHudClearanceHandsScale = CyberpunkVR_HudClearanceHandsScale;
+    v.xrAutoRecenter = CyberpunkVR_AutoRecenter;
+    v.xrFingerBones = CyberpunkVR_FingerBones;
+    v.xrGripFromFingers = cvr::fingergrip::GripFromFingers() ? 1 : 0;
+    v.xrFingerSpread = CyberpunkVR_FingerSpread;
+    v.xrFingerSpreadOn = CyberpunkVR_FingerSpreadOn;
+    v.xrAsym = CyberpunkVR_AsymProjection;
+    v.xrAsymGuard = CyberpunkVR_AsymInnerGuard;
+    v.xrVisionTo2 = CyberpunkVR_VisionToSecondEye;
+    v.xrHudBd = CyberpunkVR_HudInBraindance;
+    v.xrCompGroup = CyberpunkVR_VrcamCompositionGroup;
+    v.xrTwoHandRadius = CyberpunkVR_TwoHandRadius;
+    v.xrTwoHandAim = CyberpunkVR_TwoHandAim;
+    v.xrTwoHandBreak = CyberpunkVR_TwoHandBreakRadius;
+    v.xrTwoHandAimRelease = CyberpunkVR_TwoHandAimReleaseMs;
+    v.xrCarryRadius = CyberpunkVR_CarryGripRadius;
+    v.xrRifleRise = CyberpunkVR_RifleRiseMul;
+    v.xrRifleBack = CyberpunkVR_RifleBackMul;
+    v.xrShotgunRise = CyberpunkVR_ShotgunRiseMul;
+    v.xrShotgunBack = CyberpunkVR_ShotgunBackMul;
+    v.xrDownPistol = CyberpunkVR_RecoilDownPistol;
+    v.xrDownRifle = CyberpunkVR_RecoilDownRifle;
+    v.xrDownShotgun = CyberpunkVR_RecoilDownShotgun;
+    v.xrBackCm = CyberpunkVR_HandRecoilBackCm;
+    v.xrBackMaxCm = CyberpunkVR_HandRecoilBackMaxCm;
+    v.xrTwoHandBack = CyberpunkVR_TwoHandBackMul;
+    v.xrSniperRise = CyberpunkVR_SniperRiseMul;
+    v.xrSniperBack = CyberpunkVR_SniperBackMul;
+    v.xrRecoilScale = CyberpunkVR_RecoilScale;
+    v.xrHaptics = CyberpunkVR_Haptics;
+    v.xrHapticScale = CyberpunkVR_HapticScale;
+    v.xrPistolBack = CyberpunkVR_PistolBackMul;
+    v.xrClimbFrac = CyberpunkVR_RecoilClimbFrac;
+    v.xrClimbMax = CyberpunkVR_RecoilClimbMaxDeg;
+    v.xrClimbMs = CyberpunkVR_RecoilClimbMs;
+    v.xrReturnMs = CyberpunkVR_HandRecoilReturnMs;
+    v.xrReturnPow = CyberpunkVR_HandRecoilReturnPow;
+    for (int i = 0; i < 21; ++i) v.xrScannerSlots[i] = CyberpunkVR_ScannerSlots[i];
+    v.xrHandRelFiltered = CyberpunkVR_HandRelToFilteredHead;
+    v.xrHandPerFrame = CyberpunkVR_HandLocatePerFrame;
+    v.xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg > 0.0f ? g_liveControls.xrSnapTurnAngleDeg : 30.0f;
+    v.xrMovementSource = g_liveControls.xrMovementSource;
+    v.xrMovementSpeedMode = 0;
+    v.xrSprintMode = 0;
+    v.xrLeftStickDeadzone = .15f;
+    v.xrRightStickDeadzone = .15f;
+    v.xrMaxInputThreshold = .90f;
+    v.xrXInputInstall = g_liveControls.xrXInputInstall;
+    v.xrInputActions = g_liveControls.xrInputActions;
+    v.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
+    v.xrSnapTurnPulseMs = g_liveControls.xrSnapTurnPulseMs > 0 ? g_liveControls.xrSnapTurnPulseMs : 30;
+    v.xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
+    v.xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
+    v.xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
+    v.xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
+    v.xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
+    v.xrTrackedBodyRotation = g_liveControls.xrTrackedBodyRotation;
+    v.xrHybridBodyRotation = g_liveControls.xrHybridBodyRotation;
+    v.xrRoomscaleMovement = g_liveControls.xrRoomscaleMovement;
+    v.xrPhysicalCrouch = g_liveControls.xrPhysicalCrouch;
+    v.xrPhysicalCrouchDepth = g_liveControls.xrPhysicalCrouchDepth;
+    v.xrBreaststrokeSwim = g_liveControls.xrBreaststrokeSwim;
+    v.xrLadderGripClimb = g_liveControls.xrLadderGripClimb;
+    v.xrLeftHanded = g_liveControls.xrLeftHanded;
+    v.xrLeftHandedBindings = g_liveControls.xrLeftHandedBindings;
+    v.xrLadderAutoFinish = g_liveControls.xrLadderAutoFinish;
+    v.xrLadderFinishDistance = g_liveControls.xrLadderFinishDistance;
+    v.xrBodyFreeLookDeg = g_liveControls.xrBodyFreeLookDeg;
+    v.xrBodyFreeLookDownDeg = g_liveControls.xrBodyFreeLookDownDeg;
+    v.xrBodyFreeLookSwimDeg = g_liveControls.xrBodyFreeLookSwimDeg;
+    v.xrBodyMoveRadius = g_liveControls.xrBodyMoveRadius;
+    v.xrSceneCamComfortDeg = g_liveControls.xrSceneCamComfortDeg;
+    v.xrCutsceneSuspendTier = g_liveControls.xrCutsceneSuspendTier;
+    v.xrVehicleCutsceneSuspendTier = g_liveControls.xrVehicleCutsceneSuspendTier;
+    v.vehicleCutsceneTierConfigured = false;
+    v.xrVehHeadOffsetX = g_liveControls.xrVehHeadOffsetX;
+    v.xrVehHeadOffsetY = g_liveControls.xrVehHeadOffsetY;
+    v.xrVehHeadOffsetZ = g_liveControls.xrVehHeadOffsetZ;
+    v.xrWheelGrab = g_liveControls.xrWheelGrab;
+    v.xrMenuGesture = g_liveControls.xrMenuGesture;
+    v.xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
+    v.xrWheelRadius = g_liveControls.xrWheelRadius > 0.0f ? g_liveControls.xrWheelRadius : 0.28f;
+    v.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(g_liveControls.xrWheelSteerMaxDeg);
+    v.xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg >= 0.0f ? g_liveControls.xrWheelSteerDeadDeg : 0.0f;
+    v.xrWheelPrediction = g_liveControls.xrWheelPrediction;
+    v.xrWheelPredictionMs = g_liveControls.xrWheelPredictionMs;
+    v.xrWheelHorn = g_liveControls.xrWheelHorn;
+    v.xrWheelHornRadius = g_liveControls.xrWheelHornRadius > 0.0f ? g_liveControls.xrWheelHornRadius : 0.12f;
+    v.xrVehicleGunTrigger = g_liveControls.xrVehicleGunTrigger;
+    v.xrVehicleThrottleTrim = g_liveControls.xrVehicleThrottleTrim > 0.0f ? g_liveControls.xrVehicleThrottleTrim : 0.5f;
+    v.g_viveTrackersSetting = g_viveTrackersSetting;
+    v.CyberpunkVR_VisionCsNode = CyberpunkVR_VisionCsNode;
+    v.CyberpunkVR_VisionCsOrd = CyberpunkVR_VisionCsOrd;
+    v.CyberpunkVR_VisionCsDim = CyberpunkVR_VisionCsDim;
+    v.CyberpunkVR_VisionCsSwap = CyberpunkVR_VisionCsSwap;
+    v.CyberpunkVR_WeaponPlaneAsScene = CyberpunkVR_WeaponPlaneAsScene;
+    v.CyberpunkVR_HighlightAnyPlane = CyberpunkVR_HighlightAnyPlane;
+    v.CyberpunkVR_PlaneBucketScene = CyberpunkVR_PlaneBucketScene;
+    s.framegen = cvr::framegen::GetSettings();
+    s.overlay = cvr::vrui::GetSettings();
 }
 
 void PollLiveControls() {
@@ -451,1370 +840,30 @@ void PollLiveControls() {
 
     g_lastLiveControlWrite = fileData.ftLastWriteTime;
 
-    // Neutral-neck mounting supplies the anatomical offset. These are optional trims.
-    bool xrWeaponLaserDot = false;
-    float xrHeadOffsetX = 0.0f;
-    float xrHeadOffsetY = 0.0f;
-    float xrHeadOffsetZ = 0.0f;
-    int xrRecenter = 0;
-    int xrMonoSubmit = 1;
-    // Seeded from the live value, not from a constant: an ini without the key must leave the
-    // current mode alone rather than reset it.
-    int xrThreadedSubmit = CyberpunkVR_ThreadedMonoSubmit;
-    int xrWindowWidth = 0;
-    int xrWindowHeight = 0;
-    float xrForceFov = 0.0f;
-    int xrMenuRect = 0;
-    float xrMenuFov = 65.4f;
-    float xrMenuFollowDeg = 60.0f;
-    int xrHudPanel=1;
-    float xrHudFollowDeg=60.0f, xrHudFov=65.4f, xrHudDistance=1.5f;
-    int xrInteractionPanel=1;float xrInteractionFollowDeg=0.0f,xrInteractionDistance=2.0f,xrInteractionFov=75.0f;
-    float xrLootFollowDeg=0.0f;
-    int xrHudFollowMode=0, xrHudStereoDepth=1;
-    float xrHudBrightness=1.0f, xrHudShadow=1.0f, xrHudGlow=1.0f;
-    cvr::hud::LayoutSettings hudElements{};
-    auto framegen=cvr::framegen::GetSettings();
-    cvr::foveated::Settings foveated{};
-    cvr::vrs::Settings vrs{};
-    cvr::hidden_area::Settings hiddenArea{};
-    uint32_t monoCascades=CyberpunkVR_MonoCascades.load(std::memory_order_relaxed);
-    int monoMode=CyberpunkVR_MonoMode;
-    int afw=CyberpunkVR_Afw==cvr::afw::kModeAfw;
-    int osr=CyberpunkVR_Afw==cvr::afw::kModeOsr;
-    int scopeStabilize=cvr::optics::source::GetStabilize();
-    int nvidiaReflex=cvr::reflex::DefaultMode;
-    int fpsCap=1;
-    int lobby=1;
-    int lobbyAmbient=1;
-    auto overlay=cvr::vrui::GetSettings();
-    float xrPitchSign = 1.0f;
-    float xrPitchScale = 1.35f;
-    int xrSyncSequential = 1;
-    int xr3DofMovement = 0;
-    int xrFirstLaunch = 1;
-    float xrMotionPredictMs = 0.0f;
-    float xrStereoScale = 1.0f;
-    float xrWorldScale = 1.0f;
-    float xrIpdScale = 1.0f;
-    float xrSharpness = 0.0f;
-    float xrSharpmix = cvr::sharpen::DefaultAmount;
-    int xrReuseLastFrame = 0;
-    int xrPairLock = 0;
-    int xrRenderPoseSubmit = 1;
-    int xrPoseLag = 1;
-    int xrRuntime = 0;
-    // Per-eye, frame-labelled depth snapshots. Missing/invalid/synthetic depth
-    // is omitted from that projection layer rather than borrowed from another frame.
-    int xrDepthSubmit = 1;
-    int xrMovementControl = g_liveControls.xrMovementControl;
-    int xrDisableMouseY = g_liveControls.xrDisableMouseY;
-    int xrXInputHook = g_liveControls.xrXInputHook != 0 ? g_liveControls.xrXInputHook : 1;
-    int xrSnapTurn = g_liveControls.xrSnapTurn;
-    float xrHmdSmooth = GetHmdTrackingSmooth();
-    float xrHandLerp = CyberpunkVR_HandLerpSpeed;
-    float xrLerpPistol  = CyberpunkVR_HandLerpPistol;
-    float xrLerpRifle   = CyberpunkVR_HandLerpRifle;
-    float xrLerpShotgun = CyberpunkVR_HandLerpShotgun;
-    float xrLerpSniper  = CyberpunkVR_HandLerpSniper;
-    float xrLerpMelee   = CyberpunkVR_HandLerpMelee;
-    float xrLerpFramegen = CyberpunkVR_HandLerpFramegenScale;
-    uint32_t xrGradeMirrorMask = CyberpunkVR_GradeMirrorMask;
-    uint32_t xrEnvExtraMask = CyberpunkVR_EnvExtraMask;
-    uint32_t xrWaterMirror = CyberpunkVR_WaterMirror;
-    uint32_t xrWaterAssign = CyberpunkVR_WaterAssign;
-    int32_t  xrViewDataDiff = CyberpunkVR_ViewDataDiff;
-    uint32_t xrLutSrcLend    = CyberpunkVR_LutSrcLend;
-    float    xrSceneYawDps   = CyberpunkVR_SceneStickYawDps;
-    int      xrSceneYawTier  = CyberpunkVR_SceneStickYawTier;
-    int32_t  xrBlockDiff     = CyberpunkVR_BlockDiff;
-    uint32_t xrBlockDiffNode = CyberpunkVR_BlockDiffNode;
-    uint32_t xrBlockDiffSize = CyberpunkVR_BlockDiffSize;
-    uint32_t xrRenderMaskGrant = CyberpunkVR_RenderMaskGrant;
-    int      xrStageReplay   = CyberpunkVR_StageReplaySetting;
-    int      xrGbufferPartitions = CyberpunkVR_VrcamGbufferPartitionsSetting;
-    int      xrScopeGbufferPartitions = CyberpunkVR_ScopeGbufferPartitionsSetting;
-    int      xrScopeGraphDag = CyberpunkVR_ScopeGraphDag ? 1 : 0;
-    int xrScopeRrFullResolution = cvr::scope_dlss::fullResolution.load(std::memory_order_relaxed) ? 1 : 0;
-    int      xrSubmitChain = CyberpunkVR_SubmitChainSetting;
-    int      xrDeferPresent = CyberpunkVR_DeferPresentSetting;
-    int      xrGtSkipRenderQueue = CyberpunkVR_GtSkipRenderQueueSetting;
-    int      xrSubmitChainRev = 0;
-    uint32_t xrViewDataFixMask = CyberpunkVR_ViewDataFixMask;
-    uint32_t xrEnvMirrorMask = CyberpunkVR_EnvMirrorMask;
-    int32_t  xrBdCamDirty = CyberpunkVR_BdCamDirty;
-    int32_t  xrBdPushTransform = CyberpunkVR_BdPushTransform;
-    int32_t  xrBdMainPosScene = CyberpunkVR_BdMainPosFromScene;
-    int32_t  xrBdPushBase = CyberpunkVR_BdPushBase;
-    int32_t  xrBdOneComp = CyberpunkVR_BdOneComposition;
-    int32_t  xrBdEditorAlign = CyberpunkVR_BdEditorAlign;
-    int32_t  xrBdBaseFromLocate = CyberpunkVR_BdBaseFromLocate;
-    uint32_t xrCompLendSet = CyberpunkVR_CompLendSet;
-    int32_t  xrFinalGrab = CyberpunkVR_FinalGrab;
-    int32_t  xrStableSrgbView = CyberpunkVR_StableSrgbView;
-    int32_t  xrBdQuatWriteSite = CyberpunkVR_BdQuatFromWriteSite;
-    int32_t  xrVrcamPosFromMain = CyberpunkVR_VrcamPosFromMain;
-    int32_t  xrDevCamInLocate = CyberpunkVR_DevCamInLocate;
-    int32_t  xrLensHeadWrite = CyberpunkVR_LensHeadWrite;
-    int32_t  xrInputDefaultInUi = CyberpunkVR_InputDefaultInUi;
-    int32_t  xrPopupMagBlockMs = CyberpunkVR_PopupMagBlockMs;
-    int32_t  xrDevCamAnyName = CyberpunkVR_DevCamAnyName;
-    float    xrDevCamTolM = CyberpunkVR_DevCamTolM;
-    int32_t  xrBdIpdInLocate = CyberpunkVR_BdIpdInLocate;
-    int32_t  xrBdQuatFromBuffer = CyberpunkVR_BdQuatFromBuffer;
-    uint32_t xrCapGrant = CyberpunkVR_CapGrant;
-    uint32_t xrForceVrcamCam = CyberpunkVR_ForceVrcamCam;
-    uint32_t xrVrcamCamFields = CyberpunkVR_VrcamCamFields;
-    uint32_t xrRunViewParams = CyberpunkVR_RunViewParams;
-    int32_t  xrExpoProbe = CyberpunkVR_ExpoProbe;
-    int32_t  xrIndirectCensus = CyberpunkVR_IndirectCensus;
-    int32_t  xrNoStateLies = CyberpunkVR_NoStateLies;
-    int32_t  xrStableCopy = CyberpunkVR_StableCopy;
-    uint32_t xrDistantReuse = CyberpunkVR_DistantReuseMode;
-    uint32_t xrLocalShadowReuse = CyberpunkVR_LocalShadowReuseMode;
-    uint32_t xrGiReuse = CyberpunkVR_GiReuseMode;
-    uint32_t xrProbeReuse = CyberpunkVR_ProbeReuseMode;
-    int32_t  xrExpoMirror = CyberpunkVR_ExpoMirror;
-    uint32_t xrExpoFieldMask = CyberpunkVR_ExpoFieldMask;
-    uint32_t xrCompLendScoped = CyberpunkVR_CompLendScoped;
-    int xrLightContent = CyberpunkVR_LightContent;
-    int32_t  xrFixLod = CyberpunkVR_FixLodEnable;
-    int      xrHudTo2 = CyberpunkVR_HudToSecondEye;
-    int      xrInteractionAnchor = CyberpunkVR_InteractionAnchor;
-    int      xrHudClearance = CyberpunkVR_HudClearance;
-    float    xrHudClearanceGrow = CyberpunkVR_HudClearanceGrow;
-    int      xrHudClearanceHands = CyberpunkVR_HudClearanceHands;
-    float    xrHudClearanceHandsScale = CyberpunkVR_HudClearanceHandsScale;
-    int      xrAutoRecenter = CyberpunkVR_AutoRecenter;
-    int      xrFingerBones = CyberpunkVR_FingerBones;
-    int      xrGripFromFingers = cvr::fingergrip::GripFromFingers() ? 1 : 0;
-    float    xrFingerSpread = CyberpunkVR_FingerSpread;
-    int      xrFingerSpreadOn = CyberpunkVR_FingerSpreadOn;
-    int32_t  xrAsym = CyberpunkVR_AsymProjection;
-    float    xrAsymGuard = CyberpunkVR_AsymInnerGuard;
-    int      xrVisionTo2 = CyberpunkVR_VisionToSecondEye;
-    int      xrHudBd  = CyberpunkVR_HudInBraindance;
-    uint32_t xrCompGroup = CyberpunkVR_VrcamCompositionGroup;
-    float xrTwoHandRadius = CyberpunkVR_TwoHandRadius;
-    int   xrTwoHandAim = CyberpunkVR_TwoHandAim;
-    float xrTwoHandBreak = CyberpunkVR_TwoHandBreakRadius;
-    float xrTwoHandAimRelease = CyberpunkVR_TwoHandAimReleaseMs;
-    float xrCarryRadius = CyberpunkVR_CarryGripRadius;
-    float xrRifleRise = CyberpunkVR_RifleRiseMul;
-    float xrRifleBack = CyberpunkVR_RifleBackMul;
-    float xrShotgunRise = CyberpunkVR_ShotgunRiseMul;
-    float xrShotgunBack = CyberpunkVR_ShotgunBackMul;
-    float xrDownPistol = CyberpunkVR_RecoilDownPistol;
-    float xrDownRifle = CyberpunkVR_RecoilDownRifle;
-    float xrDownShotgun = CyberpunkVR_RecoilDownShotgun;
-    float xrBackCm = CyberpunkVR_HandRecoilBackCm;
-    float xrBackMaxCm = CyberpunkVR_HandRecoilBackMaxCm;
-    float xrTwoHandBack = CyberpunkVR_TwoHandBackMul;
-    float xrSniperRise = CyberpunkVR_SniperRiseMul;
-    float xrSniperBack = CyberpunkVR_SniperBackMul;
-    float xrRecoilScale = CyberpunkVR_RecoilScale;
-    int xrPsvr2HapticBackend = 2; // Auto: native unless a compatible bridge is running.
-    float xrOpenXrHapticGain = cvr::haptics::LegacyGain();
-    float xrOpenXrVehicleHapticGain = cvr::haptics::VehicleGain();
-    int xrVehicleAudioChannels = cvr::haptics::VehicleAudioChannels();
-    int xrVehicleAudioRequireGrip = cvr::haptics::VehicleAudioRequireGrip();
-    int   xrHaptics = CyberpunkVR_Haptics;
-    float xrHapticScale = CyberpunkVR_HapticScale;
-    float xrPistolBack = CyberpunkVR_PistolBackMul;
-    float xrClimbFrac = CyberpunkVR_RecoilClimbFrac;
-    float xrClimbMax = CyberpunkVR_RecoilClimbMaxDeg;
-    float xrClimbMs = CyberpunkVR_RecoilClimbMs;
-    float xrReturnMs = CyberpunkVR_HandRecoilReturnMs;
-    float xrReturnPow = CyberpunkVR_HandRecoilReturnPow;
-    float xrScannerSlots[21];
-    for (int i = 0; i < 21; ++i) xrScannerSlots[i] = CyberpunkVR_ScannerSlots[i];
-    int   xrHandRelFiltered = CyberpunkVR_HandRelToFilteredHead;
-    int   xrHandPerFrame    = CyberpunkVR_HandLocatePerFrame;
-    auto tryParseIntKey = [](const char* text, const char* key, int* outValue) {
-        if (!text || !key || !outValue) return false;
-        const size_t keyLen = strlen(key);
-        if (_strnicmp(text, key, keyLen) != 0) return false;
-        const char* cursor = text + keyLen;
-        while (*cursor == ' ' || *cursor == '\t') ++cursor;
-        if (*cursor != '=') return false;
-        ++cursor;
-        while (*cursor == ' ' || *cursor == '\t') ++cursor;
-        *outValue = atoi(cursor);
-        return true;
-    };
-    float xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg > 0.0f ? g_liveControls.xrSnapTurnAngleDeg : 30.0f;
-    int xrMovementSource = g_liveControls.xrMovementSource;
-    int xrMovementSpeedMode=0;
-    int xrSprintMode=0;
-    float xrLeftStickDeadzone=.15f,xrRightStickDeadzone=.15f,xrMaxInputThreshold=.90f;
-    int xrXInputInstall = g_liveControls.xrXInputInstall;
-    int xrInputActions = g_liveControls.xrInputActions;
-    int xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
-    int xrSnapTurnPulseMs = g_liveControls.xrSnapTurnPulseMs > 0 ? g_liveControls.xrSnapTurnPulseMs : 30;
-    int xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
-    int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
-    int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
-    int xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
-    int xrReloadGlow = g_liveControls.xrReloadGlow;
-    int xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
-    int xrTrackedBodyRotation = g_liveControls.xrTrackedBodyRotation;
-    int xrHybridBodyRotation = g_liveControls.xrHybridBodyRotation;
-    int xrHeadLedBodyRotation = g_liveControls.xrHeadLedBodyRotation;
-    int xrRoomscaleMovement = g_liveControls.xrRoomscaleMovement;
-    int xrPhysicalCrouch = g_liveControls.xrPhysicalCrouch;
-    float xrPhysicalCrouchDepth = g_liveControls.xrPhysicalCrouchDepth;
-    int xrBreaststrokeSwim = g_liveControls.xrBreaststrokeSwim;
-    int xrLadderGripClimb = g_liveControls.xrLadderGripClimb;
-    int xrLeftHanded = g_liveControls.xrLeftHanded;
-    int xrLeftHandedBindings = g_liveControls.xrLeftHandedBindings;
-    int xrLadderAutoFinish = g_liveControls.xrLadderAutoFinish;
-    float xrLadderFinishDistance = g_liveControls.xrLadderFinishDistance;
-    float xrBodyFreeLookDeg = g_liveControls.xrBodyFreeLookDeg;
-    float xrBodyFreeLookDownDeg = g_liveControls.xrBodyFreeLookDownDeg;
-    float xrBodyFreeLookSwimDeg = g_liveControls.xrBodyFreeLookSwimDeg;
-    float xrBodyMoveRadius = g_liveControls.xrBodyMoveRadius;
-    float xrSceneCamComfortDeg = g_liveControls.xrSceneCamComfortDeg;
-    int xrCutsceneSuspendTier = g_liveControls.xrCutsceneSuspendTier;
-    int xrVehicleCutsceneSuspendTier = g_liveControls.xrVehicleCutsceneSuspendTier;
-    bool vehicleCutsceneTierConfigured = false;
-    float xrVehHeadOffsetX = g_liveControls.xrVehHeadOffsetX;
-    float xrVehHeadOffsetY = g_liveControls.xrVehHeadOffsetY;
-    float xrVehHeadOffsetZ = g_liveControls.xrVehHeadOffsetZ;
-    float xrBikeHeadOffsetX = g_liveControls.xrBikeHeadOffsetX;
-    float xrBikeHeadOffsetY = g_liveControls.xrBikeHeadOffsetY;
-    float xrBikeHeadOffsetZ = g_liveControls.xrBikeHeadOffsetZ;
-    int xrWheelGrab = g_liveControls.xrWheelGrab;
-    int xrMenuGesture = g_liveControls.xrMenuGesture;
-    int xrVrInterface = g_liveControls.xrVrInterface;
-    int xrHandPhysics = g_liveControls.xrHandPhysics;
-    int xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
-    int xrHandCollision = g_liveControls.xrHandCollision;
-    int xrHandCollisionVehicle = g_liveControls.xrHandCollisionVehicle;
-    int xrHandPush = g_liveControls.xrHandPush;
-    int xrFingerContact = g_liveControls.xrFingerContact;
-    int xrPropGrab = g_liveControls.xrPropGrab;
-    int xrCarryPicture = g_liveControls.xrCarryPicture;
-    float xrCarryLead = g_liveControls.xrCarryLead;
-    float xrContactMargin = g_liveControls.xrContactMargin;
-    int xrWheelAnywhere = g_liveControls.xrWheelAnywhere;
-    float xrWheelRadius = g_liveControls.xrWheelRadius > 0.0f ? g_liveControls.xrWheelRadius : 0.28f;
-    float xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(g_liveControls.xrWheelSteerMaxDeg);
-    float xrBikeBarLockDeg = cvr::anim::BikeBarLockDegrees(g_liveControls.xrBikeBarLockDeg);
-    float xrBikeBodyLean = cvr::anim::BikeBodyLeanShare(g_liveControls.xrBikeBodyLean);
-    float xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg >= 0.0f ? g_liveControls.xrWheelSteerDeadDeg : 0.0f;
-    int xrWheelPrediction = g_liveControls.xrWheelPrediction;
-    float xrWheelPredictionMs = g_liveControls.xrWheelPredictionMs;
-    int xrWheelHorn = g_liveControls.xrWheelHorn;
-    float xrWheelHornRadius = g_liveControls.xrWheelHornRadius > 0.0f ? g_liveControls.xrWheelHornRadius : 0.12f;
-    int xrVehicleGunTrigger = g_liveControls.xrVehicleGunTrigger;
-    float xrVehicleThrottleTrim = g_liveControls.xrVehicleThrottleTrim > 0.0f ? g_liveControls.xrVehicleThrottleTrim : 0.5f;
-
+    // The loop's variables, seeded from the live state, then the ini's lines (include/Core/LiveControlsParse.hpp): in
+    // the Rust build rust/crates/cvr-settings reads them, in the C++ build src/Core/LiveControlsParse.cpp does.
+    LiveControlsValues values{};
+    LiveControlsSubsystems subsystems{};
+    SeedLiveControls(values, subsystems);
+#if CVR_RUST_VRIK
+    if (!cvr_settings_parse_live_controls(g_liveControlPath, &values, &subsystems)) return;
+#else
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
-
-    char line[128];
-    while (fgets(line, sizeof(line), file)) {
-        float value = 0.0f;
-        if (sscanf_s(line, "xr_weapon_laser_dot = %f", &value) == 1) {
-            xrWeaponLaserDot = value != 0.0f;
-            continue;
-        }
-
-        if (sscanf_s(line, "xr_head_offset_x=%f", &value) == 1 ||
-            sscanf_s(line, "xr_head_offset_x = %f", &value) == 1) {
-            xrHeadOffsetX = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_head_offset_y=%f", &value) == 1 ||
-            sscanf_s(line, "xr_head_offset_y = %f", &value) == 1) {
-            xrHeadOffsetY = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_head_offset_z=%f", &value) == 1 ||
-            sscanf_s(line, "xr_head_offset_z = %f", &value) == 1) {
-            xrHeadOffsetZ = value;
-            continue;
-        }
-        int intValue = 0;
-        if (sscanf_s(line, "xr_recenter=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_recenter = %d", &intValue) == 1) {
-            xrRecenter = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_mono_submit=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_mono_submit = %d", &intValue) == 1) {
-            xrMonoSubmit = intValue;
-            continue;
-        }
-        // -1 auto (thread on SteamVR, inline on Virtual Desktop), 0 inline, 1 thread.
-        if (sscanf_s(line, "xr_threaded_submit=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_threaded_submit = %d", &intValue) == 1) {
-            xrThreadedSubmit = (intValue < 0) ? -1 : (intValue > 0 ? 1 : 0);
-            continue;
-        }
-
-        if (sscanf_s(line, "xr_window_width=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_window_width = %d", &intValue) == 1) {
-            xrWindowWidth = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_window_height=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_window_height = %d", &intValue) == 1) {
-            xrWindowHeight = intValue;
-            continue;
-        }
-
-        if (sscanf_s(line, "xr_force_fov=%f", &value) == 1 ||
-            sscanf_s(line, "xr_force_fov = %f", &value) == 1) {
-            xrForceFov = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_menu_rect=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_menu_rect = %d", &intValue) == 1) {
-            xrMenuRect = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_menu_fov=%f", &value) == 1 ||
-            sscanf_s(line, "xr_menu_fov = %f", &value) == 1) {
-            xrMenuFov = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_menu_follow_deg=%f", &value) == 1 ||
-            sscanf_s(line, "xr_menu_follow_deg = %f", &value) == 1) {
-            xrMenuFollowDeg = value;
-            continue;
-        }
-        if (cvr::hud::ParseLayoutSetting(line,hudElements)) continue;
-        if (cvr::framegen::ParseSetting(line,framegen)) continue;
-        if (cvr::foveated::ParseSetting(line,foveated)) continue;
-        if (cvr::vrs::ParseSetting(line,vrs)) continue;
-        if (cvr::hidden_area::ParseSetting(line,hiddenArea)) continue;
-        if(sscanf_s(line,"xr_mono_cascades = %d",&intValue)==1){monoCascades=intValue!=0;continue;}
-        if(sscanf_s(line,"xr_mono_mode = %d",&intValue)==1){monoMode=intValue!=0;continue;}
-        if(sscanf_s(line,"xr_afw = %d",&intValue)==1){afw=intValue!=0;continue;}
-        if(sscanf_s(line,"xr_osr = %d",&intValue)==1){osr=intValue!=0;continue;}
-        if(sscanf_s(line,"xr_scope_stabilize = %d",&intValue)==1){scopeStabilize=intValue;continue;}
-        if (tryParseIntKey(line,"xr_nvidia_reflex",&intValue)) {nvidiaReflex=cvr::reflex::NormalizeMode(intValue);continue;}
-        if(sscanf_s(line,"xr_fps_cap = %d",&intValue)==1){fpsCap=intValue!=0;continue;}
-        if(sscanf_s(line,"xr_lobby = %d",&intValue)==1){lobby=intValue!=0;continue;}
-        if(sscanf_s(line,"xr_lobby_ambient = %d",&intValue)==1){lobbyAmbient=intValue!=0;continue;}
-        if (cvr::vrui::ParseSetting(line,overlay)) continue;
-        if (sscanf_s(line,"xr_hud_follow_mode = %d",&intValue)==1) { xrHudFollowMode=intValue;continue; }
-        if (sscanf_s(line,"xr_hud_stereo_depth = %d",&intValue)==1) { xrHudStereoDepth=intValue;continue; }
-        if (sscanf_s(line,"xr_hud_brightness = %f",&value)==1) { xrHudBrightness=value;continue; }
-        if (sscanf_s(line,"xr_hud_shadow = %f",&value)==1) { xrHudShadow=value;continue; }
-        if (sscanf_s(line,"xr_hud_glow = %f",&value)==1) { xrHudGlow=value;continue; }
-        if (sscanf_s(line, "xr_hud_panel = %d", &intValue) == 1) { xrHudPanel=intValue; continue; }
-        if (sscanf_s(line, "xr_hud_follow_deg = %f", &value) == 1) { xrHudFollowDeg=value; continue; }
-        if (sscanf_s(line, "xr_hud_fov = %f", &value) == 1) { xrHudFov=value; continue; }
-        if (sscanf_s(line, "xr_hud_distance = %f", &value) == 1) { xrHudDistance=value; continue; }
-        if (sscanf_s(line,"xr_interaction_panel = %d",&intValue)==1){xrInteractionPanel=intValue;continue;}
-        if (sscanf_s(line,"xr_interaction_follow_deg = %f",&value)==1){xrInteractionFollowDeg=value;continue;}
-        if (sscanf_s(line,"xr_loot_follow_deg = %f",&value)==1){xrLootFollowDeg=value;continue;}
-        if (sscanf_s(line,"xr_interaction_distance = %f",&value)==1){xrInteractionDistance=value;continue;}
-        if (sscanf_s(line,"xr_interaction_fov = %f",&value)==1){xrInteractionFov=value;continue;}
-        if (sscanf_s(line, "xr_pitch_sign=%f", &value) == 1 ||
-            sscanf_s(line, "xr_pitch_sign = %f", &value) == 1) {
-            xrPitchSign = value < 0.0f ? -1.0f : 1.0f;
-            continue;
-        }
-        if (sscanf_s(line, "xr_pitch_scale=%f", &value) == 1 ||
-            sscanf_s(line, "xr_pitch_scale = %f", &value) == 1) {
-            xrPitchScale = value > 0.01f ? value : 1.0f;
-            continue;
-        }
-        if (sscanf_s(line, "xr_sync_sequential=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_sync_sequential = %d", &intValue) == 1) {
-            xrSyncSequential = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_3dof_movement=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_3dof_movement = %d", &intValue) == 1) {
-            xr3DofMovement = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "first_launch=%d", &intValue) == 1 ||
-            sscanf_s(line, "first_launch = %d", &intValue) == 1) {
-            xrFirstLaunch = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_motion_predict_ms=%f", &value) == 1 ||
-            sscanf_s(line, "xr_motion_predict_ms = %f", &value) == 1) {
-            xrMotionPredictMs = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_stereo_scale=%f", &value) == 1 ||
-            sscanf_s(line, "xr_stereo_scale = %f", &value) == 1) {
-            xrStereoScale = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_world_scale=%f", &value) == 1 ||
-            sscanf_s(line, "xr_world_scale = %f", &value) == 1) {
-            xrWorldScale = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_ipd_scale=%f", &value) == 1 ||
-            sscanf_s(line, "xr_ipd_scale = %f", &value) == 1) {
-            xrIpdScale = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_sharpness=%f", &value) == 1 ||
-            sscanf_s(line, "xr_sharpness = %f", &value) == 1) {
-            xrSharpness = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_sharpmix=%f", &value) == 1 ||
-            sscanf_s(line, "xr_sharpmix = %f", &value) == 1) {
-            xrSharpmix = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hmd_smooth=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hmd_smooth = %f", &value) == 1) {
-            xrHmdSmooth = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_per_frame=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hand_per_frame = %d", &intValue) == 1) {
-            xrHandPerFrame = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_rel_filtered=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hand_rel_filtered = %d", &intValue) == 1) {
-            xrHandRelFiltered = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_lerp_pistol=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hand_lerp_pistol = %f", &value) == 1) {
-            xrLerpPistol = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_lerp_rifle=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hand_lerp_rifle = %f", &value) == 1) {
-            xrLerpRifle = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_lerp_shotgun=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hand_lerp_shotgun = %f", &value) == 1) {
-            xrLerpShotgun = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_lerp_sniper=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hand_lerp_sniper = %f", &value) == 1) {
-            xrLerpSniper = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_lerp_melee=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hand_lerp_melee = %f", &value) == 1) {
-            xrLerpMelee = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_lerp_speed=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hand_lerp_speed = %f", &value) == 1) {
-            xrHandLerp = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_lerp_framegen_scale=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hand_lerp_framegen_scale = %f", &value) == 1) {
-            // 1.5 was the shipped default until 2026-11-05 and every save wrote it back; it reads as the new
-            // default, 1.25.
-            xrLerpFramegen = std::abs(value - 1.5f) < 0.0001f ? 1.25f : value;
-            continue;
-        }
-        // Three numbers on one line per piece, because twelve keys for one feature is a wall of ini
-        // nobody can read. The editor writes them back in exactly this shape.
-        {
-            float sx = 0.0f, sy = 0.0f, ss = 0.0f;
-            int slot = -1;
-            if      (sscanf_s(line, "xr_scanner_frame=%f,%f,%f",   &sx, &sy, &ss) == 3) slot = 0;
-            else if (sscanf_s(line, "xr_scanner_details=%f,%f,%f", &sx, &sy, &ss) == 3) slot = 1;
-            else if (sscanf_s(line, "xr_scanner_hacks=%f,%f,%f",   &sx, &sy, &ss) == 3) slot = 2;
-            else if (sscanf_s(line, "xr_scanner_hint=%f,%f,%f",    &sx, &sy, &ss) == 3) slot = 3;
-            else if (sscanf_s(line, "xr_scanner_memory=%f,%f,%f",  &sx, &sy, &ss) == 3) slot = 4;
-            else if (sscanf_s(line, "xr_scanner_scripts=%f,%f,%f", &sx, &sy, &ss) == 3) slot = 5;
-            else if (sscanf_s(line, "xr_scanner_desc=%f,%f,%f",    &sx, &sy, &ss) == 3) slot = 6;
-            if (slot >= 0) {
-                xrScannerSlots[slot * 3 + 0] = sx;
-                xrScannerSlots[slot * 3 + 1] = sy;
-                xrScannerSlots[slot * 3 + 2] = ss;
-                continue;
-            }
-        }
-        if (sscanf_s(line, "xr_vrcam_composition=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vrcam_composition = %d", &intValue) == 1) {
-            xrCompGroup = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_auto_recenter=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_auto_recenter = %d", &intValue) == 1) {
-            xrAutoRecenter = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vive_trackers=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vive_trackers = %d", &intValue) == 1) {
-            g_viveTrackersSetting = intValue == 1 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_grip_from_fingers=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_grip_from_fingers = %d", &intValue) == 1) {
-            xrGripFromFingers = intValue == 1 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_finger_spread_enabled=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_finger_spread_enabled = %d", &intValue) == 1) {
-            xrFingerSpreadOn = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_finger_spread=%f", &value) == 1 ||
-            sscanf_s(line, "xr_finger_spread = %f", &value) == 1) {
-            xrFingerSpread = std::isfinite(value) ? std::clamp(value, 0.0f, 2.0f) : 1.0f;
-            continue;
-        }
-        if (sscanf_s(line, "xr_finger_bones=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_finger_bones = %d", &intValue) == 1) {
-            xrFingerBones = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_interaction_anchor=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_interaction_anchor = %d", &intValue) == 1) {
-            xrInteractionAnchor = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hud_clearance_hands_scale=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hud_clearance_hands_scale = %f", &value) == 1) {
-            xrHudClearanceHandsScale = std::isfinite(value) ? std::clamp(value, 1.0f, 3.0f) : 2.0f;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hud_clearance_hands=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hud_clearance_hands = %d", &intValue) == 1) {
-            xrHudClearanceHands = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hud_clearance_grow=%f", &value) == 1 ||
-            sscanf_s(line, "xr_hud_clearance_grow = %f", &value) == 1) {
-            xrHudClearanceGrow = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.5f;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hud_clearance=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hud_clearance = %d", &intValue) == 1) {
-            xrHudClearance = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hud_to_second_eye=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hud_to_second_eye = %d", &intValue) == 1) {
-            xrHudTo2 = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_asym_projection=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_asym_projection = %d", &intValue) == 1) {
-            xrAsym = intValue == 1 ? 1 : 0;
-            continue;
-        }
-        {
-            float g = 0.0f;
-            if (sscanf_s(line, "xr_asym_inner_guard=%f", &g) == 1 || sscanf_s(line, "xr_asym_inner_guard = %f", &g) == 1) {
-                xrAsymGuard = (g < 0.0f) ? 0.0f : ((g > 1.0f) ? 1.0f : g);
-                continue;
-            }
-        }
-        if (sscanf_s(line, "xr_hud_in_braindance=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hud_in_braindance = %d", &intValue) == 1) {
-            xrHudBd = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_fix_lod=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_fix_lod = %d", &intValue) == 1) {
-            xrFixLod = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_comp_lend_scoped=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_comp_lend_scoped = %d", &intValue) == 1) {
-            xrCompLendScoped = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue & 0xF));
-            continue;
-        }
-        if (sscanf_s(line, "xr_expo_mirror=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_expo_mirror = %d", &intValue) == 1) {
-            xrExpoMirror = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_expo_field_mask=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_expo_field_mask = %d", &intValue) == 1) {
-            xrExpoFieldMask = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue & 0x7F));
-            continue;
-        }
-        if (sscanf_s(line, "xr_distant_reuse=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_distant_reuse = %d", &intValue) == 1) {
-            xrDistantReuse = (intValue < 0) ? 0u : static_cast<uint32_t>(intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_local_shadow_reuse=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_local_shadow_reuse = %d", &intValue) == 1) {
-            xrLocalShadowReuse = (intValue < 0) ? 0u : static_cast<uint32_t>(intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_gi_reuse=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_gi_reuse = %d", &intValue) == 1) {
-            xrGiReuse = (intValue < 0) ? 0u : static_cast<uint32_t>(intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_probe_reuse=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_probe_reuse = %d", &intValue) == 1) {
-            xrProbeReuse = (intValue < 0) ? 0u : static_cast<uint32_t>(intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_stable_copy=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_stable_copy = %d", &intValue) == 1) {
-            xrStableCopy = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_no_state_lies=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_no_state_lies = %d", &intValue) == 1) {
-            xrNoStateLies = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_indirect_census=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_indirect_census = %d", &intValue) == 1) {
-            xrIndirectCensus = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_expo_probe=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_expo_probe = %d", &intValue) == 1) {
-            xrExpoProbe = (intValue < 0) ? 0 : ((intValue > 2) ? 2 : intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_run_view_params=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_run_view_params = %d", &intValue) == 1) {
-            xrRunViewParams = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue > 2 ? 2 : intValue));
-            continue;
-        }
-        if (sscanf_s(line, "xr_vrcam_cam_fields=%x", &intValue) == 1 ||
-            sscanf_s(line, "xr_vrcam_cam_fields = %x", &intValue) == 1) {
-            xrVrcamCamFields = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue & 0xF));
-            continue;
-        }
-        if (sscanf_s(line, "xr_force_vrcam_cam=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_force_vrcam_cam = %d", &intValue) == 1) {
-            xrForceVrcamCam = intValue ? 1u : 0u;
-            continue;
-        }
-        if (sscanf_s(line, "xr_cap_grant=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_cap_grant = %d", &intValue) == 1) {
-            xrCapGrant = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_light_content=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_light_content = %d", &intValue) == 1) {
-            xrLightContent = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_quat_from_buffer=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_quat_from_buffer = %d", &intValue) == 1) {
-            xrBdQuatFromBuffer = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_ipd_in_locate=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_ipd_in_locate = %d", &intValue) == 1) {
-            xrBdIpdInLocate = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_dev_cam_tol_m=%f", &value) == 1 ||
-            sscanf_s(line, "xr_dev_cam_tol_m = %f", &value) == 1) {
-            xrDevCamTolM = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_dev_cam_any_name=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_dev_cam_any_name = %d", &intValue) == 1) {
-            xrDevCamAnyName = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_input_default_in_ui=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_input_default_in_ui = %d", &intValue) == 1) {
-            xrInputDefaultInUi = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_popup_mag_block_ms=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_popup_mag_block_ms = %d", &intValue) == 1) {
-            xrPopupMagBlockMs = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_lens_head_write=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_lens_head_write = %d", &intValue) == 1) {
-            xrLensHeadWrite = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_dev_cam_in_locate=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_dev_cam_in_locate = %d", &intValue) == 1) {
-            xrDevCamInLocate = intValue;
-            continue;
-        }
-        {
-            unsigned int visCsNode = 0;
-            if (sscanf_s(line, "xr_vision_cs_node=%x", &visCsNode) == 1 ||
-                sscanf_s(line, "xr_vision_cs_node = %x", &visCsNode) == 1) {
-                CyberpunkVR_VisionCsNode = visCsNode;
-                continue;
-            }
-        }
-        if (sscanf_s(line, "xr_vision_cs_ord=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vision_cs_ord = %d", &intValue) == 1) {
-            CyberpunkVR_VisionCsOrd = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vision_cs_dim=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vision_cs_dim = %d", &intValue) == 1) {
-            CyberpunkVR_VisionCsDim = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vision_cs_swap=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vision_cs_swap = %d", &intValue) == 1) {
-            CyberpunkVR_VisionCsSwap = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vision_to_second_eye=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vision_to_second_eye = %d", &intValue) == 1) {
-            xrVisionTo2 = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_weapon_plane_as_scene=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_weapon_plane_as_scene = %d", &intValue) == 1) {
-            CyberpunkVR_WeaponPlaneAsScene = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_highlight_any_plane=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_highlight_any_plane = %d", &intValue) == 1) {
-            CyberpunkVR_HighlightAnyPlane = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_plane_bucket_scene=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_plane_bucket_scene = %d", &intValue) == 1) {
-            CyberpunkVR_PlaneBucketScene = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vrcam_pos_from_main=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vrcam_pos_from_main = %d", &intValue) == 1) {
-            xrVrcamPosFromMain = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_quat_from_write_site=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_quat_from_write_site = %d", &intValue) == 1) {
-            xrBdQuatWriteSite = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_stable_srgb_view=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_stable_srgb_view = %d", &intValue) == 1) {
-            xrStableSrgbView = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_final_grab=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_final_grab = %d", &intValue) == 1) {
-            xrFinalGrab = intValue ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_comp_lend_set=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_comp_lend_set = %d", &intValue) == 1) {
-            xrCompLendSet = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_base_from_locate=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_base_from_locate = %d", &intValue) == 1) {
-            xrBdBaseFromLocate = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_editor_align=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_editor_align = %d", &intValue) == 1) {
-            xrBdEditorAlign = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_one_composition=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_one_composition = %d", &intValue) == 1) {
-            xrBdOneComp = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_push_base=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_push_base = %d", &intValue) == 1) {
-            xrBdPushBase = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_main_pos_from_scene=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_main_pos_from_scene = %d", &intValue) == 1) {
-            xrBdMainPosScene = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_push_transform=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_push_transform = %d", &intValue) == 1) {
-            if (intValue >= 0 && intValue <= 3) xrBdPushTransform = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bd_cam_dirty=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_bd_cam_dirty = %d", &intValue) == 1) {
-            if (intValue >= 0 && intValue <= 3) xrBdCamDirty = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_env_mirror_mask=%x", &intValue) == 1 ||
-            sscanf_s(line, "xr_env_mirror_mask = %x", &intValue) == 1) {
-            xrEnvMirrorMask = static_cast<uint32_t>(intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_viewdata_fix_mask=%x", &intValue) == 1 ||
-            sscanf_s(line, "xr_viewdata_fix_mask = %x", &intValue) == 1) {
-            xrViewDataFixMask = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_render_mask_grant=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_render_mask_grant = %d", &intValue) == 1) {
-            xrRenderMaskGrant = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_stage_replay=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_stage_replay = %d", &intValue) == 1) {
-            xrStageReplay = intValue != 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vrcam_gbuffer_partitions=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vrcam_gbuffer_partitions = %d", &intValue) == 1) {
-            xrGbufferPartitions = intValue != 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_scope_gbuffer_partitions=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_scope_gbuffer_partitions = %d", &intValue) == 1) {
-            xrScopeGbufferPartitions = intValue != 0;
-            continue;
-        }
-        if(sscanf_s(line,"xr_scope_rr_full_resolution = %d",&intValue)==1) {
-            xrScopeRrFullResolution=intValue!=0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_scope_graph_dag=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_scope_graph_dag = %d", &intValue) == 1) {
-            xrScopeGraphDag = intValue != 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_submit_chain=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_submit_chain = %d", &intValue) == 1) {
-            xrSubmitChain = intValue < 0 ? 0 : intValue > 2 ? 2 : intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_defer_present=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_defer_present = %d", &intValue) == 1) {
-            xrDeferPresent = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_gt_skip_render_queue=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_gt_skip_render_queue = %d", &intValue) == 1) {
-            xrGtSkipRenderQueue = intValue != 0 ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_submit_chain_rev=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_submit_chain_rev = %d", &intValue) == 1) {
-            xrSubmitChainRev = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_water_mirror=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_water_mirror = %d", &intValue) == 1) {
-            xrWaterMirror = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-        }
-        if (sscanf_s(line, "xr_water_assign=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_water_assign = %d", &intValue) == 1) {
-            xrWaterAssign = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue > 1 ? 1 : intValue));
-        }
-        if (sscanf_s(line, "xr_viewdata_diff=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_viewdata_diff = %d", &intValue) == 1) {
-            xrViewDataDiff = intValue < 0 ? 0 : (intValue > 2 ? 2 : intValue);
-        }
-        // THE NODE IS HEX, because every RVA in this project is written and read as hex and a node
-        // key that silently took decimal would aim the diff at an address nobody meant.
-        if (sscanf_s(line, "xr_scene_stick_yaw_dps=%f", &value) == 1 ||
-            sscanf_s(line, "xr_scene_stick_yaw_dps = %f", &value) == 1) {
-            xrSceneYawDps = value < 0.0f ? 0.0f : (value > 360.0f ? 360.0f : value);
-            continue;
-        }
-        if (sscanf_s(line, "xr_scene_stick_yaw_tier=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_scene_stick_yaw_tier = %d", &intValue) == 1) {
-            xrSceneYawTier = intValue < 0 ? 0 : (intValue > 4 ? 4 : intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_lut_src_lend=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_lut_src_lend = %d", &intValue) == 1) {
-            xrLutSrcLend = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue > 1 ? 1 : intValue));
-        }
-        if (sscanf_s(line, "xr_block_diff=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_block_diff = %d", &intValue) == 1) {
-            xrBlockDiff = intValue < 0 ? 0 : (intValue > 2 ? 2 : intValue);
-        }
-        if (sscanf_s(line, "xr_block_diff_node=%x", &intValue) == 1 ||
-            sscanf_s(line, "xr_block_diff_node = %x", &intValue) == 1) {
-            xrBlockDiffNode = static_cast<uint32_t>(intValue);
-        }
-        if (sscanf_s(line, "xr_block_diff_size=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_block_diff_size = %d", &intValue) == 1) {
-            xrBlockDiffSize = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-        }
-        if (sscanf_s(line, "xr_env_extra_mask=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_env_extra_mask = %d", &intValue) == 1) {
-            xrEnvExtraMask = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-            continue;
-        }
-        // HEX, LIKE ITS SIBLING xr_env_mirror_mask. It was %d while the value is a bit mask that
-        // everyone -- the table, the comments, this session -- writes in hex, so "7FE0003" parsed as
-        // 7 and stopped at the F. A measurement was reported on the strength of that, and the number
-        // that produced it was never the number in the file.
-        if (sscanf_s(line, "xr_grade_mirror_mask=%x", &intValue) == 1 ||
-            sscanf_s(line, "xr_grade_mirror_mask = %x", &intValue) == 1) {
-            xrGradeMirrorMask = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_two_hand_radius=%f", &value) == 1 ||
-            sscanf_s(line, "xr_two_hand_radius = %f", &value) == 1) {
-            xrTwoHandRadius = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_two_hand_aim=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_two_hand_aim = %d", &intValue) == 1) {
-            xrTwoHandAim = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_two_hand_break=%f", &value) == 1 ||
-            sscanf_s(line, "xr_two_hand_break = %f", &value) == 1) {
-            xrTwoHandBreak = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_two_hand_aim_release_ms=%f", &value) == 1 ||
-            sscanf_s(line, "xr_two_hand_aim_release_ms = %f", &value) == 1) {
-            xrTwoHandAimRelease = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_carry_radius=%f", &value) == 1 ||
-            sscanf_s(line, "xr_carry_radius = %f", &value) == 1) {
-            xrCarryRadius = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_rifle_rise=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_rifle_rise = %f", &value) == 1) {
-            xrRifleRise = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_rifle_back=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_rifle_back = %f", &value) == 1) {
-            xrRifleBack = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_shotgun_rise=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_shotgun_rise = %f", &value) == 1) {
-            xrShotgunRise = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_shotgun_back=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_shotgun_back = %f", &value) == 1) {
-            xrShotgunBack = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_down_pistol=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_down_pistol = %f", &value) == 1) {
-            xrDownPistol = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_down_rifle=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_down_rifle = %f", &value) == 1) {
-            xrDownRifle = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_down_shotgun=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_down_shotgun = %f", &value) == 1) {
-            xrDownShotgun = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_back_cm=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_back_cm = %f", &value) == 1) {
-            xrBackCm = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_back_max_cm=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_back_max_cm = %f", &value) == 1) {
-            xrBackMaxCm = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_twohand_back=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_twohand_back = %f", &value) == 1) {
-            xrTwoHandBack = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_sniper_rise=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_sniper_rise = %f", &value) == 1) {
-            xrSniperRise = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_sniper_back=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_sniper_back = %f", &value) == 1) {
-            xrSniperBack = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_scale=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_scale = %f", &value) == 1) {
-            xrRecoilScale = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_psvr2_haptic_backend=%f", &value) == 1 ||
-            sscanf_s(line, "xr_psvr2_haptic_backend = %f", &value) == 1) {
-            xrPsvr2HapticBackend = value == 2.0f ? 2 : (value == 1.0f ? 1 : 0);
-            continue;
-        }
-        if (sscanf_s(line, "xr_openxr_haptic_gain = %f", &value) == 1) {
-            xrOpenXrHapticGain = value; continue;
-        }
-        if (sscanf_s(line, "xr_vehicle_audio_channels = %d", &xrVehicleAudioChannels) == 1) continue;
-        if (sscanf_s(line, "xr_vehicle_audio_require_grip = %d", &xrVehicleAudioRequireGrip) == 1) continue;
-        if (sscanf_s(line, "xr_openxr_vehicle_haptic_gain = %f", &value) == 1) {
-            xrOpenXrVehicleHapticGain = value; continue;
-        }
-        if (sscanf_s(line, "xr_haptics=%f", &value) == 1 ||
-            sscanf_s(line, "xr_haptics = %f", &value) == 1) {
-            xrHaptics = value != 0.0f ? 1 : 0;
-            continue;
-        }
-        if (sscanf_s(line, "xr_haptic_scale=%f", &value) == 1 ||
-            sscanf_s(line, "xr_haptic_scale = %f", &value) == 1) {
-            xrHapticScale = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_pistol_back=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_pistol_back = %f", &value) == 1) {
-            xrPistolBack = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_climb=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_climb = %f", &value) == 1) {
-            xrClimbFrac = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_climb_max_deg=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_climb_max_deg = %f", &value) == 1) {
-            xrClimbMax = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_climb_ms=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_climb_ms = %f", &value) == 1) {
-            xrClimbMs = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_return_ms=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_return_ms = %f", &value) == 1) {
-            xrReturnMs = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_recoil_return_pow=%f", &value) == 1 ||
-            sscanf_s(line, "xr_recoil_return_pow = %f", &value) == 1) {
-            xrReturnPow = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_render_pose_submit=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_render_pose_submit = %d", &intValue) == 1) {
-            xrRenderPoseSubmit = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_reuse_last_frame=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_reuse_last_frame = %d", &intValue) == 1) {
-            xrReuseLastFrame = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_pair_lock=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_pair_lock = %d", &intValue) == 1) {
-            xrPairLock = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_pose_lag=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_pose_lag = %d", &intValue) == 1) {
-            xrPoseLag = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_runtime=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_runtime = %d", &intValue) == 1) {
-            xrRuntime = ClampRuntimeMode(intValue);
-            continue;
-        }
-        if (sscanf_s(line, "xr_depth_submit=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_depth_submit = %d", &intValue) == 1) {
-            xrDepthSubmit = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_movement_control=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_movement_control = %d", &intValue) == 1) {
-            xrMovementControl = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_disable_mouse_y=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_disable_mouse_y = %d", &intValue) == 1) {
-            xrDisableMouseY = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_xinput_hook=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_xinput_hook = %d", &intValue) == 1) {
-            xrXInputHook = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_snap_turn=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_snap_turn = %d", &intValue) == 1) {
-            xrSnapTurn = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_snap_turn_angle_deg=%f", &value) == 1 ||
-            sscanf_s(line, "xr_snap_turn_angle_deg = %f", &value) == 1) {
-            xrSnapTurnAngleDeg = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_movement_source=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_movement_source = %d", &intValue) == 1) {
-            xrMovementSource = intValue;
-            continue;
-        }
-        if(sscanf_s(line,"xr_movement_speed_mode = %d",&intValue)==1){xrMovementSpeedMode=intValue;continue;}
-        if(sscanf_s(line,"xr_sprint_mode = %d",&intValue)==1){xrSprintMode=intValue;continue;}
-        if(sscanf_s(line,"xr_left_stick_deadzone = %f",&value)==1){xrLeftStickDeadzone=value;continue;}
-        if(sscanf_s(line,"xr_right_stick_deadzone = %f",&value)==1){xrRightStickDeadzone=value;continue;}
-        if(sscanf_s(line,"xr_max_input_threshold = %f",&value)==1){xrMaxInputThreshold=value;continue;}
-        if (sscanf_s(line, "xr_cutscene_suspend_tier=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_cutscene_suspend_tier = %d", &intValue) == 1) {
-            xrCutsceneSuspendTier = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vehicle_cutscene_suspend_tier=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vehicle_cutscene_suspend_tier = %d", &intValue) == 1) {
-            xrVehicleCutsceneSuspendTier = intValue;
-            vehicleCutsceneTierConfigured = true;
-            continue;
-        }
-        if (sscanf_s(line, "xr_body_free_look_deg=%f", &value) == 1) xrBodyFreeLookDeg=value;
-        if (sscanf_s(line, "xr_body_free_look_down_deg=%f", &value) == 1 ||
-            sscanf_s(line, "xr_body_free_look_down_deg = %f", &value) == 1) xrBodyFreeLookDownDeg=value;
-        if (sscanf_s(line, "xr_body_free_look_swim_deg=%f", &value) == 1) xrBodyFreeLookSwimDeg=value;
-        if (sscanf_s(line, "xr_body_move_radius=%f", &value) == 1) xrBodyMoveRadius=value;
-        if (sscanf_s(line, "xr_scene_cam_comfort_deg=%f", &value) == 1) xrSceneCamComfortDeg=value;
-        if (sscanf_s(line, "xr_physical_crouch=%d", &intValue) == 1) xrPhysicalCrouch=intValue;
-        if (sscanf_s(line, "xr_physical_crouch_depth=%f", &value) == 1) xrPhysicalCrouchDepth=value;
-        if (sscanf_s(line, "xr_ladder_grip_climb=%d", &intValue) == 1) xrLadderGripClimb=intValue;
-        if (sscanf_s(line, "xr_left_handed=%d", &intValue) == 1) xrLeftHanded=intValue;
-        if (sscanf_s(line, "xr_left_handed_bindings=%d", &intValue) == 1) xrLeftHandedBindings=intValue;
-        if (sscanf_s(line, "xr_ladder_auto_finish=%d", &intValue) == 1) xrLadderAutoFinish=intValue;
-        if (sscanf_s(line, "xr_ladder_finish_distance=%f", &value) == 1) xrLadderFinishDistance=value;
-        if (sscanf_s(line, "xr_breaststroke_swim=%d", &intValue) == 1) {
-            xrBreaststrokeSwim=intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_roomscale_movement=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_roomscale_movement = %d", &intValue) == 1) {
-            xrRoomscaleMovement = intValue;
-        }
-        if (sscanf_s(line, "xr_tracked_body_rotation = %d", &intValue) == 1) xrTrackedBodyRotation=intValue;
-        if (sscanf_s(line, "xr_hybrid_body_rotation = %d", &intValue) == 1) xrHybridBodyRotation=intValue;
-        if (sscanf_s(line, "xr_head_led_body_rotation = %d", &intValue) == 1) xrHeadLedBodyRotation=intValue;
-        if (sscanf_s(line, "xr_physical_body_rotation=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_physical_body_rotation = %d", &intValue) == 1) {
-            xrPhysicalBodyRotation = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_xinput_install=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_xinput_install = %d", &intValue) == 1) {
-            xrXInputInstall = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_input_actions=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_input_actions = %d", &intValue) == 1) {
-            xrInputActions = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_mono_xqueue_wait=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_mono_xqueue_wait = %d", &intValue) == 1) {
-            xrMonoXQueueWait = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_snap_turn_pulse_ms=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_snap_turn_pulse_ms = %d", &intValue) == 1) {
-            xrSnapTurnPulseMs = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_mono_depth_capture=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_mono_depth_capture = %d", &intValue) == 1) {
-            xrMonoDepthCapture = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_snap_turn_yaw_index=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_snap_turn_yaw_index = %d", &intValue) == 1) {
-            xrSnapTurnYawIndex = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_immersive_holsters=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_immersive_holsters = %d", &intValue) == 1) {
-            xrImmersiveHolsters = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_body_hands_only=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_body_hands_only = %d", &intValue) == 1) {
-            xrBodyHandsOnly = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_reload_glow=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_reload_glow = %d", &intValue) == 1) {
-            xrReloadGlow = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_veh_head_offset_x=%f", &value) == 1 ||
-            sscanf_s(line, "xr_veh_head_offset_x = %f", &value) == 1) {
-            xrVehHeadOffsetX = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_veh_head_offset_y=%f", &value) == 1 ||
-            sscanf_s(line, "xr_veh_head_offset_y = %f", &value) == 1) {
-            xrVehHeadOffsetY = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_veh_head_offset_z=%f", &value) == 1 ||
-            sscanf_s(line, "xr_veh_head_offset_z = %f", &value) == 1) {
-            xrVehHeadOffsetZ = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bike_head_offset_x=%f", &value) == 1 ||
-            sscanf_s(line, "xr_bike_head_offset_x = %f", &value) == 1) {
-            xrBikeHeadOffsetX = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bike_head_offset_y=%f", &value) == 1 ||
-            sscanf_s(line, "xr_bike_head_offset_y = %f", &value) == 1) {
-            xrBikeHeadOffsetY = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bike_head_offset_z=%f", &value) == 1 ||
-            sscanf_s(line, "xr_bike_head_offset_z = %f", &value) == 1) {
-            xrBikeHeadOffsetZ = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_grab=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_wheel_grab = %d", &intValue) == 1) {
-            xrWheelGrab = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vr_interface=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vr_interface = %d", &intValue) == 1) {
-            xrVrInterface = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_physics=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hand_physics = %d", &intValue) == 1) {
-            xrHandPhysics = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_menu_gesture=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_menu_gesture = %d", &intValue) == 1) {
-            xrMenuGesture = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vr_weapon_wheel=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vr_weapon_wheel = %d", &intValue) == 1) {
-            xrVrWeaponWheel = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_collision=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hand_collision = %d", &intValue) == 1) {
-            xrHandCollision = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_collision_vehicle=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hand_collision_vehicle = %d", &intValue) == 1) {
-            xrHandCollisionVehicle = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_hand_push=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_hand_push = %d", &intValue) == 1) {
-            xrHandPush = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_prop_grab=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_prop_grab = %d", &intValue) == 1) {
-            xrPropGrab = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_carry_picture=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_carry_picture = %d", &intValue) == 1) {
-            xrCarryPicture = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_carry_lead=%f", &value) == 1 ||
-            sscanf_s(line, "xr_carry_lead = %f", &value) == 1) {
-            xrCarryLead = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_contact_margin=%f", &value) == 1 ||
-            sscanf_s(line, "xr_contact_margin = %f", &value) == 1) {
-            xrContactMargin = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_finger_contact=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_finger_contact = %d", &intValue) == 1) {
-            xrFingerContact = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_anywhere=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_wheel_anywhere = %d", &intValue) == 1) {
-            xrWheelAnywhere = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_radius=%f", &value) == 1 ||
-            sscanf_s(line, "xr_wheel_radius = %f", &value) == 1) {
-            xrWheelRadius = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_steer_max_deg=%f", &value) == 1 ||
-            sscanf_s(line, "xr_wheel_steer_max_deg = %f", &value) == 1) {
-            xrWheelSteerMaxDeg = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bike_bar_lock_deg=%f", &value) == 1 ||
-            sscanf_s(line, "xr_bike_bar_lock_deg = %f", &value) == 1) {
-            xrBikeBarLockDeg = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_bike_body_lean=%f", &value) == 1 ||
-            sscanf_s(line, "xr_bike_body_lean = %f", &value) == 1) {
-            xrBikeBodyLean = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_steer_dead_deg=%f", &value) == 1 ||
-            sscanf_s(line, "xr_wheel_steer_dead_deg = %f", &value) == 1) {
-            // 1.5 was the shipped default until 2026-11-04 (a wheel with play round its centre); it reads as the
-            // new default, none.
-            xrWheelSteerDeadDeg = std::abs(value - 1.5f) < 0.0001f ? 0.0f : value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_prediction=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_wheel_prediction = %d", &intValue) == 1) {
-            xrWheelPrediction = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_prediction_ms=%f", &value) == 1 ||
-            sscanf_s(line, "xr_wheel_prediction_ms = %f", &value) == 1) {
-            xrWheelPredictionMs = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_horn=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_wheel_horn = %d", &intValue) == 1) {
-            xrWheelHorn = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_wheel_horn_radius=%f", &value) == 1 ||
-            sscanf_s(line, "xr_wheel_horn_radius = %f", &value) == 1) {
-            xrWheelHornRadius = value;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vehicle_gun_trigger=%d", &intValue) == 1 ||
-            sscanf_s(line, "xr_vehicle_gun_trigger = %d", &intValue) == 1) {
-            xrVehicleGunTrigger = intValue;
-            continue;
-        }
-        if (sscanf_s(line, "xr_vehicle_throttle_trim=%f", &value) == 1 ||
-            sscanf_s(line, "xr_vehicle_throttle_trim = %f", &value) == 1) {
-            xrVehicleThrottleTrim = value;
-            continue;
-        }
-
-    }
+    ParseLiveControlsLines(file, values, subsystems);
     fclose(file);
+#endif
+    // The globals the loop writes directly.
+    g_viveTrackersSetting = values.g_viveTrackersSetting;
+    CyberpunkVR_VisionCsNode = values.CyberpunkVR_VisionCsNode;
+    CyberpunkVR_VisionCsOrd = values.CyberpunkVR_VisionCsOrd;
+    CyberpunkVR_VisionCsDim = values.CyberpunkVR_VisionCsDim;
+    CyberpunkVR_VisionCsSwap = values.CyberpunkVR_VisionCsSwap;
+    CyberpunkVR_WeaponPlaneAsScene = values.CyberpunkVR_WeaponPlaneAsScene;
+    CyberpunkVR_HighlightAnyPlane = values.CyberpunkVR_HighlightAnyPlane;
+    CyberpunkVR_PlaneBucketScene = values.CyberpunkVR_PlaneBucketScene;
+    LIVE_CONTROLS_BIND_LOCALS(values);
+    LIVE_CONTROLS_BIND_SUBSYSTEMS(subsystems);
 
     const int prevXrRecenter = g_liveControls.xrRecenter;
     const int prevXrMonoSubmit = g_liveControls.xrMonoSubmit;
@@ -1913,9 +962,8 @@ void PollLiveControls() {
     g_liveControls.xrPhysicalBodyRotation = xrPhysicalBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrTrackedBodyRotation = xrTrackedBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrHybridBodyRotation = xrHybridBodyRotation != 0 ? 1 : 0;
-    g_liveControls.xrHeadLedBodyRotation = xrHeadLedBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrBodyRotationMode=static_cast<int>(cvr::body::RotationModeFromFlags(
-        xrPhysicalBodyRotation,xrTrackedBodyRotation,xrHybridBodyRotation,xrHeadLedBodyRotation));
+        xrPhysicalBodyRotation,xrTrackedBodyRotation,xrHybridBodyRotation));
     g_liveControls.xrRoomscaleMovement = xrRoomscaleMovement != 0 ? 1 : 0;
     g_liveControls.xrPhysicalCrouch = xrPhysicalCrouch != 0 ? 1 : 0;
     g_liveControls.xrPhysicalCrouchDepth = cvr::body::CrouchThreshold(xrPhysicalCrouchDepth);
@@ -1948,38 +996,20 @@ void PollLiveControls() {
     OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
     g_liveControls.xrBodyHandsOnly = xrBodyHandsOnly != 0 ? 1 : 0;
     OpenXRManager::Get().SetBodyHandsOnly(g_liveControls.xrBodyHandsOnly);
-    g_liveControls.xrReloadGlow = xrReloadGlow != 0 ? 1 : 0;
-    OpenXRManager::Get().SetReloadGlow(g_liveControls.xrReloadGlow);
     // Clamped wider than the slider (+/-0.50) but still bounded: the value can arrive from a
     // hand-edited ini, and a metre of head offset is not a setting, it is a typo.
     auto clampVehOff = [](float v) { return (v < -1.0f) ? -1.0f : (v > 1.0f ? 1.0f : v); };
     g_liveControls.xrVehHeadOffsetX = clampVehOff(xrVehHeadOffsetX);
     g_liveControls.xrVehHeadOffsetY = clampVehOff(xrVehHeadOffsetY);
     g_liveControls.xrVehHeadOffsetZ = clampVehOff(xrVehHeadOffsetZ);
-    g_liveControls.xrBikeHeadOffsetX = clampVehOff(xrBikeHeadOffsetX);
-    g_liveControls.xrBikeHeadOffsetY = clampVehOff(xrBikeHeadOffsetY);
-    g_liveControls.xrBikeHeadOffsetZ = clampVehOff(xrBikeHeadOffsetZ);
     g_liveControls.xrWheelGrab = xrWheelGrab != 0 ? 1 : 0;
     g_liveControls.xrMenuGesture = xrMenuGesture != 0 ? 1 : 0;
-    g_liveControls.xrVrInterface = xrVrInterface != 0 ? 1 : 0;
-    g_liveControls.xrHandPhysics = xrHandPhysics != 0 ? 1 : 0;
     g_liveControls.xrVrWeaponWheel = xrVrWeaponWheel != 0 ? 1 : 0;
-    g_liveControls.xrHandCollision = xrHandCollision != 0 ? 1 : 0;
-    g_liveControls.xrHandCollisionVehicle = xrHandCollisionVehicle != 0 ? 1 : 0;
-    g_liveControls.xrHandPush = xrHandPush != 0 ? 1 : 0;
-    g_liveControls.xrFingerContact = xrFingerContact != 0 ? 1 : 0;
-    g_liveControls.xrPropGrab = xrPropGrab != 0 ? 1 : 0;
-    g_liveControls.xrCarryPicture = xrCarryPicture != 0 ? 1 : 0;
-    g_liveControls.xrCarryLead = xrCarryLead < 0.0f ? 0.0f : (xrCarryLead > 0.1f ? 0.1f : xrCarryLead);
-    g_liveControls.xrContactMargin = xrContactMargin < 0.0f ? 0.0f : (xrContactMargin > 0.05f ? 0.05f : xrContactMargin);
-    g_liveControls.xrWheelAnywhere = xrWheelAnywhere != 0 ? 1 : 0;
     // Clamped, not trusted: these come from a text file. Below ~8 cm the grab is unreachable for a
     // hand you cannot see; above 60 cm every grip in a car is a grab.
     g_liveControls.xrWheelRadius = (xrWheelRadius < 0.08f) ? 0.08f
                                  : (xrWheelRadius > 0.60f ? 0.60f : xrWheelRadius);
     g_liveControls.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(xrWheelSteerMaxDeg);
-    g_liveControls.xrBikeBarLockDeg = cvr::anim::BikeBarLockDegrees(xrBikeBarLockDeg);
-    g_liveControls.xrBikeBodyLean = cvr::anim::BikeBodyLeanShare(xrBikeBodyLean);
     // The deadzone is capped well under the smallest full-lock angle (30 deg): one that met or passed
     // it would leave no range at all between "dead" and "full lock".
     g_liveControls.xrWheelSteerDeadDeg = (xrWheelSteerDeadDeg < 0.0f) ? 0.0f
@@ -2041,7 +1071,6 @@ void PollLiveControls() {
     CyberpunkVR_ScopeGbufferPartitionsSetting = xrScopeGbufferPartitions ? 1 : 0;
     CyberpunkVR_ScopeGbufferPartitionsConfigure(CyberpunkVR_ScopeGbufferPartitionsSetting);
     CyberpunkVR_ScopeGraphDag = xrScopeGraphDag ? 1u : 0u;
-    cvr::scope_dlss::fullResolution.store(xrScopeRrFullResolution!=0,std::memory_order_relaxed);
     if (xrSubmitChainRev < kSubmitChainRev) {
         xrSubmitChain = 1;
         xrDeferPresent = 1;
@@ -2148,11 +1177,6 @@ void PollLiveControls() {
     CyberpunkVR_SniperBackMul  = (xrSniperBack < 0.0f) ? 0.0f : ((xrSniperBack > 8.0f) ? 8.0f : xrSniperBack);
     CyberpunkVR_RecoilScale    = (xrRecoilScale < 0.0f) ? 0.0f : ((xrRecoilScale > 2.0f) ? 2.0f : xrRecoilScale);
     CyberpunkVR_Haptics        = xrHaptics;
-    cvr::haptics::HapticRoute().Request(xrPsvr2HapticBackend);
-    cvr::haptics::SetLegacyGain(xrOpenXrHapticGain);
-    cvr::haptics::SetVehicleGain(xrOpenXrVehicleHapticGain);
-    cvr::haptics::SetVehicleAudioChannels(xrVehicleAudioChannels);
-    cvr::haptics::SetVehicleAudioRequireGrip(xrVehicleAudioRequireGrip != 0);
     CyberpunkVR_HapticScale    = (xrHapticScale < 0.0f) ? 0.0f : ((xrHapticScale > 2.0f) ? 2.0f : xrHapticScale);
     CyberpunkVR_PistolBackMul  = (xrPistolBack < 0.0f) ? 0.0f : ((xrPistolBack > 4.0f) ? 4.0f : xrPistolBack);
     CyberpunkVR_RecoilClimbFrac   = (xrClimbFrac < 0.0f) ? 0.0f : ((xrClimbFrac > 2.0f) ? 2.0f : xrClimbFrac);
@@ -2223,7 +1247,15 @@ void PollLiveControls() {
         }
     }
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE OVERLAY'S SNAPSHOT IS RUST'S (rust/crates/cvr-render/src/live_controls_ui.rs): taken into a default-constructed
+// state, applied (SetLiveControlsUiState is defined there), written to vrport.ini whole.
+static_assert(sizeof(LiveControlsUiState) == 1420, "mirrored by rust/crates/cvr-settings/src/live_controls_ui_state.rs");
+// The UI state's snapshot (GetLiveControlsUiState): rust/crates/cvr-render/src/core_services.rs.
+// The UI's table is built in rust/crates/cvr-render/src/live_controls_ui.rs.
+#else
 LiveControlsUiState MakeLiveControlsUiState() {
     LiveControlsUiState state{};
     state.xrWeaponLaserDot = overlay::g_drawBarrelCross;
@@ -2302,17 +1334,11 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrPhysicalBodyRotation = bodyMode==cvr::body::RotationMode::HeadCone;
     state.xrTrackedBodyRotation = bodyMode==cvr::body::RotationMode::Tracked;
     state.xrHybridBodyRotation = bodyMode==cvr::body::RotationMode::Hybrid;
-    state.xrHeadLedBodyRotation = bodyMode==cvr::body::RotationMode::HeadLed;
     state.xrRoomscaleMovement = g_liveControls.xrRoomscaleMovement;
     state.xrPhysicalCrouch = g_liveControls.xrPhysicalCrouch;
     state.xrPhysicalCrouchDepth = g_liveControls.xrPhysicalCrouchDepth;
     state.xrAsymProjection = CyberpunkVR_AsymProjection == 1 ? 1 : 0;
     state.xrHaptics = CyberpunkVR_Haptics != 0 ? 1 : 0;
-    state.xrPsvr2HapticBackend = cvr::haptics::HapticRoute().Requested();
-    state.xrOpenXrHapticGain = cvr::haptics::LegacyGain();
-    state.xrOpenXrVehicleHapticGain = cvr::haptics::VehicleGain();
-    state.xrVehicleAudioChannels = cvr::haptics::VehicleAudioChannels();
-    state.xrVehicleAudioRequireGrip = cvr::haptics::VehicleAudioRequireGrip();
     state.xrHapticScale = CyberpunkVR_HapticScale;
     state.xrBreaststrokeSwim = g_liveControls.xrBreaststrokeSwim;
     state.xrLadderGripClimb = g_liveControls.xrLadderGripClimb;
@@ -2334,32 +1360,14 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrSnapTurnPulseMs = g_liveControls.xrSnapTurnPulseMs;
     state.xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
     state.xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
-    state.xrReloadGlow = g_liveControls.xrReloadGlow;
     state.xrVehHeadOffsetX = g_liveControls.xrVehHeadOffsetX;
     state.xrVehHeadOffsetY = g_liveControls.xrVehHeadOffsetY;
     state.xrVehHeadOffsetZ = g_liveControls.xrVehHeadOffsetZ;
-    state.xrBikeHeadOffsetX = g_liveControls.xrBikeHeadOffsetX;
-    state.xrBikeHeadOffsetY = g_liveControls.xrBikeHeadOffsetY;
-    state.xrBikeHeadOffsetZ = g_liveControls.xrBikeHeadOffsetZ;
     state.xrWheelGrab = g_liveControls.xrWheelGrab;
     state.xrMenuGesture = g_liveControls.xrMenuGesture;
-    state.xrVrInterface = g_liveControls.xrVrInterface;
-    state.xrHandPhysics = g_liveControls.xrHandPhysics;
     state.xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
-    state.xrHandCollision = g_liveControls.xrHandCollision;
-    state.xrHandCollisionVehicle = g_liveControls.xrHandCollisionVehicle;
-    state.xrHandPush = g_liveControls.xrHandPush;
-    state.xrFingerContact = g_liveControls.xrFingerContact;
-    state.xrPropGrab = g_liveControls.xrPropGrab;
-    state.xrDebugView = g_liveControls.xrDebugView;
-    state.xrCarryPicture = g_liveControls.xrCarryPicture;
-    state.xrCarryLead = g_liveControls.xrCarryLead;
-    state.xrContactMargin = g_liveControls.xrContactMargin;
-    state.xrWheelAnywhere = g_liveControls.xrWheelAnywhere;
     state.xrWheelRadius = g_liveControls.xrWheelRadius;
     state.xrWheelSteerMaxDeg = g_liveControls.xrWheelSteerMaxDeg;
-    state.xrBikeBarLockDeg = g_liveControls.xrBikeBarLockDeg;
-    state.xrBikeBodyLean = g_liveControls.xrBikeBodyLean;
     state.xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg;
     state.xrWheelPrediction = g_liveControls.xrWheelPrediction;
     state.xrWheelPredictionMs = g_liveControls.xrWheelPredictionMs;
@@ -2474,7 +1482,6 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // 1 = the camera scope's render graph runs its passes side by side like MAIN's (same image). 0 = the
     // engine's one chain for a render-to-texture view.
     fprintf(file, "xr_scope_graph_dag=%d\n", CyberpunkVR_ScopeGraphDag ? 1 : 0);
-    fprintf(file,"xr_scope_rr_full_resolution=%d\n",cvr::scope_dlss::fullResolution.load(std::memory_order_relaxed)?1:0);
     // 2 = render-graph submission points chain their Close/Submit jobs among themselves instead of
     // holding up the graph (the next Synchronize starts while the previous batch is submitted); only
     // Present waits for the chain. 1 = view jobs wait for it too. 0 = the engine's order.
@@ -2593,8 +1600,8 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_hud_clearance_hands_scale=%.2f\n", state.xrHudClearanceHandsScale);
     // 1 = recenter automatically when the headset is put back on after being taken off.
     fprintf(file, "xr_auto_recenter=%d\n", CyberpunkVR_AutoRecenter);
-    // 1 = finger tracking: V's fingers follow the player's (OpenXR hand tracking: gloves, Index controllers, Quest hands);
-    // live. 0 = finger poses from the buttons.
+    // 1 = finger tracking: V's fingers follow the player's (OpenXR hand tracking: gloves, Index controllers); turning it
+    // on applies at the next game start. 0 = finger poses from the buttons.
     fprintf(file, "xr_finger_bones=%d\n", state.xrFingerBones ? 1 : 0);
     // 1 = with finger tracking, the grip input from the fingers' position (a fist or thumbs-up) instead of the grip sensor.
     fprintf(file, "xr_grip_from_fingers=%d\n", state.xrGripFromFingers ? 1 : 0);
@@ -2646,11 +1653,6 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // CONTROLLER VIBRATION (Runtimes/Haptics.cpp): rounds by weapon class, melee block and parry,
     // bullet block and deflect, a tick on reaching a belt element. 0 switches it all off; the scale
     // multiplies every profile, clamped to [0, 2].
-    fprintf(file, "xr_psvr2_haptic_backend=%d\n", cvr::haptics::HapticRoute().Requested());
-    fprintf(file, "xr_openxr_haptic_gain=%.3f\n", cvr::haptics::LegacyGain());
-    fprintf(file, "xr_openxr_vehicle_haptic_gain=%.3f\n", cvr::haptics::VehicleGain());
-    fprintf(file, "xr_vehicle_audio_channels=%d\n", cvr::haptics::VehicleAudioChannels());
-    fprintf(file, "xr_vehicle_audio_require_grip=%d\n", cvr::haptics::VehicleAudioRequireGrip());
     fprintf(file, "xr_haptics=%d\n", CyberpunkVR_Haptics);
     fprintf(file, "xr_haptic_scale=%.3f\n", CyberpunkVR_HapticScale);
     // A pistol's throw: the smallest of the four, because its energy goes into the flip. Its RISE has no
@@ -2705,7 +1707,6 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_physical_body_rotation=%d\n", state.xrPhysicalBodyRotation != 0 ? 1 : 0);
     fprintf(file, "xr_tracked_body_rotation=%d\n", state.xrTrackedBodyRotation != 0 ? 1 : 0);
     fprintf(file, "xr_hybrid_body_rotation=%d\n", state.xrHybridBodyRotation != 0 ? 1 : 0);
-    fprintf(file, "xr_head_led_body_rotation=%d\n", state.xrHeadLedBodyRotation != 0 ? 1 : 0);
     fprintf(file, "xr_roomscale_movement=%d\n", state.xrRoomscaleMovement != 0 ? 1 : 0);
     fprintf(file, "xr_physical_crouch=%d\n", state.xrPhysicalCrouch != 0 ? 1 : 0);
     fprintf(file, "xr_physical_crouch_depth=%.3f\n", cvr::body::CrouchThreshold(state.xrPhysicalCrouchDepth));
@@ -2730,31 +1731,14 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_snap_turn_pulse_ms=%d\n", state.xrSnapTurnPulseMs > 0 ? state.xrSnapTurnPulseMs : 30);
     fprintf(file, "xr_immersive_holsters=%d\n", state.xrImmersiveHolsters != 0 ? 1 : 0);
     fprintf(file, "xr_body_hands_only=%d\n", state.xrBodyHandsOnly != 0 ? 1 : 0);
-    fprintf(file, "xr_reload_glow=%d\n", state.xrReloadGlow != 0 ? 1 : 0);
     fprintf(file, "xr_veh_head_offset_x=%.4f\n", state.xrVehHeadOffsetX);
     fprintf(file, "xr_veh_head_offset_y=%.4f\n", state.xrVehHeadOffsetY);
     fprintf(file, "xr_veh_head_offset_z=%.4f\n", state.xrVehHeadOffsetZ);
-    fprintf(file, "xr_bike_head_offset_x=%.4f\n", state.xrBikeHeadOffsetX);
-    fprintf(file, "xr_bike_head_offset_y=%.4f\n", state.xrBikeHeadOffsetY);
-    fprintf(file, "xr_bike_head_offset_z=%.4f\n", state.xrBikeHeadOffsetZ);
     fprintf(file, "xr_wheel_grab=%d\n", state.xrWheelGrab != 0 ? 1 : 0);
     fprintf(file, "xr_menu_gesture=%d\n", state.xrMenuGesture != 0 ? 1 : 0);
-    fprintf(file, "xr_vr_interface=%d\n", state.xrVrInterface != 0 ? 1 : 0);
-    fprintf(file, "xr_hand_physics=%d\n", state.xrHandPhysics != 0 ? 1 : 0);
     fprintf(file, "xr_vr_weapon_wheel=%d\n", state.xrVrWeaponWheel != 0 ? 1 : 0);
-    fprintf(file, "xr_hand_collision=%d\n", state.xrHandCollision != 0 ? 1 : 0);
-    fprintf(file, "xr_hand_collision_vehicle=%d\n", state.xrHandCollisionVehicle != 0 ? 1 : 0);
-    fprintf(file, "xr_hand_push=%d\n", state.xrHandPush != 0 ? 1 : 0);
-    fprintf(file, "xr_finger_contact=%d\n", state.xrFingerContact != 0 ? 1 : 0);
-    fprintf(file, "xr_prop_grab=%d\n", state.xrPropGrab != 0 ? 1 : 0);
-    fprintf(file, "xr_carry_picture=%d\n", state.xrCarryPicture != 0 ? 1 : 0);
-    fprintf(file, "xr_carry_lead=%.3f\n", state.xrCarryLead);
-    fprintf(file, "xr_contact_margin=%.3f\n", state.xrContactMargin);
-    fprintf(file, "xr_wheel_anywhere=%d\n", state.xrWheelAnywhere != 0 ? 1 : 0);
     fprintf(file, "xr_wheel_radius=%.3f\n", state.xrWheelRadius > 0.0f ? state.xrWheelRadius : 0.28f);
     fprintf(file, "xr_wheel_steer_max_deg=%.1f\n", cvr::anim::WheelFullLockDegrees(state.xrWheelSteerMaxDeg));
-    fprintf(file, "xr_bike_bar_lock_deg=%.1f\n", cvr::anim::BikeBarLockDegrees(state.xrBikeBarLockDeg));
-    fprintf(file, "xr_bike_body_lean=%.2f\n", cvr::anim::BikeBodyLeanShare(state.xrBikeBodyLean));
     fprintf(file, "xr_wheel_steer_dead_deg=%.1f\n", state.xrWheelSteerDeadDeg >= 0.0f ? state.xrWheelSteerDeadDeg : 1.5f);
     fprintf(file, "xr_wheel_prediction=%d\n", state.xrWheelPrediction != 0 ? 1 : 0);
     fprintf(file, "xr_wheel_prediction_ms=%.1f\n", std::isfinite(state.xrWheelPredictionMs) ? std::clamp(state.xrWheelPredictionMs,0.0f,8.0f):0.0f);
@@ -2769,18 +1753,26 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
         g_lastLiveControlWrite = fileData.ftLastWriteTime;
     }
 }
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/core_services.rs
 extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState) {
     if (!outState) return;
     *outState = MakeLiveControlsUiState();
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 extern "C" void RequestLiveControlsRecenter() {
     g_liveControls.xrRecenter = 0;
     OpenXRManager::Get().RequestRecenter();
     Log("ImGui: OpenXR recenter requested.\n");
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int persistToFile) {
     if (!state) return;
     cvr::framegen::SetSettings(state->framegen);
@@ -2861,9 +1853,8 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrMaxInputThreshold=cvr::input::StickFullInput(state->xrMaxInputThreshold);
     g_liveControls.xrTrackedBodyRotation = state->xrTrackedBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrHybridBodyRotation = state->xrHybridBodyRotation != 0 ? 1 : 0;
-    g_liveControls.xrHeadLedBodyRotation = state->xrHeadLedBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrBodyRotationMode=static_cast<int>(cvr::body::RotationModeFromFlags(
-        state->xrPhysicalBodyRotation,state->xrTrackedBodyRotation,state->xrHybridBodyRotation,state->xrHeadLedBodyRotation));
+        state->xrPhysicalBodyRotation,state->xrTrackedBodyRotation,state->xrHybridBodyRotation));
     g_liveControls.xrRoomscaleMovement = state->xrRoomscaleMovement != 0 ? 1 : 0;
     g_liveControls.xrPhysicalCrouch = state->xrPhysicalCrouch != 0 ? 1 : 0;
     g_liveControls.xrPhysicalCrouchDepth = cvr::body::CrouchThreshold(state->xrPhysicalCrouchDepth);
@@ -2871,11 +1862,6 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     if ((state->xrAsymProjection != 0) != (CyberpunkVR_AsymProjection == 1))
         CyberpunkVR_AsymProjection = state->xrAsymProjection != 0 ? 1 : 0;
     CyberpunkVR_Haptics = state->xrHaptics != 0 ? 1 : 0;
-    cvr::haptics::HapticRoute().Request(state->xrPsvr2HapticBackend);
-    cvr::haptics::SetLegacyGain(state->xrOpenXrHapticGain);
-    cvr::haptics::SetVehicleGain(state->xrOpenXrVehicleHapticGain);
-    cvr::haptics::SetVehicleAudioChannels(state->xrVehicleAudioChannels);
-    cvr::haptics::SetVehicleAudioRequireGrip(state->xrVehicleAudioRequireGrip);
     CyberpunkVR_HapticScale = std::isfinite(state->xrHapticScale) ? std::clamp(state->xrHapticScale, 0.0f, 2.0f) : 1.0f;
     g_liveControls.xrBreaststrokeSwim = state->xrBreaststrokeSwim != 0 ? 1 : 0;
     g_liveControls.xrLadderGripClimb = state->xrLadderGripClimb != 0 ? 1 : 0;
@@ -2906,34 +1892,17 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
     g_liveControls.xrBodyHandsOnly = state->xrBodyHandsOnly != 0 ? 1 : 0;
     OpenXRManager::Get().SetBodyHandsOnly(g_liveControls.xrBodyHandsOnly);
-    g_liveControls.xrReloadGlow = state->xrReloadGlow != 0 ? 1 : 0;
-    OpenXRManager::Get().SetReloadGlow(g_liveControls.xrReloadGlow);
     {   // In-vehicle head offset: same bound as the ini path, for the same reason.
         auto cl = [](float v) { return (v < -1.0f) ? -1.0f : (v > 1.0f ? 1.0f : v); };
         g_liveControls.xrVehHeadOffsetX = cl(state->xrVehHeadOffsetX);
         g_liveControls.xrVehHeadOffsetY = cl(state->xrVehHeadOffsetY);
         g_liveControls.xrVehHeadOffsetZ = cl(state->xrVehHeadOffsetZ);
-        g_liveControls.xrBikeHeadOffsetX = cl(state->xrBikeHeadOffsetX);
-        g_liveControls.xrBikeHeadOffsetY = cl(state->xrBikeHeadOffsetY);
-        g_liveControls.xrBikeHeadOffsetZ = cl(state->xrBikeHeadOffsetZ);
     }
     // DRIVING. Same clamps as the ini path -- the overlay sliders already bound these, but the two
     // entry points must not be able to disagree about what a valid value is.
     g_liveControls.xrWheelGrab = state->xrWheelGrab != 0 ? 1 : 0;
     g_liveControls.xrMenuGesture = state->xrMenuGesture != 0 ? 1 : 0;
-    g_liveControls.xrVrInterface = state->xrVrInterface != 0 ? 1 : 0;
-    g_liveControls.xrHandPhysics = state->xrHandPhysics != 0 ? 1 : 0;
     g_liveControls.xrVrWeaponWheel = state->xrVrWeaponWheel != 0 ? 1 : 0;
-    g_liveControls.xrHandCollision = state->xrHandCollision != 0 ? 1 : 0;
-    g_liveControls.xrHandCollisionVehicle = state->xrHandCollisionVehicle != 0 ? 1 : 0;
-    g_liveControls.xrHandPush = state->xrHandPush != 0 ? 1 : 0;
-    g_liveControls.xrFingerContact = state->xrFingerContact != 0 ? 1 : 0;
-    g_liveControls.xrPropGrab = state->xrPropGrab != 0 ? 1 : 0;
-    g_liveControls.xrDebugView = state->xrDebugView != 0 ? 1 : 0;
-    g_liveControls.xrCarryPicture = state->xrCarryPicture != 0 ? 1 : 0;
-    g_liveControls.xrCarryLead = state->xrCarryLead < 0.0f ? 0.0f : (state->xrCarryLead > 0.1f ? 0.1f : state->xrCarryLead);
-    g_liveControls.xrContactMargin = state->xrContactMargin < 0.0f ? 0.0f : (state->xrContactMargin > 0.05f ? 0.05f : state->xrContactMargin);
-    g_liveControls.xrWheelAnywhere = state->xrWheelAnywhere != 0 ? 1 : 0;
     g_liveControls.xrWheelHorn = state->xrWheelHorn != 0 ? 1 : 0;
     g_liveControls.xrVehicleGunTrigger = state->xrVehicleGunTrigger != 0 ? 1 : 0;
     {
@@ -2941,8 +1910,6 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
         g_liveControls.xrWheelRadius = (r < 0.08f) ? 0.08f : (r > 0.60f ? 0.60f : r);
         const float m = state->xrWheelSteerMaxDeg;
         g_liveControls.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(m);
-        g_liveControls.xrBikeBarLockDeg = cvr::anim::BikeBarLockDegrees(state->xrBikeBarLockDeg);
-        g_liveControls.xrBikeBodyLean = cvr::anim::BikeBodyLeanShare(state->xrBikeBodyLean);
         const float d = state->xrWheelSteerDeadDeg;
         g_liveControls.xrWheelSteerDeadDeg = (d < 0.0f) ? 0.0f : (d > 20.0f ? 20.0f : d);
         g_liveControls.xrWheelPrediction = state->xrWheelPrediction != 0 ? 1 : 0;
@@ -2966,7 +1933,10 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
         PersistLiveControlsUiState(MakeLiveControlsUiState());
     }
 }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 void PollHotkeys() {
     static bool f7WasDown = false;
     static bool f8WasDown = false;
@@ -2989,3 +1959,4 @@ void PollHotkeys() {
     f7WasDown = f7Down;
     f8WasDown = f8Down;
 }
+#endif

@@ -8,8 +8,17 @@ namespace cvr::gaze {
 // One binocular gaze ray through the vertical centre of the rendered views.
 // Horizontal eye asymmetry is retained: their separate centres are not a common ray.
 struct Center {float tangentY{},ndcY{};};
+#if CVR_RUST_VRIK
+// The centre and the head-look switch, owned by rust/crates/cvr-xr/src/gaze.rs (the frame loop publishes there).
+struct XrGazeShared {std::atomic<uint64_t> centerBits;std::atomic<bool> headLook;};
+static_assert(sizeof(XrGazeShared) == 16, "mirrored by GazeShared in rust/crates/cvr-xr/src/gaze.rs");
+extern "C" XrGazeShared* cvr_xr_gaze_shared();
+inline std::atomic<uint64_t>& centerBits = cvr_xr_gaze_shared()->centerBits;
+inline std::atomic<bool>& headLook = cvr_xr_gaze_shared()->headLook;
+#else
 inline std::atomic<uint64_t> centerBits{};
 inline std::atomic<bool> headLook{true};
+#endif
 inline Center FromWindows(float up0,float down0,float up1,float down1) {
     const float middle=(up0+down0+up1+down1)*.25f;
     const float half=(up0-down0+up1-down1)*.25f;

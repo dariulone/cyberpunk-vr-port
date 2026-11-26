@@ -53,15 +53,15 @@ struct GeometryPoolFixture {
     uint64_t width=33554432,viewGpu=native.gpu+24520,viewBytes=984;
     uint32_t sizeClass=3,group=2,slot=270;
     uint64_t Record()const{return Registry+0x5C0AF8+uint64_t(native.handle-1)*0xB0;}
-    uint64_t Header()const{return Registry+0x13BC548+uint64_t(sizeClass)*24;}
+    uint64_t Header()const{return Registry+0x1410548+uint64_t(sizeClass)*24;}
     uint64_t Entry()const{return Data+uint64_t(group)*144;}
     uint64_t Occupancy()const{return Entry()+16+uint64_t(slot/64)*8;}
     template<class T>void Field(size_t at,T value){std::memcpy(raw.data()+at,&value,sizeof(value));memory.Put(Record()+at,value);}
     GeometryPoolFixture(uint32_t poolClass=3,uint32_t poolSlot=270,uint32_t logicalBytes=25504,uint64_t resourceBytes=33554432){
         const std::array<uint32_t,5> units{512,2048,8192,32768,98304};sizeClass=poolClass;slot=poolSlot;width=resourceBytes;
         native.bytes=logicalBytes;native.gpu=Gpu+uint64_t(slot)*units[sizeClass];viewBytes=std::min(uint64_t(984),native.bytes);viewGpu=native.gpu+native.bytes-viewBytes;
-        memory.Put(Base+0x3438A28,Registry);memory.Put<uint8_t>(Registry+0x13BC5C0,1);memory.Put<uint8_t>(Registry+0x1A8E991,0);
-        memory.PutBytes(Base+0x314AB00,units.data(),sizeof(units));
+        memory.Put(Base+0x3BCDCA8,Registry);memory.Put<uint8_t>(Registry+0x14105C0,1);memory.Put<uint8_t>(Registry+0x1AE2C69,0);
+        memory.PutBytes(Base+0x36F44C8,units.data(),sizeof(units));
         raw[6]=0x15;memory.PutBytes(Record(),raw.data(),raw.size());Field(0,uint32_t(native.bytes));Field(8,native.gpu);Field(16,native.resource);
         Field(0x40,(slot<<16)|(group<<3)|sizeClass);memory.Put(Header(),Data);memory.Put<uint32_t>(Header()+8,4);memory.Put<uint32_t>(Header()+12,3);
         std::array<uint8_t,144> entry{};memory.PutBytes(Entry(),entry.data(),entry.size());memory.Put(Entry(),Resource);memory.Put(Entry()+8,Owner);
@@ -70,7 +70,7 @@ struct GeometryPoolFixture {
     bool Read(ia::detail::GeometryPool& output){return ia::detail::ReadGeometryPool(PoolMemory::Read,&memory,Base,native,raw,Gpu,width,viewGpu,viewBytes,output);}
 };
 static void GeometryPools(){
-    {GeometryPoolFixture raw;raw.Field<uint8_t>(6,0x1D);raw.memory.Put<uint8_t>(raw.Registry+0x1A8E991,1);
+    {GeometryPoolFixture raw;raw.Field<uint8_t>(6,0x1D);raw.memory.Put<uint8_t>(raw.Registry+0x1AE2C69,1);
         ia::detail::GeometryPool pool;
         Require(!raw.Read(pool),"Raw material pool must not satisfy the IA contract");
         Require(ia::detail::ReadGeometryPool(PoolMemory::Read,&raw.memory,raw.Base,raw.native,raw.raw,raw.Gpu,raw.width,raw.viewGpu,raw.viewBytes,pool,13) &&
@@ -89,9 +89,9 @@ static void GeometryPools(){
             "Native geometry size class or final occupancy word rejected");}
     const auto reject=[](auto edit){GeometryPoolFixture bad;edit(bad);ia::detail::GeometryPool out;
         Require(!bad.Read(out) && out==ia::detail::GeometryPool{},"Invalid geometry pool acquired a live ownership observation");};
-    reject([](auto& f){f.memory.template Put<uint8_t>(f.Registry+0x13BC5C0,0);});
-    reject([](auto& f){f.memory.template Put<uint8_t>(f.Registry+0x1A8E991,1);});
-    reject([](auto& f){f.memory.Put(f.Base+0x3438A28,f.Registry+8);});
+    reject([](auto& f){f.memory.template Put<uint8_t>(f.Registry+0x14105C0,0);});
+    reject([](auto& f){f.memory.template Put<uint8_t>(f.Registry+0x1AE2C69,1);});
+    reject([](auto& f){f.memory.Put(f.Base+0x3BCDCA8,f.Registry+8);});
     reject([](auto& f){f.Field(6,uint8_t(0x16));});
     reject([](auto& f){f.native.kind=3;});
     reject([](auto& f){f.native.handle=0;});
@@ -101,8 +101,8 @@ static void GeometryPools(){
     reject([](auto& f){f.Field(0x40,(270u<<16)|(2u<<3)|5u);});
     reject([](auto& f){f.Field(0x40,(270u<<16)|(2u<<3)|2u);});
     reject([](auto& f){f.Field(0x40,(270u<<16)|(2u<<3)|4u);});
-    reject([](auto& f){f.memory.template Put<uint32_t>(f.Base+0x314AB00+12,8192);});
-    reject([](auto& f){f.memory.template Put<uint32_t>(f.Base+0x314AB00+16,98305);});
+    reject([](auto& f){f.memory.template Put<uint32_t>(f.Base+0x36F44C8+12,8192);});
+    reject([](auto& f){f.memory.template Put<uint32_t>(f.Base+0x36F44C8+16,98305);});
     reject([](auto& f){f.memory.Put(f.Header(),uint64_t(0));});
     reject([](auto& f){f.memory.Put(f.Header(),UINT64_MAX-144);});
     reject([](auto& f){f.memory.template Put<uint32_t>(f.Header()+8,8193);});
@@ -154,7 +154,7 @@ struct PlacedFixture {
     ia::detail::PlacedAllocation expected{0x5000,0x3000,0x7000,0x8000,0x12345678,0x9000,196608};
     uint64_t offset=0x1730000,mutateAfterGetter{};UINT calls{};bool rejectGetter{},changeOffset{};
     PlacedFixture(){std::array<uint8_t,0x68> raw{};memory.PutBytes(expected.allocation,raw.data(),raw.size());
-        memory.Put(expected.allocation,Base+0x2B28438);memory.Put<uint32_t>(expected.allocation+8,2);
+        memory.Put(expected.allocation,Base+0x30466A8);memory.Put<uint32_t>(expected.allocation+8,2);
         memory.Put(expected.allocation+0x10,expected.pimpl);memory.Put(expected.allocation+0x18,expected.bytes);
         memory.Put(expected.allocation+0x28,expected.resource);memory.Put(expected.allocation+0x40,expected.handle);
         memory.Put(expected.allocation+0x48,expected.block);memory.Put<uint32_t>(expected.allocation+0x60,1);
@@ -173,7 +173,7 @@ static void PlacedAllocations(){
         "Placed opaque handle was not resolved through the allocation offset getter");
     const auto reject=[](auto edit){PlacedFixture bad;edit(bad);ia::detail::PlacedAllocation output;
         Require(!bad.Query(output) && output==ia::detail::PlacedAllocation{},"Changed or unowned placed allocation acquired an offset proof");};
-    reject([](auto& f){f.memory.Put(f.expected.allocation,f.Base+0x2B28440);});
+    reject([](auto& f){f.memory.Put(f.expected.allocation,f.Base+0x30466B0);});
     reject([](auto& f){f.memory.template Put<uint32_t>(f.expected.allocation+8,0);});
     reject([](auto& f){f.memory.template Put<uint32_t>(f.expected.allocation+0x60,0);});
     reject([](auto& f){f.memory.Put(f.expected.allocation+0x10,f.expected.pimpl+8);});

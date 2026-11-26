@@ -2,9 +2,137 @@
 
 #include <windows.h>
 #include <d3d12.h>
+#include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <wrl.h>
 
+// The engine's own HUD composite, ported from PipelineState_576 (the indirect compute
+// dispatch that produces the final colour). Constants below default to the values read out
+// of the game's b6 buffer; they are the whole difference between "the HUD is there" and
+// "the HUD looks right".
+struct ColorBlitHudParams {
+    float curvature[2]   = { 0.009017f, 0.084242f };  // _43_m0[3].xy
+    float shadowUV[2]    = { 0.0008f,   0.0008f   };  // _43_m0[3].zw
+    float mipOffset1[2]  = { -0.0050f, -0.0025f   };  // _43_m0[7].xy
+    float mipOffset2[2]  = { -0.0108f, -0.0068f   };  // _43_m0[7].zw
+    float mipOffset4[2]  = { -0.0126f, -0.0073f   };  // _43_m0[8].xy
+    float glowWeight1    = 0.08f;                     // _43_m0[8].z
+    float glowWeight2    = 0.07f;                     // _43_m0[8].w
+    float glowWeight4    = 0.06f;                     // _43_m0[9].x
+    float aberration     = 0.0001f;                   // _43_m0[6].w
+    float hudGain        = 2.0f;                      // the engine's literal x2
+    float glowGain       = 1.0f;                      // _43_m0[1].x
+    float shadowStrength = 1.0f;                      // _43_m0[4].x
+    // The WIDE highlight -- the halo that makes the map, the weapon icons and the tracked
+    // quest read as lit instead of flat. The engine adds its own half-res 4-mip HUD pyramid
+    // at lod _43_m0[5].y with weight _43_m0[5].x. (It is HUD, not scene bloom: the shadow
+    // term beside it lerps that texture's ALPHA against the HUD's.) We snapshot the engine's
+    // pyramid rather than approximate it, so these are its numbers, unchanged.
+    float bloomGain      = 0.65f;                     // _43_m0[5].x
+    float bloomLod       = 1.8f;                      // _43_m0[5].y
+    float shadowMip      = 0.036f;                    // _43_m0[4].y
+    float time           = 0.0f;                      // _33_m0[0].x
+    float flicker        = 1.0f;                      // 0 = hold the scanlines still
+    // Filled by RecordHudComposite: the shader compares these against the engine constant
+    // buffer's own target size to decide whether that buffer is the one we meant to bind.
+    float targetW        = 0.0f;
+    float targetH        = 0.0f;
+    // Bisection for "the HUD is less sharp than MAIN's": 0 = the full composite, 1 = the HUD
+    // term alone (no warp, no glow, no halo, no aberration), 2 = no warp, 3 = no halo,
+    // 4 = no glow, 5 = no aberration. Whichever value makes it sharp names the culprit.
+    float debugMode      = 0.0f;
+    // Horizontal shift of the HUD SAMPLE, in UV. Filled by the caller for the second eye only,
+    // because MAIN's HUD is the engine's own draw and cannot move -- so the whole disparity goes
+    // into this eye.
+    //
+    // ZERO IS THE DEFAULT AND THE SHIPPED BEHAVIOUR: the HUD sits at the same pixel in both eyes,
+    // which is optical infinity and therefore identical placement -- markers and labels land in the
+    // same spot in each eye.
+    //
+    // Non-zero puts the HUD at a finite distance instead. That is better optics and it fixed a real
+    // complaint on a Pimax ("both images too far to the sides to converge", because an icon at
+    // infinity cannot fuse while the world is an arm's length away) -- but it is also visible as
+    // per-eye misalignment on a headset where it is not needed. Which is right depends on the
+    // headset, so the caller decides via CyberpunkVR_HudDistanceM and the note there explains both
+    // sides.
+    float hudShiftU      = 0.0f;
+    float layerOnly      = 0.0f;
+    float panelBrightness= 1.0f;
+    float panelShadow    = 1.0f;
+    float panelGlow      = 1.0f;
+    // 1 = the panel bends with `curvature` above: the engine's own values, which the in-eye block no
+    // longer carries once the port zeroed them (CyberpunkVR_HudEngineCurvature).
+    float panelEngineCurve = 0.0f;
+};
+// The Rust build hands these to rust/crates/cvr-gpu/src/color_blit.rs as 31 root constants; targetW/targetH sit
+// at float 22/23.
+static_assert(sizeof(ColorBlitHudParams) == 31 * sizeof(float), "HudParams is 31 root constants");
+static_assert(offsetof(ColorBlitHudParams, targetW) == 22 * sizeof(float), "targetW moved");
+
+#if CVR_RUST_VRIK
+// The blitter: rust/crates/cvr-gpu/src/color_blit.rs.
+extern "C" {
+void* cvr_gpu_color_blit_new();
+void cvr_gpu_color_blit_free(void* blit);
+bool cvr_gpu_color_blit_ensure(const void* blit, ID3D12Device* device, int format, uint32_t width, uint32_t height);
+bool cvr_gpu_color_blit_record_blit(const void* blit, ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcColor,
+                                    ID3D12Resource* dstColor, float u0, float v0, float u1, float v1);
+bool cvr_gpu_color_blit_record_overlay(const void* blit, ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcOverlay,
+                                       ID3D12Resource* dstColor, int mode, bool pixelExact, float offX, float offY,
+                                       float width, float height, const float* tint, uint32_t sourceMip,
+                                       uint32_t targetMip, int blurAxis, float blackPoint);
+bool cvr_gpu_color_blit_record_hud_composite(const void* blit, ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcScene,
+                                             ID3D12Resource* srcHud, ID3D12Resource* srcHudBlur, ID3D12Resource* srcExposure,
+                                             ID3D12Resource* srcFrameCB, ID3D12Resource* srcHudCB, ID3D12Resource* dstColor,
+                                             const ColorBlitHudParams* params);
+bool cvr_gpu_color_blit_record_dot(const void* blit, ID3D12GraphicsCommandList* cmdList, ID3D12Resource* dstColor,
+                                   float ndcX, float ndcY, float radiusPx, float r, float g, float b, float a);
+void cvr_gpu_color_blit_shutdown(const void* blit);
+}
+// The same contract as the C++ class below (its comments describe each call).
+class ColorBlit {
+public:
+    using HudParams = ColorBlitHudParams;
+    static constexpr uint32_t kSlots = 96;
+
+    ColorBlit() : m_rust(cvr_gpu_color_blit_new()) {}
+    ~ColorBlit() { cvr_gpu_color_blit_free(m_rust); }
+    ColorBlit(const ColorBlit&) = delete;
+    ColorBlit& operator=(const ColorBlit&) = delete;
+
+    bool EnsureInitialized(ID3D12Device* device, DXGI_FORMAT colorFormat, uint32_t width, uint32_t height) {
+        return cvr_gpu_color_blit_ensure(m_rust, device, static_cast<int>(colorFormat), width, height);
+    }
+    bool RecordBlit(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcColor, ID3D12Resource* dstColor,
+                    float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f) {
+        return cvr_gpu_color_blit_record_blit(m_rust, cmdList, srcColor, dstColor, u0, v0, u1, v1);
+    }
+    bool RecordOverlay(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcOverlay, ID3D12Resource* dstColor,
+                       int mode = 0, bool pixelExact = false, float offX = 0.0f, float offY = 0.0f,
+                       float width = 0.0f, float height = 0.0f, const float* tint = nullptr,
+                       uint32_t sourceMip = 0, uint32_t targetMip = 0, int blurAxis = 0, float blackPoint = 0.0f) {
+        return cvr_gpu_color_blit_record_overlay(m_rust, cmdList, srcOverlay, dstColor, mode, pixelExact, offX, offY,
+                                                 width, height, tint, sourceMip, targetMip, blurAxis, blackPoint);
+    }
+    bool RecordHudComposite(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcScene, ID3D12Resource* srcHud,
+                            ID3D12Resource* srcHudBlur, ID3D12Resource* srcExposure, ID3D12Resource* srcFrameCB,
+                            ID3D12Resource* srcHudCB, ID3D12Resource* dstColor, const HudParams& params) {
+        return cvr_gpu_color_blit_record_hud_composite(m_rust, cmdList, srcScene, srcHud, srcHudBlur, srcExposure,
+                                                       srcFrameCB, srcHudCB, dstColor, &params);
+    }
+    bool RecordDot(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* dstColor, float ndcX, float ndcY,
+                   float radiusPx, float r, float g, float b, float a) {
+        return cvr_gpu_color_blit_record_dot(m_rust, cmdList, dstColor, ndcX, ndcY, radiusPx, r, g, b, a);
+    }
+    void Shutdown() { cvr_gpu_color_blit_shutdown(m_rust); }
+    // The Rust blitter, for rust/crates/cvr-render/src/xr_capture.rs.
+    void* Raw() const { return m_rust; }
+
+private:
+    void* m_rust;
+};
+#else
 class ColorBlit {
 public:
     ColorBlit() = default;
@@ -50,68 +178,7 @@ public:
                        uint32_t sourceMip = 0, uint32_t targetMip = 0, int blurAxis = 0,
                        float blackPoint = 0.0f);   // linear light a texel must exceed to show (overlay modes)
 
-    // The engine's own HUD composite, ported from PipelineState_576 (the indirect compute
-    // dispatch that produces the final colour). Constants below default to the values read out
-    // of the game's b6 buffer; they are the whole difference between "the HUD is there" and
-    // "the HUD looks right".
-    struct HudParams {
-        float curvature[2]   = { 0.009017f, 0.084242f };  // _43_m0[3].xy
-        float shadowUV[2]    = { 0.0008f,   0.0008f   };  // _43_m0[3].zw
-        float mipOffset1[2]  = { -0.0050f, -0.0025f   };  // _43_m0[7].xy
-        float mipOffset2[2]  = { -0.0108f, -0.0068f   };  // _43_m0[7].zw
-        float mipOffset4[2]  = { -0.0126f, -0.0073f   };  // _43_m0[8].xy
-        float glowWeight1    = 0.08f;                     // _43_m0[8].z
-        float glowWeight2    = 0.07f;                     // _43_m0[8].w
-        float glowWeight4    = 0.06f;                     // _43_m0[9].x
-        float aberration     = 0.0001f;                   // _43_m0[6].w
-        float hudGain        = 2.0f;                      // the engine's literal x2
-        float glowGain       = 1.0f;                      // _43_m0[1].x
-        float shadowStrength = 1.0f;                      // _43_m0[4].x
-        // The WIDE highlight -- the halo that makes the map, the weapon icons and the tracked
-        // quest read as lit instead of flat. The engine adds its own half-res 4-mip HUD pyramid
-        // at lod _43_m0[5].y with weight _43_m0[5].x. (It is HUD, not scene bloom: the shadow
-        // term beside it lerps that texture's ALPHA against the HUD's.) We snapshot the engine's
-        // pyramid rather than approximate it, so these are its numbers, unchanged.
-        float bloomGain      = 0.65f;                     // _43_m0[5].x
-        float bloomLod       = 1.8f;                      // _43_m0[5].y
-        float shadowMip      = 0.036f;                    // _43_m0[4].y
-        float time           = 0.0f;                      // _33_m0[0].x
-        float flicker        = 1.0f;                      // 0 = hold the scanlines still
-        // Filled by RecordHudComposite: the shader compares these against the engine constant
-        // buffer's own target size to decide whether that buffer is the one we meant to bind.
-        float targetW        = 0.0f;
-        float targetH        = 0.0f;
-        // Bisection for "the HUD is less sharp than MAIN's": 0 = the full composite, 1 = the HUD
-        // term alone (no warp, no glow, no halo, no aberration), 2 = no warp, 3 = no halo,
-        // 4 = no glow, 5 = no aberration. Whichever value makes it sharp names the culprit.
-        float debugMode      = 0.0f;
-        // Horizontal shift of the HUD SAMPLE, in UV. Filled by the caller for the second eye only,
-        // because MAIN's HUD is the engine's own draw and cannot move -- so the whole disparity goes
-        // into this eye.
-        //
-        // ZERO IS THE DEFAULT AND THE SHIPPED BEHAVIOUR: the HUD sits at the same pixel in both eyes,
-        // which is optical infinity and therefore identical placement -- markers and labels land in the
-        // same spot in each eye.
-        //
-        // Non-zero puts the HUD at a finite distance instead. That is better optics and it fixed a real
-        // complaint on a Pimax ("both images too far to the sides to converge", because an icon at
-        // infinity cannot fuse while the world is an arm's length away) -- but it is also visible as
-        // per-eye misalignment on a headset where it is not needed. Which is right depends on the
-        // headset, so the caller decides via CyberpunkVR_HudDistanceM and the note there explains both
-        // sides.
-        float hudShiftU      = 0.0f;
-        float layerOnly      = 0.0f;
-        float panelBrightness= 1.0f;
-        float panelShadow    = 1.0f;
-        float panelGlow      = 1.0f;
-        // 1 = the panel bends with `curvature` above: the engine's own values, which the in-eye block no
-        // longer carries once the port zeroed them (CyberpunkVR_HudEngineCurvature).
-        float panelEngineCurve = 0.0f;
-        // Vehicle-only luminous map projection: transparent backdrop and perspective into the windshield.
-        float windshieldMap = 0.0f;
-        // ...the map's share of the canvas height; the quest text, unwarped, under it.
-        float windshieldSplit = 1.0f;
-    };
+    using HudParams = ColorBlitHudParams;
 
     // Full composite: scene + HUD -> dstColor (which must be in RENDER_TARGET). Unlike
     // RecordOverlay this READS the scene, because the engine's glow is modulated by scene luma
@@ -173,3 +240,4 @@ private:
     uint32_t m_width = 0;
     uint32_t m_height = 0;
 };
+#endif

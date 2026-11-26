@@ -1,5 +1,6 @@
-"""Capture the existing simulator preview via PrintWindow; never changes focus."""
+"""Inspect the game or simulator client, or save its window image via PrintWindow."""
 import argparse
+import json
 import ctypes as c
 from ctypes import wintypes as w
 from pathlib import Path
@@ -16,10 +17,12 @@ class BitmapHeader(c.Structure):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pid', type=int, required=True)
-    parser.add_argument('--out', type=Path, required=True)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument('--out', type=Path)
+    action.add_argument('--inspect', action='store_true', help='print physical client bounds without capturing')
     parser.add_argument('--window',choices=('simulator','game'),default='simulator')
     args = parser.parse_args()
-    if not args.out.parent.is_dir() or args.out.exists():
+    if args.out and (not args.out.parent.is_dir() or args.out.exists()):
         raise RuntimeError('Fresh output under existing parent required')
     user, gdi = c.WinDLL('user32', use_last_error=True), c.WinDLL('gdi32', use_last_error=True)
     # PrintWindow draws physical pixels. Prevent DPI-virtualized GetWindowRect
@@ -30,6 +33,10 @@ def main():
     user.GetWindowThreadProcessId.argtypes = [w.HWND, c.POINTER(w.DWORD)]
     user.GetWindowTextW.argtypes = [w.HWND, w.LPWSTR, c.c_int]
     user.GetWindowRect.argtypes = [w.HWND, c.POINTER(w.RECT)]
+    user.GetClientRect.argtypes = [w.HWND, c.POINTER(w.RECT)]
+    user.ClientToScreen.argtypes = [w.HWND, c.POINTER(w.POINT)]
+    user.GetClassNameW.argtypes = [w.HWND, w.LPWSTR, c.c_int]
+    user.IsIconic.argtypes = [w.HWND]
     user.IsWindowVisible.argtypes = [w.HWND]
     user.GetForegroundWindow.restype = w.HWND
     user.GetDC.argtypes = [w.HWND]; user.GetDC.restype = w.HDC
@@ -50,15 +57,24 @@ def main():
         pid = w.DWORD(); user.GetWindowThreadProcessId(hwnd, c.byref(pid))
         if pid.value == args.pid and user.IsWindowVisible(hwnd):
             title = c.create_unicode_buffer(1024); user.GetWindowTextW(hwnd, title, len(title))
-            windows.append((int(hwnd), title.value))
+            cls = c.create_unicode_buffer(256); user.GetClassNameW(hwnd, cls, len(cls))
+            windows.append((int(hwnd), title.value, cls.value))
         return True
 
     user.EnumWindows(collect, 0)
-    matches = [(hwnd, title) for hwnd, title in windows if
-               ('simulator' in title.lower() if args.window=='simulator' else title.startswith('Cyberpunk 2077'))]
+    matches = [(hwnd, title, cls) for hwnd, title, cls in windows if
+               ('simulator' in title.lower() if args.window == 'simulator' else cls == 'W2ViewportClass')]
     if len(matches) != 1:
-        raise RuntimeError(f'Need exactly one simulator preview: {windows}')
-    hwnd, title = matches[0]
+        raise RuntimeError(f'Need exactly one visible {args.window} window for PID {args.pid}: {windows}')
+    hwnd, title, cls = matches[0]
+    if args.inspect:
+        client, origin = w.RECT(), w.POINT()
+        if not user.GetClientRect(hwnd, c.byref(client)) or not user.ClientToScreen(hwnd, c.byref(origin)):
+            raise c.WinError(c.get_last_error())
+        print(json.dumps({'pid': args.pid, 'hwnd': hex(hwnd), 'class': cls, 'title': title,
+                          'minimized': bool(user.IsIconic(hwnd)), 'client': [client.right, client.bottom],
+                          'clientScreenRect': [origin.x, origin.y, origin.x + client.right, origin.y + client.bottom]}))
+        return
     before_focus = user.GetForegroundWindow()
     rect = w.RECT()
     if not user.GetWindowRect(hwnd, c.byref(rect)):

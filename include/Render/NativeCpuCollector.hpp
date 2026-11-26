@@ -20,6 +20,36 @@ struct CollectorInput {
 // The native wrapper owns its collector, metadata, arrays and locks. Camera and
 // view parameters are copied here, while scene/viewData are borrowed only for
 // the caller's current native preparation scope. No jobs are started by Create.
+#if CVR_RUST_VRIK
+static_assert(sizeof(CollectorInput)==0x730 && offsetof(CollectorInput,camera)==0x20 && offsetof(CollectorInput,viewFlags)==0x400,
+    "mirrored by rust/crates/cvr-render/src/cpu_collector.rs");
+}
+// The owner: rust/crates/cvr-render/src/cpu_collector.rs.
+extern "C" {
+void* cvr_cpu_collector_new(const cvr::stereo::CollectorApi*);
+void cvr_cpu_collector_free(void*);
+bool cvr_cpu_collector_create(void*,const cvr::stereo::CollectorInput*);
+void cvr_cpu_collector_reset(void*);
+void* cvr_cpu_collector_storage(const void*);
+void* cvr_cpu_collector_metadata(const void*);
+const cvr::stereo::CollectorInput* cvr_cpu_collector_inputs(const void*);
+}
+namespace cvr::stereo {
+class NativeCpuCollector {
+public:
+    explicit NativeCpuCollector(CollectorApi api):rust_(cvr_cpu_collector_new(&api)){}
+    ~NativeCpuCollector(){cvr_cpu_collector_free(rust_);}
+    NativeCpuCollector(const NativeCpuCollector&)=delete;
+    NativeCpuCollector& operator=(const NativeCpuCollector&)=delete;
+    bool Create(const CollectorInput& input){return cvr_cpu_collector_create(rust_,&input);}
+    void Reset(){cvr_cpu_collector_reset(rust_);}
+    void* Storage() const{return cvr_cpu_collector_storage(rust_);}
+    void* Metadata() const{return cvr_cpu_collector_metadata(rust_);}
+    const CollectorInput* Inputs()const{return cvr_cpu_collector_inputs(rust_);}
+private:
+    void* rust_;
+};
+#else
 class NativeCpuCollector {
 public:
     explicit NativeCpuCollector(CollectorApi api):api_(api){}
@@ -36,6 +66,7 @@ private:
     void* owner_{};
     CollectorInput input_;
 };
+#endif
 void PollCpuCollector();
 bool CaptureCpuFine(void* query,int64_t* range,char partial,void* output,char& result);
 bool CaptureCpuScene(void* manager,void* context,void* output,void* query,void* job,int64_t& result);

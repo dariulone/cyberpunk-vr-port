@@ -1,4 +1,5 @@
 #include <RED4ext/RED4ext.hpp>
+#include "Natives/NativeFunctions.hpp"  // the natives defined here, with C linkage in the Rust build
 #include <RED4ext/GameEngine.hpp>
 #include <sstream>
 #include <locale>
@@ -69,6 +70,18 @@ extern volatile float g_VRCamI, g_VRCamJ, g_VRCamK, g_VRCamR;
 // WriteVRDiagCore is declared in Natives/NativeHelpers.hpp; the definition moved with the
 // calibration family.
 
+#if CVR_RUST_VRIK
+// The Rust build's hand natives, the overlay's calibration, the FPP component dump, the chunk-debug setters, their
+// helpers and the GetPlayer call are rust/crates/cvr-ffi/src/hand_natives.rs and anim_lookup.rs; nothing in this build
+// calls the helpers' C++ names any more.
+
+// The fields hand_natives.rs's FPP component dump reads.
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::Entity, templatePath, 0x60);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::IComponent, isEnabled, 0x8B);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::SkinnedMeshComponent, chunkMask, 0x248);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::MeshComponent, visualScale, 0x178);
+RED4EXT_ASSERT_OFFSET(RED4ext::ent::MeshComponent, chunkMask, 0x198);
+#else
 // Reads IK calibration the in-headset overlay published into shared memory
 // (slots [33..48]) and applies it to the live globals. When [33] (valid) is 0
 // the plugin keeps its baked defaults so the CET sliders still work standalone.
@@ -373,3 +386,4 @@ void SetVRFppChunkDebugBits(RED4ext::IScriptable* aContext, RED4ext::CStackFrame
     g_chunkDebugBitSlots[2] = -1;
     g_chunkDebugBitSlots[3] = -1;
 }
+#endif

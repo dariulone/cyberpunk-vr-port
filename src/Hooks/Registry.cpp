@@ -4,6 +4,25 @@
 #include <vector>
 #include <algorithm>
 
+#if CVR_RUST_VRIK
+// The Rust build's registry is rust/crates/cvr-engine/src/stages.rs, every hook registered there from Rust
+// (rust/crates/cvr-render/src/hook_table.rs); the stages install from there in the same order with the same lines.
+// The hooks whose install functions are Rust's register from rust/crates/cvr-render/src/hook_table.rs.
+#if CVR_RUST_TEST_FACADES
+extern "C" void cvr_hooks_register_rust();
+namespace {
+[[maybe_unused]] const bool kRustHooksRegistered=(cvr_hooks_register_rust(),true);
+}
+#else
+// The plugin's static registrations -- the hook table, the vtable registry's switch, the instance observer's, engine's,
+// definition tracking's and paired frame's detours -- run from Rust's own static initializer:
+// rust/crates/cvr-render/src/engine_detours.rs (STATIC_REGISTRATIONS).
+#endif
+
+
+
+
+#else
 extern void Log(const char* fmt, ...);
 
 namespace cvr::hooks {
@@ -90,3 +109,4 @@ void ReportInstalled() {
 }
 
 }  // namespace cvr::hooks
+#endif

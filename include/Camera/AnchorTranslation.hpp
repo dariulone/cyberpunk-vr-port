@@ -1,5 +1,8 @@
 #pragma once
 #include <cmath>
+#if CVR_RUST_ROOM
+#include "Rust/CvrRust.h"   // rust/crates/cvr-camera/src/anchor.rs
+#endif
 
 namespace cvr::camera {
 struct AnchorVector {
@@ -10,6 +13,15 @@ inline AnchorVector ActiveVehicleCameraOffset(AnchorVector configured,bool passe
     return passengerCombat ? AnchorVector{} : configured;
 }
 
+#if CVR_RUST_ROOM
+inline CvrAnchorVector ToC(AnchorVector v) { return {v.x, v.y, v.z}; }
+inline AnchorVector FromC(CvrAnchorVector v) { return {v.x, v.y, v.z}; }
+inline AnchorVector RotateAnchorYaw(AnchorVector v, float yaw) { return FromC(cvr_anchor_rotate_yaw(ToC(v), yaw)); }
+inline AnchorVector ComposeAnchorTranslation(AnchorVector headResidual, AnchorVector trackingOffset,
+                                            AnchorVector modelOffset, float trackingYaw, float modelYaw) {
+    return FromC(cvr_anchor_compose(ToC(headResidual), ToC(trackingOffset), ToC(modelOffset), trackingYaw, modelYaw));
+}
+#else
 inline AnchorVector RotateAnchorYaw(AnchorVector v, float yaw) {
     const float c=std::cos(yaw), s=std::sin(yaw);
     return {c*v.x-s*v.y, s*v.x+c*v.y, v.z};
@@ -28,6 +40,7 @@ inline AnchorVector ComposeAnchorTranslation(AnchorVector headResidual,
     const auto body=RotateAnchorYaw(modelOffset,modelYaw);
     return {room.x+body.x,room.y+body.y,room.z+body.z};
 }
+#endif
 
 struct AnchorRecipe {
     AnchorVector trackingOffset{}, modelOffset{};
@@ -38,21 +51,29 @@ struct AnchorRecipe {
     bool bodyOrbit{};
 };
 
+#if CVR_RUST_ROOM
+static_assert(sizeof(AnchorRecipe) == 44);
+inline AnchorVector ComposeViewTranslation(AnchorVector residual,const AnchorRecipe& recipe,
+                                           float trackingYaw,float bodyYaw) {
+    return FromC(cvr_anchor_compose_view(ToC(residual), &recipe, trackingYaw, bodyYaw));
+}
+#else
 inline AnchorVector ComposeViewTranslation(AnchorVector residual,const AnchorRecipe& recipe,
                                            float trackingYaw,float bodyYaw) {
     return ComposeAnchorTranslation(residual,recipe.trackingOffset,recipe.modelOffset,
                                     trackingYaw,recipe.bodyOrbit ? recipe.centreYaw:bodyYaw);
 }
+#endif
 
 // THE BODY'S NECK GOES WHERE THE PLAYER'S NECK IS. Two turns move the body, and they turn about different points:
 //  - a PHYSICAL turn turns the head about the neck: the eyes travel round it (Runtimes/RoomscaleMovement.hpp,
 //    EyeFromNeck) and the view follows them through the tracked residual. The neck stays put, and the body turns
 //    about it. Turned about the eye instead, the lever was counted twice -- once by the tracking, once by the orbit
 //    -- and after a 180 deg turn on the spot the body stood a quarter of a metre off the head (258 mm, simulator,
-//    2026-11-06: "my head must stay right over the body ... big problems with physical body rotation");
+//    2026-11-06, user: "my head must stay right over the body ... big problems with physical body rotation");
 //  - a STICK turn turns the world about the eyes: the calibrated eye (modelOffset, composed at the fixed centreYaw)
 //    stays put, the tracking yaw turns, and with it the place of the neck behind the eyes. Turned about the neck as
-//    well, the body swung round the view by twice the lever on every stick turn ("now the stick
+//    well, the body swung round the view by twice the lever on every stick turn (user, the same day: "now the stick
 //    turn does not turn about the body's orbit").
 // So the body's neck -- the calibrated eye less the lever kEyeAheadOfNeck along the model's forward -- is put at the
 // player's neck: the calibrated eye (turned by centreYaw) less the lever along the TRACKING forward (the view yaw,
@@ -66,7 +87,7 @@ inline float BodyOrbitScale(const AnchorRecipe& recipe) {
 inline AnchorVector BodyOrbitLever(const AnchorRecipe& recipe) {
     return {0,kOrbitEyeAheadOfNeck*BodyOrbitScale(recipe),0};
 }
-// THE PLAYER'S NECK, NOT AN ASSUMED ONE (2026-11-07). The lever
+// THE PLAYER'S NECK, NOT AN ASSUMED ONE (2026-11-07, user: "тело не по центру после быстрых поворотов"). The lever
 // straight ahead is the neck only for a head that was level and straight ahead where roomscale began, and that never
 // moved without the capsule since. Otherwise the player's neck stood off the assumed one by a fixed vector in the room
 // -- 10-14 mm in the simulator -- and every physical turn swung the body round the wrong point: off the head by twice
@@ -75,6 +96,31 @@ inline AnchorVector BodyOrbitLever(const AnchorRecipe& recipe) {
 // the player's. More than kOrbitRestNeckReach off the assumed neck is not a neck (an offset the capsule never took):
 // clamped to it.
 inline constexpr float kOrbitRestNeckReach=0.15f;   // tracking metres
+#if CVR_RUST_ROOM
+inline AnchorVector BodyOrbitNeckLever(const AnchorRecipe& recipe,const AnchorVector* restNeck) {
+    return FromC(cvr_anchor_orbit_neck_lever(&recipe, restNeck));
+}
+inline AnchorVector BodyOrbitPivot(const AnchorRecipe& recipe) {
+    const auto lever=BodyOrbitLever(recipe);
+    return {recipe.modelOffset.x-lever.x,recipe.modelOffset.y-lever.y,0};
+}
+inline AnchorVector BodyOrbitModel(const AnchorRecipe& recipe,float bodyYaw,float trackingYaw,
+                                   const AnchorVector* restNeck=nullptr) {
+    return FromC(cvr_anchor_orbit_model(&recipe, bodyYaw, trackingYaw, restNeck));
+}
+inline AnchorRecipe MakeAnchorRecipe(AnchorVector manualOffset, AnchorVector vehicleOffset,
+                                     AnchorVector bakedOffset, bool inVehicle,
+                                     float scale, float trackingYaw, float modelYaw) {
+    AnchorRecipe result{};
+    cvr_anchor_make_recipe(ToC(manualOffset), ToC(vehicleOffset), ToC(bakedOffset), inVehicle, scale, trackingYaw,
+                           modelYaw, &result);
+    return result;
+}
+inline AnchorVector AbsoluteHorizontalCameraBake(AnchorVector activeBake, AnchorVector bodyTarget,
+                                                 AnchorVector renderedCamera) {
+    return FromC(cvr_anchor_absolute_bake(ToC(activeBake), ToC(bodyTarget), ToC(renderedCamera)));
+}
+#else
 inline AnchorVector BodyOrbitNeckLever(const AnchorRecipe& recipe,const AnchorVector* restNeck) {
     const auto lever=BodyOrbitLever(recipe);
     if(!restNeck || !std::isfinite(restNeck->x) || !std::isfinite(restNeck->y))return lever;
@@ -133,4 +179,5 @@ inline AnchorVector AbsoluteHorizontalCameraBake(AnchorVector activeBake,
     return {activeBake.x+bodyTarget.x-renderedCamera.x,
             activeBake.y+bodyTarget.y-renderedCamera.y,0.0f};
 }
+#endif
 }

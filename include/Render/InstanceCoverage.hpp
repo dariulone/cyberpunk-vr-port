@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -15,6 +16,45 @@ struct InstanceRun {uint32_t first{},count{};};
 struct InstanceCoveragePlan {std::vector<InstanceMatch> matches;std::vector<InstanceRun> runs;uint32_t unmatched{};};
 // The caller groups sources by a fully identical geometry/material contract and
 // certifies instance-ordinal independence. No coverage changes until Commit.
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/instance_coverage.rs (tools/single_pass_tests/instance_coverage_test runs its
+// cases against them in its Rust variant); the coverage flags are lent as one byte each.
+namespace instance_coverage_detail {
+struct SourceView {const uint8_t* bytes;size_t byteCount;uint8_t* covered;size_t coveredCount;bool hasCovered;const uint8_t* viewMasks;size_t maskCount;};
+static_assert(sizeof(SourceView)==56 && sizeof(InstanceMatch)==12 && sizeof(InstanceRun)==8,"mirrored by instance_coverage.rs");
+struct RustPlan;
+extern "C" {
+RustPlan* cvr_ic_plan(const SourceView*,size_t,const uint8_t*,size_t,uint32_t);
+uint32_t cvr_ic_plan_view(const RustPlan*,const InstanceMatch**,size_t*,const InstanceRun**,size_t*);
+void cvr_ic_free(RustPlan*);
+bool cvr_ic_commit(const SourceView*,size_t,const InstanceMatch*,size_t);
+}
+inline std::vector<SourceView> Lend(std::span<const InstanceSource> sources,std::vector<std::vector<uint8_t>>& covered){
+    covered.assign(sources.size(),{});std::vector<SourceView> views;views.reserve(sources.size());
+    for(size_t i=0;i<sources.size();++i){const auto& s=sources[i];
+        if(s.covered)covered[i].assign(s.covered->begin(),s.covered->end());
+        views.push_back({s.bytes.data(),s.bytes.size(),covered[i].data(),covered[i].size(),s.covered!=nullptr,s.viewMasks.data(),s.viewMasks.size()});}
+    return views;
+}
+}
+inline bool PlanInstanceCoverage(std::span<const InstanceSource> sources,std::span<const uint8_t> peer,
+    uint32_t stride,InstanceCoveragePlan& output){
+    std::vector<std::vector<uint8_t>> covered;const auto views=instance_coverage_detail::Lend(sources,covered);
+    const auto plan=instance_coverage_detail::cvr_ic_plan(views.data(),views.size(),peer.data(),peer.size(),stride);
+    if(!plan)return false;
+    struct Release{instance_coverage_detail::RustPlan* plan;~Release(){instance_coverage_detail::cvr_ic_free(plan);}}release{plan};
+    const InstanceMatch* matches{};const InstanceRun* runs{};size_t matchCount{},runCount{};
+    InstanceCoveragePlan result;result.unmatched=instance_coverage_detail::cvr_ic_plan_view(plan,&matches,&matchCount,&runs,&runCount);
+    result.matches.assign(matches,matches+matchCount);result.runs.assign(runs,runs+runCount);
+    output=std::move(result);return true;
+}
+inline bool CommitInstanceCoverage(std::span<const InstanceSource> sources,const InstanceCoveragePlan& plan){
+    std::vector<std::vector<uint8_t>> covered;const auto views=instance_coverage_detail::Lend(sources,covered);
+    if(!instance_coverage_detail::cvr_ic_commit(views.data(),views.size(),plan.matches.data(),plan.matches.size()))return false;
+    for(size_t i=0;i<sources.size();++i)sources[i].covered->assign(covered[i].begin(),covered[i].end());
+    return true;
+}
+#else
 inline bool PlanInstanceCoverage(std::span<const InstanceSource> sources,std::span<const uint8_t> peer,
     uint32_t stride,InstanceCoveragePlan& output){
     if((stride!=48 && stride!=64) || peer.empty() || peer.size()%stride || peer.size()>16384 || sources.size()>128)return false;
@@ -50,4 +90,5 @@ inline bool CommitInstanceCoverage(std::span<const InstanceSource> sources,const
         used[m.source][m.instance]=true;}
     for(size_t i=0;i<sources.size();++i)*sources[i].covered=std::move(used[i]);return true;
 }
+#endif
 }

@@ -14,6 +14,7 @@
 //   lua/      the port's Lua mods, run by the plugin's own Lua host (Lua/Host.hpp), each in its own folder
 //
 // The folder is the one this module was loaded from, never the game's: nothing depends on where the exe is.
+// Rust owns the folders (rust/crates/cvr-host/src/paths.rs); these read them.
 namespace cvr::paths {
 
 enum class Folder { Root, Shaders, Grips, Archive, Config, Log, Scripts, Redscript, Lua };
@@ -25,20 +26,7 @@ std::wstring File(Folder folder, const wchar_t* name);
 std::string DirA(Folder folder);
 std::string FileA(Folder folder, const char* name);
 
-// Once at load, before anything opens a file: what an earlier release kept next to the exe (vrport.ini,
-// vrport-launcher.ini, the grips) or in its own plugin folder (vrik_calibration.ini) moves here. A file already
-// here wins and the old one is left where it is.
-void MigrateLegacyLayout();
-
-// Another copy of the port's plugin under red4ext/plugins (an old release's CyberpunkVR_Stereo folder left
-// behind): its full path, or empty. Two copies hook everything twice, so the second one to find the other
-// stays inert.
-std::wstring OtherCopy();
-
-// The plugin's file is cyberpunkvrport.dll; up to 0.1.9 it was CyberpunkVR_Stereo.dll, and a release unpacked over
-// an older one leaves that file beside this one -- RED4ext loads both, and the older one does not look for us.
-// Renamed to .old here; its path when it still runs this launch (already loaded, or the rename failed), so this
-// copy stays inert, empty otherwise.
-std::wstring RetireOldName();
+// The legacy-layout migration and the other-copy checks run in Rust before the C++ half starts
+// (rust/crates/cvr-host/src/paths.rs, called by rust/crates/cvr-ffi/src/plugin.rs).
 
 }  // namespace cvr::paths

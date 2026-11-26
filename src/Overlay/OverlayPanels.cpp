@@ -1,7 +1,3 @@
-#include "Runtimes/Haptics.hpp"
-#include "Runtimes/HapticRouting.hpp"
-#include <filesystem>
-#include <fstream>
 // OverlayPanels -- every control the headset overlay draws, and the small widgets they are made of.
 //
 // The widgets exist because ImGui has no clamped-int slider that reports change the way this file needs:
@@ -24,7 +20,12 @@
 #include "Overlay/LiveControlsUi.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Fbt/Game/Menu.hpp"
+#if CVR_RUST_VRIK
+#include "Fbt/Game/Calibration.hpp"   // the CONTROLS runtime: the calibration
+#endif
+#if !CVR_RUST_VRIK
 extern "C" float GetGameRenderVerticalFovDeg();
+#endif
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -44,10 +45,11 @@ extern "C" float GetGameRenderVerticalFovDeg();
 #include "Framegen/DlssFrameGen.hpp"
 #include "Stereo/EngineStereo.hpp"
 
+#if !CVR_RUST_VRIK
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 extern void Log(const char* fmt, ...);
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-extern volatile float g_lastLocateQuat[4];
+extern "C" volatile float g_lastLocateQuat[4];
 extern "C" int32_t CyberpunkVR_OverlaySkipEmpty;
 extern "C" int   CyberpunkVR_StereoModuleEnable;   // vr_core.cpp: did we install at all
 extern "C" int   CyberpunkVR_StereoModuleLoaded;
@@ -83,20 +85,26 @@ extern "C" double   CyberpunkVR_ProfDispVrcamMs;
 extern "C" uint32_t CyberpunkVR_ProfDispMainNodes;
 extern "C" uint32_t CyberpunkVR_ProfDispVrcamNodes;
 extern "C" void     CyberpunkVR_ProfDumpNodes();
+#endif
 extern "C" int      CyberpunkVR_ProfSnapshotNodes(uint32_t* rva, double* msv, double* msm,
                                                   uint32_t* cv, uint32_t* cm, int maxn);
+#if !CVR_RUST_VRIK
 extern "C" const char* CyberpunkVR_ProfNodeName(uint32_t rva);
 extern "C" uint64_t CyberpunkVR_DebugViewKeyMainNodes;
 extern "C" uint64_t CyberpunkVR_DebugViewKeyOtherNodes;
-extern volatile int32_t g_lastLocatePosFP[3];
+extern "C" volatile int32_t g_lastLocatePosFP[3];
 extern "C" float CyberpunkVRPort_HalfIpd();
 extern "C" float GetGameRenderFovDeg();
 extern "C" int CyberpunkVR_MainIsRightEye;
 extern "C" UINT GetForcedDisplayModeWidth();
 extern "C" UINT GetForcedDisplayModeHeight();
+#endif
+
 
 namespace overlay {
 
+#if !CVR_RUST_VRIK
+// The C++ panels' helpers (Rust's: checkbox_int, slider_int_clamped in overlay_panels.rs).
 bool CheckboxInt(const char* label, int* value) {
     bool checked = *value != 0;
     const bool changed = UI::Checkbox(label, &checked);
@@ -123,7 +131,11 @@ bool InputIntClamped(const char* label, int* value, int minValue, int maxValue) 
     }
     return changed;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE FOV CONTROL AND THE FPS OVERLAY PANEL ARE RUST'S (rust/crates/cvr-render/src/overlay_panels.rs).
+#else
 bool DrawFovControl(LiveControlsUiState& state) {
     bool changed = false;
     const bool psvr2 = OpenXRManager::Get().IsRuntimePsvr2();
@@ -162,12 +174,17 @@ bool DrawFovControl(LiveControlsUiState& state) {
         UI::Text("Camera render FOV: %.1f H / %.1f V deg", actual, vertical);
     return changed;
 }
+#endif
 
 // In-headset VR floating-hands controls: tracking on/off, IK calibration, wrist
 // alignment, and the diagnostic dump -- everything that used to live only in the
 // desktop CET window. Values are published to the RED4ext arm-IK plugin through
 // shared memory (OpenXRManager::SetVRHandCalib). Defaults mirror the plugin's
 // baked calibration so the rig behaves identically before anything is touched.
+#if CVR_RUST_VRIK
+// THE VR HANDS PANEL IS RUST'S (rust/crates/cvr-render/src/overlay_panels.rs); the calibration is the manager's.
+// Its table is built in Rust (overlay_panels.rs): the manager's calibration is cvr-xr's.
+#else
 void DrawVRHandsControls() {
     // Tracking toggle (writes shared-mem slot [32]; plugin installs hooks + arms
     // and sets g_VRBind = this value). Must be 4 = full-arm IK (the mode the CET
@@ -201,82 +218,6 @@ void DrawVRHandsControls() {
                               "the arms are cut at the wrists. The tactical belt and the weapons\n"
                               "hanging in their holsters stay visible.");
         }
-        bool collision = st.xrHandCollision != 0;
-        if (UI::Checkbox("Hand collision", &collision)) {
-            st.xrHandCollision = collision ? 1 : 0;
-            SetLiveControlsUiState(&st, 1);
-        }
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip("Hands and arms stop at the body and at each other.\n"
-                              "Empty hands also stop at walls and furniture (static world geometry).\n"
-                              "Only the drawn arm stops; your real hand does not.");
-        }
-        bool collisionVehicle = st.xrHandCollisionVehicle != 0;
-        if (UI::Checkbox("Hand collision in vehicles", &collisionVehicle)) {
-            st.xrHandCollisionVehicle = collisionVehicle ? 1 : 0;
-            SetLiveControlsUiState(&st, 1);
-        }
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip("Seated, hands stop at the body and each other, not at the car.\n"
-                              "A hand on the wheel is never stopped.");
-        }
-        bool handPush = st.xrHandPush != 0;
-        if (UI::Checkbox("Hands push loose objects", &handPush)) {
-            st.xrHandPush = handPush ? 1 : 0;
-            SetLiveControlsUiState(&st, 1);
-        }
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip("An empty hand clear of the body shoves bottles, crates and the like, and a hand pressed\n"
-                              "against a light prop knocks that one prop loose. Never in a vehicle.\n"
-                              "Experimental: turn it off if the player is ever thrown about.");
-        }
-        bool propGrab = st.xrPropGrab != 0;
-        if (UI::Checkbox("Pick up small objects", &propGrab)) {
-            st.xrPropGrab = propGrab ? 1 : 0;
-            SetLiveControlsUiState(&st, 1);
-        }
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip("Squeeze the grip at a loose object to carry it, let go to drop or throw it. One hand lifts\n"
-                              "about 6 kg, two about 30, and the other hand can take it over.\n"
-                              "Experimental: turn it off if the player is ever thrown about.");
-        }
-        bool debugView = st.xrDebugView != 0;
-        if (UI::Checkbox("Show collision shapes and rays", &debugView)) {
-            st.xrDebugView = debugView ? 1 : 0;
-            SetLiveControlsUiState(&st, 1);
-        }
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip("For finding faults, and it costs frame rate. Stays off after a restart.\n"
-                              "Blue the hands, cyan the fingers, magenta people. From PhysX within 2 m: grey the world, yellow what moves.\n"
-                              "Rays: green free, red up to what they hit. In a carried thing: orange the place taken, white the palm.");
-        }
-        bool carryPicture = st.xrCarryPicture != 0;
-        if (UI::Checkbox("Carried objects stick to the hand", &carryPicture)) {
-            st.xrCarryPicture = carryPicture ? 1 : 0;
-            SetLiveControlsUiState(&st, 1);
-        }
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip("Draws a carried thing on the hand in the same frame, while its body follows in the physics.\n"
-                              "Against a wall the picture goes back to the body. Off: the picture is on the body, and trails a swing.");
-        }
-        float leadMs = st.xrCarryLead * 1000.0f;
-        if (UI::SliderFloat("Carried objects lead the hand (ms)", &leadMs, 0.0f, 100.0f, "%.0f")) {
-            st.xrCarryLead = leadMs * 0.001f;
-            SetLiveControlsUiState(&st, 1);
-        }
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip("Physics reaches the screen after the hand does. Raise it until a thing swung fast stops trailing the hand,\n"
-                              "lower it if it runs ahead when the hand stops.");
-        }
-        float contactCm = st.xrContactMargin * 100.0f;
-        if (UI::SliderFloat("Distance kept from surfaces (cm)", &contactCm, 0.0f, 5.0f, "%.1f")) {
-            st.xrContactMargin = contactCm * 0.01f;
-            SetLiveControlsUiState(&st, 1);
-        }
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip("The game's collision is simpler and often smaller than what is drawn. More distance keeps\n"
-                              "hands and fingers out of the mesh, and makes them stop a little before they touch.");
-        }
         bool roomscale = st.xrRoomscaleMovement != 0;
         if (UI::Checkbox("Roomscale movement", &roomscale)) {
             st.xrRoomscaleMovement = roomscale ? 1 : 0;
@@ -289,20 +230,19 @@ void DrawVRHandsControls() {
         }
         using BodyMode=cvr::body::RotationMode;
         int mode=static_cast<int>(cvr::body::RotationModeFromFlags(st.xrPhysicalBodyRotation,
-            st.xrTrackedBodyRotation,st.xrHybridBodyRotation,st.xrHeadLedBodyRotation));
+            st.xrTrackedBodyRotation,st.xrHybridBodyRotation));
         static const char* bodyModes[]{"Stick / snap only","Head + free-look cone",
-            "HMD + controllers","Hybrid","Head-led (default)"};
+            "HMD + controllers","Hybrid (default)"};
         UI::SetNextItemWidth(410.0f);
-        if(widgets::Combo("Body rotation",&mode,bodyModes,5)){
+        if(widgets::Combo("Body rotation",&mode,bodyModes,4)){
             st.xrPhysicalBodyRotation=mode==static_cast<int>(BodyMode::HeadCone);
             st.xrTrackedBodyRotation=mode==static_cast<int>(BodyMode::Tracked);
             st.xrHybridBodyRotation=mode==static_cast<int>(BodyMode::Hybrid);
-            st.xrHeadLedBodyRotation=mode==static_cast<int>(BodyMode::HeadLed);
             SetLiveControlsUiState(&st,1);
         }
-        if(UI::IsItemHovered())UI::SetTooltip("Head-led: the body stays while the head looks within 10 degrees, then turns\n"
-            "to the head at 300 deg/s; looking down (past 30 degrees) it stays until 70 degrees. No controllers.\n"
-            "Hybrid: the head cone upright, HMD + controllers looking down or bent.\n"
+        if(UI::IsItemHovered())UI::SetTooltip("Hybrid: use the head cone while upright.\n"
+            "Looking down by 10 degrees or bending by 5 degrees uses HMD + controllers.\n"
+            "Return below 8 / 3 degrees; the current body heading is preserved at handover.\n"
             "HMD + controllers always disables the body cones. Missing tracking holds heading.");
         const bool trackedBody=mode==static_cast<int>(BodyMode::Tracked);
         const bool hybridBody=mode==static_cast<int>(BodyMode::Hybrid);
@@ -527,7 +467,10 @@ void DrawVRHandsControls() {
         OpenXRManager::Get().LoadCalibrationFromFile();
     }
 }
+#endif
 
+#if !CVR_RUST_VRIK
+// The overlay's mouse helpers (Rust's: imgui_overlay.rs release_game_mouse_capture).
 void ReleaseGameMouseCapture() {
     ClipCursor(nullptr);
     ReleaseCapture();
@@ -554,6 +497,7 @@ void UpdateImGuiMouseFromCursor(HWND hwnd, float backbufferWidth, float backbuff
     io.AddMouseButtonEvent(1, (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0);
     io.AddMouseButtonEvent(2, (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0);
 }
+#endif
 
 // Stereo panel, carried over from the testbed overlay (testbed/src/overlay_imgui.cpp).
 //
@@ -561,6 +505,10 @@ void UpdateImGuiMouseFromCursor(HWND hwnd, float backbufferWidth, float backbuff
 // frame, so edits apply immediately and the Save button has nothing to do with them. That is
 // the same contract the testbed panel had, and it is what makes this usable for tuning IPD
 // with the headset on.
+#if CVR_RUST_VRIK
+// THE STEREO PANEL IS RUST'S (rust/crates/cvr-render/src/overlay_panels.rs).
+// Its table is built in Rust (overlay_panels.rs, over this overlay's globals).
+#else
 void DrawStereoControls() {
     if (!CyberpunkVR_StereoModuleLoaded) {
         UI::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "Stereo module not installed.");
@@ -733,18 +681,17 @@ void DrawStereoControls() {
         }
     }
 }
+#endif
 
+#if CVR_RUST_VRIK
+// THE DRIVING PANEL IS RUST'S (rust/crates/cvr-render/src/overlay_panels.rs).
+// Its table is built in Rust (overlay_panels.rs: the shared slots are cvr-xr's, the vehicle state VrCore.cpp's).
+#else
 static bool DrawDrivingControls(LiveControlsUiState& state) {
     bool changed=false;
             UI::Separator();
             UI::TextUnformatted("Driving -- hands on the wheel");
             changed |= CheckboxInt("Grab the wheel with the grips", &state.xrWheelGrab);
-            changed |= CheckboxInt("Hold a car's wheel anywhere on the rim", &state.xrWheelAnywhere);
-            if (UI::IsItemHovered()) {
-                UI::SetTooltip("Your hand stays where you took hold and slides round the rim with your own hand, so\n"
-                                  "you can steer one-handed from the top and change grip in a hard turn.\n"
-                                  "Off: a grab puts the hand where the driving animation holds it. Bikes always do.");
-            }
             if (UI::IsItemHovered()) {
                 UI::SetTooltip(
                     "While DRIVING, bring a hand to where the driving animation holds the\n"
@@ -767,26 +714,18 @@ static bool DrawDrivingControls(LiveControlsUiState& state) {
                                       "grip counts as grabbing the wheel. Bigger = easier to catch a\n"
                                       "wheel you cannot see; too big and every grip in a car grabs.");
                 }
-                float m = cvr::anim::BikeBarLockDegrees(state.xrBikeBarLockDeg);
-                if (widgets::SliderFloat("Bike full lock at (deg)", &m, cvr::anim::BikeBarLockMin, cvr::anim::BikeBarLockMax, "%.0f")) {
-                    state.xrBikeBarLockDeg = m;
+                float m = std::isfinite(state.xrWheelSteerMaxDeg) && state.xrWheelSteerMaxDeg >= 30.0f &&
+                          state.xrWheelSteerMaxDeg <= 120.0f ? state.xrWheelSteerMaxDeg : 90.0f;
+                if (widgets::SliderFloat("Bike full lock at (deg)", &m, 30.0f, 120.0f, "%.0f")) {
+                    state.xrWheelSteerMaxDeg = m;
                     changed = true;
                 }
                 if (UI::IsItemHovered()) {
-                    UI::SetTooltip("Motorcycle handlebars: push one hand forward and pull the other back.\n"
-                                      "This is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\n"
-                                      "Two hands use the line between them; one hand turns about a point half the bars' width to its side.\n"
+                    UI::SetTooltip("Handlebar sensitivity on bikes: hand rotation from the grab position to full lock.\n"
+                                      "A car's wheel turns with your hands one to one: full lock is where the cabin\n"
+                                      "wheel's is (130 degrees, twice the game's own travel); road-wheel lock is unchanged.\n"
+                                      "One hand uses a hub calibrated where you grab; two use their connecting line.\n"
                                       "Adding or releasing a hand keeps the current turn.");
-                }
-                float lean = cvr::anim::BikeBodyLeanShare(state.xrBikeBodyLean);
-                if (widgets::SliderFloat("Bike body lean", &lean, 0.0f, 1.0f, "%.2f")) {
-                    state.xrBikeBodyLean = lean;
-                    changed = true;
-                }
-                if (UI::IsItemHovered()) {
-                    UI::SetTooltip("Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\n"
-                                      "The value is the share of full lock from a 15 cm lean; 0 turns it off.\n"
-                                      "Centre is where your body was when you grabbed the bars.");
                 }
                 float d = state.xrWheelSteerDeadDeg >= 0.0f ? state.xrWheelSteerDeadDeg : 0.0f;
                 if (widgets::SliderFloat("Steering deadzone (deg)", &d, 0.0f, 20.0f, "%.1f")) {
@@ -893,26 +832,19 @@ static bool DrawDrivingControls(LiveControlsUiState& state) {
         changed |= widgets::SliderFloat("Car Head Y forward", &state.xrVehHeadOffsetY, -0.50f, 0.50f, "%.3f m");
         changed |= widgets::SliderFloat("Car Head Z up", &state.xrVehHeadOffsetZ, -0.50f, 0.50f, "%.3f m");
         UI::EndDisabled();
-        const bool onBike=g_isInVehicle && cvr::anim::WheelMountedBike();
         {   // Live, so a slider that is doing nothing says so instead of being blamed.
             UI::TextDisabled(passengerCombat ? "   (window combat: use GENERAL > Head offsets)"
-                               : onBike ? "   (on a motorcycle: these are ignored)"
                                : g_isInVehicle ? "   (in a vehicle: these are live)"
                                               : "   (on foot: these are ignored)");
         }
-        // A motorcycle's own three, used instead of the car's while one is ridden.
-        changed |= widgets::SliderFloat("Bike Head X right", &state.xrBikeHeadOffsetX, -0.50f, 0.50f, "%.3f m");
-        if (UI::IsItemHovered()) {
-            UI::SetTooltip(
-                "A motorcycle's own seated offset, used instead of the Car Head sliders\n"
-                "while you ride one and ignored everywhere else. Zero = no offset.");
-        }
-        changed |= widgets::SliderFloat("Bike Head Y forward", &state.xrBikeHeadOffsetY, -0.50f, 0.50f, "%.3f m");
-        changed |= widgets::SliderFloat("Bike Head Z up", &state.xrBikeHeadOffsetZ, -0.50f, 0.50f, "%.3f m");
-        UI::TextDisabled(onBike ? "   (on a motorcycle: these are live)" : "   (not on a motorcycle: these are ignored)");
     return changed;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The FPS and frame generation panels' tables are built in rust/crates/cvr-render/src/overlay_panels.rs (DLSS-G's
+// reason is rust/crates/cvr-render/src/dlssg_native.rs').
+#else
 bool DrawFpsOverlayControls(LiveControlsUiState& state) {
     bool changed=false;auto& fg=state.framegen;
             changed|=UI::Checkbox("FPS overlay",&fg.overlay);
@@ -958,7 +890,19 @@ bool DrawFpsOverlayControls(LiveControlsUiState& state) {
             } else UI::TextDisabled("FPS overlay and statistics are off.");
     return changed;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// DrawLiveControls is Rust's (rust/crates/cvr-render/src/overlay_panels.rs): what its sections ask of the C++ half.
+// The tables are built in Rust (overlay_panels.rs); the game upscaler, the hidden area and the full-body calibration
+// stay here.
+// The upscaler gate: rust/crates/cvr-render/src/xr_manager_services.rs.
+// The hidden area's status: rust/crates/cvr-render/src/overlay_panels.rs.
+static_assert(sizeof(cvr::hidden_area::Status) == 48, "mirrored by HiddenAreaStatus in overlay_panels.rs");
+static_assert(sizeof(LiveControlsUiState::hudElements) == 800, "mirrored as [u32; 200] in live_controls_ui_state.rs");
+#endif
+#if CVR_RUST_VRIK
+#else
 bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditing) {
     bool changed = false;
     if(foveatedEditing)*foveatedEditing=false;
@@ -1040,8 +984,23 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                 }
                 UI::PopID();
             }
-            // The hidden-area mask is not offered in the settings (the VR menu's settings are this panel): it stays
-            // reachable through xr_hidden_area / xr_hidden_area_radius in vrport.ini only.
+            if (UI::CollapsingHeader("HIDDEN AREA MASK", ImGuiTreeNodeFlags_DefaultOpen)) {
+                UI::PushID("hiddenArea");
+                auto& h=state.hiddenArea;
+                changed|=CheckboxInt("Mask lens edges",&h.enabled);
+                if(UI::IsItemHovered())UI::SetTooltip("Skips shading the parts of each eye image the lens never shows. The visible area is unchanged.");
+                UI::BeginDisabled(!h.enabled);
+                changed|=widgets::SliderFloat("Visible radius",&h.radius,cvr::hidden_area::MinRadius,cvr::hidden_area::MaxRadius,"%.0f %%");
+                if(UI::IsItemHovered())UI::SetTooltip("Size of the shaded area as a percentage of the eye's field of view: 100%% touches its edges, 141%% masks nothing inside it.\nLower it until a dark border appears at the edge of the lens, then raise it until the border is gone.");
+                UI::EndDisabled();
+                h=cvr::hidden_area::Normalize(h);
+                if(h.enabled) {
+                    const auto s=cvr::hidden_area::GetStatus();
+                    if(!s.masked[0] && !s.masked[1])UI::TextDisabled("Waiting for the scene depth");
+                    else UI::TextDisabled("Masked %.1f %% / %.1f %% of pixels (MAIN / VRCAM)",s.hiddenPercent[0],s.hiddenPercent[1]);
+                }
+                UI::PopID();
+            }
             if (UI::CollapsingHeader("GAME MENUS", ImGuiTreeNodeFlags_DefaultOpen)) {
                 changed |= CheckboxInt("VR menu quad", &state.xrMenuRect);
                 changed |= widgets::SliderFloat("VR menu FOV", &state.xrMenuFov, 30.0f, 120.0f, "%.1f deg");
@@ -1088,14 +1047,11 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             changed|=UI::Checkbox("Enable frame generation",&fg.enabled);
             if(UI::IsItemHovered())UI::SetTooltip("While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off).");
             int backend=int(fg.backend);
-            if(widgets::Combo("Frame generator",&backend,"FidelityFX\0NVIDIA OFA + FidelityFX\0NVIDIA DLSS Frame Generation\0ANR FG (Apex Neural Rendering)\0")) {fg.backend=cvr::framegen::Backend(backend);changed=true;}
+            if(widgets::Combo("Frame generator",&backend,"FidelityFX\0NVIDIA OFA + FidelityFX\0NVIDIA DLSS Frame Generation\0")) {fg.backend=cvr::framegen::Backend(backend);changed=true;}
             using cvr::framegen::Backend;
             const Backend active=cvr::framegen::ActiveBackend();
             if(fg.backend==Backend::DlssG && fg.enabled && active!=Backend::DlssG)
                 UI::TextWrapped("DLSS Frame Generation is not available here (%s); FidelityFX is used.",cvr::framegen::dlssg::Reason());
-            else if(fg.backend==Backend::Anr && fg.enabled && active!=Backend::Anr)
-                UI::TextWrapped("ANR FG is not available here (%s); FidelityFX is used.",
-                    cvr::framegen::dlssg::Reason(cvr::framegen::dlssg::Provider::Anr));
             else if(fg.backend==Backend::Nvidia && fg.enabled && active==Backend::FidelityFX)
                 UI::TextWrapped("NVIDIA optical flow is not available on this GPU; FidelityFX optical flow is used.");
             else if(fg.backend==Backend::Nvidia && fg.flowScale)
@@ -1107,8 +1063,6 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             }
             if(fg.backend==Backend::DlssG)
                 UI::TextWrapped("NVIDIA's frame generation model on the game's motion vectors and depth. Highest quality, RTX 40/50.");
-            if(fg.backend==Backend::Anr)
-                UI::TextWrapped("Apex Neural Rendering's frame generation model (beta), run as a DLSS-G provider on the game's motion vectors and depth. Any recent NVIDIA, AMD or Intel GPU.");
             changed|=UI::Checkbox("Adaptive real-frame pacing",&fg.autoPace);
             if(UI::IsItemHovered())UI::SetTooltip("Up to half headset refresh. Leaves more GPU time for generated frames when adjacent real frames are being missed.");
             UI::TextWrapped("Uses game motion vectors and depth in both eyes. Adds one intermediate frame between real frames.");
@@ -1211,7 +1165,7 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             // Finger tracking from OpenXR hand tracking (Runtimes/FingerGrip.hpp, Anim/HandGestures.hpp).
             if (UI::CollapsingHeader("FINGER TRACKING", ImGuiTreeNodeFlags_DefaultOpen)) {
                 changed |= CheckboxInt("Enable finger tracking", &state.xrFingerBones);
-                if (UI::IsItemHovered()) UI::SetTooltip("Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nOff: finger poses from the buttons.");
+                if (UI::IsItemHovered()) UI::SetTooltip("Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons.");
                 UI::BeginDisabled(!state.xrFingerBones);
                 changed |= CheckboxInt("Grip input from finger position instead of the sensor", &state.xrGripFromFingers);
                 if (UI::IsItemHovered()) UI::SetTooltip("The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips.");
@@ -1249,87 +1203,14 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             }
             UI::Separator();
 
-            if (OpenXRManager::Get().IsRuntimePsvr2()) {
-                changed |= widgets::Combo("PSVR2 haptics output (restart)", &state.xrPsvr2HapticBackend,
-                    "OpenXR (standard vibration)\0Prefer Toolkit (OpenXR fallback)\0Auto (detect bridge at startup)\0");
-                UI::TextWrapped("Restart the game after changing output. OpenXR: stop the Toolkit bridge. "
-                    "Toolkit: start the bridge before the game; provides advanced triggers and optional audio haptics.");
-                UI::Text("Active output: %s", cvr::haptics::HapticRoute().Toolkit() ? "Toolkit bridge" : "OpenXR");
-                if (cvr::haptics::HapticRoute().Pending(true))
-                    UI::TextUnformatted("Saved output will take effect after restarting the game.");
-                if (!cvr::haptics::HapticRoute().BridgeDetected() && state.xrPsvr2HapticBackend != 0)
-                    UI::TextWrapped("No compatible bridge listener detected at startup: using OpenXR. Start bridge BEFORE launching game for advanced haptics.");
-                if (cvr::haptics::HapticRoute().Toolkit())
-                    UI::TextWrapped("Vibration controls below affect port events. Toolkit audio is controlled separately below.");
-                else
-                    UI::TextWrapped("OpenXR output requires working SteamVR haptic bindings. Toolkit-only trigger effects are not available in this mode.");
-            }
-            if (cvr::haptics::HapticRoute().Toolkit()) {
-                static bool audioEnabled = false, audioValid = false;
-                static int audioStrength = 35;
-                static uint64_t lastRead = 0;
-                static std::string audioError;
-                wchar_t exe[MAX_PATH]{};
-                GetModuleFileNameW(nullptr, exe, MAX_PATH);
-                const auto path = std::filesystem::path(exe).parent_path() /
-                    L"plugins/cyber_engine_tweaks/mods/PSVR2 Haptics/settings.ini";
-                const auto now = GetTickCount64();
-                if (now - lastRead > 1000) {
-                    lastRead = now;
-                    std::ifstream input(path); std::string line; int version=-1, enabled=-1, strength=-1;
-                    while (std::getline(input,line)) {
-                        int number;
-                        if (sscanf_s(line.c_str(), "Version=%d", &number)==1) version=number;
-                        if (sscanf_s(line.c_str(), "AudioEnabled=%d", &number)==1) enabled=number;
-                        if (sscanf_s(line.c_str(), "AudioStrength=%d", &number)==1) strength=number;
-                    }
-                    audioValid=version==1 && (enabled==0 || enabled==1) && strength>=0 && strength<=300;
-                    if(audioValid){audioEnabled=enabled!=0;audioStrength=strength;}
-                }
-                UI::BeginDisabled(!audioValid);
-                bool edited=UI::Checkbox("Toolkit audio haptics", &audioEnabled);
-                edited |= SliderIntClamped("Toolkit audio strength (%)", &audioStrength, 0, 300);
-                UI::EndDisabled();
-                if(edited) {
-                    auto temporary=path; temporary+=L".f10.tmp";
-                    std::ofstream output(temporary,std::ios::binary|std::ios::trunc);
-                    output << "Version=1\nAudioEnabled=" << (audioEnabled?1:0) << "\nAudioStrength=" << audioStrength << "\n";
-                    output.close();
-                    if(output && MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) audioError.clear();
-                    else audioError="Unable to save Toolkit audio settings.";
-                    lastRead=0;
-                }
-                if(!audioValid)UI::TextWrapped("Toolkit audio companion settings missing or invalid. Install the PSVR2Toolkit audio settings companion.");
-                if(!audioError.empty())UI::TextWrapped("%s",audioError.c_str());
-                UI::TextWrapped("Applies live through the updated Toolkit bridge. Captures default playback audio; weapon effects and adaptive triggers are separate. The driving-only channel and grip controls below apply to the separate port road/engine effect.");
-            }
             changed |= CheckboxInt("Controller vibration", &state.xrHaptics);
             if (UI::IsItemHovered()) {
-                UI::SetTooltip("Haptics: weapon-strength recoil and physical melee swings,\n"
+                UI::SetTooltip("Haptics: every round by weapon class (handgun, rifle, shotgun, sniper),\n"
                                   "melee block and parry, bullet block and deflect, reaching a belt element,\n"
-                                  "pulling a grenade pin, and audio-derived driving rumble.\n"
-                                  "Two-handed gun grip: weaker support-hand pulse, as in our earlier fork.");
+                                  "pulling a grenade pin. Two-handed grip: both hands; one hand: one.");
             }
             UI::BeginDisabled(state.xrHaptics == 0);
             changed |= widgets::SliderFloat("Vibration strength", &state.xrHapticScale, 0.0f, 2.0f, "%.2fx");
-            {
-                if (!cvr::haptics::HapticRoute().Toolkit())
-                    changed |= widgets::SliderFloat("OpenXR gun/swing/road gain", &state.xrOpenXrHapticGain, 0.0f, 2.0f, "%.2fx");
-                bool vehicleAudio=state.xrOpenXrVehicleHapticGain>0;
-                if(UI::Checkbox("Driving road/engine haptics", &vehicleAudio)) {
-                    state.xrOpenXrVehicleHapticGain=vehicleAudio?1.0f:0.0f;changed=true;
-                }
-                changed |= widgets::SliderFloat("Driving road/engine strength", &state.xrOpenXrVehicleHapticGain, 0.0f, 2.0f, "%.2fx");
-                changed |= widgets::Combo("Driving audio channels", &state.xrVehicleAudioChannels,
-                    "Stereo\0Stronger channel to both hands\0Left audio to both hands\0Right audio to both hands\0");
-                changed |= UI::Checkbox("Driving audio only while each hand holds wheel/handlebar", &state.xrVehicleAudioRequireGrip);
-                UI::TextWrapped("Unchecked: road/engine rumble continues with hands off while driving. Uses the active Toolkit or OpenXR output. Toolkit full-game audio above is independent; leave it off if you only want driving rumble.");
-                if (UI::IsItemHovered()) UI::SetTooltip("Earlier fork's 28-320 Hz road/engine envelope, only while driving.\n"
-                    "Default output audio (including music/other apps) can contribute. Zero disables vehicle rumble only.");
-            }
-            if (UI::Button("Test left vibration")) cvr::haptics::Play(cvr::haptics::kBeltTouch, cvr::haptics::kLeft);
-            UI::SameLine();
-            if (UI::Button("Test right vibration")) cvr::haptics::Play(cvr::haptics::kBeltTouch, cvr::haptics::kRight);
             UI::EndDisabled();
             UI::Separator();
 
@@ -1365,15 +1246,6 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                     "      hip is pulled out along its handle); grip at its place to put it away.\n"
                     "OFF - no weapons on the body, fixed slot per zone:\n"
                     "      over-shoulder = EquipmentSlot1, right hip = Slot2, left hip = Slot3.");
-            }
-
-            UI::Separator();
-            UI::TextUnformatted("Physical reload");
-            changed |= CheckboxInt("Reload highlight", &state.xrReloadGlow);
-            if (UI::IsItemHovered()) {
-                UI::SetTooltip("On: the gun shows the free hand what it needs - an empty magazine pulses,\n"
-                                  "the place of a removed one stays lit, the bolt or the slide to rack glows.\n"
-                                  "Off: no highlight; the reload itself works the same.");
             }
 
 
@@ -1577,6 +1449,7 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
 
     return changed;
 }
+#endif
 
 }  // namespace overlay
 using namespace overlay;

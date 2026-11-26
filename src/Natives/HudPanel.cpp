@@ -1,7 +1,6 @@
 // Verified against CP2077 SHA256 a7de82945c03e041... with IDA headless.
 // Only native separate-window slots are moved; direct/projected HUD widgets stay native.
 #include "Natives/NativeFunctions.hpp"
-#include "Natives/HeldBody.hpp"
 #include "Camera/SurveillanceFollow.hpp"
 #include "Render/HudPanel.hpp"
 #include "Render/OpticsProbe.hpp"
@@ -10,8 +9,6 @@
 #include "Runtimes/HudCrop.hpp"
 #include "Camera/GazeCenter.hpp"
 #include "Anim/HeadAimWeapon.hpp"
-#include "Anim/WheelGrab.hpp"
-#include "Runtimes/OpenXRManager.hpp"
 #include "Camera/CameraState.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Core/LiveControls.hpp"
@@ -39,11 +36,19 @@
 
 extern "C" {
 // The HUD root's size in its pixels, as VRHudPanelUpdate last saw it; 0 until then (HudDesignScale).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+__declspec(dllexport) extern float CyberpunkVR_HudRootWidth, CyberpunkVR_HudRootHeight;
+#else
 __declspec(dllexport) float CyberpunkVR_HudRootWidth = 0, CyberpunkVR_HudRootHeight = 0;
 // The HUD's ink layer and its virtual window as VRHudPanelUpdate last saw them (diagnostics).
 __declspec(dllexport) uintptr_t CyberpunkVR_HudLayerAddress[2] = {};
+#endif
 // 1 (default): a HUD window with nothing visible under its root (HasVisibleContent) is not drawn,
 // and a channel with only such windows builds no canvas and submits no layer. 0 draws everything.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HudSkipEmpty{1};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HudEmptySprites{0};
 // VRHudPanelUpdate cost, QPC ticks: [0] calls, [1] whole call, [2] Geometry, [3] Texture, [4] HasVisibleContent,
@@ -60,7 +65,54 @@ __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HudRootsStats[8]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HudRepaintAtSubmit{1};
 // [0] repaints queued, [1] run at the frame submit, [2] run late in the next update (no frame submit between).
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HudRepaintStats[3]{};
+#endif
 }
+
+#if CVR_RUST_VRIK
+// THE NATIVES AND THE HOOKS ARE RUST'S (rust/crates/cvr-ffi/src/hud_natives.rs). This file keeps the exports above, the
+// HUD's texture lease (cvr::hud::Lease, which Lobby/Intro, the intro overlay and the optics probe share), the hooks'
+// registration, the asserts of the engine layouts Rust reads, and the adapters for the state Rust cannot reach.
+#include "Render/IntroOverlay.hpp"
+#include <RED4ext/Scripting/Natives/Generated/ent/IComponent.hpp>
+#include <RED4ext/Scripting/Natives/Generated/ink/UITransform.hpp>
+namespace {
+using namespace RED4ext;
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
+const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+#endif
+static_assert(offsetof(ink::Widget, renderTransform) == 0xB8, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, renderTransform) == 0xB8");
+static_assert(offsetof(ink::UITransform, translation) == 0, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::UITransform, translation) == 0");
+static_assert(offsetof(ink::Widget, layerProxy) == 0x148, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, layerProxy) == 0x148");
+static_assert(offsetof(ink::Widget, parentWidget) == 0x168, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, parentWidget) == 0x168");
+static_assert(offsetof(ink::Widget, name) == 0x188, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, name) == 0x188");
+static_assert(offsetof(ink::Widget, size) == 0x198, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, size) == 0x198");
+static_assert(offsetof(ink::Widget, tintColor) == 0x1E0, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, tintColor) == 0x1E0");
+static_assert(offsetof(ink::Widget, opacity) == 0x1F0, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, opacity) == 0x1F0");
+static_assert(offsetof(ink::Widget, visible) == 0x1F8, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, visible) == 0x1F8");
+static_assert(offsetof(ink::Widget, affectsLayoutWhenHidden) == 0x1FC, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, affectsLayoutWhenHidden) == 0x1FC");
+static_assert(offsetof(ink::Widget, flags) == 0x1FD, "inkWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it: offsetof(ink::Widget, flags) == 0x1FD");
+static_assert(offsetof(ink::CompoundWidget, children) == 0x210, "inkCompoundWidget as rust/crates/cvr-ffi/src/hud_natives.rs reads it");
+static_assert(offsetof(ink::LayerProxy, layer) == 0x38 && offsetof(ink::Layer, window) == 0x40 &&
+              offsetof(ink::HUDLayer, entries) == 0x150 && offsetof(ink::HUDLayer, spawningLock) == 0x198 &&
+              sizeof(ink::HudWidgetSpawnEntry) == 0x130 && offsetof(ink::HudWidgetSpawnEntry, hudEntryName) == 0 &&
+              offsetof(ink::HudWidgetSpawnEntry, useSeparateWindow) == 0xA0 &&
+              offsetof(ink::HudWidgetSpawnEntry, slotTexture) == 0xB8 && offsetof(ink::HudWidgetSpawnEntry, window) == 0xC8 &&
+              offsetof(ink::HudWidgetSpawnEntry, slotWidget) == 0xD8 && offsetof(ink::HudWidgetSpawnEntry, rootWidget) == 0xF8,
+              "the HUD layer as rust/crates/cvr-ffi/src/hud_natives.rs reads it");
+static_assert(offsetof(ink::HudEntryInfo, size) == 0x40 && offsetof(ink::HudEntryInfo, offset) == 0x48 &&
+              offsetof(DynamicTexture, width) == 0x40 && offsetof(DynamicTexture, height) == 0x44 &&
+              offsetof(ent::IComponent, name) == 0x40,
+              "as rust/crates/cvr-ffi/src/hud_natives.rs reads them");
+static_assert(sizeof(cvr::hud::ElementSettings) == 20 && sizeof(cvr::hud::ElementStatus) == 20 && cvr::hud::ElementCount == 40 &&
+              cvr::hud::MaxSprites == 64 && cvr::hud::ChannelCount == 5,
+              "mirrored in rust/crates/cvr-ffi/src/hud_natives.rs and cvr-gpu hud_panel.rs");
+}  // namespace
+// The lease is Rust's (rust/crates/cvr-render/src/cpp_services.rs over cvr-gpu texture_lease.rs).
+
+// The natives' game state: rust/crates/cvr-ffi/src/hud_natives.rs.
+// cvr_cpp_gaze_head_look and cvr_cpp_gaze_canvas_offset: rust/crates/cvr-render/src/xr_manager_services.rs.
+// The hooks register from rust/crates/cvr-render/src/hook_table.rs.
+#else
 namespace {
 using namespace RED4ext;
 const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
@@ -124,7 +176,7 @@ uintptr_t Visible(ink::Widget* widget, bool visible) {
         mask->wantedVisible.store(visible,std::memory_order_relaxed);
         const auto channel=mask->channel.load(std::memory_order_acquire);
         if (g_liveControls.xrHudPanel && !g_menuModeValue && !g_liveControls.xrMenuRect &&
-            (channel!=cvr::hud::Channel::Interaction || g_liveControls.xrInteractionPanel) && cvr::hud::MaskNative(channel)) {
+            (channel!=cvr::hud::Channel::Interaction || g_liveControls.xrInteractionPanel) && cvr::hud::ConsumerReady(channel)) {
             HideSlot(widget);return 0;
         }
         break;
@@ -166,7 +218,7 @@ bool InstallHudPanelHooks() {
     auto frameSubmit=reinterpret_cast<void*>(base+0x3d6d84);
     if (!memcmp(frameSubmit,submit,sizeof(submit)) &&
         MH_CreateHook(frameSubmit,reinterpret_cast<void*>(+[](void* scene,void* views,char flag){
-            FlushRepaintsAtSubmit();cvr::heldbody::AtFrameSubmit();originalFrameSubmit(scene,views,flag);}),reinterpret_cast<void**>(&originalFrameSubmit))==MH_OK &&
+            FlushRepaintsAtSubmit();originalFrameSubmit(scene,views,flag);}),reinterpret_cast<void**>(&originalFrameSubmit))==MH_OK &&
         MH_EnableHook(frameSubmit)!=MH_OK) originalFrameSubmit=nullptr;
     hooksReady.store(true,std::memory_order_release);return true;
 }
@@ -622,16 +674,11 @@ void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_
     const auto settings=cvr::hud::GetLayoutSettings();
     const bool sniperNest=cvr::camera::SniperHeadFollowActive();
     cvr::hud::LayoutStatus status{};
-    // DRIVING WITH THE MAP PROJECTED (over a car's hood or a bike's bars): the quest text goes with it, under the map.
-    cvr::hud::VehicleMinimapAnchor cabin{};
-    const bool projectedMap=cvr::anim::WheelReadMinimapAnchor(OpenXRManager::Get().GetTrackingOriginSerial(),cabin);
-    cvr::hud::Rect mapRect{},questRect{};int questSprite=-1;
     {
         std::shared_lock lock(hud->spawningLock);
         for(const auto& e:hud->entries){
             if(!e.useSeparateWindow || !e.slotWidget || !e.slotTexture || !e.window)continue;
-            const bool questInMap=projectedMap && e.hudEntryName.hash==cvr::hud::EntryHash("quest_list");
-            const auto channel=questInMap ? Channel::VehicleMinimap : cvr::hud::EntryChannel(e.hudEntryName.hash,sniperNest);
+            const auto channel=cvr::hud::EntryChannel(e.hudEntryName.hash,sniperNest);
             if(channel==Channel::Interaction && !g_liveControls.xrInteractionPanel)continue;
             const auto group=cvr::hud::Index(channel);auto& snapshot=*snapshots[group];
             Handle<ink::Widget> slot(e.slotWidget);
@@ -655,50 +702,14 @@ void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_
                 for(float& component:sprite.tint)component*=opacity;
             }
             sprite.x=rect.x;sprite.y=rect.y;sprite.width=rect.width;sprite.height=rect.height;
-            if(questInMap)questRect=rect; // placed under the map once both are known (below)
-            else if(channel==Channel::VehicleMinimap) {
-                // One texture, two placements. Never retain a second minimap in Main.
-                // Keep its authored/user layout for exact restoration outside the car.
-                snapshot.hudRect={rect.x/width,rect.y/height,rect.width/width,rect.height/height};
-                mapRect=rect;
-                snapshot.windshieldMap=projectedMap;
-                snapshot.width=std::clamp(e.slotTexture->width,32u,2048u);
-                snapshot.height=std::clamp(e.slotTexture->height,32u,2048u);
-                sprite.x=sprite.y=0;
-                sprite.width=float(snapshot.width);sprite.height=float(snapshot.height);
-            }
             // A window with nothing visible contributes only zeros: keep its slot (masked), skip its draw.
             const int64_t tContent=HudNow();
             const bool content=CyberpunkVR_HudSkipEmpty.load(std::memory_order_relaxed)==0 || HasVisibleContent(e.rootWidget.GetPtr());
             HudAdd(4,HudNow()-tContent);
-            if(content){snapshot.sprites.push_back(std::move(sprite));HudAdd(7,1);if(questInMap)questSprite=int(snapshot.sprites.size())-1;}
+            if(content){snapshot.sprites.push_back(std::move(sprite));HudAdd(7,1);}
             else CyberpunkVR_HudEmptySprites.fetch_add(1,std::memory_order_relaxed);
             slots[group].push_back(std::move(slot));
         }
-    }
-    // THE QUEST TEXT UNDER THE PROJECTED MAP, left-aligned with it as on the HUD, at three quarters of its HUD size
-    // against the map's (the map texture's pixels per HUD pixel), its rows stretched as the map's are on the projected
-    // image so the letters keep their shape there (Runtimes/VehicleMinimap.hpp MinimapPlacementFor,
-    // Runtimes/HudQuad.cpp). The quest list's widget is far taller than its text, which starts at its top: the canvas
-    // shows a band of half the map's height under it, about three lines, and clips the rest. The band is there
-    // whenever the map is projected, so the image keeps its size when the quest text comes and goes.
-    {
-        constexpr float kText=.75f,kGap=.04f,kBand=.5f;
-        auto& map=*snapshots[cvr::hud::Index(Channel::VehicleMinimap)];
-        const bool quest=questSprite>=0 && questSprite<int(map.sprites.size());
-        if(projectedMap && map.width && map.height && map.windshieldMap && mapRect.width>1 && mapRect.height>1) {
-            const auto place=cvr::hud::MinimapPlacementFor(cabin.bike);
-            const float mapW=float(map.width),mapH=float(map.height),scale=mapW/mapRect.width*kText;
-            map.height=uint32_t(std::lround(mapH*(1.0f+kGap+kBand)));
-            map.windshieldSplit=mapH/float(map.height);
-            if(quest && questRect.width>1 && questRect.height>1) {
-                float w=questRect.width*scale,h=questRect.height*scale;
-                if(w>mapW){h*=mapW/w;w=mapW;}
-                auto& text=map.sprites[size_t(questSprite)];
-                text.x=0;text.y=mapH*(1.0f+kGap);text.width=w;text.height=h*(place.width/mapW)/(place.height/mapH);
-            } else if(quest) map.sprites.erase(map.sprites.begin()+questSprite);
-        } else if(quest)
-            map.sprites.erase(map.sprites.begin()+questSprite); // no map to hang under this frame
     }
     const int64_t tTail=HudNow();
     struct TailTimer { int64_t t0; ~TailTimer() { HudAdd(6, HudNow() - t0); } } tailTimer{tTail};
@@ -709,7 +720,7 @@ void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_
     int total=0;bool allMasked=true;
     for(size_t i=0;i<snapshots.size();++i){
         auto& snapshot=*snapshots[i];const auto channel=static_cast<Channel>(i);
-        snapshot.masked=complete[i] && !slots[i].empty() && cvr::hud::MaskNative(channel);
+        snapshot.masked=complete[i] && !slots[i].empty() && cvr::hud::ConsumerReady(channel);
         if(snapshot.masked)for(auto& slot:slots[i])desired.emplace(slot.GetPtr(),channel);
         if(snapshot.masked!=lastMasked[i]){++generation;lastMasked[i]=snapshot.masked;}
         snapshot.generation=generation;
@@ -796,3 +807,4 @@ void VRHudPanelSubtitle(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool
     pendingSubtitles.push_back(std::move(sub));
     if (out) *out = true;
 }
+#endif

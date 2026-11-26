@@ -7,6 +7,13 @@
 
 #include "Core/VrCoreShared.hpp"
 #include "Hooks/Hook.hpp"
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/settings_res.rs: the patch, the callback and its log; the core's side stays here.
+// The core's side: rust/crates/cvr-render/src/core_services.rs.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("SettingsRes", ::cvr::hooks::Stage::Boot, 85, cvr_hook_settings_res_install);
+#endif
+#else
 #include "Hooks/Trampoline.hpp"
 #include "Utils/AobScanner.hpp"
 #include "Utils/MemorySafe.hpp"
@@ -137,3 +144,4 @@ bool InstallSettingsResHook() {
 }
 
 CVR_HOOK("SettingsRes", ::cvr::hooks::Stage::Boot, 85, InstallSettingsResHook);
+#endif

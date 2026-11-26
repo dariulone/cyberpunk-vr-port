@@ -11,8 +11,60 @@
 #include <utility>
 #include <vector>
 
+#if CVR_RUST_VRIK
+extern "C" {
+HRESULT cvr_mlm_create(ID3D12Device*,const void*,size_t,ID3D12Resource*,UINT64,void**);
+bool cvr_mlm_record(void*,ID3D12GraphicsCommandList*,bool(*)(void*,void*));
+void cvr_mlm_info(void*,void*);
+}
+#endif
 namespace cvr::stereo {
 using Microsoft::WRL::ComPtr;
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin makes no GpuMultilayerMembership (prepared_pair_native.rs drives the Rust storage)
+// The check: rust/crates/cvr-render/src/multilayer_membership.rs (tools/single_pass_tests/multilayer_membership_test runs
+// its cases against it in its Rust variant). The storage is the Rust object; the family check and the command
+// resources stay here.
+namespace {
+struct RustSource {
+    ID3D12Resource* b4;ID3D12Resource* t5;UINT64 b4Offset,t5Offset,t5Bytes;UINT firstElement,numElements;const UINT* membership;
+    UINT64 sourceId;UINT eye;
+};
+struct RustInfo {ID3D12Resource* predicates;ID3D12Resource* results;UINT sources,dispatches;};
+static_assert(sizeof(RustSource)==72 && sizeof(RustInfo)==24,"mirrored by multilayer_membership.rs");
+bool Family(const source_selectors::FamilyKey& value){
+    return value.rootSha256==multilayer_selectors::RootSha256 && value.vertexSha256==multilayer_selectors::VertexSha256 &&
+        value.pixelSha256==multilayer_selectors::PixelSha256;
+}
+bool Keep(void* list,void* storage)noexcept{
+    try{return gpu::KeepCommandResources(static_cast<ID3D12GraphicsCommandList*>(list),{static_cast<IUnknown*>(storage)});}catch(...){return false;}
+}
+RustInfo Info(IUnknown* storage){RustInfo info{};if(storage)cvr_mlm_info(storage,&info);return info;}
+}
+// The Rust object: its IUnknown vtable is Rust's.
+struct GpuMultilayerMembership::Storage:IUnknown {};
+GpuMultilayerMembership::GpuMultilayerMembership()=default;
+GpuMultilayerMembership::~GpuMultilayerMembership()=default;
+HRESULT GpuMultilayerMembership::Create(ID3D12Device* device,std::span<const MultilayerMembershipSource> sources,
+                                      ID3D12Resource* gate,UINT64 gateOffset)try{
+    if(storage_ || !device)return E_INVALIDARG;
+    std::vector<RustSource> lent;lent.reserve(sources.size());
+    for(const auto& source:sources){
+        if(!Family(source.family))return E_INVALIDARG;
+        lent.push_back({source.b4.Get(),source.t5.Get(),source.b4Offset,source.t5Offset,source.t5Bytes,source.firstElement,
+            source.numElements,source.membership.data(),source.sourceId,source.eye});
+    }
+    void* created{};const auto hr=cvr_mlm_create(device,lent.data(),lent.size(),gate,gateOffset,&created);if(FAILED(hr))return hr;
+    storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(created)));return S_OK;
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
+bool GpuMultilayerMembership::Record(ID3D12GraphicsCommandList* list){return storage_ && list && cvr_mlm_record(storage_.Get(),list,&Keep);}
+ID3D12Resource* GpuMultilayerMembership::Predicates()const{return Info(storage_.Get()).predicates;}
+ID3D12Resource* GpuMultilayerMembership::Results()const{return Info(storage_.Get()).results;}
+UINT GpuMultilayerMembership::SourceCount()const{return Info(storage_.Get()).sources;}
+UINT GpuMultilayerMembership::DispatchCount()const{return Info(storage_.Get()).dispatches;}
+UINT64 GpuMultilayerMembership::ReadbackBytes()const{return UINT64(SourceCount())*48;}
+#endif
+#else
 namespace {
 constexpr char Shader[]=R"(
 ByteAddressBuffer b4 : register(t0);
@@ -192,4 +244,5 @@ ID3D12Resource* GpuMultilayerMembership::Results()const{return storage_?storage_
 UINT GpuMultilayerMembership::SourceCount()const{return storage_?UINT(storage_->sources.size()):0;}
 UINT GpuMultilayerMembership::DispatchCount()const{return storage_ && storage_->recorded?UINT(storage_->groups.size()):0;}
 UINT64 GpuMultilayerMembership::ReadbackBytes()const{return UINT64(SourceCount())*48;}
+#endif
 }

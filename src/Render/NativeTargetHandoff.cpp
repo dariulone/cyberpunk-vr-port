@@ -3,6 +3,83 @@
 #include <algorithm>
 #include <mutex>
 #include <utility>
+#if CVR_RUST_VRIK
+// The observer -- the two sources, the observation window, the capture epoch, their lock and every event -- is
+// rust/crates/cvr-render/src/target_handoff_observer.rs (the detours call it directly). Here: the export rows its
+// publication fills, and the API the C++ callers (the retained geometry, the target access) and the test variants use.
+extern "C" {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+std::atomic<uint32_t> CyberpunkVR_TargetHandoffSeq{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+uint64_t CyberpunkVR_TargetHandoffStats[16]{2};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+uint64_t CyberpunkVR_TargetHandoffSources[32]{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+uint64_t CyberpunkVR_TargetHandoffSourceLocal[16]{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+uint64_t CyberpunkVR_TargetHandoffOwners[16]{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+uint64_t CyberpunkVR_TargetHandoffTargets[192]{};
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's rows are rust/crates/cvr-render/src/render_moved_exports.rs'
+uint64_t CyberpunkVR_TargetHandoffStates[80]{};
+#endif
+}
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's handoff is target_handoff_observer.rs' and targets.rs'
+extern "C" {
+bool cvr_th2_begin(ID3D12GraphicsCommandList*,const cvr::stereo::native_recording::Lease*,uint32_t,uint32_t,
+                   const cvr::stereo::scene_state::GeometryTargets*);
+bool cvr_th2_snapshot(ID3D12CommandQueue*,uint32_t,cvr::stereo::target_handoff::SourceSnapshot*);
+void cvr_th2_mark_exit(ID3D12GraphicsCommandList*,uint32_t,uint32_t);
+void cvr_th2_reset(ID3D12GraphicsCommandList*);
+void cvr_th2_finish_observation();
+void cvr_th2_clear();
+bool cvr_th2_observing();
+void cvr_th2_barriers(ID3D12GraphicsCommandList*,UINT,const D3D12_RESOURCE_BARRIER*);
+void cvr_th2_written(ID3D12GraphicsCommandList*,ID3D12Resource*,uint32_t);
+void cvr_th2_clear_view(ID3D12GraphicsCommandList*,size_t,bool);
+void cvr_th2_targets(ID3D12GraphicsCommandList*,UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,bool,const D3D12_CPU_DESCRIPTOR_HANDLE*);
+void cvr_th2_draw(ID3D12GraphicsCommandList*);
+void cvr_th2_unknown(ID3D12GraphicsCommandList*,uint32_t);
+void cvr_th2_close(ID3D12GraphicsCommandList*,HRESULT);
+void cvr_th2_before_submit(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*);
+void cvr_th2_submitted(ID3D12CommandQueue*,UINT,ID3D12CommandList* const*);
+}
+namespace cvr::stereo::target_handoff {
+static_assert(sizeof(scene_state::GeometryTargets)==328 && sizeof(TargetSnapshot)==448 && sizeof(SourceSnapshot)==1840,
+    "mirrored by target_handoff_observer.rs");
+bool Begin(ID3D12GraphicsCommandList* list,const native_recording::Lease& recording,uint32_t frame,uint32_t side,
+           const scene_state::GeometryTargets& targets){return cvr_th2_begin(list,&recording,frame,side,&targets);}
+void Reset(ID3D12GraphicsCommandList* list){cvr_th2_reset(list);}
+// The snapshots take the observer's copies (their references handed over), then each identity its authenticated copy.
+bool SnapshotSources(ID3D12CommandQueue* queue,uint32_t frame,std::array<SourceSnapshot,2>& output)try{
+    output={};std::array<SourceSnapshot,2> next;if(!cvr_th2_snapshot(queue,frame,next.data()))return false;
+    for(auto& source:next)for(auto& target:source.targets)texture_read::AuthenticateWritableIdentity(target.identity);
+    output=std::move(next);return true;
+}catch(...){output={};return false;}
+void FinishObservation(){cvr_th2_finish_observation();}
+void Clear(){cvr_th2_clear();}
+bool Observing()noexcept{return cvr_th2_observing();}
+void Barriers(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RESOURCE_BARRIER* barriers){cvr_th2_barriers(list,count,barriers);}
+void Written(ID3D12GraphicsCommandList* list,ID3D12Resource* destination,uint32_t kind){cvr_th2_written(list,destination,kind);}
+void ClearView(ID3D12GraphicsCommandList* list,D3D12_CPU_DESCRIPTOR_HANDLE handle,bool depth){cvr_th2_clear_view(list,handle.ptr,depth);}
+void Targets(ID3D12GraphicsCommandList* list,UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE* handles,BOOL contiguous,
+             const D3D12_CPU_DESCRIPTOR_HANDLE* depth){cvr_th2_targets(list,count,handles,contiguous!=FALSE,depth);}
+void Draw(ID3D12GraphicsCommandList* list){cvr_th2_draw(list);}
+void Unknown(ID3D12GraphicsCommandList* list,uint32_t kind){cvr_th2_unknown(list,kind);}
+void Close(ID3D12GraphicsCommandList* list,HRESULT result){cvr_th2_close(list,result);}
+void BeforeSubmit(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists){cvr_th2_before_submit(queue,count,lists);}
+void Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists){cvr_th2_submitted(queue,count,lists);}
+}
+#endif
+#endif
+#else
 
 extern "C" {
 std::atomic<uint32_t> CyberpunkVR_TargetHandoffSeq{};
@@ -445,3 +522,4 @@ void Clear(){
     std::fill_n(CyberpunkVR_TargetHandoffStats,16,0);CyberpunkVR_TargetHandoffStats[0]=2;Publish();
 }
 }
+#endif

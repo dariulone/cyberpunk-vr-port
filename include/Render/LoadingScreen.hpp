@@ -28,6 +28,86 @@ struct Placement {
 // A loading screen: a 16:9 screen 3.2 m wide at 3 m, some 56 degrees, the whole of it in view with room around it.
 constexpr Placement kLoadingScreen{};
 
+#if CVR_RUST_VRIK
+// The Rust build's screen is rust/crates/cvr-gpu/src/loading_screen.rs; this class is its face, and keeps the
+// placement's heading (a C++ object) and hands over the caption's text as the screen comes up.
+extern "C" {
+struct CvrLoadingPlacement {
+    float distance, height, width, fadeIn;
+    bool hasCaption, hasHeading;
+};
+struct CvrLoadingCaption {
+    const cvr::render::CvrCaptionLine* lines;
+    uint32_t count;
+    float size, light;
+    const wchar_t* locale;
+    bool rightToLeft;
+};
+void* cvr_loading_screen_new();
+void cvr_loading_screen_free(void* screen);
+uint32_t cvr_loading_screen_begin(void* screen, const XrPosef* head, const CvrLoadingPlacement* at, const CvrLoadingCaption* caption,
+                                  float opacity);
+bool cvr_loading_screen_up(const void* screen);
+void cvr_loading_screen_end(void* screen);
+void cvr_loading_screen_hold(void* screen);
+bool cvr_loading_screen_held(const void* screen);
+bool cvr_loading_screen_record(void* screen, ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* target, int view,
+                               const D3D12_RECT* rect, const XrPosef* pose, const XrFovf* fov, ID3D12Resource* window, int windowView,
+                               const float* uv, float aspect, const XrQuaternionf* heading, bool headingValid);
+void cvr_loading_screen_shutdown(void* screen);
+}
+
+class Screen {
+public:
+    void Begin(const XrPosef& head, const Placement& at = kLoadingScreen, float opacity = 1.0f);
+    bool Up() const { return cvr_loading_screen_up(rust_); }
+    void End() { cvr_loading_screen_end(rust_); }
+    void Hold() { cvr_loading_screen_hold(rust_); }
+    bool Held() const { return cvr_loading_screen_held(rust_); }
+    bool Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* target, DXGI_FORMAT view,
+                const D3D12_RECT& rect, const XrPosef& pose, const XrFovf& fov, ID3D12Resource* window,
+                DXGI_FORMAT windowView, const float uv[4], float aspect);
+    void Shutdown() { cvr_loading_screen_shutdown(rust_); }
+
+    Screen() : rust_(cvr_loading_screen_new()) {}
+    ~Screen() { cvr_loading_screen_free(rust_); }
+    Screen(const Screen&) = delete;
+    Screen& operator=(const Screen&) = delete;
+
+private:
+    void* rust_;
+    // The heading of the placement the screen came up with (kept up by each frame's head).
+    cvr::render::FreeLookHeading* heading_ = nullptr;
+};
+
+inline void Screen::Begin(const XrPosef& head, const Placement& at, float opacity) {
+    const CvrLoadingPlacement placement{at.distance, at.height, at.width, at.fadeIn, at.caption != nullptr, at.heading != nullptr};
+    // The caption's text is taken as the screen comes up: offered only while it is not up.
+    std::vector<cvr::render::CvrCaptionLine> lines;
+    CvrLoadingCaption caption{};
+    const bool offer = at.caption && !Up();
+    if (offer) {
+        lines.reserve(at.caption->lines.size());
+        for (const auto& line : at.caption->lines)
+            lines.push_back({line.text.c_str(), static_cast<uint32_t>(line.text.size()), line.row});
+        caption = {lines.data(), static_cast<uint32_t>(lines.size()), at.caption->size, at.caption->light,
+                   at.caption->locale.c_str(), at.caption->rightToLeft};
+    }
+    const uint32_t state = cvr_loading_screen_begin(rust_, &head, &placement, offer ? &caption : nullptr, opacity);
+    if (state & 2) heading_ = at.heading;
+    if ((state & 1) && heading_) heading_->Update(head);
+}
+
+inline bool Screen::Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* target, DXGI_FORMAT view,
+                           const D3D12_RECT& rect, const XrPosef& pose, const XrFovf& fov, ID3D12Resource* window,
+                           DXGI_FORMAT windowView, const float uv[4], float aspect) {
+    XrQuaternionf orientation{0.0f, 0.0f, 0.0f, 1.0f};
+    const bool valid = heading_ && heading_->Valid();
+    if (valid) orientation = heading_->Orientation();
+    return cvr_loading_screen_record(rust_, device, list, target, static_cast<int>(view), &rect, &pose, &fov, window,
+                                     static_cast<int>(windowView), uv, aspect, heading_ ? &orientation : nullptr, valid);
+}
+#else
 class Screen {
 public:
     // A frame of the screen: `head` is its head pose in the tracking space, `opacity` how much of it shows. The first
@@ -71,4 +151,5 @@ private:
     bool up_ = false, held_ = false, fresh_ = false, ready_ = false;
     float opacity_ = 0.0f, shown_ = 1.0f;
 };
+#endif
 }  // namespace cvr::loading

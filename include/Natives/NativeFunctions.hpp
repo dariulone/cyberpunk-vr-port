@@ -20,79 +20,40 @@
 #include <RED4ext/Scripting/Natives/Transform.hpp>
 
 #include <cstdint>
+#if CVR_RUST_VRIK
+// The Rust build registers them (rust/crates/cvr-ffi/src/natives.rs), by their C names.
+extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRCyberwareFrame(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
+#else
 void VRCyberwareFrame(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRMeleeInputFrame(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
+#else
 void VRMeleeInputFrame(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRMeleeThrowFrame(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
+#else
 void VRMeleeThrowFrame(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRMeleeThrowEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRMeleeThrowEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRInterfaceEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
 void VRMenuGesture(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
 void VRMenuPointer(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
 void VRWorldTouchPointer(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
 void VRMenuCapture(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRGripFromFingers(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRWeaponWheel(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
-void VRHandCollision(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
-void VRFingerContact(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRFingerBend(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRCarryLead(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
-void VRHeldPicture(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRHeldPictureView(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRFrameOrderProbe(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRHeldBody(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRHeldBodyLetGo(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRHeldBodyFilter(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRHeldBodyGrasp(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRBodyGraspShape(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
-void VRPhysHandWeapon(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRPhysHandWeaponPart(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRPhysHandsTestStack(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRPhysHandsPerson(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRPhysHandsPeople(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRPhysHandsSelfShape(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRPhysHandsGrab(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRPhysHandsSelfPad(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRPhysHandsGrabStyle(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRGunBoxClear(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRGunBoxAdd(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRGunPush(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRGunAnchor(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRNpcGrip(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
-void VRCorpseHold(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
-void VRCorpseSpeed(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
-void VRCorpseFreeze(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRGraspCapsule(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRGraspSeatTurn(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Quaternion*,int64_t);
-void VRHandHoldBody(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRBodySurface(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRGunTouches(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
-void VRGunTouchOf(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRGunTouchWay(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRThingOutline(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRThingHighlight(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRProxyBodies(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
-void VRPickCone(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRBodyInfo(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRHeldPictureLetGo(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRFingerClosed(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
-void VRDebugOn(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRDebugViewSet(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRDebugLine(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRDebugRay(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRBodyPhysXPos(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRNearBody(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRBodyOf(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Handle<RED4ext::IScriptable>*,int64_t);
-void VRDebugProbeBody(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRBodyFilterInfo(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRDebugCapsule(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRDebugPoint(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRDebugWorld(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
-void VRDebugFlush(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRFingerWanted(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
-void VRHandContactMargin(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
-void VRGripForce(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
-void VRTraceInfo(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
-void VRTraceBody(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Handle<RED4ext::IScriptable>*,int64_t);
-void VRBodyGetRot(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Quaternion*,int64_t);
 void VRMenuVendorPoll(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Handle<RED4ext::IScriptable>*,int64_t);
 void VRMenuVendorResolve(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRMenuBlink(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
@@ -103,11 +64,36 @@ void VRSettingsEdit(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRMenuPlayWav(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 // VRSoundChannel(channel, file, volume, lowpass, loopFrom, loopTo, crossfade, fade) -> Bool (Natives/VrMenu.cpp).
 void VRSoundChannel(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRWeaponTriggerEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRWeaponTriggerEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRWeaponInLeftHand(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRWeaponInLeftHand(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRLeftHanded(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRLeftHanded(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRSceneOwnsBody(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRSceneOwnsBody(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRPhysicalMelee(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRPhysicalMelee(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
 // The first-launch setup (src/Natives/BodySetup.cpp).
 void VRFirstSetupNeeded(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRSetLeftHanded(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
@@ -128,13 +114,48 @@ void VRMirrorDoubleClear(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64
 void VRMirrorDoubleStats(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
 void VRInteractionAction(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRLeftHandedAnimations(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRMeleeRealTime(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
+#else
 void VRMeleeRealTime(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRMeleeTwoHandedActive(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRMeleeTwoHandedActive(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRCyberwarePoint(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
+#else
 void VRCyberwarePoint(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRCyberwareWirePlanes(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#else
 void VRCyberwareWirePlanes(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRCyberwareMusclePulse(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#else
 void VRCyberwareMusclePulse(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRCyberwareSelect(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#else
 void VRCyberwareSelect(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRCyberwareCollisionInfo(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
+#else
 void VRCyberwareCollisionInfo(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
+#endif
 
 void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
 void VRHudPanelRootsNative(RED4ext::IScriptable*, RED4ext::CStackFrame*, bool*, int64_t);
@@ -226,20 +247,63 @@ void SetVRDualWield(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, 
 void SetVRLeftMuzzle(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void SetVRDualWieldRecords(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void SetVRSprintActive(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/swimming_input.rs
+extern "C" void SetVRSwimmingState(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#else
 void SetVRSwimmingState(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/swimming_input.rs
+extern "C" void GetVRSwimmingDebug(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
+#else
 void GetVRSwimmingDebug(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/wheel_grab.rs
+extern "C" void GetVRWheelControlState(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#else
 void GetVRWheelControlState(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/wheel_grab.rs
+extern "C" void SetVRWheelGamepadProfile(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void SetVRWheelGamepadProfile(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void SetVRWheelCabin(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/ladder_input.rs
+extern "C" void SetVRLadderState(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#else
 void SetVRLadderState(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/ladder_input.rs
+extern "C" void SetVRLadderTopRails(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#else
 void SetVRLadderTopRails(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/ladder_input.rs
+extern "C" void SetVRLadderMeasuredTop(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#else
 void SetVRLadderMeasuredTop(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/ladder_input.rs
+extern "C" void GetVRLadderDebug(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
+#else
 void GetVRLadderDebug(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/ladder_input.rs
+extern "C" void SetVRLadderTestGrip(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#else
 void SetVRLadderTestGrip(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+#endif
 void SetVRLocomotionState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRLocomotionDetailed(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRScannerState(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
-void SetVRWorldTimeScale(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
 void SetVRPairedAnimationState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRBodyCarryBothHands(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRReloadAnimation(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
@@ -247,8 +311,18 @@ void SetVRFinisherActive(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, in
 void GetVRPhysicalCrouch(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
 void SetVRPhysicalCrouchFeedback(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
 void GetVRPhysicalCrouchCameraAnchor(RED4ext::IScriptable*, RED4ext::CStackFrame*, RED4ext::Vector4*, int64_t);
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/story_attention.rs
+extern "C" void VRStoryAttentionUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
+#else
 void VRStoryAttentionUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/story_attention.rs
+extern "C" void VRManualClueUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
+#else
 void VRManualClueUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
+#endif
 void SetVRWeaponPoseState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRWeaponRaiseTransition(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRMenuOpen(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
@@ -297,8 +371,14 @@ void SetVRMuzzlePos(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, 
 // The aim line's hit point and surface normal, from the weapon module's own raycast.
 void SetVRAimHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 // The interaction prompt's object depth and the HUD's clearance (Runtimes/InteractionDepth.hpp, HudClearance.hpp).
+#if CVR_RUST_VRIK
+// rust/crates/cvr-xr/src/hud_natives.rs
+extern "C" void SetVRInteractionDepth(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+extern "C" void SetVRHudClearance(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+#else
 void SetVRInteractionDepth(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void SetVRHudClearance(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+#endif
 // The equipped weapon's class, from its record: 0 unknown, 1 handgun/revolver, 2 rifle, 3 shotgun.
 void SetVRWeaponClass(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void VRHapticEvent(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
@@ -376,7 +456,6 @@ void VRBodyIsKinematic(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFr
 void VRBodyProbe(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::CString* aOut, int64_t a4);
 void VRBodySetAngVel(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 void VRBodySetKinematic(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
-void VRBodySetQueryable(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 void VRBodySetPos(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 void VRBodySetSimMasks(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 // A thing carried by another entity's slot the way the game carries a weapon: its root made a child of the slot
@@ -384,11 +463,36 @@ void VRBodySetSimMasks(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFr
 void VRAttachToSlot(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 void VRDetachFromSlot(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 // The grasp: a held thing's seat in the palm and the fingers closed on it (src/Anim/GraspPose.cpp).
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/grasp.rs
+extern "C" void VRGraspSeat(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Transform* aOut, int64_t a4);
+#else
 void VRGraspSeat(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Transform* aOut, int64_t a4);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/grasp.rs
+extern "C" void VRGraspSet(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
+#else
 void VRGraspSet(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/grasp.rs
+extern "C" void VRGraspPin(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
+#else
 void VRGraspPin(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/grasp.rs
+extern "C" void VRGraspBlend(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
+#else
 void VRGraspBlend(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/grasp.rs
+extern "C" void VRGraspClear(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
+#else
 void VRGraspClear(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
+#endif
 void VRPromptPart(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::CName* aOut, int64_t a4);
 void VRBodySetVel(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 void VRBoneModelPos(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4);
@@ -478,37 +582,56 @@ void VRIntroTakeBootNotice(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int
 void VRIntroHum(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 // VRReachAim(point) -> Bool, VRReachUse(seconds) -> Bool, VRHandHolds(side) -> Bool: the hand's reach in the game
 // (Natives/Reach.hpp).
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/reach.rs
+extern "C" void VRReachAim(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRReachAim(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/reach.rs
+extern "C" void VRReachUse(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRReachUse(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/reach.rs
+extern "C" void VRHandHolds(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRHandHolds(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
 // VRLobbySaveLooks() -> String: the looks of the player's playthroughs, newest save of each (Lobby/SaveLooks.cpp).
 void VRLobbySaveLooks(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
 // VRCreationTarget(entity) -> Bool: the character customization dresses this entity, null = its own puppet (Lobby/CreationTarget.cpp).
 void VRCreationTarget(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRMirrorAppearanceOptions(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRMirrorAppearanceFinish(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRMirrorAppearanceNative(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
-void VRCustomizationReset(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 // VRLobbyResolveAs(male): the game takes the main menu's puppet for that body; nothing outside it (Lobby/PlayerBody.cpp).
 void VRLobbyResolveAs(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRWorldMarkerAnchor(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 // VRWorldMarkerScreenPoint(world): the point on the UI canvas the UI camera places it at (Hooks/WorldMarkers.cpp).
 void VRWorldMarkerScreenPoint(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Vector4*,int64_t);
 void VRWorldMarkerProjection(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRHandEquipment(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#else
 void VRHandEquipment(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+#endif
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRLauncherControllerAim(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRLauncherControllerAim(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
 // VRCyberwareChordTake() -> Bool: once per cyberware chord that fired with the game window behind (Hooks/CyberwareChord.cpp).
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/cyberware_natives.rs
+extern "C" void VRCyberwareChordTake(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#else
 void VRCyberwareChordTake(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+#endif
 // Natives/EngineObjects.cpp: what Codeware added to engine classes, under the port's names.
 namespace RED4ext::ent { struct IComponent; }
 void VREntityComponents(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Handle<RED4ext::ent::IComponent>>*,int64_t);
-// Natives/HairDangle.cpp
-void VRHairDangles(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
-void VRHairPoints(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
-void VRHairRaw(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
-void VRHairStrands(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
-void VRHairForce(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
-void VRDangleForce(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
 void VREntitySkinnedMeshes(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Handle<RED4ext::ent::IComponent>>*,int64_t);
 void VREntityComponentsOf(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Handle<RED4ext::ent::IComponent>>*,int64_t);
 void VREntitySetWorldTransform(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
@@ -522,8 +645,6 @@ void VRComponentKey(RED4ext::IScriptable*,RED4ext::CStackFrame*,uint64_t*,int64_
 void VRInkLayers(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>>*,int64_t);
 void VRInkLayer(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Handle<RED4ext::IScriptable>*,int64_t);
 void VRInkWorldControllers(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::WeakHandle<RED4ext::IScriptable>>*,int64_t);
-void VRMenuTooltipPrepare(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
-void VRMenuTooltipSpawn(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Handle<RED4ext::IScriptable>*,int64_t);
 void VRWeatherSet(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRWeatherState(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CName*,int64_t);
 void VRLobbyExposureCollect(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
@@ -540,6 +661,9 @@ void VRSpawnManaged(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRSpawnedEntity(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Handle<RED4ext::ent::Entity>*,int64_t);
 void VRSpawnTagged(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Handle<RED4ext::ent::Entity>>*,int64_t);
 void VRSpawnTaggedIDs(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::ent::EntityID>*,int64_t);
+#if CVR_RUST_VRIK
+}  // extern "C"
+#endif
 // Natives/Registration.cpp: the signatures whose types RTTI could not make at registration, completed later.
 namespace cvr::natives {
 bool CompleteSignatures(RED4ext::CGameApplication*);

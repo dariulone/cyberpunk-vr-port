@@ -1,3 +1,7 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
+// The body's heading at the native movement adapter. THE HOOK IS RUST'S with CVR_RUST_VRIK
+// (rust/crates/cvr-rig/src/vrik/body_heading.rs): this file then keeps only the registration (so the install
+// order holds), and Hooks/BodyHeading.hpp forwards from src/Hooks/RoomscaleRust.cpp.
 #include "Hooks/BodyHeading.hpp"
 #include "Hooks/Hook.hpp"
 #include "Hooks/RoomscaleMove.hpp"
@@ -12,18 +16,30 @@
 #include <mutex>
 #include <cstdio>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
 extern "C" float BodyYawFollowStep(float observedOffset);
+#endif
 
+// The exports are src/Hooks/BodyHooksState.cpp's (both builds).
 extern "C" {
-__declspec(dllexport) int CyberpunkVR_BodyHeadingHooksReady = 0;
-__declspec(dllexport) uint64_t CyberpunkVR_BodyHeadingCommits = 0;
-__declspec(dllexport) uint64_t CyberpunkVR_BodyHeadingRequests = 0;
-__declspec(dllexport) float CyberpunkVR_BodyTrackingYawRad = 0;
-// Bounded fault-injection gate for live regression: skips requests, never the
-// native adapter or its persistent state. Default zero; no UI/INI setting.
-__declspec(dllexport) int CyberpunkVR_DebugBodyHeadingSkip = 0;
+extern int CyberpunkVR_BodyHeadingHooksReady,CyberpunkVR_DebugBodyHeadingSkip;
+extern uint64_t CyberpunkVR_BodyHeadingCommits,CyberpunkVR_BodyHeadingRequests;
+#if !CVR_RUST_VRIK
+extern float CyberpunkVR_BodyTrackingYawRad;
+#endif
 }
+
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("BodyHeading",::cvr::hooks::Stage::Boot,79,cvr_hook_body_heading_install);
+#endif
+#else
+extern "C" uint64_t cvr_cpp_xr_tracking_origin_serial();   // src/Camera/CameraServices.cpp
+// The motion request, the adapter's apply, and the binding of the originals: C linkage, so tools/vrik_tests calls the
+// same names in both builds.
+extern "C" void cvr_body_heading_motion(void* provider,float* position,float* rotation);
+extern "C" bool cvr_body_heading_apply(void* adapter,const float* position,const float* rotation,uint8_t flag);
 
 namespace {
 std::mutex s_mutex;
@@ -59,11 +75,12 @@ bool Yaw(const float* q, float& yaw) {
     yaw=std::atan2(2*(q[3]*q[2]+q[0]*q[1]),1-2*(q[1]*q[1]+q[2]*q[2]));
     return true;
 }
+}
 
 // PhysicalMoveController::GetDeltaTransform, vtable+20. This is a motion
 // request upstream of ApplyPostCharacterControllerTransforms, not a transform
 // write. The camera-input fields and the provider's velocity getter are intact.
-void __fastcall Motion(void* provider,float* position,float* rotation) {
+void cvr_body_heading_motion(void* provider,float* position,float* rotation) {
     s_motion(provider,position,rotation);
     s_pending={};
     if(!CyberpunkVR_BodyHeadingHooksReady || !cvr::roomscale::IsPlayerProvider(provider) ||
@@ -73,7 +90,7 @@ void __fastcall Motion(void* provider,float* position,float* rotation) {
     if(!adapter || Read<uintptr_t>(adapter,0)!=s_base+cvr::roomscale::sites::PhysicalAdapterVtable ||
        !PlayerAdapter(adapter))return;
     const auto owner=cvr::roomscale::PlayerIdentity();
-    const auto origin=OpenXRManager::Get().GetTrackingOriginSerial();
+    const auto origin=cvr_cpp_xr_tracking_origin_serial();
     float before{},nativeTurn{};
     if(!Yaw(reinterpret_cast<const float*>(static_cast<const uint8_t*>(adapter)+0x30),before) ||
        !Yaw(rotation,nativeTurn))return;
@@ -95,7 +112,7 @@ void __fastcall Motion(void* provider,float* position,float* rotation) {
     ++CyberpunkVR_BodyHeadingRequests;
 }
 
-bool __fastcall Apply(void* adapter,const float* position,const float* rotation,uint8_t flag) {
+bool cvr_body_heading_apply(void* adapter,const float* position,const float* rotation,uint8_t flag) {
     // This observer never alters a native request or its destination. Only a
     // matching, actually accepted request commits the independent view reference.
     const auto pending=s_pending;
@@ -118,6 +135,12 @@ bool __fastcall Apply(void* adapter,const float* position,const float* rotation,
     return applied;
 }
 
+// The image base and the two originals: the install's, or the tests' fakes.
+extern "C" void cvr_body_heading_bind(uintptr_t base,void* apply,void* motion) {
+    s_base=base;s_apply=reinterpret_cast<ApplyFn>(apply);s_motion=reinterpret_cast<MotionFn>(motion);
+}
+
+namespace {
 bool Matches(uintptr_t rva,const char* hex) {
     for(size_t i=0;hex[2*i];++i) {
         unsigned byte{};
@@ -135,8 +158,8 @@ bool Install() {
     if(init!=MH_OK && init!=MH_ERROR_ALREADY_INITIALIZED)return false;
     void* apply=reinterpret_cast<void*>(s_base+0xA99838);
     void* motion=reinterpret_cast<void*>(s_base+0xE3C3A0);
-    if(MH_CreateHook(apply,reinterpret_cast<void*>(&Apply),reinterpret_cast<void**>(&s_apply))!=MH_OK)return false;
-    if(MH_CreateHook(motion,reinterpret_cast<void*>(&Motion),reinterpret_cast<void**>(&s_motion))!=MH_OK) {
+    if(MH_CreateHook(apply,reinterpret_cast<void*>(&cvr_body_heading_apply),reinterpret_cast<void**>(&s_apply))!=MH_OK)return false;
+    if(MH_CreateHook(motion,reinterpret_cast<void*>(&cvr_body_heading_motion),reinterpret_cast<void**>(&s_motion))!=MH_OK) {
         MH_RemoveHook(apply);return false;
     }
     if(MH_EnableHook(apply)!=MH_OK || MH_EnableHook(motion)!=MH_OK) {
@@ -164,7 +187,7 @@ bool ReadBodyTrackingYaw(float* yaw) {
         BodyHeadingReset();return false;
     }
     const auto owner=cvr::roomscale::PlayerIdentity();
-    const auto origin=OpenXRManager::Get().GetTrackingOriginSerial();
+    const auto origin=cvr_cpp_xr_tracking_origin_serial();
     std::lock_guard lock(s_mutex);
     if(!s_heading.Matches(owner,origin))return false;
     *yaw=s_heading.View();return true;
@@ -172,7 +195,7 @@ bool ReadBodyTrackingYaw(float* yaw) {
 float BodyHeadingOffset() {
     if(!cvr::roomscale::PhysicalBodyHeadingOwned())return 0;
     const auto owner=cvr::roomscale::PlayerIdentity();
-    const auto origin=OpenXRManager::Get().GetTrackingOriginSerial();
+    const auto origin=cvr_cpp_xr_tracking_origin_serial();
     std::lock_guard lock(s_mutex);
     return s_heading.Matches(owner,origin) ? s_heading.Offset() : 0;
 }
@@ -183,3 +206,5 @@ void BodyHeadingReset() {
     CyberpunkVR_DebugBodyFollowOffsetDeg=0;
 }
 CVR_HOOK("BodyHeading",::cvr::hooks::Stage::Boot,79,Install);
+#endif
+#endif

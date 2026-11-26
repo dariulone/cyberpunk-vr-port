@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // SEAMLESS LOADING: a loaded save, a new game, goes on into the world the moment the world is ready -- the loading
 // screen does not wait for a button. Verified against game 2.5 with IDA headless and live (2026-10-28).
 //
@@ -21,13 +22,25 @@
 #include <atomic>
 #include <cstdint>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // 0 = the loading screen waits for its button, as the game has it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_SeamlessLoading = 1;
 // Loadings that went on without the button.
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DebugSeamlessLoads{0};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/seamless_loading.rs: the detour; its registration stays here with the exports.
+// The Rust build registers these detours from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 namespace {
 constexpr uintptr_t CAN_FINISH_RVA = 0x190004;
 constexpr size_t kNoConfirm = 0x1A1;
@@ -54,3 +67,5 @@ bool __fastcall Detour_CanFinish(void* controller) {
 }  // namespace
 
 CVR_DETOUR("[loading] initial loading can finish sub_140190004", CAN_FINISH_RVA, Detour_CanFinish, g_origCanFinish)
+#endif
+#endif

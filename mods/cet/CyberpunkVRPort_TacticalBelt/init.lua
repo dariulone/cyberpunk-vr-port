@@ -351,20 +351,21 @@ local CFG = {
         ucbeltammo_shell1   = { -0.1476,  0.0782,  1.0463 },
         ucbeltammo_shell2   = { -0.1253,  0.0933,  1.0480 },
         ucbeltammo_shell3   = { -0.1029,  0.1084,  1.0496 },
-        ucbeltgrenade       = {  0.1431,  0.1178,  1.0797 },
-        ucbeltgrenade_flash = {  0.1251,  0.1098,  1.0810 },
-        ucbeltgrenade_incendiary = {  0.1371,  0.1138,  1.0890 },
-        ucbeltgrenade_biohazard = {  0.1351,  0.1218,  1.0890 },
-        ucbeltgrenade_smoke     = {  0.1411,  0.1098,  1.1050 },
-        ucbeltgrenade_recon     = {  0.1211,  0.1298,  1.0950 },
-        ucbeltgrenade_cutting   = {  0.1331,  0.1238,  1.0790 },
+        -- Grenades follow the front of the strap. The left-handed mesh mirrors X about the body.
+        ucbeltgrenade       = {  0.0761,  0.1538,  1.1047 },
+        ucbeltgrenade_flash = {  0.0581,  0.1458,  1.1060 },
+        ucbeltgrenade_incendiary = {  0.0701,  0.1498,  1.1140 },
+        ucbeltgrenade_biohazard = {  0.0681,  0.1578,  1.1140 },
+        ucbeltgrenade_smoke     = {  0.0741,  0.1458,  1.1300 },
+        ucbeltgrenade_recon     = {  0.0541,  0.1658,  1.1200 },
+        ucbeltgrenade_cutting   = {  0.0661,  0.1598,  1.1040 },
         -- The EMP -- the game calls it the sonic grenade, `w_explosives_009__sonic`. It rides the
         -- same pouch as the six before it, so it inherits their centre rather than getting a new
         -- one guessed at: its belt mesh was rebound with the recon's own bone matrices.
-        ucbeltgrenade_emp       = {  0.1211,  0.1218,  1.1030 },
+        ucbeltgrenade_emp       = {  0.0541,  0.1578,  1.1280 },
         -- Ozob's Nose sits where the flashbang sits -- its belt mesh was given that element's
         -- binding verbatim, so it inherits a seat that is already tuned.
-        ucbeltgrenade_ozob      = {  0.1251,  0.1118,  1.0970 },
+        ucbeltgrenade_ozob      = {  0.0581,  0.1478,  1.1220 },
     },
 
     -- The element the hand is reaching for lights up. OFF: this ran per frame in the session that
@@ -417,8 +418,7 @@ local CFG = {
     -- is drawn on top of it, so the grenade covered the fingers that hold it. Measured 2026-10-09 with
     -- the per-type props, right hand, no weapon, simulator screenshots: in the scene plane the grenade is
     -- drawn and the back of the hand covers it as it should; in the weapon plane it is drawn over the
-    -- hand. A grenade is only taken with no weapon in hand, so it starts in the scene plane, and follows
-    -- the player into the weapon plane if a weapon comes out in the other hand.
+    -- hand. A grenade in the support hand follows the plane of the drawn weapon.
     grenade_grab_plane = 0,
     -- THE RECORDED FINGER POSE, ON. It was switched off for a while on suspicion of a crash, and it was
     -- innocent: the fault was a plane check asking the held prop `GetItemID`, which is a weapon's
@@ -970,6 +970,7 @@ local S = {
     lit = nil,           -- what is lit right now, as a name, for the panel and the log only
     litOn = {},          -- host -> true for every host actually lit
     litHand = {},        -- side (0/1) -> the host THAT hand holds; two hands, two marks
+    grenadeHover = {},   -- cosmetic only; grip and holster arbitration read litHand
     litFrom = {},        -- host -> the appearance it wore before, for the no-twin fallback
     grab = { side = nil, slot = nil, host = nil, plane = nil, at = 0.0, was = {} },
     hlAcc = 0.0,
@@ -989,6 +990,18 @@ local S = {
     state = { grenade = false, weapon = false, inhand = false, tier = 0 },
     want = {},           -- name -> bool, what we last asked for
 }
+
+-- THE RUST BUILD RUNS THE BELT (rust/crates/cvr-ffi/src/mechanics/belt.rs with belt_grenade.rs and belt_flight.rs, bit 27
+-- of VRRustMechanics): the equip, the pieces and elements, the reach and the marks, the props and the grenade in the
+-- hand. It reads belt.cfg as loadCfg does and again when the overlay saves it; the overlay and the offset files stay
+-- here, and the reload's questions (S.api below) go to it. The reference build has no such native, and everything runs
+-- here. A field of S and not a local: this main chunk carries many locals already.
+function S.rust()
+    if S.rustOwned == nil then
+        S.rustOwned = type(VRRustMechanics) == "function" and math.floor(VRRustMechanics() / 134217728) % 2 == 1
+    end
+    return S.rustOwned
+end
 
 local memo = {}
 local startupClothing = require("startup_clothing").new()
@@ -1333,6 +1346,7 @@ local overlay = false
 local function clearGarmentCache()
     S.belt = nil
     S.beltHash = nil
+    S.beltMirrored = false
     S.comps = {}
     S.want = {}
     S.dumped = false
@@ -1344,7 +1358,7 @@ local function clearGarmentCache()
     S.beltComp = nil
     S.beltCompName = nil
     S.dressed = {}
-    S.litOn, S.litFrom, S.litHand = {}, {}, {}
+    S.litOn, S.litFrom, S.litHand, S.grenadeHover = {}, {}, {}, {}
     S.lit = nil
     S.toDress, S.settleAt, S.recheck = false, nil, nil
 end
@@ -1517,6 +1531,7 @@ local function beltComponents()
     pcall(function() obj = ts:GetItemInSlot(pl, slotID()) end)
     if obj == nil then
         S.belt, S.beltHash, S.comps = nil, nil, {}
+        S.beltMirrored = false
         return nil
     end
     S.belt = obj
@@ -1528,6 +1543,10 @@ local function beltComponents()
     local stale = (h ~= S.beltHash) or (entityHash(pl) ~= S.compsFor) or (next(S.comps) == nil)
         or (os.clock() - (S.recheck or 0.0)) > 5.0
     if not stale then return S.comps end
+
+    -- The garment meshes come from the equipped record, including when the
+    -- wardrobe manages it or the player has disabled forced appearance changes.
+    S.beltMirrored = ItemID.GetTDBID(obj:GetItemID()) == TweakDBID.new(LEFT_HANDED_BELT["Items.vrp_belt"])
 
     -- THE PLAYER'S OWN IDENTITY IS PART OF THE TEST. Loading another save destroys the player and
     -- builds a new one; every component in `S.comps` then belongs to the entity that is gone, while the
@@ -1699,8 +1718,6 @@ local function forceBeltAppearance(pl, ts)
     local now = nil
     pcall(function() now = tostring(o:GetCurrentAppearanceName().value) end)
     now = now or ""
-    -- What the belt wears, not what was asked: its elements are where its appearance put them.
-    S.beltMirrored = string.find(now, "_lh_&", 1, true) ~= nil
     local want = string.format("%s&%s&TPP", stem, body)
     if now == want then
         if S.appSaid ~= now then
@@ -2649,6 +2666,9 @@ local function litAppearanceFor(host, cur)
         if string.sub(name, -#LIT) == LIT then return name end
         return name .. LIT
     end
+    -- The flash garment asks for militech, which its mesh renders using its
+    -- default skin. Restore the garment's original CName when the hand leaves.
+    if host == "ucbeltgrenade_flash" and cur == "militech" then return "default_lit" end
     if ours(host) then return marked(cur) end
     local el = elementOn(host)
     if el ~= nil and el.hl ~= nil and el.hl ~= "" then
@@ -2886,6 +2906,13 @@ end
 local function propMesh(i, obj)
     local c = propS.mesh[i]
     if c ~= nil then return c end
+    -- On grenade props the skinned source precedes the plain mesh that is
+    -- actually drawn. Only the latter has the belt placement in world space.
+    if CFG.props[i].follow == "grenade" then
+        c = obj:FindComponentByName(CName.new("mag_mesh"))
+        propS.mesh[i] = c
+        return c
+    end
     pcall(function()
         for _, x in ipairs(Game.VREntityComponents(obj)) do
             if string.find(tostring(x:GetClassName()), "MeshComponent") then c = x return end
@@ -3218,8 +3245,8 @@ local function ensureGrenadeRecords()
             TweakDB:SetFlat(path .. ".entityName", CName.new(entity))
             TweakDB:SetFlat(path .. ".placementSlots", {
                 TweakDBID.new("AttachmentSlots.VRPortBelt6"),
-                TweakDBID.new("AttachmentSlots.WeaponLeft"),
-                TweakDBID.new("AttachmentSlots.WeaponRight"),
+                TweakDBID.new("AttachmentSlots.VRPortGrenadeLeft"),
+                TweakDBID.new("AttachmentSlots.VRPortGrenadeRight"),
             })
             TweakDB:Update(path)
         end)
@@ -3332,38 +3359,19 @@ end
 --
 -- Uncached, for the grenade grab: a grenade must never go into a hand slot a weapon is still in (see
 -- grenade.lua, the free-hand branch). playerPlane below is the cached reading of the same thing.
-local function weaponInHands(pl)
+local function weaponInHands(pl, side)
     local ts = transactions()
     if ts == nil or pl == nil then return nil end
-    -- OUR OWN PROPS DO NOT COUNT AS A WEAPON. The test above asks "is there an item in a hand slot",
-    -- and a grenade taken off the belt is exactly that -- so without this exclusion, putting one in an
-    -- empty hand would make this function answer RPl_Weapon and move the whole belt into the weapon
-    -- plane, on the strength of the very object whose plane it is being asked about. A loop, and one
-    -- that only appears once something of ours can be held.
-    -- WE KNOW WHAT WE PUT THERE, so nothing has to be asked of the object.
-    --
-    -- The first version of this read the item back -- GetItemID, then GetTDBID, then ToStringDEBUG --
-    -- to see whether the thing in the hand was ours. It crashed the game about a second after a
-    -- grenade went into the hand, twice, with an access violation reading 0x8 and 0x10: our prop is not
-    -- a weapon, and asking a weapon's question of it dereferences a null. A second, because this
-    -- function is cached for 0.2 s and the props tick reaches it a few frames later.
-    --
-    -- The bookkeeping answers the same question for free: `S.grab.slot` is the hand slot this module
-    -- filled, and there is never more than one.
+    -- Held props and pending flights use their own slots. Query weapon slots by presence only.
     local function realWeapon(slot)
-        -- NEITHER OF OUR TWO. `grab.slot` holds the prop the player is looking at; `grab.armSlot` holds
-        -- the live grenade waiting to be thrown, which is invisible and is not a weapon by any reading
-        -- -- but it IS an item in a hand slot, and this function's whole test is that.
-        if S.grab.slot == slot then return false end
-        if S.grab.armSlots ~= nil and S.grab.armSlots[slot] then return false end
         local o = ts:GetItemInSlot(pl, TweakDBID.new(slot))
         return IsDefined(o)
     end
-    local armed = false
-    pcall(function()
-        armed = realWeapon("AttachmentSlots.WeaponRight") or realWeapon("AttachmentSlots.WeaponLeft")
+    local ok, armed = pcall(function()
+        if side ~= nil then return realWeapon(side == 0 and "AttachmentSlots.WeaponLeft" or "AttachmentSlots.WeaponRight") end
+        return realWeapon("AttachmentSlots.WeaponRight") or realWeapon("AttachmentSlots.WeaponLeft")
     end)
-    return armed
+    if ok then return armed end
 end
 
 local function playerPlane(pl, now)
@@ -3664,7 +3672,7 @@ local GRENADE = (function()
     m.setup({
         CFG = CFG, S = S, log = log,
         propItem = propItem, propAllowSlot = propAllowSlot, playerPlane = playerPlane,
-        weaponInHands = weaponInHands,
+        weaponInHands = weaponInHands, leftHanded = leftHanded,
         activeGrenade = activeGrenadeName,
         eulerQuat = eulerQuat, transactions = transactions,
     })
@@ -3809,27 +3817,23 @@ local function markReach()
 end
 
 local function updateHighlight(dt)
-    if not CFG.highlight then
-        if S.lit ~= nil then S.litHand[0], S.litHand[1] = nil, nil applyLit({}) end
+    local hx, hy, hz, qi, qj, qk, qr
+    if CFG.highlight then
+        S.hlAcc = S.hlAcc + (dt or 0.016)
+        if S.hlAcc < 1.0 / math.max(1.0, CFG.highlight_rate_hz) then return end
+        S.hlAcc = 0.0
+        if CFG.probe_devices then S.probeCount = reassertDevices() end
+        if next(S.comps) and type(VRPalmModelPos) == "function" then
+            hx, hy, hz, qi, qj, qk, qr = hipsModelFrame()
+        end
+    end
+    if hx == nil then
+        S.grenadeHover[0], S.grenadeHover[1] = nil, nil
+        S.litHand[0], S.litHand[1] = nil, nil
+        S.ringAt[0], S.ringAt[1] = nil, nil
+        if next(S.litOn) then applyLit({}) end
         return
     end
-    S.hlAcc = S.hlAcc + (dt or 0.016)
-    local period = 1.0 / math.max(1.0, CFG.highlight_rate_hz)
-    if S.hlAcc < period then return end
-    S.hlAcc = 0.0
-
-    if CFG.probe_devices then
-        S.probeCount = reassertDevices()
-    end
-
-    if next(S.comps) == nil then
-        if S.lit ~= nil then S.litHand[0], S.litHand[1] = nil, nil applyLit({}) end
-        return
-    end
-    if type(VRPalmModelPos) ~= "function" then return end
-
-    local hx, hy, hz, qi, qj, qk, qr = hipsModelFrame()
-    if hx == nil then return end
 
     -- EACH HAND KEEPS ITS OWN ELEMENT. The two are resolved independently and the results are unioned,
     -- so reaching for a grenade with one hand and a magazine with the other lights both.
@@ -3837,18 +3841,15 @@ local function updateHighlight(dt)
     local leave = enter + (CFG.highlight_release_m or 0.03)
     local nearest = nil
     local targets = nil
-    -- WITH A WEAPON IN HAND THE GRENADES ARE NOT ON OFFER. A lit holder is what lets a grip take one
-    -- (grenade.lua starts a grab only at the holder this hand has lit), and a grenade put into the hand
-    -- slot the gun is in pushed the gun out of the slot behind the equipment system's back: the hand was
-    -- left in the pistol grip with nothing in it and the holster could not draw again. So the holders
-    -- simply do not light until the weapon is put away.
+    -- Occupied hands can highlight the garment, but only a free hand can grab.
     local plNow = Game.GetPlayer()
-    local noGrenades = plNow ~= nil and playerPlane(plNow, os.clock()) == 2
+    local weaponDrawn = plNow ~= nil and playerPlane(plNow, os.clock()) == 2
     local litBefore = { [0] = S.litHand[0], [1] = S.litHand[1] }
 
     for side = 0, 1 do
         local p = palmPoint(side)
         if p ~= nil then
+            local noGrenades = weaponDrawn and weaponInHands(plNow, side) ~= false
             -- Both hands test the same components in the same hips frame.
             -- Read their enabled state and centres once per highlight tick,
             -- lazily after a valid palm. The snapshot contains only names and
@@ -3858,7 +3859,6 @@ local function updateHighlight(dt)
                 for host, comp in pairs(S.comps) do
                     local ex, ey, ez = elementCentre(host)
                     local eligible = ex ~= nil and markable(host)
-                        and not (noGrenades and string.find(host, "ucbeltgrenade", 1, true) == 1)
                     local on = nil
                     if eligible or PERFORMANCE.legacyHighlightScan then
                         local okE, v = pcall(isEnabled, comp)
@@ -3868,30 +3868,41 @@ local function updateHighlight(dt)
                         local ax, ay, az = toHipsFrame(ex, ey, ez)
                         local wx, wy, wz = qrot(qi, qj, qk, qr, ax, ay, az)
                         targets[#targets + 1] = {host = host, x = hx + wx, y = hy + wy, z = hz + wz,
-                                                 ax = ax, ay = ay, az = az}
+                                                 ax = ax, ay = ay, az = az,
+                                                 grenade = string.sub(host, 1, 13) == "ucbeltgrenade"}
                     end
                 end
             end
             local best, bestD = nil, nil
+            local hover, hoverD = nil, nil
+            local held, heldGrenadeD = S.litHand[side], nil
             for _, target in ipairs(targets) do
                 local dx, dy, dz = target.x - p.x, target.y - p.y, target.z - p.z
                 local d = math.sqrt(dx * dx + dy * dy + dz * dz)
-                if bestD == nil or d < bestD then best, bestD = target.host, d end
+                if target.grenade then
+                    if target.host == held then heldGrenadeD = d end
+                    local radius = S.grenadeHover[side] == target.host and leave or enter
+                    if d <= radius and (hoverD == nil or d < hoverD) then hover, hoverD = target.host, d end
+                end
+                if not (noGrenades and target.grenade) and (bestD == nil or d < bestD) then
+                    best, bestD = target.host, d
+                end
             end
+            S.grenadeHover[side] = hover
             -- The row a piece belongs to is what the hand is really reaching for.
             if best ~= nil then best = OFFSET_GROUP[best] or best end
             -- Hysteresis is per hand: it holds what THIS hand already has until that one is left
             -- behind, which is what stops a mark flickering between two elements of equal distance.
-            local held = S.litHand[side]
-            -- ...and one this hand already had lit is let go of too: it is no longer a target, so the
-            -- hysteresis below would otherwise keep holding it whenever nothing else is within reach.
-            if noGrenades and held ~= nil and string.find(held, "ucbeltgrenade", 1, true) == 1 then
+            -- A different nearest pouch may already be outside its entry radius.
+            -- Release the old grenade by its own distance even in that case.
+            if held and string.sub(held, 1, 13) == "ucbeltgrenade"
+                and (noGrenades or heldGrenadeD == nil or heldGrenadeD > leave) then
                 S.litHand[side], held = nil, nil
             end
             -- A HOLSTERED WEAPON NEARER THAN THE GRENADE IS WHAT THE HAND REACHES FOR. The grenades ride the front
             -- of the belt on the drawing side, a hand-span from the pistol at the hip; a lit holder takes the grip
             -- (and the holster stands down for it), so a grenade that lit on the way to the pistol's grip took
-            -- the hand that was drawing. Nearer to the palm, the holster's weapon wins and no grenade lights for
+            -- the hand that was drawing. Nearer to the palm, the holster's weapon wins the grip for
             -- that hand (the holster's H.near: within its reach, nil when none).
             if best ~= nil and string.find(best, "ucbeltgrenade", 1, true) == 1 then
                 local okNear, holD = pcall(function()
@@ -3931,6 +3942,7 @@ local function updateHighlight(dt)
             S.hand = p
         else
             S.litHand[side] = nil
+            S.grenadeHover[side] = nil
             S.ringAt[side] = nil
         end
     end
@@ -3951,7 +3963,9 @@ local function updateHighlight(dt)
     local want = {}
     for side = 0, 1 do
         local h = S.litHand[side]
-        if h ~= nil then want[h] = true end
+        if h ~= nil and string.sub(h, 1, 13) ~= "ucbeltgrenade" then want[h] = true end
+        local hover = S.grenadeHover[side]
+        if hover ~= nil then want[hover] = true end
     end
     applyLit(want)
 end
@@ -4023,6 +4037,10 @@ local function upgradeHighlightRadiusCfg()
         CFG.highlight_radius_m, CFG.crouch_reach_scale, CFG.highlight_release_m)
 end
 
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent("onInit", function()
     loadCfg()
     -- A migration is written back at once: belt.cfg was saved only when the overlay closed, so each one ran (and
@@ -4037,7 +4055,12 @@ registerForEvent("onInit", function()
     ensureGrenadeRecords()
     -- Player entity IDs can be reused across saves (the live player is 1ULL).
     -- Reset on the actual attach event as well as nil/player-change detection.
-    Observe("PlayerPuppet", "OnGameAttached", function() memoDrop() end)
+    if not rustHooks() then
+    Observe("PlayerPuppet", "OnGameAttached", function()
+        memoDrop()
+        if S.rust() then pcall(VRBeltAttached) end
+    end)
+    end
     S.ready = true
     logDebug("ready; item=%s slot=%s auto_equip=%s", CFG.variants[CFG.variant], CFG.slot, tostring(CFG.auto_equip))
 end)
@@ -4068,7 +4091,7 @@ local function dropIfPlayerChanged(pl, who)
     S.beltPartsFor = nil
     S.beltComp = nil
     S.beltCompName = nil
-    S.litOn, S.litFrom, S.litHand = {}, {}, {}
+    S.litOn, S.litFrom, S.litHand, S.grenadeHover = {}, {}, {}, {}
     S.lit = nil
     S.beltHash = nil
     memo.magByEnt = nil
@@ -4077,6 +4100,11 @@ end
 registerForEvent("onUpdate", function(dt)
     -- First, before any return: the once-a-frame caches (hipsModelFrame, palmPoint) hold for one tick at most.
     S.frame = (S.frame or 0) + 1
+    -- Rust runs the belt (see S.rust): only the overlay's offset files are written here.
+    if S.rust() then
+        writeOffsets(os.clock())
+        return
+    end
     if not S.ready or not CFG.enabled then return end
     -- The main menu and character creation have a player of their own, the menu world's puppet, and the
     -- belt is not worn there. Attaching to it crashed: a request superseded there had the item factory free the
@@ -4190,6 +4218,7 @@ registerForEvent("onDraw", function()
         ImGui.SetNextWindowPos(w * 0.21, h * 0.04, ImGuiCond.FirstUseEver)
         ImGui.SetNextWindowSize(w * 0.24, h * 0.91, ImGuiCond.FirstUseEver)
         ImGui.Begin("VR tactical belt")
+        if S.rust() then ImGui.Text("runs in Rust (mechanics/belt.rs): settings apply when the overlay closes") end
 
         CFG.enabled = ImGui.Checkbox("enabled", CFG.enabled)
         CFG.auto_equip = ImGui.Checkbox("keep it equipped", CFG.auto_equip)
@@ -4809,20 +4838,16 @@ end)
 -- is -- no shared slot, no redscript field, no per-frame file.
 --
 -- Everything here is a read of state this module computes anyway; nothing starts work of its own.
-return {
+S.api = {
     performance = PERFORMANCE,
     -- What the belt last read of the player (readState): the weapon whose ammunition it carries, the grenade, ...
     state = function() return S.state end,
     -- THE GRIP AT A LIT GRENADE HOLDER BELONGS TO THE GRENADE. The holster's right-hip zone reaches the
     -- grenade holders, so one squeeze there used to draw (or put away) a weapon AND take a grenade into
-    -- the same hand slot. The holster asks this and stands down while it is true. It is false whenever
-    -- a weapon is in hand -- the holders do not light then -- so putting the weapon away still works.
-    -- A grenade already in that hand, or a grab of it waiting on the weapon, counts too: the two mods run
-    -- in no fixed order, and the belt may have taken this very squeeze earlier in the same frame.
+    -- the same hand. The holster yields only for the hand reaching for or carrying the grenade.
     grenadeReach = function(side)
         if not CFG.grenade_grab then return false end
         if S.grab.slot ~= nil then return S.grab.side == side end
-        if S.grab.pending ~= nil then return S.grab.pending.side == side end
         local h = S.litHand[side]
         return h ~= nil and string.sub(h, 1, 13) == "ucbeltgrenade"
     end,
@@ -4903,3 +4928,38 @@ return {
         end
     end,
 }
+
+-- THE RELOAD'S QUESTIONS, in the Rust build: Rust's answers (VRBeltReach, VRBeltMagTaken, VRBeltShellTaken).
+do
+    local lua = { magKey = S.api.magKey, magDist = S.api.magDist, magRadius = S.api.magRadius, shellDist = S.api.shellDist,
+                  shellRadius = S.api.shellRadius, shellTaken = S.api.shellTaken, magTaken = S.api.magTaken }
+    local function reach(what, side)
+        local ok, v = pcall(VRBeltReach, what, side or 0)
+        if not ok or v == nil then return nil end
+        return v
+    end
+    local function dist(what, side)
+        local d = reach(what, side)
+        if d == nil or d < 0 then return nil end
+        return d
+    end
+    S.api.magKey = function()
+        if not S.rust() then return lua.magKey() end
+        local i = reach(0, 0)
+        if i == nil or i < 0 then return nil end
+        return WEAPON_MAG[math.floor(i + 0.5) + 1]
+    end
+    S.api.magDist = function(side) if S.rust() then return dist(1, side) end return lua.magDist(side) end
+    S.api.magRadius = function() if S.rust() then return reach(3, 0) end return lua.magRadius() end
+    S.api.shellDist = function(side) if S.rust() then return dist(2, side) end return lua.shellDist(side) end
+    S.api.shellRadius = function() if S.rust() then return reach(3, 0) end return lua.shellRadius() end
+    S.api.shellTaken = function(on, side)
+        if S.rust() then pcall(VRBeltShellTaken, on and true or false, side or 0) return end
+        return lua.shellTaken(on, side)
+    end
+    S.api.magTaken = function(on)
+        if S.rust() then pcall(VRBeltMagTaken, on and true or false) return end
+        return lua.magTaken(on)
+    end
+end
+return S.api

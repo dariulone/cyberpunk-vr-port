@@ -5,6 +5,10 @@
 // rewritten, the container is re-signed, and the device runs it: out = in * A + B must use the new
 // values. That proves the driver accepts the rewritten bitcode and that the constants took effect.
 //   hidden_area_dxil_patch [DXC directory]
+//   hidden_area_dxil_patch trace   -- the same calls on synthetic containers (every hash length and padding branch,
+//                                     truncated and malformed headers, placeholders found, rewritten, re-signed),
+//                                     hashed, so the C++ and the Rust build compare bit for bit without dxc or a GPU
+//                                     (cmake/ParityTrace.cmake)
 #include "Render/DxilPatch.hpp"
 #include <windows.h>
 #include <d3d12.h>
@@ -75,7 +79,48 @@ static bool Run(ID3D12Device* device,const std::vector<uint8_t>& shader,float in
     output=values[1];return true;
 }
 
+static int Trace() {
+    uint64_t h=1469598103934665603ull;
+    const auto mix=[&](const void* p,size_t n){for(size_t i=0;i<n;++i){h^=static_cast<const uint8_t*>(p)[i];h*=1099511628211ull;}};
+    const auto mixv=[&](uint64_t v){mix(&v,8);};
+    uint32_t seed=12345;
+    const auto next=[&]{seed=seed*1664525u+1013904223u;return uint8_t(seed>>24);};
+    std::vector<uint8_t> noise(400);for(auto& b:noise)b=next();
+    for(size_t n=0;n<=300;++n){const auto x=ContainerHash(noise.data(),n);mix(x.data(),16);}
+    {const auto x=ContainerHash(nullptr,100);mix(x.data(),16);}
+    // Header, an SFI0 part and a DXIL part whose program header points at 160 bytes of bitcode (88..248).
+    std::vector<uint8_t> c(248);
+    const auto put=[](std::vector<uint8_t>& v,size_t at,uint32_t x){std::memcpy(v.data()+at,&x,4);};
+    std::memcpy(c.data(),"DXBC",4);put(c,20,1);put(c,24,248);put(c,28,2);put(c,32,40);put(c,36,56);
+    std::memcpy(c.data()+40,"SFI0",4);put(c,44,8);
+    std::memcpy(c.data()+56,"DXIL",4);put(c,60,184);
+    put(c,64,0x60000);put(c,68,46);std::memcpy(c.data()+72,"DXIL",4);put(c,76,0x106);put(c,80,16);put(c,84,160);
+    for(size_t i=88;i<c.size();++i)c[i]=next();
+    for(size_t bit:{size_t(88*8+3),size_t(88*8+77),size_t(88*8+700)})mixv(WriteFloat(c,bit,1.2345678f));
+    mixv(WriteFloat(c,88*8+5,2.5f));mixv(WriteFloat(c,248*8-30,1.5f));mixv(WriteFloat(c,248*8-36,1.5f));
+    {size_t s=0,l=0;mixv(BitcodeRange(c.data(),c.size(),s,l));mixv(s);mixv(l);}
+    for(float f:{1.2345678f,1.5f,1.0f,1.9999999f}) {
+        const auto found=FindFloat(c.data(),c.size(),f);mixv(found.size());for(auto b:found)mixv(b);
+    }
+    for(float f:{0.0f,-1.0f,0.99f,1.0f,1.5f,2.0f,std::nanf(""),INFINITY,1e-40f})mixv(PlaceholderValue(f));
+    const auto range=[&](const std::vector<uint8_t>& v,size_t n) {
+        size_t s=7,l=9;const bool ok=BitcodeRange(v.data(),n,s,l);mixv(ok);mixv(s);mixv(l);
+        mixv(FindFloat(v.data(),n,1.2345678f).size());
+    };
+    for(size_t n=0;n<=c.size();++n)range(c,n);
+    std::vector<std::vector<uint8_t>> bad(7,c);
+    put(bad[0],28,65);put(bad[1],28,0);put(bad[2],36,300);put(bad[3],60,20);bad[4][72]='X';put(bad[5],84,400);bad[6][0]='X';
+    for(const auto& v:bad)range(v,v.size());
+    {size_t s=0,l=0;mixv(BitcodeRange(nullptr,100,s,l));}
+    auto signedC=c;mixv(Sign(signedC));mix(signedC.data(),signedC.size());
+    std::vector<uint8_t> tiny(20,0);mixv(Sign(tiny));
+    auto notDxbc=c;notDxbc[0]='X';mixv(Sign(notDxbc));
+    std::printf("dxil_patch trace %016llx\n",static_cast<unsigned long long>(h));
+    return 0;
+}
+
 int wmain(int argc,wchar_t** argv) {
+    if(argc>1 && std::wstring(argv[1])==L"trace")return Trace();
     const std::wstring dxc=argc>1?argv[1]:L"C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64";
     auto shader=Compile(dxc);
     CHECK(!shader.empty());if(shader.empty())return 1;

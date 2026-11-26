@@ -1,4 +1,5 @@
 #pragma once
+#include "Utils/SrwMutex.hpp"
 #include "Runtimes/AsymmetricProjection.hpp"
 struct AsymEyeWindows { cvr::projection::EyeWindow eye[2]; };
 #include "Runtimes/SteamFrameInput.hpp"
@@ -65,6 +66,7 @@ struct VRControllerState {
     uint16_t buttons = 0;
     float    leftTrigger  = 0.0f;
     float    rightTrigger = 0.0f;
+    uint64_t fingerPull[2]{}; // current physical pull per hand, zero when released
     float    leftThumbX   = 0.0f;
     float    leftThumbY   = 0.0f;
     float    rightThumbX  = 0.0f;
@@ -138,6 +140,231 @@ inline uint64_t XrDiagNowUs() {
     return static_cast<uint64_t>(t.QuadPart * 1000000ll / s_freq.QuadPart);
 }
 
+#if CVR_RUST_VRIK
+// The session's state, owned by rust/crates/cvr-xr/src/events.rs (it begins, ends and follows the session): the members
+// below are references to it.
+struct CvrXrSessionShared { std::atomic<bool> stopFrameThread, running, focused; XrSessionState state; };
+extern "C" CvrXrSessionShared* cvr_xr_session_shared();
+// The calibration's state, owned by rust/crates/cvr-xr/src/calibration.rs (the T-pose, the height, the file): the
+// members below are references to it.
+struct CvrXrCalibrationShared {
+    std::atomic<int> calibValid;
+    std::atomic<float> calib[14];
+    std::atomic<int> calibExtValid;
+    std::atomic<float> calibExt[6];
+    std::atomic<int> measureValid;
+    std::atomic<float> userHeight, measuredEyeHeight;
+    std::atomic<int> firstSetupDone;
+    std::atomic<float> userArmLenR, userArmLenL, userEyeHeight;
+    std::atomic<float> camBakeOffset[3];
+    std::atomic<int> calibState;
+    std::atomic<float> calibSeconds, calibProgress;
+    XrSpace stageSpace;
+    bool stageUnavailable;
+};
+extern "C" CvrXrCalibrationShared* cvr_xr_calibration();
+#if CVR_RUST_VRIK
+// The manager's core handles, owned by rust/crates/cvr-xr/src/core_handles.rs (instance, system, session, spaces, actions,
+// the graphics binding and the submit thread): the members below are references to them.
+struct CvrXrCoreShared {
+    bool initialized;
+    XrInstance instance;
+    XrSystemId systemId;
+    char systemName[128];
+    uint32_t eyeImageLimit[2];
+    XrSession session;
+    XrSpace localSpace, viewSpace;
+    XrActionSet actionSet;
+    XrAction handPoseAction, handAimPoseAction;
+    XrSpace handAimSpaces[2];
+    XrAction hapticAction;
+    XrPath handPaths[2];
+    XrSpace handSpaces[2];
+    XrGraphicsBindingD3D12KHR graphicsBinding;
+    HANDLE frameThread;
+};
+static_assert(sizeof(CvrXrCoreShared) == 304 && offsetof(CvrXrCoreShared, session) == 160 &&
+                  offsetof(CvrXrCoreShared, graphicsBinding) == 264 && offsetof(CvrXrCoreShared, frameThread) == 296,
+              "mirrored by core_handles.rs");
+extern "C" CvrXrCoreShared* cvr_xr_core();
+// The manager's switches, owned by rust/crates/cvr-xr/src/switches.rs (the present reads them there): the members below
+// are references to them.
+struct CvrXrSwitchesShared { std::atomic<int> handTrackingMode, weaponAimEnable, immersiveHolsters, bodyHandsOnly, logDiagRequest; float* sharedHands;
+                             std::atomic<int> reloadGlow; };
+static_assert(sizeof(CvrXrSwitchesShared) == 40, "mirrored by switches.rs");
+extern "C" CvrXrSwitchesShared* cvr_xr_switches();
+// The presented frame, owned by rust/crates/cvr-xr/src/presented.rs (the present records it there): the present lock (an
+// SRW lock both halves take), the frame last held, its size, format, buffer index and serial, the present counter.
+struct CvrXrPresentedShared {
+    cvr::SrwMutex lock;ID3D12Resource* backBuffer;uint32_t width,height,format,bufferIndex;uint64_t serial;std::atomic<uint64_t> presentCount;
+};
+static_assert(sizeof(CvrXrPresentedShared) == 48, "mirrored by presented.rs");
+extern "C" CvrXrPresentedShared* cvr_xr_presented_shared();
+// The submission's state, owned by rust/crates/cvr-xr/src/submit_state.rs: whether the mono frame is submitted, the
+// runtime's predicted display period, the game's D3D12 device and queue.
+struct CvrXrSubmitShared {std::atomic<bool> monoSubmitEnabled;std::atomic<int64_t> predictedDisplayPeriodNs;ID3D12Device* device;ID3D12CommandQueue* queue;
+                          HANDLE monoPresentEvent;HANDLE frameSyncEvent;};
+static_assert(sizeof(CvrXrSubmitShared) == 48 && offsetof(CvrXrSubmitShared, monoPresentEvent) == 32, "mirrored by submit_state.rs");
+extern "C" CvrXrSubmitShared* cvr_xr_submit_shared();
+// The weapon offset, owned by rust/crates/cvr-xr/src/weapon.rs: pitch, yaw, roll in degrees, the translation.
+struct CvrXrWeaponShared {std::atomic<float> euler[3];std::atomic<float> offset[3];};
+static_assert(sizeof(CvrXrWeaponShared) == 24, "mirrored by weapon.rs");
+extern "C" CvrXrWeaponShared* cvr_xr_weapon_shared();
+// What the runtime reported, owned by rust/crates/cvr-xr/src/runtime_info.rs: the views' mean FOV and the IPD, which
+// runtime the session runs on.
+struct CvrXrRuntimeShared {std::atomic<float> horizontalFovDeg, verticalFovDeg, ipd;std::atomic<bool> steamVR, psvr2, virtualDesktop, simulator;};
+static_assert(sizeof(CvrXrRuntimeShared) == 16, "mirrored by runtime_info.rs");
+extern "C" CvrXrRuntimeShared* cvr_xr_runtime_shared();
+// The capture's ring, owned by rust/crates/cvr-xr/src/capture_ring.rs (guarded by m_captureMutex).
+struct CvrXrCaptureRing {ID3D12CommandAllocator* allocators[3];ID3D12GraphicsCommandList* lists[3];ID3D12Fence* fence;HANDLE fenceEvent;
+                         UINT64 fenceValue;UINT64 allocatorFences[3];uint32_t allocatorIndex;};
+static_assert(sizeof(CvrXrCaptureRing) == 104 && offsetof(CvrXrCaptureRing, fenceValue) == 64, "mirrored by CaptureRing in capture_ring.rs");
+extern "C" CvrXrCaptureRing* cvr_xr_capture_ring();
+#endif
+// The head's tracking state, owned by rust/crates/cvr-xr/src/tracking.rs: the published head and its velocity, the
+// recenter request, the base under the render-pose lock (a lock both halves take), the tracking origin's serial.
+struct CvrXrHeadShared {
+    std::atomic<bool> poseValid;
+    std::atomic<float> pos[3], ori[4];
+    std::atomic<bool> velValid;
+    std::atomic<float> angVel[3], linVel[3];
+    std::atomic<bool> recenterRequested;
+    cvr::SrwMutex renderPoseLock;
+    bool basePoseSet;
+    XrPosef basePose;
+    std::atomic<uint64_t> trackingOriginSerial;
+};
+extern "C" CvrXrHeadShared* cvr_xr_head_shared();
+// The recenter base mirrored for the submit path (GetRecenterBase), owned by the same Rust module.
+struct CvrXrBaseMirror { std::atomic<float> ori[4], pos[3]; };
+extern "C" CvrXrBaseMirror* cvr_xr_base_mirror();
+// The head's samples under their lock (m_roomscaleSampleMutex), owned by the same Rust module, and the sequential-sync pose.
+struct CvrXrSampleShared {
+    cvr::SrwMutex lock;
+    cvr::roomscale::Sample roomscale;
+    OpenXRHeadPose coherentHead;
+    std::atomic<bool> syncedValid;
+    std::atomic<float> syncedPos[3], syncedOri[4];
+};
+extern "C" CvrXrSampleShared* cvr_xr_sample_shared();
+// The hands' state (m_handMutex and what the Rust half reads under it), owned by the same module. The motion and the
+// aim-yaw filters are the class's own nested types, kept here as storage of their size.
+struct CvrXrHandsShared {
+    cvr::SrwMutex lock;
+    OpenXRHeadPose hands[2];
+    alignas(8) unsigned char motion[2][72];
+    unsigned char aimFilter[2][8];
+    std::atomic<float> yawRel[2];
+    std::atomic<bool> yawValid[2];
+};
+extern "C" CvrXrHandsShared* cvr_xr_hands_shared();
+// The external pose reset's lock and gate, and what the hands' publication keeps (rust/crates/cvr-xr/src/published.rs).
+struct CvrXrResetShared {
+    cvr::SrwMutex lock;
+    cvr::roomscale::TrackingResetGate gate;
+};
+extern "C" CvrXrResetShared* cvr_xr_reset_shared();
+struct CvrXrPublishedData {
+    float sampleHeadPos[3];
+    bool sampleHeadValid;
+    uint64_t sampleOrigin;
+    cvr::tracking::HandPublicationGate gate;
+    OpenXRHeadPose head, hands[2], gesture[2], rawMelee[2];
+    uint64_t sequence, stampUs;
+    XrTime aim;
+    cvr::roomscale::Vec2 consumed;
+    cvr::body::TrackingFrame bodyFrame;
+    uint32_t sharedSeq;
+};
+struct CvrXrPublishedShared {
+    std::atomic<float> sampleMs;
+    CvrXrPublishedData data;
+};
+extern "C" CvrXrPublishedShared* cvr_xr_published_shared();
+// One head per frame (rust/crates/cvr-xr/src/frame.rs): the aim instant, the cycle's latch, the frame's head sample.
+struct CvrXrFrameSample {
+    uint64_t epoch, sequence, stampUs;
+    OpenXRHeadPose pose;
+    XrTime aim;
+};
+struct CvrXrFrameShared {
+    cvr::SrwMutex aimLock;
+    cvr::tracking::FrameAimSnapshot aim;
+    std::atomic<bool> cycleValid;
+    std::atomic<float> cycleOri[4], cyclePos[3];
+    cvr::SrwMutex sampleLock;
+    CvrXrFrameSample sample;
+};
+extern "C" CvrXrFrameShared* cvr_xr_frame_shared();
+// The eyes' views (rust/crates/cvr-xr/src/views.rs), and m_views over them: a fixed-capacity list with the vector's
+// calls the class makes (resize fills only the new elements, as std::vector's does).
+struct CvrXrViewsShared {
+    cvr::SrwMutex lock;
+    uint32_t count;
+    XrView views[4];
+    XrPosef syncedEyePoses[2];
+    XrFovf syncedEyeFovs[2];
+    bool syncedEyeViewsValid;
+};
+extern "C" CvrXrViewsShared* cvr_xr_views_shared();
+// The controllers' snapshots (rust/crates/cvr-xr/src/input.rs): the XInput hook's and the raw one.
+struct CvrXrInputShared {
+    cvr::SrwMutex lock;
+    VRControllerState controller, raw;
+};
+extern "C" CvrXrInputShared* cvr_xr_input_shared();
+// The menu panel's follow, clock, latched pose and per-eye anchor (rust/crates/cvr-xr/src/menu.rs; the XR thread's).
+struct CvrXrMenuShared {
+    cvr::hud::Follow follow;
+    cvr::hud::DisplayClock clock;
+    XrPosef quadPose;
+    bool eyeAnchorValid;
+    float eyeAnchorYaw;
+};
+extern "C" CvrXrMenuShared* cvr_xr_menu_shared();
+class XrViewList {
+public:
+    size_t size() const { return cvr_xr_views_shared()->count; }
+    bool empty() const { return size() == 0; }
+    XrView* data() { return cvr_xr_views_shared()->views; }
+    const XrView* data() const { return cvr_xr_views_shared()->views; }
+    XrView& operator[](size_t i) { return cvr_xr_views_shared()->views[i]; }
+    const XrView& operator[](size_t i) const { return cvr_xr_views_shared()->views[i]; }
+    void resize(size_t n, const XrView& fill = {XR_TYPE_VIEW}) {
+        auto* s = cvr_xr_views_shared();
+        if (n > 4) n = 4;
+        for (size_t i = s->count; i < n; ++i) s->views[i] = fill;
+        s->count = static_cast<uint32_t>(n);
+    }
+    void clear() { cvr_xr_views_shared()->count = 0; }
+};
+extern "C" void cvr_xr_frame_aim_publish(int64_t time, uint64_t stampUs);
+extern "C" void cvr_xr_frame_aim_read(cvr::tracking::FrameAimSnapshot* out);
+extern "C" int64_t cvr_xr_frame_aim_time_now();
+extern "C" bool cvr_xr_acquire_frame_head_sample(OpenXRHeadPose* out, uint64_t* sequence, uint64_t* sampledUs, XrTime* frameTime,
+                                                 bool preferNative);
+// One identity per frame: rust/crates/cvr-xr/src/frame_identity.rs owns the slots, the fit and the pose queues.
+extern "C" void cvr_xr_publish_frame_slot(uint64_t serial, XrTime displayTime, const XrView* views, uint32_t count,
+                                          const XrPosef* head);
+extern "C" bool cvr_xr_get_frame_slot(uint64_t serial, void* out, bool* exact);
+extern "C" void cvr_xr_fit_add_display_time(uint64_t serial, XrTime displayTime);
+extern "C" bool cvr_xr_fit_predict_display_time(uint64_t serial, XrTime* out);
+extern "C" double cvr_xr_fit_slope_ns();
+extern "C" void cvr_xr_fit_reset();
+extern "C" void cvr_xr_push_rendered_frame_pose(bool vrcam, const OpenXRHeadPose* pose);
+extern "C" bool cvr_xr_pop_rendered_frame_pose(bool vrcam, OpenXRHeadPose* out);
+extern "C" uint32_t cvr_xr_rendered_frame_queue_depth(bool vrcam);
+extern "C" void cvr_xr_push_render_head_pose(const OpenXRHeadPose* pose, uint64_t present);
+extern "C" bool cvr_xr_render_head_pose_for_present(uint64_t present, int lag, OpenXRHeadPose* out);
+extern "C" bool cvr_xr_frame_pose_for_serial(uint64_t serial, OpenXRHeadPose* out);
+extern "C" void cvr_xr_store_render_eye_pose(int eye, const OpenXRHeadPose* pose, uint32_t seq);
+extern "C" bool cvr_xr_render_head_pose_for_seq(uint32_t seq, XrPosef* out);
+// m_frameAim in the Rust build: the same two calls, over the Rust-owned tuple.
+struct CvrXrFrameAim {
+    void Publish(int64_t time, uint64_t stampUs) { cvr_xr_frame_aim_publish(time, stampUs); }
+    cvr::tracking::FrameAimSnapshot Read() const { cvr::tracking::FrameAimSnapshot s{}; cvr_xr_frame_aim_read(&s); return s; }
+};
+#endif
 class OpenXRManager {
 public:
     static OpenXRManager& Get();
@@ -198,12 +425,10 @@ public:
         if (!m_monoSubmitEnabled.load(std::memory_order_relaxed)) return false;
         if(cvr::framegen::Enabled())return true; // interpolation needs display-rate submission
         const int mode = CyberpunkVR_ThreadedMonoSubmit;
-        if (mode == 0) return false;   // explicit diagnostic override
-        if (mode > 0) return true;
-        // Keep Virtual Desktop's established inline path. SteamVR submits on its own thread both with and
-        // without generation: toggling framegen must not hand compositor waits back to the game Present.
-        if (m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed)) return false;
-        return true;
+        if (mode == 0) return false;   // forced inline
+        if (mode > 0) return true;     // forced threaded
+        // auto: the thread is SteamVR's requirement, not everyone's.
+        return !m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed);
     }
     int GetCurrentRenderEyeIndex() const { return m_renderEyeIndex.load(std::memory_order_relaxed); }
     // Record the exact OpenXR head pose a given eye's frame was rendered with
@@ -250,8 +475,10 @@ public:
     // and heaps, and D3D12 offers no way to restore what was there. The copy lands in our own
     // staging texture, and the format resolve then runs later on OUR list, on OUR resource,
     // at a time we control.
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot (never read since the stereo depth layer)
     void CaptureSceneDepthInline(ID3D12GraphicsCommandList* list, ID3D12Resource* gameDepth,
                                  unsigned int stateAfter);
+#endif
 
     // THE pose of a specific frame, bound the same way its depth is.
     //
@@ -261,12 +488,16 @@ public:
     // Recording the head pose at that same instant gives the image, its depth and its pose
     // one shared identity instead of three timelines.
     // Same mutex the publication takes (PushRenderHeadPose) -- it moved off the depth path.
+#if CVR_RUST_VRIK
+    bool GetFramePoseForSerial(uint64_t serial, OpenXRHeadPose* out) { return cvr_xr_frame_pose_for_serial(serial, out); }
+#else
     bool GetFramePoseForSerial(uint64_t serial, OpenXRHeadPose* out) {
         std::lock_guard<std::mutex> lock(m_pendingRenderPoseMutex);
         if (!out || m_framePoseSerial == 0 || m_framePoseSerial != serial) return false;
         *out = m_framePose;
         return out->valid && out->originSerial==GetTrackingOriginSerial();
     }
+#endif
 
     // The recenter base, published so the SUBMIT path can put a rendered pose back into the
     // space the composition layers actually live in.
@@ -326,6 +557,13 @@ public:
         bool     valid = false;
     };
 
+#if CVR_RUST_VRIK
+    void PublishFrameSlot(uint64_t serial, XrTime displayTime,
+                          const XrView* views, uint32_t viewCount,
+                          const XrPosef& headLocal) {
+        cvr_xr_publish_frame_slot(serial, displayTime, views, viewCount, &headLocal);
+    }
+#else
     void PublishFrameSlot(uint64_t serial, XrTime displayTime,
                           const XrView* views, uint32_t viewCount,
                           const XrPosef& headLocal) {
@@ -361,6 +599,7 @@ public:
         m_cycleHeadPosZ.store(headLocal.position.z, std::memory_order_release);
         m_cycleHeadValid.store(true, std::memory_order_release);
     }
+#endif
 
     // The pose the last XR cycle located, in LOCAL space -- the same frame of reference
     // xrLocateSpace returns, so callers apply the recenter base exactly as they already do.
@@ -389,6 +628,13 @@ public:
     // `exact` is
     // reported back so the two cases stay separately countable; a slot NEWER than the request is
     // never acceptable, since that pose is not in the pixels yet.
+#if CVR_RUST_VRIK
+    static_assert(sizeof(XrFrameSlot) == 136 && offsetof(XrFrameSlot, headPoseLocal) == 104 && offsetof(XrFrameSlot, valid) == 132,
+                  "XrFrameSlot is rust/crates/cvr-xr/src/frame_identity.rs FrameSlot");
+    bool GetFrameSlot(uint64_t serial, XrFrameSlot* out, bool* exact = nullptr) const {
+        return cvr_xr_get_frame_slot(serial, out, exact);
+    }
+#else
     bool GetFrameSlot(uint64_t serial, XrFrameSlot* out, bool* exact = nullptr) const {
         if (!out) return false;
         std::lock_guard<std::mutex> lock(m_frameSlotMutex);
@@ -409,6 +655,7 @@ public:
         if (exact) *exact = false;
         return true;
     }
+#endif
 
     // ---- WHEN WILL THE FRAME BEING BUILT ACTUALLY BE SHOWN -------------------------------------
     //
@@ -426,6 +673,11 @@ public:
     // is re-anchored on every restart and the published line is kept as (anchor point + slope)
     // rather than a raw intercept. Fitting on raw magnitudes cancels catastrophically and yields
     // a slope of noise.
+#if CVR_RUST_VRIK
+    void FitAddDisplayTime(uint64_t serial, XrTime displayTime) { cvr_xr_fit_add_display_time(serial, displayTime); }
+    bool FitPredictDisplayTime(uint64_t serial, XrTime* out) const { return cvr_xr_fit_predict_display_time(serial, out); }
+    double FitSlopeNs() const { return cvr_xr_fit_slope_ns(); }
+#else
     void FitAddDisplayTime(uint64_t serial, XrTime displayTime) {
         std::lock_guard<std::mutex> lock(m_fitMutex);
         if (!m_fitAnchored) { m_fitWx0 = serial; m_fitWy0 = displayTime; m_fitAnchored = true; }
@@ -467,6 +719,7 @@ public:
         std::lock_guard<std::mutex> lock(m_fitMutex);
         return m_fitValid ? m_fitK : 0.0;
     }
+#endif
 
     // THE ONE INSTANT THIS FRAME IS AIMED AT.
     //
@@ -493,6 +746,9 @@ public:
     // Adding the time actually elapsed since that cycle turns it back into a continuous quantity: the
     // display time OF NOW. Consecutive per-frame reads then differ by the frame's own duration, so a
     // hand at constant speed advances in equal steps -- which is the whole point.
+#if CVR_RUST_VRIK
+    XrTime GetFrameAimTimeNow() const { return cvr_xr_frame_aim_time_now(); }
+#else
     XrTime GetFrameAimTimeNow() const {
         const auto snapshot = m_frameAim.Read();
         const XrTime aim = snapshot.time;
@@ -506,6 +762,7 @@ public:
         const uint64_t capUs = 40000;
         return aim + static_cast<XrTime>((dUs < capUs ? dUs : capUs) * 1000ull);
     }
+#endif
     uint64_t GetFrameAimEpoch() const { return m_frameAim.Read().epoch; }
 
     // ---- ONE HEAD SAMPLE PER FRAME, SHARED BY EVERYTHING THAT RENDERS IT ---------------------
@@ -536,6 +793,13 @@ public:
     // Whoever asks first performs the locate; everyone else in the same epoch gets that exact
     // struct back. Serialise the locate as well: an older, slower query must not overwrite a
     // newer sample or update the prediction filter after the newer query has already used it.
+#if CVR_RUST_VRIK
+    bool AcquireFrameHeadSample(OpenXRHeadPose* out, uint64_t* sequence = nullptr,
+                                uint64_t* sampledUs = nullptr, XrTime* frameTime = nullptr,
+                                bool preferNativeFrame = true) {
+        return cvr_xr_acquire_frame_head_sample(out, sequence, sampledUs, frameTime, preferNativeFrame);
+    }
+#else
     bool AcquireFrameHeadSample(OpenXRHeadPose* out, uint64_t* sequence = nullptr,
                                 uint64_t* sampledUs = nullptr, XrTime* frameTime = nullptr,
                                 bool preferNativeFrame = true) {
@@ -578,6 +842,7 @@ public:
         }
         return out->valid;
     }
+#endif
 
     bool PhysicalCrouchRequested();
     void SetPhysicalCrouchBridgeReady(bool ready);
@@ -603,6 +868,11 @@ public:
     // The hook reads the camera quaternion the engine is about to render with, matches it against
     // the ring of quaternions we wrote, and pushes the XR sample that produced it here. Present
     // pops the oldest. Exact pairing, no pipeline-depth constant anywhere.
+#if CVR_RUST_VRIK
+    void PushRenderedFramePose(const OpenXRHeadPose& pose) { cvr_xr_push_rendered_frame_pose(false, &pose); }
+    bool PopRenderedFramePose(OpenXRHeadPose* out) { return cvr_xr_pop_rendered_frame_pose(false, out); }
+    uint32_t RenderedFrameQueueDepth() const { return cvr_xr_rendered_frame_queue_depth(false); }
+#else
     void PushRenderedFramePose(const OpenXRHeadPose& pose) {
         std::lock_guard<std::mutex> lock(m_renderedFrameMutex);
         m_renderedFrameQ[m_renderedFrameTail & (kRenderedFrameQ - 1)] = pose;
@@ -625,6 +895,7 @@ public:
         std::lock_guard<std::mutex> lock(m_renderedFrameMutex);
         return static_cast<uint32_t>(m_renderedFrameTail - m_renderedFrameHead);
     }
+#endif
 
     // THE SECOND EYE'S OWN QUEUE. Identical to the three above in every respect -- same depth, same drop
     // rule, same pop-at-capture -- because the reason the read-back was MAIN-only was that ONE queue
@@ -632,6 +903,11 @@ public:
     // would run at double rate"). Two queues can. Filled from the same site in FinalCamera, off the
     // VRCAM view's own render camera, so the eye is labelled with the pose its own pixels were drawn
     // with rather than with the other eye's.
+#if CVR_RUST_VRIK
+    void PushVrcamRenderedFramePose(const OpenXRHeadPose& pose) { cvr_xr_push_rendered_frame_pose(true, &pose); }
+    bool PopVrcamRenderedFramePose(OpenXRHeadPose* out) { return cvr_xr_pop_rendered_frame_pose(true, out); }
+    uint32_t VrcamRenderedFrameQueueDepth() const { return cvr_xr_rendered_frame_queue_depth(true); }
+#else
     void PushVrcamRenderedFramePose(const OpenXRHeadPose& pose) {
         std::lock_guard<std::mutex> lock(m_vrcamRenderedFrameMutex);
         m_vrcamRenderedFrameQ[m_vrcamRenderedFrameTail & (kRenderedFrameQ - 1)] = pose;
@@ -652,8 +928,14 @@ public:
         std::lock_guard<std::mutex> lock(m_vrcamRenderedFrameMutex);
         return static_cast<uint32_t>(m_vrcamRenderedFrameTail - m_vrcamRenderedFrameHead);
     }
+#endif
 
 
+#if CVR_RUST_VRIK
+    void PushRenderHeadPose(const OpenXRHeadPose& pose) {
+        cvr_xr_push_render_head_pose(&pose, m_presentCount.load(std::memory_order_relaxed));
+    }
+#else
     void PushRenderHeadPose(const OpenXRHeadPose& pose) {
         std::lock_guard<std::mutex> lock(m_pendingRenderPoseMutex);
         const uint32_t slot = static_cast<uint32_t>(m_renderPoseRingHead & 15);
@@ -678,9 +960,15 @@ public:
         m_framePose = pose;
         m_framePoseSerial = pose.valid ? (present + 1) : 0;
     }
+#endif
     // presentSerial = the serial of the present being processed. lag is in INTERVALS: the
     // engine renders ahead, so the image on screen was built an interval or more before the
     // present that shows it.
+#if CVR_RUST_VRIK
+    bool GetRenderHeadPoseForPresent(uint64_t presentSerial, int lag, OpenXRHeadPose* out) {
+        return cvr_xr_render_head_pose_for_present(presentSerial, lag, out);
+    }
+#else
     bool GetRenderHeadPoseForPresent(uint64_t presentSerial, int lag, OpenXRHeadPose* out) {
         std::lock_guard<std::mutex> lock(m_pendingRenderPoseMutex);
         if (!m_pendingRenderPoseValid || !out) return false;
@@ -699,6 +987,7 @@ public:
         }
         return false;
     }
+#endif
 
     // One vibration segment on one controller (hand 0 = left, 1 = right), amplitude 0..1. XR frame
     // thread only -- Runtimes/Haptics.cpp queues the events and plays them from there. Returns the
@@ -755,9 +1044,6 @@ public:
     // Hands only: 1 = the player's body drawn as its hands alone. Published to shared[173] (vrshared::kBodyHandsOnly).
     void SetBodyHandsOnly(int v) { m_bodyHandsOnly.store(v, std::memory_order_relaxed); }
     int GetBodyHandsOnly() const { return m_bodyHandsOnly.load(std::memory_order_relaxed); }
-    // Reload highlight: 1 = on (default). Published inverted to shared[174] (vrshared::kReloadGlowOff).
-    void SetReloadGlow(int v) { m_reloadGlow.store(v, std::memory_order_relaxed); }
-    int GetReloadGlow() const { return m_reloadGlow.load(std::memory_order_relaxed); }
     // Read a shared-mem slot (plugin publishes the muzzle world forward to [24..26], valid [27]).
     // BOUND = 256: the mapping is 1024 bytes = 256 floats. The old `< 128` bound silently
     // no-opped BOTH sides of the weapon flag when it moved from [126] to [144] (the barrel
@@ -881,6 +1167,18 @@ public:
 
     float GetRuntimeHorizontalFovDeg() const { return m_runtimeHorizontalFovDeg.load(std::memory_order_relaxed); }
     const char* GetSystemName() const { return m_systemName; }
+#if CVR_RUST_VRIK
+    // The loading screen, for the capture's services (src/Runtimes/OpenXRCapture.cpp).
+    cvr::loading::Screen& LoadingScreenForRust() { return m_loadingScreen; }
+    // The cycle's objects as their Rust handles, for the frame loop (rust/crates/cvr-render/src/xr_manager_loop.rs).
+    void FrameObjectsForRust(void** quads, void** framegenOverlay, void** settingsPanel) const {
+        const void* held[5] = {m_hudQuad.Raw(), m_interactionQuad.Raw(), m_basiliskQuad.Raw(), m_surveillanceQuad.Raw(),
+                               m_hitMarkerQuad.Raw()};
+        for (int q = 0; q < 5; ++q) quads[q] = const_cast<void*>(held[q]);
+        *framegenOverlay = m_framegenOverlay.Raw();
+        *settingsPanel = m_settingsPanel.Raw();
+    }
+#endif
     // The largest image one eye can be given: the runtime's swapchain maximum and every view's image-rect
     // maximum, whichever is smaller. False until Init has read them.
     bool GetEyeImageLimit(uint32_t* width, uint32_t* height) const {
@@ -933,9 +1231,14 @@ private:
     void EndSession();
     bool EnsureMonoSubmitResources();
     bool EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceDesc);
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot (never read since the stereo depth layer)
     bool EnsureDepthSnapshot(ID3D12Resource* gameDepth);
+#endif
+#if !CVR_RUST_VRIK
     bool EnsureStereoDepthSwapchains(const cvr::depth::Plan& plan);
+#endif
 
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot (never read since the stereo depth layer)
     // Records barriers + (copy OR shader resolve) into m_captureCmdList that
     // captures the current frame's scene depth into m_depthSnapshot. Uses a
     // simple CopyTextureRegion for R32-family sources (32bpp bit-compat) and
@@ -954,6 +1257,7 @@ private:
     // on success; the caller sets m_depthSnapshotSerial. Skips (returns false) when the
     // writer queue is unknown or the previous resolve is still in flight.
     bool CaptureMonoDepthOnWriterQueue(uint64_t serial);
+#endif
     bool CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const D3D12_RESOURCE_DESC& sourceDesc, uint64_t serial,
         const XrPosef poses[2], const XrFovf fovs[2], const bool hasView[2],const XrPosef headCenters[2]);
 
@@ -961,11 +1265,28 @@ private:
     ~OpenXRManager() = default;
 
     std::mutex m_initMutex;
+#if CVR_RUST_VRIK
+    bool& m_initialized = cvr_xr_core()->initialized;
+    XrInstance& m_instance = cvr_xr_core()->instance;
+    XrSystemId& m_systemId = cvr_xr_core()->systemId;
+#else
     bool m_initialized = false;
     XrInstance m_instance = XR_NULL_HANDLE;
     XrSystemId m_systemId = XR_NULL_SYSTEM_ID;
+#endif
     // The runtime's name for the headset. It was being logged and thrown away; the per-headset FOV
     // default needs it, and it is the only thing that distinguishes one panel from another at runtime.
+#if CVR_RUST_VRIK
+    char (&m_systemName)[128] = cvr_xr_core()->systemName;
+    uint32_t (&m_eyeImageLimit)[2] = cvr_xr_core()->eyeImageLimit;   // GetEyeImageLimit: width, height
+    XrSession& m_session = cvr_xr_core()->session;
+    XrSpace& m_localSpace = cvr_xr_core()->localSpace;
+    XrSpace& m_viewSpace = cvr_xr_core()->viewSpace;
+    XrActionSet& m_actionSet = cvr_xr_core()->actionSet;
+    XrAction& m_handPoseAction = cvr_xr_core()->handPoseAction;          // grip pose (palm) -- used by VRIK
+    XrAction& m_handAimPoseAction = cvr_xr_core()->handAimPoseAction;    // aim pose (pointing) -- used by hand-locomotion
+    XrSpace (&m_handAimSpaces)[2] = cvr_xr_core()->handAimSpaces;
+#else
     char m_systemName[128] = {};
     uint32_t m_eyeImageLimit[2] = {};   // GetEyeImageLimit: width, height
     XrSession m_session = XR_NULL_HANDLE;
@@ -975,29 +1296,51 @@ private:
     XrAction m_handPoseAction = XR_NULL_HANDLE;          // grip pose (palm) -- used by VRIK
     XrAction m_handAimPoseAction = XR_NULL_HANDLE;       // aim pose (pointing) -- used by hand-locomotion
     XrSpace  m_handAimSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
+#endif
     // Gameplay input actions (synced each frame, exposed via GetControllerState).
+#if !CVR_RUST_VRIK  // the Rust build reads them where rust/crates/cvr-xr/src/actions.rs keeps them
     XrAction m_thumbstickAction = XR_NULL_HANDLE;        // Vector2f, per hand
     XrAction m_triggerAction = XR_NULL_HANDLE;           // Float, per hand
     XrAction m_gripAction = XR_NULL_HANDLE;              // Float, per hand
-    XrAction m_gripForceAction = XR_NULL_HANDLE;         // Float, per hand: squeezed past closed. Index only
     XrAction m_thumbstickClickAction = XR_NULL_HANDLE;   // Bool, per hand (L3/R3)
     XrAction m_primaryButtonAction = XR_NULL_HANDLE;     // Bool, per hand (X / A)
     XrAction m_secondaryButtonAction = XR_NULL_HANDLE;   // Bool, per hand (Y / B)
     XrAction m_menuButtonAction = XR_NULL_HANDLE;        // Bool, global menu/start action
-    bool m_hapticBindingLogged = false;
-    int m_hapticLastResult[2] = {123456, 123456};
+#endif
+#if CVR_RUST_VRIK
+    XrAction& m_hapticAction = cvr_xr_core()->hapticAction;   // Vibration OUTPUT, per hand
+#else
     XrAction m_hapticAction = XR_NULL_HANDLE;            // Vibration OUTPUT, per hand
+#endif
+#if !CVR_RUST_VRIK
     XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     cvr::input::SteamFrameActions m_steamFrameActions{};
+#endif
+#if CVR_RUST_VRIK
+    XrPath (&m_handPaths)[2] = cvr_xr_core()->handPaths;
+    XrSpace (&m_handSpaces)[2] = cvr_xr_core()->handSpaces;
+#else
     XrPath m_handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
     XrSpace m_handSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
+#endif
     // Latest controller snapshot, owned by the frame thread.
+#if CVR_RUST_VRIK
+    cvr::SrwMutex& m_inputMutex = cvr_xr_input_shared()->lock;
+    VRControllerState& m_controllerState = cvr_xr_input_shared()->controller;
+    VRControllerState& m_rawControllerState = cvr_xr_input_shared()->raw;
+#else
     mutable std::mutex m_inputMutex;
     VRControllerState m_controllerState{};
     VRControllerState m_rawControllerState{};
+#endif
     // Yaws (radians, recenter-base relative) for hand-oriented locomotion.
+#if CVR_RUST_VRIK
+    std::atomic<float> (&m_handYawRelToBody)[2] = cvr_xr_hands_shared()->yawRel;
+    std::atomic<bool> (&m_handYawValid)[2] = cvr_xr_hands_shared()->yawValid;
+#else
     std::atomic<float> m_handYawRelToBody[2]{ {0.0f}, {0.0f} };
     std::atomic<bool>  m_handYawValid[2]{ {false}, {false} };
+#endif
     struct TrackingPoseFilterState {
         bool initialized = false;
         XrVector3f position{};
@@ -1009,16 +1352,42 @@ private:
     };
     // Adaptive tracking filters: remove static jitter, but release quickly once
     // the player actually moves the HMD/controller.
+#if !CVR_RUST_VRIK
+    // In the Rust build the head filter is rust/crates/cvr-xr/src/head.rs's (cvr_xr_locate_cycle_head).
     TrackingPoseFilterState m_headFilterState{};
+#endif
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     TrackingPoseFilterState m_handFilterState[2]{};
+#endif
+#if CVR_RUST_VRIK
+    TrackingAngleFilterState (&m_handAimYawFilter)[2] = *reinterpret_cast<TrackingAngleFilterState(*)[2]>(cvr_xr_hands_shared()->aimFilter);
+#else
     TrackingAngleFilterState m_handAimYawFilter[2]{};
+#endif
+#if CVR_RUST_VRIK
+    XrSessionState& m_sessionState = cvr_xr_session_shared()->state;
+#else
     XrSessionState m_sessionState = XR_SESSION_STATE_UNKNOWN;
+#endif
+#if CVR_RUST_VRIK
+    // The runtime's view configuration: rust/crates/cvr-xr/src/view_configs.rs.
+#else
     std::vector<XrViewConfigurationView> m_viewConfigViews;
+#endif
+#if CVR_RUST_VRIK
+    XrViewList m_views;
+#else
     std::vector<XrView> m_views;
+#endif
 
     // Hands
-    std::mutex m_handMutex;
+#if CVR_RUST_VRIK
+    cvr::SrwMutex& m_handMutex = cvr_xr_hands_shared()->lock;
+    OpenXRHeadPose (&m_hands)[2] = cvr_xr_hands_shared()->hands;
+#else
+    mutable std::mutex m_handMutex;
     OpenXRHeadPose m_hands[2]{};
+#endif
     // The controllers' own motion (GetHandMotion): the change of the room-space pose since the previous locate
     // (prev*). Written with m_hands, under m_handMutex.
     struct HandMotion {
@@ -1029,40 +1398,86 @@ private:
         XrTime prevTime = 0;
         uint64_t origin = 0;
     };
+#if CVR_RUST_VRIK
+    HandMotion (&m_handMotion)[2] = *reinterpret_cast<HandMotion(*)[2]>(cvr_xr_hands_shared()->motion);
+#else
     HandMotion m_handMotion[2]{};
+#endif
+#if CVR_RUST_VRIK
+    cvr::body::TrackingFrame& m_bodyTrackingFrame = cvr_xr_published_shared()->data.bodyFrame;
+#else
     cvr::body::TrackingFrame m_bodyTrackingFrame{}; // same native locate time, before hand lerp/weapon offsets
+#endif
     // Seqlock counter for the shared-memory pose block (FlushHandsToShared). Bumped
     // odd before / even after each write so the script-side readers detect torn reads.
+#if CVR_RUST_VRIK
+    uint32_t& m_sharedSeq = cvr_xr_published_shared()->data.sharedSeq;
+#else
     uint32_t m_sharedSeq = 0;
+#endif
+#if CVR_RUST_VRIK
+    std::atomic<float>& m_weaponPitch = cvr_xr_weapon_shared()->euler[0];
+    std::atomic<float>& m_weaponYaw = cvr_xr_weapon_shared()->euler[1];
+    std::atomic<float>& m_weaponRoll = cvr_xr_weapon_shared()->euler[2];
+    std::atomic<float>& m_weaponDx = cvr_xr_weapon_shared()->offset[0];
+    std::atomic<float>& m_weaponDy = cvr_xr_weapon_shared()->offset[1];
+    std::atomic<float>& m_weaponDz = cvr_xr_weapon_shared()->offset[2];
+#else
     float m_weaponPitch = 0.0f;
     float m_weaponYaw = 0.0f;
     float m_weaponRoll = 0.0f;
     float m_weaponDx = 0.0f;
     float m_weaponDy = 0.0f;
     float m_weaponDz = 0.0f;
+#endif
     // Defaults ON: VR hand tracking (mode 4 = full-arm IK) + decoupled VR weapon aim (bullet follows
     // controller). The F10 overlay checkboxes also default to true so the UI stays in sync.
+#if CVR_RUST_VRIK
+    std::atomic<int>& m_vrHandTrackingMode = cvr_xr_switches()->handTrackingMode;
+    std::atomic<int>& m_weaponAimEnable = cvr_xr_switches()->weaponAimEnable;
+    std::atomic<int>& m_immersiveHolsters = cvr_xr_switches()->immersiveHolsters;   // 1 = visual-holster equip (default)
+    std::atomic<int>& m_bodyHandsOnly = cvr_xr_switches()->bodyHandsOnly;           // 1 = only the hands of the player's body
+    float*& m_sharedHandsPtr = cvr_xr_switches()->sharedHands;   // the shared slots' block (set in OnPresent) for GetSharedSlot
+#else
     std::atomic<int> m_vrHandTrackingMode{4};
     std::atomic<int> m_weaponAimEnable{1};
     std::atomic<int> m_immersiveHolsters{1};   // 1 = visual-holster equip (default), 0 = simple slot mapping
     std::atomic<int> m_bodyHandsOnly{0};       // 1 = only the hands of the player's body are drawn
-    std::atomic<int> m_reloadGlow{1};          // 1 = the physical reload highlights the magazine / the bolt
     float* m_sharedHandsPtr = nullptr;   // cached shared-mem view (set in OnPresent) for GetSharedSlot
+#endif
 
     // VR hand IK calibration, pushed from the overlay into shared-mem slots [33..47] each
     // present; the RED4ext plugin reads them when [33] (valid) is set, else keeps its own
     // baked defaults. [48] = one-shot "write diag" request the plugin clears after dumping.
+#if CVR_RUST_VRIK
+    std::atomic<int>&   m_calibValid = cvr_xr_calibration()->calibValid;
+    std::atomic<float> (&m_calib)[14] = cvr_xr_calibration()->calib;
+#else
     std::atomic<int>   m_calibValid{0};
     std::atomic<float> m_calib[14]{}; // scaleR,scaleL,heightR,heightL,swingR,swingL,poleR,poleL, wristR pyr(3), wristL pyr(3)
+#endif
 
     // Extra calibration: anatomical HMD/body->shoulder offsets in body-frame OpenXR axes (right, up, back).
     // Layout: [0..2] right shoulder (rx, ry, rz), [3..5] left shoulder (lx, ly, lz).
+#if CVR_RUST_VRIK
+    std::atomic<int>&   m_calibExtValid = cvr_xr_calibration()->calibExtValid;
+    std::atomic<float> (&m_calibExt)[6] = cvr_xr_calibration()->calibExt;
+#else
     std::atomic<int>   m_calibExtValid{0};
     std::atomic<float> m_calibExt[6]{};
+#endif
 
     // T-pose measured anatomy published to shared slots [77..80] each present: real arm length
     // per hand (m) + HMD eye height (m). The plugin scales the avatar arm bones to match
     // (gizmo-path), instead of the old position-scale hack. [80] = valid.
+#if CVR_RUST_VRIK
+    std::atomic<int>&   m_measureValid = cvr_xr_calibration()->measureValid;
+    std::atomic<float>& m_userHeight = cvr_xr_calibration()->userHeight;
+    std::atomic<float>& m_measuredEyeHeight = cvr_xr_calibration()->measuredEyeHeight;
+    std::atomic<int>&   m_firstSetupDone = cvr_xr_calibration()->firstSetupDone;
+    XrSpace&            m_stageSpace = cvr_xr_calibration()->stageSpace;
+    bool&               m_stageUnavailable = cvr_xr_calibration()->stageUnavailable;
+#else
     std::atomic<int>   m_measureValid{0};
     std::atomic<float> m_userHeight{0.0f};
     std::atomic<float> m_measuredEyeHeight{0.0f};
@@ -1070,16 +1485,29 @@ private:
     // The runtime's STAGE space (floor at y = 0), made on the first T-pose; unavailable on a runtime without one.
     XrSpace            m_stageSpace = XR_NULL_HANDLE;
     bool               m_stageUnavailable = false;
+#endif
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     float              m_calibEyeFloorSum = 0.0f;
     int                m_calibEyeFloorCount = 0;
+#endif
     bool LocateEyesOverFloor(float* height);
     void EnsureCalibDefaults();   // the wrist/elbow defaults, when never set
+#if CVR_RUST_VRIK
+    std::atomic<float>& m_userArmLenR = cvr_xr_calibration()->userArmLenR;
+    std::atomic<float>& m_userArmLenL = cvr_xr_calibration()->userArmLenL;
+    std::atomic<float>& m_userEyeHeight = cvr_xr_calibration()->userEyeHeight;
+#else
     std::atomic<float> m_userArmLenR{0.0f};
     std::atomic<float> m_userArmLenL{0.0f};
     std::atomic<float> m_userEyeHeight{0.0f};
+#endif
 
     // Camera->head bake offset (game-local right/forward/up), applied by dxgi's LocateCamera.
+#if CVR_RUST_VRIK
+    std::atomic<float> (&m_camBakeOffset)[3] = cvr_xr_calibration()->camBakeOffset;
+#else
     std::atomic<float> m_camBakeOffset[3]{};
+#endif
 
     // Auto-calibration state machine:
     //   m_calibState  0 = idle, 1 = sampling, 2 = done
@@ -1087,30 +1515,43 @@ private:
     //   m_calibStart   = sim time when sampling began
     //   m_calibProgress = 0..1 fraction of the way through sampling
     //   sample stats (best armSpan + accumulators) tracked in cpp
+#if CVR_RUST_VRIK
+    std::atomic<int>&   m_calibState = cvr_xr_calibration()->calibState;
+    std::atomic<float>& m_calibSeconds = cvr_xr_calibration()->calibSeconds;
+    std::atomic<float>& m_calibProgress = cvr_xr_calibration()->calibProgress;
+#else
     std::atomic<int>   m_calibState{0};
     std::atomic<float> m_calibSeconds{3.0f};
     std::atomic<float> m_calibProgress{0.0f};
+#endif
     double             m_calibStart = 0.0;
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     float              m_calibArmSpanMax = 0.0f;
     float              m_calibHmdHeightSum = 0.0f;
     int                m_calibSampleCount = 0;
     float              m_calibCtrlPosSumR[3] = {0,0,0};
     float              m_calibCtrlPosSumL[3] = {0,0,0};
+#endif
+#if CVR_RUST_VRIK
+    std::atomic<int>&  m_logDiagReq = cvr_xr_switches()->logDiagRequest;
+#else
     std::atomic<int>   m_logDiagReq{0};
+#endif
 
     // Graphics binding
+#if CVR_RUST_VRIK
+    XrGraphicsBindingD3D12KHR& m_graphicsBinding = cvr_xr_core()->graphicsBinding;
+#else
     XrGraphicsBindingD3D12KHR m_graphicsBinding{};
+#endif
+#if CVR_RUST_VRIK
+    ID3D12Device*& m_d3dDevice = cvr_xr_submit_shared()->device;
+    ID3D12CommandQueue*& m_d3dQueue = cvr_xr_submit_shared()->queue;
+#else
     ID3D12Device* m_d3dDevice = nullptr;
     ID3D12CommandQueue* m_d3dQueue = nullptr;
-    // THE RUNTIME'S OWN QUEUE (XrGraphicsBindingD3D12KHR::queue), made in InitGraphics; null when it could not be made
-    // or the marker cvr_xr_game_queue.txt asks for the game's (then the game's queue is the runtime's, as it was).
-    // SteamVR's xrEndFrame wraps each image in D3D11On12 on this queue and waits for that work: on the game's queue it
-    // waited behind the game's whole frame. m_fence is signalled on it alone.
-    ID3D12CommandQueue* m_xrQueue = nullptr;
-    // Game queue -> runtime queue on the GPU, for a swapchain image written on the game's queue (OrderRuntimeAfter).
-    ID3D12Fence* m_xrOrderFence = nullptr;
-    uint64_t m_xrOrderValue = 0;
-    std::mutex m_xrOrderMutex;
+#endif
+#if !CVR_RUST_VRIK  // the submit's resources are rust/crates/cvr-render/src/xr_submit.rs's
     ID3D12CommandAllocator* m_cmdAllocators[3] = {};
     uint32_t m_cmdAllocatorIndex = 0;
     ID3D12GraphicsCommandList* m_cmdLists[3] = {};
@@ -1140,7 +1581,7 @@ private:
         const XrCompositionLayerBaseHeader* extra[kMaxExtra] = {};
         uint32_t extraCount = 0;
     } m_lastSubmission;
-    bool ResubmitLastFrame(XrTime displayTime, bool& endAttempted);
+    bool ResubmitLastFrame(XrTime displayTime);
     // THE CAPTURED FRAME ALREADY IN THE EYE SWAPCHAINS. When the game runs slower than the display, every display
     // cycle used to acquire new swapchain images and copy the SAME captured frame into them again (colour and depth,
     // ~0.25 ms of GPU a cycle at 2648x2864 on an RTX 3060). A cycle whose frame is the one copied last skips the
@@ -1156,7 +1597,17 @@ private:
         bool depthUsed = false;
         XrCompositionLayerDepthInfoKHR depthInfo[2] = {};
     } m_lastCopy;
+#endif
     std::mutex m_captureMutex;
+#if CVR_RUST_VRIK
+    ID3D12CommandAllocator* (&m_captureCmdAllocators)[3] = cvr_xr_capture_ring()->allocators;
+    uint32_t& m_captureAllocatorIndex = cvr_xr_capture_ring()->allocatorIndex;
+    ID3D12GraphicsCommandList* (&m_captureCmdLists)[3] = cvr_xr_capture_ring()->lists;
+    ID3D12Fence*& m_captureFence = cvr_xr_capture_ring()->fence;
+    HANDLE& m_captureFenceEvent = cvr_xr_capture_ring()->fenceEvent;
+    UINT64& m_captureFenceValue = cvr_xr_capture_ring()->fenceValue;
+    UINT64 (&m_captureAllocatorFence)[3] = cvr_xr_capture_ring()->allocatorFences;
+#else
     ID3D12CommandAllocator* m_captureCmdAllocators[3] = {};
     uint32_t m_captureAllocatorIndex = 0;
     ID3D12GraphicsCommandList* m_captureCmdLists[3] = {};
@@ -1164,11 +1615,32 @@ private:
     HANDLE m_captureFenceEvent = nullptr;
     UINT64 m_captureFenceValue = 0;
     UINT64 m_captureAllocatorFence[3] = {};   // as m_cmdAllocatorFence, on m_captureFence
+#endif
+#if CVR_RUST_VRIK
+    HANDLE& m_monoPresentEvent = cvr_xr_submit_shared()->monoPresentEvent;
+    HANDLE& m_frameSyncEvent = cvr_xr_submit_shared()->frameSyncEvent;
+#else
     HANDLE m_monoPresentEvent = nullptr;
     HANDLE m_frameSyncEvent = nullptr;
+#endif
+#if !CVR_RUST_VRIK
     ID3D12DescriptorHeap* m_rtvHeap = nullptr;
     UINT m_rtvDescriptorSize = 0;
+#endif
+#if CVR_RUST_VRIK
+    cvr::SrwMutex& m_viewMutex = cvr_xr_views_shared()->lock;
+#else
     std::mutex m_viewMutex;
+#endif
+#if CVR_RUST_VRIK
+    cvr::SrwMutex& m_presentMutex = cvr_xr_presented_shared()->lock;
+    ID3D12Resource*& m_lastPresentedBackBuffer = cvr_xr_presented_shared()->backBuffer;
+    uint32_t& m_lastPresentedWidth = cvr_xr_presented_shared()->width;
+    uint32_t& m_lastPresentedHeight = cvr_xr_presented_shared()->height;
+    uint32_t& m_lastPresentedFormat = cvr_xr_presented_shared()->format;
+    uint32_t& m_lastPresentedBufferIndex = cvr_xr_presented_shared()->bufferIndex;
+    uint64_t& m_lastPresentSerial = cvr_xr_presented_shared()->serial;
+#else
     std::mutex m_presentMutex;
     ID3D12Resource* m_lastPresentedBackBuffer = nullptr;
     uint32_t m_lastPresentedWidth = 0;
@@ -1176,7 +1648,10 @@ private:
     uint32_t m_lastPresentedFormat = 0;
     uint32_t m_lastPresentedBufferIndex = 0;
     uint64_t m_lastPresentSerial = 0;
+#endif
+#if !CVR_RUST_VRIK
     uint64_t m_lastSubmittedSerial = 0;
+#endif
 
     struct EyeSwapchain {
         XrSwapchain handle = XR_NULL_HANDLE;
@@ -1184,10 +1659,12 @@ private:
         int32_t height = 0;
         std::vector<XrSwapchainImageD3D12KHR> images;
         std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> rtvs;
+#if !CVR_RUST_VRIK  // the eyes' depth swapchains are rust/crates/cvr-render/src/depth_layer.rs's
         XrSwapchain depthHandle = XR_NULL_HANDLE;
         uint32_t depthWidth{},depthHeight{},depthPendingIndex{};
         bool depthPending{}; // acquired but xrWaitSwapchainImage has not succeeded yet
         std::vector<XrSwapchainImageD3D12KHR> depthImages;
+#endif
     };
     struct CapturedMonoFrame {
         ID3D12Resource* texture = nullptr;
@@ -1209,8 +1686,6 @@ private:
         // and a warp distance that varies frame to frame is what reads as the world shifting, while
         // every rate counter stays perfect.
         double captureMs = 0.0;
-        // m_captureFence's value once the game's queue has run this capture: read on the runtime's queue only after.
-        uint64_t captureFence = 0;
         // Presented under a loading screen (Lobby/MenuLobby.hpp LoadingDark): never shown, however often submitted.
         bool dark = false;
         // The dark with the boot's notice, nothing else (Render/LoadingScreen.hpp, at the intro's heading): one picture
@@ -1220,43 +1695,35 @@ private:
         // every frame (Render/Afw.hpp), and the submit routes the frame it carries, not the switch's state now.
         int8_t mainEye = 1;
     };
+#if !CVR_RUST_VRIK
     std::vector<EyeSwapchain> m_eyeSwapchains;
+#endif
     CapturedMonoFrame m_monoCapturedFrame;
-    // THE ONE BEFORE IT, kept on the runtime's own queue only (m_xrQueue): the newest is published as the CPU hands it to
-    // the game's queue, while the GPU is still on that frame, so for most of every game frame it is not done there and a
-    // cycle takes this one, finished, instead of none. Its pool slot is left alone while another is free.
-    CapturedMonoFrame m_monoPreviousFrame;
     cvr::framegen::Presenter m_framegen;
     cvr::depth::Renderer m_stereoDepth;
     cvr::framegen::StatsOverlay m_framegenOverlay;
     // [DEPTH] Game scene-depth snapshot for the XR depth layer (parallel to color).
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot (never read since the stereo depth layer)
     ID3D12Resource* m_depthSnapshot = nullptr;
     uint32_t m_depthSnapshotW = 0;
     uint32_t m_depthSnapshotH = 0;
+#endif
     // A pool of snapshot buffers, rotated by the producer.
     // With a single buffer the producer must either block until the
     // consumer finishes (which puts the compositor's pacing on the game's Present) or skip
     // the capture (which starves the headset of new frames while the game itself runs fine
     // -- smooth on the monitor, freezing in the HMD). With three, the producer always writes
     // a buffer nobody is reading and neither side ever waits.
-    // FOUR on the runtime's own queue: the newest, the one kept behind it (m_monoPreviousFrame), a generation endpoint
-    // and the frame a submit is still copying can all be taken at once. With three, a capture after a late frame could
-    // find no slot (DebugCapSkipNoSlot) and that real frame never reached the headset -- the world jumped two frames
-    // ahead at once. With four, none in four 30 s SteamVR runs at the H10 sprint.
-    static constexpr int kMonoSlots = 4;
-    ID3D12Resource* m_monoPool[kMonoSlots] = {};
+    ID3D12Resource* m_monoPool[3] = {};
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     uint32_t        m_monoPoolSlot = 0;
+#endif
     cvr::capture::BufferLeases m_captureLeases; // m_presentMutex
     struct RetiredCaptureRead { ID3D12Resource* resource;uint64_t fence; };
     std::vector<RetiredCaptureRead> m_retiredCaptureReads;
+#if !CVR_RUST_VRIK
     void ReleaseCapturedRead(ID3D12Resource* resource,uint64_t fence);
-public:
-    // The queue the runtime works on: its own, or the game's when none was made.
-    ID3D12CommandQueue* RuntimeQueue() const { return m_xrQueue ? m_xrQueue : m_d3dQueue; }
-    // A swapchain image was written on `used` (the game's queue): the runtime's queue waits for it on the GPU before
-    // anything the runtime does with the image. Nothing when they are the same queue.
-    void OrderRuntimeAfter(ID3D12CommandQueue* used);
-private:
+#endif
     ID3D12Resource* AcquireCapturedVrcamLocked(uint64_t serial,uint32_t maxReuse,
         XrPosef* pose,XrFovf* fov,uint64_t* poseId,bool* reused);
 
@@ -1272,6 +1739,9 @@ private:
     // frame is finished and we are already on the list that copies the backbuffer -- the one
     // moment that resource is ours to read. Past this point nothing outside the capture ever
     // touches an engine-owned resource.
+#if CVR_RUST_VRIK
+    // The eye images' geometry and formats: rust/crates/cvr-render/src/xr_submit.rs keeps the eye swapchains.
+#else
     // Eye image geometry, cached as plain atomics. The capture runs on the Present thread and
     // must NOT read m_eyeSwapchains: that vector is created and resized by the SUBMIT thread
     // (EnsureMonoSubmitResources), so touching it from here would be a race whose payoff is a
@@ -1288,6 +1758,7 @@ private:
     //                   right after "stereo capture texture ready ... fmt=27").
     std::atomic<uint32_t> m_eyeImageFmt{0};
     std::atomic<uint32_t> m_eyeViewFmt{0};
+#endif
 
     // A POOL OF THREE, ROTATED BY THE PRODUCER -- the same shape m_monoPool has, and for the same
     // reason. This was ONE texture, and that was the asymmetry behind an artefact seen in the second
@@ -1304,17 +1775,24 @@ private:
     //   underneath had already been replaced. A serial is not a version of the pixels.
     //
     // Per-slot serials, so the submit takes the slot belonging to ITS frame rather than the newest one.
-    static constexpr int kVrcamEyeSlots = 4; // as kMonoSlots
+    static constexpr int kVrcamEyeSlots = 3;
     ID3D12Resource* m_vrcamEyePool[kVrcamEyeSlots] = {};
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     uint64_t        m_vrcamEyePoolSerial[kVrcamEyeSlots] = {};
+#endif
     struct CapturedEyeLabel { XrPosef pose{};XrFovf fov{};uint64_t poseId{},imageGeneration{};bool valid{}; };
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     CapturedEyeLabel m_vrcamEyeLabels[kVrcamEyeSlots]{};
     int             m_vrcamEyeSlot = 0;
     uint32_t        m_vrcamEyeW = 0;
     uint32_t        m_vrcamEyeH = 0;
     uint32_t        m_vrcamEyeFmt = 0;
+#endif
     uint64_t        m_vrcamEyeSerial = 0;   // newest published serial; 0 = none
+#if !CVR_RUST_VRIK  // the eye pool is rust/crates/cvr-render/src/xr_capture_state.rs's
     bool EnsureVrcamEyeTexture(uint32_t width, uint32_t height, DXGI_FORMAT format);
+#endif
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot (never read since the stereo depth layer)
     uint64_t m_depthSnapshotSerial = 0; // serial of the color frame this depth matches; 0 = invalid/empty
     // Staging copy of the game depth, taken inline at the readable barrier (see
     // CaptureSceneDepthInline). Same layout as the source; left in PIXEL_SHADER_RESOURCE so
@@ -1324,22 +1802,47 @@ private:
     uint32_t        m_depthStageH = 0;
     uint32_t        m_depthStageFmt = 0;
     uint64_t        m_depthStageSerial = 0;   // present serial this staging copy belongs to
+#endif
+#if !CVR_RUST_VRIK
     // Head pose of that same frame, recorded at the same instant (see GetFramePoseForSerial).
     OpenXRHeadPose  m_framePose{};
     uint64_t        m_framePoseSerial = 0;
+#endif
     // Recenter base mirrored as atomics -- see GetRecenterBase().
+#if CVR_RUST_VRIK
+    std::atomic<float>& m_baseOriX = cvr_xr_base_mirror()->ori[0];
+    std::atomic<float>& m_baseOriY = cvr_xr_base_mirror()->ori[1];
+    std::atomic<float>& m_baseOriZ = cvr_xr_base_mirror()->ori[2];
+    std::atomic<float>& m_baseOriW = cvr_xr_base_mirror()->ori[3];
+    std::atomic<float>& m_basePosX = cvr_xr_base_mirror()->pos[0];
+    std::atomic<float>& m_basePosY = cvr_xr_base_mirror()->pos[1];
+    std::atomic<float>& m_basePosZ = cvr_xr_base_mirror()->pos[2];
+#else
     std::atomic<float> m_baseOriX{0.0f}, m_baseOriY{0.0f}, m_baseOriZ{0.0f}, m_baseOriW{1.0f};
     std::atomic<float> m_basePosX{0.0f}, m_basePosY{0.0f}, m_basePosZ{0.0f};
+#endif
 
     // The last XR cycle's head pose as a flat latch -- see PublishFrameSlot() and
     // GetCycleHeadPoseLocal(). LOCAL space, one locate per cycle, fixed phase.
+#if CVR_RUST_VRIK
+    std::atomic<bool>& m_cycleHeadValid = cvr_xr_frame_shared()->cycleValid;
+    std::atomic<float>& m_cycleHeadOriX = cvr_xr_frame_shared()->cycleOri[0];
+    std::atomic<float>& m_cycleHeadOriY = cvr_xr_frame_shared()->cycleOri[1];
+    std::atomic<float>& m_cycleHeadOriZ = cvr_xr_frame_shared()->cycleOri[2];
+    std::atomic<float>& m_cycleHeadOriW = cvr_xr_frame_shared()->cycleOri[3];
+    std::atomic<float>& m_cycleHeadPosX = cvr_xr_frame_shared()->cyclePos[0];
+    std::atomic<float>& m_cycleHeadPosY = cvr_xr_frame_shared()->cyclePos[1];
+    std::atomic<float>& m_cycleHeadPosZ = cvr_xr_frame_shared()->cyclePos[2];
+#else
     std::atomic<bool>  m_cycleHeadValid{false};
     std::atomic<float> m_cycleHeadOriX{0.0f}, m_cycleHeadOriY{0.0f},
                        m_cycleHeadOriZ{0.0f}, m_cycleHeadOriW{1.0f};
     std::atomic<float> m_cycleHeadPosX{0.0f}, m_cycleHeadPosY{0.0f}, m_cycleHeadPosZ{0.0f};
+#endif
 
     // Per-frame slot ring -- see PublishFrameSlot(). 8 is comfortably deeper than any pipelining
     // the engine does and keeps the modulo free.
+#if !CVR_RUST_VRIK
     static constexpr uint32_t kFrameSlots = 8;
     XrFrameSlot m_frameSlots[kFrameSlots]{};
     mutable std::mutex m_frameSlotMutex;
@@ -1354,18 +1857,35 @@ private:
     XrTime   m_fitAy = 0;
     double   m_fitK = 0.0;
     bool     m_fitValid = false;
+#endif
+#if CVR_RUST_VRIK
+    CvrXrFrameAim m_frameAim;
+    cvr::SrwMutex& m_frameSampleMutex = cvr_xr_frame_shared()->sampleLock;
+#else
     cvr::tracking::FrameAim m_frameAim;  // target, QPC publication stamp and epoch are one tuple
     // One head sample per aim epoch -- see AcquireFrameHeadSample().
     std::mutex            m_frameSampleMutex;
+#endif
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     cvr::body::BendTracker m_bodyBendTracker;
     cvr::body::PhysicalCrouch m_physicalCrouch;
     std::atomic<uint64_t> m_crouchBridgeStampUs{0};
+#endif
     void UpdateBodyPosture(OpenXRHeadPose& pose);
+#if CVR_RUST_VRIK
+    uint64_t&             m_frameSampleEpoch = cvr_xr_frame_shared()->sample.epoch;
+    uint64_t&             m_frameSampleSequence = cvr_xr_frame_shared()->sample.sequence;
+    uint64_t&             m_frameSampleStampUs = cvr_xr_frame_shared()->sample.stampUs;
+    OpenXRHeadPose&       m_frameSample = cvr_xr_frame_shared()->sample.pose;
+    XrTime&              m_frameSampleAim = cvr_xr_frame_shared()->sample.aim;
+#else
     uint64_t              m_frameSampleEpoch = ~0ull;
     uint64_t              m_frameSampleSequence = 0;
     uint64_t              m_frameSampleStampUs = 0;
     OpenXRHeadPose        m_frameSample{};
     XrTime               m_frameSampleAim{};
+#endif
+#if !CVR_RUST_VRIK
     // Poses read back out of the engine at frame-open -- see PushRenderedFramePose().
     static constexpr uint32_t kRenderedFrameQ = 8;
     mutable std::mutex    m_renderedFrameMutex;
@@ -1376,21 +1896,30 @@ private:
     OpenXRHeadPose        m_vrcamRenderedFrameQ[kRenderedFrameQ]{};
     uint64_t              m_vrcamRenderedFrameHead = 0;
     uint64_t              m_vrcamRenderedFrameTail = 0;
+#endif
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot (never read since the stereo depth layer)
     std::mutex      m_depthStageMutex;
     std::atomic<uint64_t> m_depthStageFrame{~0ull};   // one inline copy per present interval
     std::atomic<bool> m_depthStageCaptureAllowed{false}; // consumer has stable gameplay depth
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's: cvr_xr_depth_supported / cvr_xr_depth_forget_format (Render/StereoDepth.hpp)
     bool m_depthLayerSupported = false;  // runtime supports XR_KHR_composition_layer_depth and a depth swapchain format
     int64_t m_depthSwapchainFormat = 0;  // chosen runtime depth format (e.g. DXGI_FORMAT_D32_FLOAT)
+#endif
     // Dedicated list/fence for the mono depth resolve executed on the game's depth-
     // writer queue (see CaptureMonoDepthOnWriterQueue). Single-slot: skip if in flight.
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot (never read since the stereo depth layer)
     ID3D12CommandAllocator* m_depthWriterAlloc = nullptr;
     ID3D12GraphicsCommandList* m_depthWriterList = nullptr;
     ID3D12Fence* m_depthWriterFence = nullptr;
     uint64_t m_depthWriterFenceValue = 0;      // last value signaled on the writer queue
     uint64_t m_depthSnapshotWriterFence = 0;   // writer-fence value guarding the current m_depthSnapshot
+#endif
     // Cached QueryPerformanceFrequency (constant per boot; avoids re-querying
     // every frame tick).
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     LONGLONG m_qpcFreq = 0;
+#endif
 
     // 64bpp depth-plane resolve. CP2077 scene depth is R32G8X24_TYPELESS in
     // most scenes; a shader pass converts plane 0 (depth) into a D32_FLOAT
@@ -1398,31 +1927,41 @@ private:
     // submit only works in the small subset of scenes that happen to use
     // R32-family depth, and `depth=0` shows up in submit logs everywhere
     // else — which prevents compositor positional async-timewarp.
+#if !CVR_RUST_VRIK  // the legacy single-view depth snapshot (never read since the stereo depth layer)
     std::unique_ptr<DepthResolve> m_depthResolve;
+#endif
 
     // CAS Sharpening on owned real captures, before frame generation.
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     std::unique_ptr<SharpenPass> m_sharpenPass;
+#endif
 
     // The eye swapchain is not the eye images' bit-compatible sRGB format (PickMonoSwapchainFormat in
     // OpenXRInternal.hpp): each eye is drawn through the decode instead of copied. Set with the swapchains.
+#if !CVR_RUST_VRIK
     std::unique_ptr<SrgbToLinearPass> m_srgbToLinearPass;
     bool m_convertForSwapchain = false;
+#endif
 
     // Reuse-last-frame path: persistent "last good" eye images + their pose/fov.
     // On a stale tick we re-present these with the stashed pose so the runtime
     // reprojects the last clean frame to the current head instead of warping a
     // stale eye.
+#if !CVR_RUST_VRIK
     Microsoft::WRL::ComPtr<ID3D12Resource> m_lastGoodEye[2];
     bool m_lastGoodEyeInited[2] = {false, false};
     XrPosef m_lastGoodPose[2]{};
     XrFovf m_lastGoodFov[2]{};
     bool m_lastGoodValid = false;
+#endif
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     std::unique_ptr<ColorBlit> m_colorBlit;
     // ENGINE STEREO MENUS: ink lays a menu over the whole two-eyes-wide window, so both eyes get that window
     // squeezed into one eye's image (OpenXRCapture.cpp CaptureMonoPresentedFrame). The backbuffer is copied
     // here first (a swapchain buffer is not ours to read through a view), then blitted.
     ID3D12Resource* m_menuWindow = nullptr;
     std::unique_ptr<ColorBlit> m_menuBlit;
+#endif
     bool EnsureMenuWindow(const D3D12_RESOURCE_DESC& backBufferDesc);
     // The lobby's curtain and intro picture, drawn into each presented frame (Render/IntroOverlay.hpp). Capture only.
     cvr::lobby::intro::Overlay m_introOverlay;
@@ -1433,20 +1972,53 @@ private:
     bool m_loadingScreenIsNotice = false;
     // Engine present pacing: see openxr_manager.cpp OnPresent. The HMD-paced gate is
     // m_frameSyncEvent.
+#if CVR_RUST_VRIK
+    std::atomic<int64_t>& m_predictedDisplayPeriodNs = cvr_xr_submit_shared()->predictedDisplayPeriodNs;
+#else
     std::atomic<int64_t> m_predictedDisplayPeriodNs{0};
+#endif
 
+#if CVR_RUST_VRIK
+    HANDLE& m_frameThread = cvr_xr_core()->frameThread;
+#else
     HANDLE m_frameThread = nullptr;
+#endif
+#if CVR_RUST_VRIK
+    std::atomic<bool>& m_stopFrameThread = cvr_xr_session_shared()->stopFrameThread;
+#else
     std::atomic<bool> m_stopFrameThread = false;
+#endif
     // Submit-thread wake + XR frame-loop ownership (see SubmitThreadMain).
+#if !CVR_RUST_VRIK  // unused by the Rust build: its state is Rust's
     std::mutex m_submitThreadMutex;
     std::condition_variable m_submitThreadWakeCv;
     std::mutex m_frameLoopMutex;
     std::condition_variable m_frameLoopCv;
     FrameLoopOwner m_frameLoopOwner = FrameLoopOwner::None;
+#endif
+#if CVR_RUST_VRIK
+    std::atomic<bool>& m_sessionRunning = cvr_xr_session_shared()->running;
+    std::atomic<bool>& m_sessionFocused = cvr_xr_session_shared()->focused;
+#else
     std::atomic<bool> m_sessionRunning = false;
     std::atomic<bool> m_sessionFocused = false;
+#endif
+#if CVR_RUST_VRIK
+    std::atomic<bool>& m_monoSubmitEnabled = cvr_xr_submit_shared()->monoSubmitEnabled;
+#else
     std::atomic<bool> m_monoSubmitEnabled = false;
+#endif
     std::atomic<int> m_renderEyeIndex = 0;
+#if CVR_RUST_VRIK
+    std::atomic<bool>& m_poseValid = cvr_xr_head_shared()->poseValid;
+    std::atomic<float>& m_posX = cvr_xr_head_shared()->pos[0];
+    std::atomic<float>& m_posY = cvr_xr_head_shared()->pos[1];
+    std::atomic<float>& m_posZ = cvr_xr_head_shared()->pos[2];
+    std::atomic<float>& m_oriX = cvr_xr_head_shared()->ori[0];
+    std::atomic<float>& m_oriY = cvr_xr_head_shared()->ori[1];
+    std::atomic<float>& m_oriZ = cvr_xr_head_shared()->ori[2];
+    std::atomic<float>& m_oriW = cvr_xr_head_shared()->ori[3];
+#else
     std::atomic<bool> m_poseValid = false;
     std::atomic<float> m_posX = 0.0f;
     std::atomic<float> m_posY = 0.0f;
@@ -1455,11 +2027,30 @@ private:
     std::atomic<float> m_oriY = 0.0f;
     std::atomic<float> m_oriZ = 0.0f;
     std::atomic<float> m_oriW = 1.0f;
+#endif
     // QPC milliseconds (mod 100 s) at which the controller poses were sampled. Published with
     // them under the seqlock so the plugin can report how old the pose it solved from was.
+#if CVR_RUST_VRIK
+    std::atomic<float>& m_handSampleMs = cvr_xr_published_shared()->sampleMs;
+#else
     std::atomic<float> m_handSampleMs = 0.0f;
+#endif
     // The head position taken in the same locked step as the controller poses. Guarded by
     // m_handMutex, so plain floats.
+#if CVR_RUST_VRIK
+    float (&m_handSampleHeadPos)[3] = cvr_xr_published_shared()->data.sampleHeadPos;
+    bool& m_handSampleHeadValid = cvr_xr_published_shared()->data.sampleHeadValid;
+    uint64_t& m_handSampleOrigin = cvr_xr_published_shared()->data.sampleOrigin;
+    cvr::tracking::HandPublicationGate& m_handPublicationGate = cvr_xr_published_shared()->data.gate;
+    OpenXRHeadPose& m_publishedHandHead = cvr_xr_published_shared()->data.head;
+    OpenXRHeadPose (&m_publishedHands)[2] = cvr_xr_published_shared()->data.hands;
+    OpenXRHeadPose (&m_publishedGestureHands)[2] = cvr_xr_published_shared()->data.gesture;
+    OpenXRHeadPose (&m_publishedRawMeleeHands)[2] = cvr_xr_published_shared()->data.rawMelee;
+    uint64_t& m_publishedHandSequence = cvr_xr_published_shared()->data.sequence;
+    uint64_t& m_publishedHandStampUs = cvr_xr_published_shared()->data.stampUs;
+    XrTime& m_publishedHandAim = cvr_xr_published_shared()->data.aim;
+    cvr::roomscale::Vec2& m_publishedHandConsumed = cvr_xr_published_shared()->data.consumed;
+#else
     float m_handSampleHeadPos[3] = {0.0f, 0.0f, 0.0f};
     bool  m_handSampleHeadValid = false;
     uint64_t m_handSampleOrigin{};
@@ -1470,23 +2061,53 @@ private:
     uint64_t m_publishedHandSequence{},m_publishedHandStampUs{};
     XrTime m_publishedHandAim{};
     cvr::roomscale::Vec2 m_publishedHandConsumed{};
+#endif
+#if CVR_RUST_VRIK
+    std::atomic<float>& m_runtimeHorizontalFovDeg = cvr_xr_runtime_shared()->horizontalFovDeg;
+    std::atomic<float>& m_runtimeVerticalFovDeg = cvr_xr_runtime_shared()->verticalFovDeg;
+    std::atomic<float>& m_runtimeIpd = cvr_xr_runtime_shared()->ipd;
+#else
     std::atomic<float> m_runtimeHorizontalFovDeg = 0.0f;
     std::atomic<float> m_runtimeVerticalFovDeg = 0.0f;
     std::atomic<float> m_runtimeIpd = 0.0f;
+#endif
+#if CVR_RUST_VRIK
+    // The runtime FOV log's state: rust/crates/cvr-xr (cvr_xr_reset_fov_log).
+#else
     bool m_runtimeFovLogInitialized = false;
     XrFovf m_loggedRuntimeEyeFovs[2]{};
     float m_loggedRuntimeHorizontalFovDeg = 0.0f;
     float m_loggedRuntimeVerticalFovDeg = 0.0f;
     float m_loggedRuntimeIpd = 0.0f;
     float m_loggedForcedProjectionFovDeg = 0.0f;
+#endif
+#if CVR_RUST_VRIK
+    std::atomic<bool>& m_runtimeIsSteamVR = cvr_xr_runtime_shared()->steamVR;
+    std::atomic<bool>& m_runtimeIsPsvr2 = cvr_xr_runtime_shared()->psvr2;
+    std::atomic<bool>& m_runtimeIsVirtualDesktop = cvr_xr_runtime_shared()->virtualDesktop;
+    // The OpenXR Simulator (the test runtime): its controllers report the AIM direction as their grip pose. See
+    // ApplySimulatorGripFix.
+    std::atomic<bool>& m_runtimeIsSimulator = cvr_xr_runtime_shared()->simulator;
+#else
     std::atomic<bool> m_runtimeIsSteamVR = false;
     std::atomic<bool> m_runtimeIsPsvr2 = false;
     std::atomic<bool> m_runtimeIsVirtualDesktop = false;
     // The OpenXR Simulator (the test runtime): its controllers report the AIM direction as their grip pose. See
     // ApplySimulatorGripFix.
     std::atomic<bool> m_runtimeIsSimulator = false;
+#endif
     // Head velocity in the base-recentered frame (rad/s, m/s), sampled from
     // xrLocateSpace. See GetHeadPose().
+#if CVR_RUST_VRIK
+    std::atomic<bool>& m_velValid = cvr_xr_head_shared()->velValid;
+    std::atomic<float>& m_angVelX = cvr_xr_head_shared()->angVel[0];
+    std::atomic<float>& m_angVelY = cvr_xr_head_shared()->angVel[1];
+    std::atomic<float>& m_angVelZ = cvr_xr_head_shared()->angVel[2];
+    std::atomic<float>& m_linVelX = cvr_xr_head_shared()->linVel[0];
+    std::atomic<float>& m_linVelY = cvr_xr_head_shared()->linVel[1];
+    std::atomic<float>& m_linVelZ = cvr_xr_head_shared()->linVel[2];
+    std::atomic<bool>& m_recenterRequested = cvr_xr_head_shared()->recenterRequested;
+#else
     std::atomic<bool> m_velValid = false;
     std::atomic<float> m_angVelX = 0.0f;
     std::atomic<float> m_angVelY = 0.0f;
@@ -1495,8 +2116,24 @@ private:
     std::atomic<float> m_linVelY = 0.0f;
     std::atomic<float> m_linVelZ = 0.0f;
     std::atomic<bool> m_recenterRequested = false;
+#endif
+#if CVR_RUST_VRIK
+    cvr::SrwMutex& m_externalResetMutex = cvr_xr_reset_shared()->lock;
+    cvr::roomscale::TrackingResetGate& m_externalPoseReset = cvr_xr_reset_shared()->gate;
+#else
     std::mutex m_externalResetMutex;
     cvr::roomscale::TrackingResetGate m_externalPoseReset;
+#endif
+#if CVR_RUST_VRIK
+    std::atomic<bool>& m_syncedPoseValid = cvr_xr_sample_shared()->syncedValid;
+    std::atomic<float>& m_syncedPosX = cvr_xr_sample_shared()->syncedPos[0];
+    std::atomic<float>& m_syncedPosY = cvr_xr_sample_shared()->syncedPos[1];
+    std::atomic<float>& m_syncedPosZ = cvr_xr_sample_shared()->syncedPos[2];
+    std::atomic<float>& m_syncedOriX = cvr_xr_sample_shared()->syncedOri[0];
+    std::atomic<float>& m_syncedOriY = cvr_xr_sample_shared()->syncedOri[1];
+    std::atomic<float>& m_syncedOriZ = cvr_xr_sample_shared()->syncedOri[2];
+    std::atomic<float>& m_syncedOriW = cvr_xr_sample_shared()->syncedOri[3];
+#else
     std::atomic<bool> m_syncedPoseValid = false;
     std::atomic<float> m_syncedPosX = 0.0f;
     std::atomic<float> m_syncedPosY = 0.0f;
@@ -1505,13 +2142,25 @@ private:
     std::atomic<float> m_syncedOriY = 0.0f;
     std::atomic<float> m_syncedOriZ = 0.0f;
     std::atomic<float> m_syncedOriW = 1.0f;
+#endif
+#if CVR_RUST_VRIK
+    XrPosef (&m_syncedEyePoses)[2] = cvr_xr_views_shared()->syncedEyePoses;
+    XrFovf (&m_syncedEyeFovs)[2] = cvr_xr_views_shared()->syncedEyeFovs;
+    bool& m_syncedEyeViewsValid = cvr_xr_views_shared()->syncedEyeViewsValid;
+#else
     XrPosef m_syncedEyePoses[2]{};
     XrFovf m_syncedEyeFovs[2]{};
     bool m_syncedEyeViewsValid = false;
+#endif
     // Per-eye head pose captured at render time by the camera hook (render-pose submit).
-    std::mutex m_renderPoseMutex;
+#if CVR_RUST_VRIK
+    cvr::SrwMutex& m_renderPoseMutex = cvr_xr_head_shared()->renderPoseLock;
+#else
+    mutable std::mutex m_renderPoseMutex;
+#endif
     // The pose the camera injection actually used for the frame being built (see
     // SetPendingRenderHeadPose). Present attaches this to the snapshot it captures.
+#if !CVR_RUST_VRIK
     std::mutex m_pendingRenderPoseMutex;
     OpenXRHeadPose m_renderPoseRing[16]{};
     uint64_t m_renderPoseStamp[16]{};      // present interval the pose was injected in
@@ -1519,18 +2168,37 @@ private:
     bool m_pendingRenderPoseValid = false;
     XrPosef m_renderEyeHeadPose[2]{};
     bool m_renderEyeHeadPoseValid[2]{};
+#endif
     
-    // Pose queue for accurately syncing frames with pipeline lag
+#if CVR_RUST_VRIK
+    std::atomic<uint64_t>& m_presentCount = cvr_xr_presented_shared()->presentCount;
+#else
     std::atomic<uint64_t> m_presentCount{0};
+#endif
+#if !CVR_RUST_VRIK
+    // Pose queue for accurately syncing frames with pipeline lag
     XrPosef m_poseQueue[256]{};
     uint32_t m_poseQueueFrame[256]{};
+#endif
     
+#if CVR_RUST_VRIK
+    bool& m_basePoseSet = cvr_xr_head_shared()->basePoseSet;
+    XrPosef& m_basePose = cvr_xr_head_shared()->basePose;
+    std::atomic<uint64_t>& m_trackingOriginSerial = cvr_xr_head_shared()->trackingOriginSerial;
+#else
     bool m_basePoseSet = false;
     XrPosef m_basePose{};
     std::atomic<uint64_t> m_trackingOriginSerial{0};
+#endif
+#if CVR_RUST_VRIK
+    cvr::SrwMutex& m_roomscaleSampleMutex = cvr_xr_sample_shared()->lock;
+    cvr::roomscale::Sample& m_roomscaleSample = cvr_xr_sample_shared()->roomscale;
+    OpenXRHeadPose& m_coherentHeadPose = cvr_xr_sample_shared()->coherentHead;
+#else
     mutable std::mutex m_roomscaleSampleMutex;
     cvr::roomscale::Sample m_roomscaleSample{};
     OpenXRHeadPose m_coherentHeadPose{};
+#endif
 
     // MENU PANEL ANCHOR (LAZY-FOLLOW). The menu/map panel is anchored in front of the
     // player when a menu opens and then holds still while the head turns WITHIN a
@@ -1546,13 +2214,20 @@ private:
     cvr::hud::Quad m_basiliskQuad{cvr::hud::Channel::Basilisk};
     cvr::hud::Quad m_surveillanceQuad{cvr::hud::Channel::Surveillance};
     cvr::hud::Quad m_hitMarkerQuad{cvr::hud::Channel::HitMarker};
-    cvr::hud::Quad m_vehicleMinimapQuad{cvr::hud::Channel::VehicleMinimap};
     cvr::vrui::Panel m_settingsPanel;
+#if CVR_RUST_VRIK
+    cvr::hud::Follow& m_menuFollow = cvr_xr_menu_shared()->follow;
+    cvr::hud::DisplayClock& m_menuClock = cvr_xr_menu_shared()->clock;
+    bool& m_menuEyeAnchorValid = cvr_xr_menu_shared()->eyeAnchorValid;
+    float& m_menuEyeAnchorYaw = cvr_xr_menu_shared()->eyeAnchorYaw;
+    XrPosef& m_menuQuadPose = cvr_xr_menu_shared()->quadPose;
+#else
     cvr::hud::Follow m_menuFollow;
     cvr::hud::DisplayClock m_menuClock;
     bool  m_menuEyeAnchorValid = false;// projection-path per-eye anchor latched
     float m_menuEyeAnchorYaw   = 0.0f; // head yaw the per-eye poses were latched at
     XrPosef m_menuQuadPose{};          // latched/eased quad-layer pose (m_localSpace)
+#endif
     XrPosef m_menuEyePoses[2]{};       // latched per-eye poses for the projection path
 
     // Lazy-follow quad-layer menu pose from the live head pose (or base pose when the

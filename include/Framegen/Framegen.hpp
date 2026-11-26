@@ -8,15 +8,17 @@ namespace cvr::framegen {
 // FidelityFX: FidelityFX frame interpolation, with FidelityFX optical flow unless flowScale is 0 (any GPU).
 // Nvidia: NVIDIA optical flow (OFA) + FidelityFX frame interpolation.
 // DlssG: native NVIDIA DLSS Frame Generation through NGX (RTX 40/50).
-// Anr: ANR FG (Apex Neural Rendering), a DLSS-G provider dll run through the DlssG path (Framegen/AnrFrameGen.hpp).
-enum class Backend:int { FidelityFX=0,Nvidia=1,DlssG=2,Anr=3 };
-inline bool NgxBackend(Backend b) {return b==Backend::DlssG || b==Backend::Anr;}
+// Anr: ANR FG -- not in the Rust build, which runs it as DlssG (cvr_gpu::framegen_core::clamp_backend).
+// Fsr3Interpolation, Fsr3Extrapolation: FSR3 per eye (rust/crates/cvr-render/src/fsr3.rs).
+enum class Backend:int { FidelityFX=0,Nvidia=1,DlssG=2,Anr=3,Fsr3Interpolation=4,Fsr3Extrapolation=5 };
+inline bool Fsr3Backend(Backend b) {return b==Backend::Fsr3Interpolation || b==Backend::Fsr3Extrapolation;}
 const char* BackendName(Backend);
 struct Settings {
     bool enabled=false,overlay=false,autoPace=true;
-    // Real frames three display periods apart while the game cannot make two (CadenceLock). Off: always two, the
-    // rate the headset's refresh was chosen for; a slow frame is absorbed by the XR side instead.
-    bool cadenceLock=false;
+    // Switches in the byte before the backend: 1 no FSR3 optical flow, 2 FSR3's generated frames not shown, 4 the
+    // cadence lock (Rust's FSR3_NO_OPTICAL_FLOW, FSR3_HIDE, CADENCE_LOCK; all clear = main's fsr3OpticalFlow and fsr3Show
+    // on, cadenceLock off).
+    uint8_t flags=0;
     // NVIDIA's optical flow (OFA) at half resolution under FidelityFX interpolation; a GPU without OFA
     // falls back to FidelityFX's own flow (Generator.cpp).
     Backend backend=Backend::Nvidia;
@@ -67,9 +69,8 @@ void OnInput(unsigned eye,uint32_t width,uint32_t height);
 void OnSkip();
 void SetVram(uint64_t bytes);
 double NowMs();
-// Called when xrWaitFrame returns. SteamVR scheduling multiples are filtered only for producer pacing;
-// the caller retains the original predicted period for OpenXR display-time calculations.
-void DisplayPeriod(int64_t nanoseconds,bool steamVr=false);
+// Called when xrWaitFrame returns: the display period, and the phase the frame cap aims at.
+void DisplayPeriod(int64_t nanoseconds);
 // xr_fps_cap: the game held to the headset's refresh rate when framegen is not pacing it (default on).
 bool FpsCap();
 void SetFpsCap(bool);

@@ -1,0 +1,88 @@
+{
+ "Header": {
+  "WolvenKitVersion": "1.0.0+6f6be2fb74f3c4786fc49c205af4104e32ae27c2",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-21T08:48:36.9812780Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "vrport\\fx\\mark_core.mi"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "EmbeddedFiles": [],
+  "RootChunk": {
+   "$type": "CMaterialInstance",
+   "audioTag": {
+    "$type": "CName",
+    "$storage": "string",
+    "$value": "None"
+   },
+   "baseMaterial": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "engine\\materials\\metal_base.remt"
+    },
+    "Flags": "Default"
+   },
+   "cookingPlatform": "PLATFORM_PC",
+   "enableMask": 0,
+   "metadata": null,
+   "resourceVersion": 4,
+   "values": [
+    {
+     "$type": "rRef:ITexture",
+     "BaseColor": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "engine\\textures\\editor\\white.xbm"
+      },
+      "Flags": "Default"
+     }
+    },
+    {
+     "$type": "Vector4",
+     "BaseColorScale": {
+      "$type": "Vector4",
+      "X": 0.082,
+      "Y": 0.013,
+      "Z": 0.012,
+      "W": 1.0
+     }
+    },
+    {
+     "$type": "rRef:ITexture",
+     "Metalness": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "engine\\textures\\editor\\white.xbm"
+      },
+      "Flags": "Default"
+     }
+    },
+    {
+     "$type": "Float",
+     "MetalnessScale": 0.0
+    },
+    {
+     "$type": "rRef:ITexture",
+     "Roughness": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "engine\\textures\\editor\\white.xbm"
+      },
+      "Flags": "Default"
+     }
+    },
+    {
+     "$type": "Float",
+     "RoughnessScale": 0.76
+    }
+   ]
+  }
+ }
+}

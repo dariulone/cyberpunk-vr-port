@@ -7,6 +7,29 @@ namespace cvr::stereo::scene_expansion {
 // the other eye's prefix. This does not admit execution or suppress native work.
 class BothEyesPlan {
 public:
+#if CVR_RUST_VRIK
+    // The rules: rust/crates/cvr-render/src/scene_expansion.rs (tools/single_pass_tests/both_eyes_scene_expansion_test runs
+    // its cases against them in its Rust variant); the two plans stay members here (each Rust's).
+    bool Build(const graph_snapshot::Snapshot& source,uint64_t base,
+               const std::array<std::array<Definition,2>,2>& definitions)try{
+        *this={};const auto lent=detail::Lend(source);std::array<graph_snapshot::Node,2> selected{};
+        failure_=Failure(detail::cvr_sxb_select(&lent,base,&definitions,&selected));if(failure_!=Failure::None)return false;
+        // Capture both original nodes before the first expansion changes ranks
+        // and adjacency in the second plan's source.
+        selected_=selected;
+        if(!peer_.Build(source,base,selected_[1].handle,definitions[1])){failure_=peer_.Rejection();return false;}
+        if(!main_.Build(peer_.Expanded(),base,selected_[0].handle,definitions[0])){failure_=main_.Rejection();return false;}
+        const auto peer=peer_.Frozen(),main=main_.Frozen();
+        const auto cpu=paired_frontier::detail::Flat(main_.Edges()[0]),order=paired_frontier::detail::Flat(main_.Edges()[1]);
+        detail::RustMappings* held{};const Mapping* composed{};size_t count{};
+        failure_=Failure(detail::cvr_sxb_compose(&lent,&selected_,&peer,&main,cpu.data(),cpu.size(),order.data(),order.size(),
+            &held,&composed,&count));
+        struct Release{detail::RustMappings* held;~Release(){detail::cvr_sxb_free(held);}}release{held};
+        mappings_.assign(composed,composed+count);
+        if(failure_!=Failure::None)return false;
+        base_=base;ready_=true;return true;
+    }catch(...){*this={};failure_=Failure::Allocation;return false;}
+#else
     bool Build(const graph_snapshot::Snapshot& source,uint64_t base,
                const std::array<std::array<Definition,2>,2>& definitions)try{
         *this={};failure_=Failure::Source;
@@ -70,12 +93,20 @@ public:
         }
         base_=base;ready_=true;failure_=Failure::None;return true;
     }catch(...){*this={};failure_=Failure::Allocation;return false;}
+#endif
     bool MatchesSource(const graph_snapshot::Snapshot& source,uint64_t base)const{
         return ready_ && peer_.MatchesSource(source,base);
     }
     bool MatchesCompiled(const graph_snapshot::Snapshot& actual)const{
         return ready_ && main_.MatchesCompiled(actual);
     }
+#if CVR_RUST_VRIK
+    bool MatchesDeclaration(const graph_snapshot::Snapshot& source,const graph_snapshot::Snapshot& expanded,uint64_t base)const{
+        if(!ready_)return false;
+        const auto peer=peer_.Frozen(),main=main_.Frozen();const auto current=detail::Lend(source),compiled=detail::Lend(expanded);
+        return detail::cvr_sxb_matches_declaration(&peer,&main,base_,&current,&compiled,base);
+    }
+#else
     bool MatchesDeclaration(const graph_snapshot::Snapshot& source,const graph_snapshot::Snapshot& expanded,uint64_t base)const{
         if(!ready_ || base!=base_ || source.failure || source.nodes.size()!=Source().nodes.size())return false;
         auto intermediate=peer_.Expanded();
@@ -89,6 +120,7 @@ public:
         }
         return peer_.MatchesDeclaration(source,intermediate,base) && main_.MatchesDeclaration(intermediate,expanded,base);
     }
+#endif
     bool Ready()const{return ready_;}
     Failure Rejection()const{return failure_;}
     const graph_snapshot::Snapshot& Source()const{return peer_.Source();}
@@ -105,6 +137,7 @@ private:
         if(view>1)throw std::out_of_range("Native eye index");
         return view?peer_:main_;
     }
+#if !CVR_RUST_VRIK
     static const graph_snapshot::Node* Find(const graph_snapshot::Snapshot& source,uint32_t handle){
         const auto found=std::find_if(source.nodes.begin(),source.nodes.end(),[&](const auto& node){return node.handle==handle;});
         return found==source.nodes.end()?nullptr:&*found;
@@ -135,6 +168,7 @@ private:
         }
         return true;
     }
+#endif
     bool ready_{};Failure failure_=Failure::None;uint64_t base_{};
     Plan peer_,main_;
     std::array<graph_snapshot::Node,2> selected_{};

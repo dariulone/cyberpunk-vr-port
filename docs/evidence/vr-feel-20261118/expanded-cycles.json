@@ -1,0 +1,669 @@
+{
+  "pid": 16036,
+  "sourceSha256": "fc12f67e8f5164e8840afb15f0a945e2f7575522ec2db40d3687482ca5591485",
+  "note": "Discovery run; Lexington and Ticon ratios subsequently tuned in the final paired run.",
+  "takes": [
+    {
+      "requested": "Items.Preset_Grad_Default",
+      "test": "semi",
+      "period": 1.38,
+      "before": {
+        "ammo": 4,
+        "scale": 0.42592594027519,
+        "iconic": false,
+        "cycle": 2.7000000476837,
+        "item": "Items.Preset_Grad_Default",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 200,
+        "remaining": 3,
+        "events": [
+          {
+            "lo": 0.031000001356006,
+            "hi": 0.047000002115965,
+            "delta": 1,
+            "left": 3
+          }
+        ],
+        "cycle": 2.7000000476837,
+        "entity": "10643457ULL",
+        "begin": 0,
+        "ratio": 0.42592594027519,
+        "prevTime": 4.4370002746582,
+        "item": "Items.Preset_Grad_Default",
+        "original": 4,
+        "maxGap": 0.032000064849854
+      },
+      "peakDeg": 14.74803638458252
+    },
+    {
+      "requested": "Items.Preset_Grad_Panam",
+      "test": "semi",
+      "period": 1.42,
+      "before": {
+        "ammo": 5,
+        "scale": 0.42592594027519,
+        "iconic": false,
+        "cycle": 2.7000000476837,
+        "item": "Items.Preset_Grad_Panam",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 204,
+        "remaining": 4,
+        "events": [
+          {
+            "lo": 8.0780000686646,
+            "hi": 8.0940008163452,
+            "delta": 1,
+            "left": 4
+          }
+        ],
+        "cycle": 2.7000000476837,
+        "entity": "10643513ULL",
+        "begin": 8.0160007476807,
+        "ratio": 0.42592594027519,
+        "prevTime": 12.562000274658,
+        "item": "Items.Preset_Grad_Panam",
+        "original": 5,
+        "maxGap": 0.032000541687012
+      },
+      "peakDeg": 14.363533020019531
+    },
+    {
+      "requested": "Items.Preset_Tech_Sniper_Rifle_Default",
+      "test": "semi",
+      "period": 0.91,
+      "before": {
+        "ammo": 3,
+        "scale": 0.60000002384186,
+        "iconic": false,
+        "cycle": 1.2000000476837,
+        "item": "Items.Preset_Tech_Sniper_Rifle_Default",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 135,
+        "remaining": 0,
+        "events": [
+          {
+            "lo": 16.234001159668,
+            "hi": 16.25,
+            "delta": 1,
+            "left": 2
+          },
+          {
+            "lo": 17.141000747681,
+            "hi": 17.156000137329,
+            "delta": 1,
+            "left": 1
+          },
+          {
+            "lo": 18.04700088501,
+            "hi": 18.078001022339,
+            "delta": 1,
+            "left": 0
+          }
+        ],
+        "cycle": 1.2000000476837,
+        "entity": "10643550ULL",
+        "begin": 16.141000747681,
+        "ratio": 0.60000002384186,
+        "prevTime": 19.141000747681,
+        "item": "Items.Preset_Tech_Sniper_Rifle_Default",
+        "original": 3,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 13.499439239501953
+    },
+    {
+      "requested": "Items.Preset_Ashura_Default",
+      "test": "single",
+      "period": 0.58,
+      "before": {
+        "ammo": 1,
+        "scale": 0.68333333730698,
+        "iconic": false,
+        "cycle": 0.60000002384186,
+        "item": "Items.Preset_Ashura_Default",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 40,
+        "remaining": 0,
+        "events": [
+          {
+            "lo": 22.79700088501,
+            "hi": 22.812000274658,
+            "delta": 1,
+            "left": 0
+          }
+        ],
+        "cycle": 0.60000002384186,
+        "entity": "10643582ULL",
+        "begin": 22.71900177002,
+        "ratio": 0.68333333730698,
+        "prevTime": 23.59400177002,
+        "item": "Items.Preset_Ashura_Default",
+        "original": 1,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 10.362614631652832
+    },
+    {
+      "requested": "Items.Preset_Liberty_Dex",
+      "test": "semi",
+      "period": 0.32,
+      "before": {
+        "ammo": 20,
+        "scale": 0.67272728681564,
+        "iconic": false,
+        "cycle": 0.20000000298023,
+        "item": "Items.Preset_Liberty_Dex",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 55,
+        "remaining": 17,
+        "events": [
+          {
+            "lo": 27.203001022339,
+            "hi": 27.21900177002,
+            "delta": 1,
+            "left": 19
+          },
+          {
+            "lo": 27.531002044678,
+            "hi": 27.54700088501,
+            "delta": 1,
+            "left": 18
+          },
+          {
+            "lo": 27.84400177002,
+            "hi": 27.859001159668,
+            "delta": 1,
+            "left": 17
+          }
+        ],
+        "cycle": 0.20000000298023,
+        "entity": "10643597ULL",
+        "begin": 27.17200088501,
+        "ratio": 0.67272728681564,
+        "prevTime": 28.375001907349,
+        "item": "Items.Preset_Liberty_Dex",
+        "original": 20,
+        "maxGap": 0.031999588012695
+      },
+      "peakDeg": 9.331311225891113
+    },
+    {
+      "requested": "Items.Preset_Unity_Agent",
+      "test": "semi",
+      "period": 0.29,
+      "before": {
+        "ammo": 10,
+        "scale": 0.60000002384186,
+        "iconic": false,
+        "cycle": 0.34999999403954,
+        "item": "Items.Preset_Unity_Agent",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 55,
+        "remaining": 7,
+        "events": [
+          {
+            "lo": 31.984001159668,
+            "hi": 32,
+            "delta": 1,
+            "left": 9
+          },
+          {
+            "lo": 32.266002655029,
+            "hi": 32.281002044678,
+            "delta": 1,
+            "left": 8
+          },
+          {
+            "lo": 32.578002929688,
+            "hi": 32.59400177002,
+            "delta": 1,
+            "left": 7
+          }
+        ],
+        "cycle": 0.34999999403954,
+        "entity": "10643605ULL",
+        "begin": 31.937002182007,
+        "ratio": 0.60000002384186,
+        "prevTime": 33.156002044678,
+        "item": "Items.Preset_Unity_Agent",
+        "original": 10,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 7.805169105529785
+    },
+    {
+      "requested": "Items.Preset_Silverhand_3516",
+      "test": "semi",
+      "period": 0.31,
+      "before": {
+        "ammo": 10,
+        "scale": 0.73333334922791,
+        "iconic": false,
+        "cycle": 0.30000001192093,
+        "item": "Items.Preset_Silverhand_3516",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 55,
+        "remaining": 7,
+        "events": [
+          {
+            "lo": 36.75,
+            "hi": 36.781002044678,
+            "delta": 1,
+            "left": 9
+          },
+          {
+            "lo": 37.09400177002,
+            "hi": 37.109001159668,
+            "delta": 1,
+            "left": 8
+          },
+          {
+            "lo": 37.391002655029,
+            "hi": 37.42200088501,
+            "delta": 1,
+            "left": 7
+          }
+        ],
+        "cycle": 0.30000001192093,
+        "entity": "10643647ULL",
+        "begin": 36.71900177002,
+        "ratio": 0.73333334922791,
+        "prevTime": 37.937000274658,
+        "item": "Items.Preset_Silverhand_3516",
+        "original": 10,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 12.979001998901367
+    },
+    {
+      "requested": "Items.Preset_Nova_Default",
+      "test": "semi",
+      "period": 0.36,
+      "before": {
+        "ammo": 6,
+        "scale": 0.71666663885117,
+        "iconic": false,
+        "cycle": 0.30000001192093,
+        "item": "Items.Preset_Nova_Default",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 60,
+        "remaining": 3,
+        "events": [
+          {
+            "lo": 41.531002044678,
+            "hi": 41.54700088501,
+            "delta": 1,
+            "left": 5
+          },
+          {
+            "lo": 41.891002655029,
+            "hi": 41.906002044678,
+            "delta": 1,
+            "left": 4
+          },
+          {
+            "lo": 42.234001159668,
+            "hi": 42.266002655029,
+            "delta": 1,
+            "left": 3
+          }
+        ],
+        "cycle": 0.30000001192093,
+        "entity": "10643652ULL",
+        "begin": 41.500003814697,
+        "ratio": 0.71666663885117,
+        "prevTime": 42.812000274658,
+        "item": "Items.Preset_Nova_Default",
+        "original": 6,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 9.63056468963623
+    },
+    {
+      "requested": "Items.Preset_Overture_Default",
+      "test": "semi",
+      "period": 0.39,
+      "before": {
+        "ammo": 6,
+        "scale": 0.67500001192093,
+        "iconic": false,
+        "cycle": 0.40000000596046,
+        "item": "Items.Preset_Overture_Default",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 65,
+        "remaining": 3,
+        "events": [
+          {
+            "lo": 46.42200088501,
+            "hi": 46.437004089355,
+            "delta": 1,
+            "left": 5
+          },
+          {
+            "lo": 46.828002929688,
+            "hi": 46.84400177002,
+            "delta": 1,
+            "left": 4
+          },
+          {
+            "lo": 47.21900177002,
+            "hi": 47.250003814697,
+            "delta": 1,
+            "left": 3
+          }
+        ],
+        "cycle": 0.40000000596046,
+        "entity": "10643657ULL",
+        "begin": 46.391002655029,
+        "ratio": 0.67500001192093,
+        "prevTime": 47.828002929688,
+        "item": "Items.Preset_Overture_Default",
+        "original": 6,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 12.267929077148438
+    },
+    {
+      "requested": "Items.Preset_Burya_Default",
+      "test": "semi",
+      "period": 0.51,
+      "before": {
+        "ammo": 4,
+        "scale": 0.64999997615814,
+        "iconic": false,
+        "cycle": 0.60000002384186,
+        "item": "Items.Preset_Burya_Default",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 85,
+        "remaining": 1,
+        "events": [
+          {
+            "lo": 51.42200088501,
+            "hi": 51.437004089355,
+            "delta": 1,
+            "left": 3
+          },
+          {
+            "lo": 51.937004089355,
+            "hi": 51.953002929688,
+            "delta": 1,
+            "left": 2
+          },
+          {
+            "lo": 52.437004089355,
+            "hi": 52.46900177002,
+            "delta": 1,
+            "left": 1
+          }
+        ],
+        "cycle": 0.60000002384186,
+        "entity": "10643662ULL",
+        "begin": 51.391002655029,
+        "ratio": 0.64999997615814,
+        "prevTime": 53.266002655029,
+        "item": "Items.Preset_Burya_Default",
+        "original": 4,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 13.664813041687012
+    },
+    {
+      "requested": "Items.Preset_Quasar_Default",
+      "test": "semi",
+      "period": 0.24,
+      "before": {
+        "ammo": 16,
+        "scale": 0.86111110448837,
+        "iconic": false,
+        "cycle": 0.18000000715256,
+        "item": "Items.Preset_Quasar_Default",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 45,
+        "remaining": 13,
+        "events": [
+          {
+            "lo": 56.84400177002,
+            "hi": 56.859001159668,
+            "delta": 1,
+            "left": 15
+          },
+          {
+            "lo": 57.109001159668,
+            "hi": 57.125003814697,
+            "delta": 1,
+            "left": 14
+          },
+          {
+            "lo": 57.359001159668,
+            "hi": 57.375003814697,
+            "delta": 1,
+            "left": 13
+          }
+        ],
+        "cycle": 0.18000000715256,
+        "entity": "10643669ULL",
+        "begin": 56.828002929688,
+        "ratio": 0.86111110448837,
+        "prevTime": 57.828002929688,
+        "item": "Items.Preset_Quasar_Default",
+        "original": 16,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 9.239763259887695
+    },
+    {
+      "requested": "Items.Preset_Metel_Default",
+      "test": "semi",
+      "period": 0.51,
+      "before": {
+        "ammo": 8,
+        "scale": 0.67500001192093,
+        "iconic": false,
+        "cycle": 0.60000002384186,
+        "item": "Items.Preset_Metel_Default",
+        "mode": "gamedataTriggerMode : SemiAuto (4)"
+      },
+      "take": {
+        "frames": 85,
+        "remaining": 5,
+        "events": [
+          {
+            "lo": 61.422004699707,
+            "hi": 61.437004089355,
+            "delta": 1,
+            "left": 7
+          },
+          {
+            "lo": 61.937004089355,
+            "hi": 61.953002929688,
+            "delta": 1,
+            "left": 6
+          },
+          {
+            "lo": 62.437004089355,
+            "hi": 62.46900177002,
+            "delta": 1,
+            "left": 5
+          }
+        ],
+        "cycle": 0.60000002384186,
+        "entity": "10643673ULL",
+        "begin": 61.391002655029,
+        "ratio": 0.67500001192093,
+        "prevTime": 63.266002655029,
+        "item": "Items.Preset_Metel_Default",
+        "original": 8,
+        "maxGap": 0.032001495361328
+      },
+      "peakDeg": 12.553638458251953
+    },
+    {
+      "requested": "Items.Preset_Lexington_Default",
+      "test": "auto",
+      "period": 0.32,
+      "before": {
+        "ammo": 20,
+        "scale": 0.89999997615814,
+        "iconic": false,
+        "cycle": 0.125,
+        "item": "Items.Preset_Lexington_Default",
+        "mode": "gamedataTriggerMode : FullAuto (2)"
+      },
+      "take": {
+        "frames": 45,
+        "remaining": 14,
+        "events": [
+          {
+            "lo": 66.859001159668,
+            "hi": 66.891006469727,
+            "delta": 1,
+            "left": 19
+          },
+          {
+            "lo": 67,
+            "hi": 67.016006469727,
+            "delta": 1,
+            "left": 18
+          },
+          {
+            "lo": 67.125,
+            "hi": 67.156005859375,
+            "delta": 1,
+            "left": 17
+          },
+          {
+            "lo": 67.266006469727,
+            "hi": 67.281005859375,
+            "delta": 1,
+            "left": 16
+          },
+          {
+            "lo": 67.406005859375,
+            "hi": 67.422004699707,
+            "delta": 1,
+            "left": 15
+          },
+          {
+            "lo": 67.531005859375,
+            "hi": 67.547004699707,
+            "delta": 1,
+            "left": 14
+          }
+        ],
+        "cycle": 0.125,
+        "entity": "10643680ULL",
+        "begin": 66.828002929688,
+        "ratio": 0.89999997615814,
+        "prevTime": 67.812004089355,
+        "item": "Items.Preset_Lexington_Default",
+        "original": 20,
+        "maxGap": 0.032005310058594
+      },
+      "peakDeg": 6.972205638885498
+    },
+    {
+      "requested": "Items.Preset_Ticon_Default",
+      "test": "burst",
+      "period": 0.51,
+      "before": {
+        "ammo": 21,
+        "scale": 0.87000000476837,
+        "iconic": false,
+        "cycle": 0.30000001192093,
+        "item": "Items.Preset_Ticon_Default",
+        "mode": "gamedataTriggerMode : Burst (0)"
+      },
+      "take": {
+        "frames": 85,
+        "remaining": 12,
+        "events": [
+          {
+            "lo": 71.422004699707,
+            "hi": 71.437004089355,
+            "delta": 1,
+            "left": 20
+          },
+          {
+            "lo": 71.516006469727,
+            "hi": 71.531005859375,
+            "delta": 1,
+            "left": 19
+          },
+          {
+            "lo": 71.625,
+            "hi": 71.641006469727,
+            "delta": 1,
+            "left": 18
+          },
+          {
+            "lo": 71.937004089355,
+            "hi": 71.953002929688,
+            "delta": 1,
+            "left": 17
+          },
+          {
+            "lo": 72.016006469727,
+            "hi": 72.047004699707,
+            "delta": 1,
+            "left": 16
+          },
+          {
+            "lo": 72.109001159668,
+            "hi": 72.125,
+            "delta": 1,
+            "left": 15
+          },
+          {
+            "lo": 72.437004089355,
+            "hi": 72.46900177002,
+            "delta": 1,
+            "left": 14
+          },
+          {
+            "lo": 72.547004699707,
+            "hi": 72.578002929688,
+            "delta": 1,
+            "left": 13
+          },
+          {
+            "lo": 72.672004699707,
+            "hi": 72.687004089355,
+            "delta": 1,
+            "left": 12
+          }
+        ],
+        "cycle": 0.30000001192093,
+        "entity": "10643691ULL",
+        "begin": 71.391006469727,
+        "ratio": 0.87000000476837,
+        "prevTime": 73.266006469727,
+        "item": "Items.Preset_Ticon_Default",
+        "original": 21,
+        "maxGap": 0.032005310058594
+      },
+      "peakDeg": 8.217045783996582
+    }
+  ]
+}

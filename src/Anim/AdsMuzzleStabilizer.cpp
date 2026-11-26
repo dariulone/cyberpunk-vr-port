@@ -59,15 +59,14 @@
 #include <cmath>
 #include <cstdint>
 
-extern float* g_pSharedHands;
+extern "C" float* g_pSharedHands;   // Anim/VrikState.hpp: C linkage
 
 // 1 = correct the non-VRIK ADS muzzle drift (default). The knob exists because this writes a bone
 // every tick while aiming, and a feature that writes bones should be switchable without a rebuild.
-extern "C" __declspec(dllexport) int32_t  CyberpunkVR_NonVrikAdsStabilizer = 1;
+// (CyberpunkVR_NonVrikAdsStabilizer and the two probes below: src/Anim/CharacterRigState.cpp.)
 // How often the correction is actually applied, and how often the reference was refused. Both are
 // answers to "is it running at all", which cost a round trip to guess at.
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugAdsStabApplies = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugAdsStabHipCaptures = 0;
+
 
 namespace cvr::anim {
 

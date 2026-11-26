@@ -4,8 +4,18 @@
 #include <algorithm>
 #include <cmath>
 #include <psapi.h>
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
 
+#if CVR_RUST_VRIK
+// THE PRESENTER IS RUST'S (rust/crates/cvr-render/src/framegen_presenter.rs): the frame loop hands it its captured pair,
+// the cycle's end tells it the submission; this face is OpenXRManager's member.
+extern "C" {
+}
+namespace cvr::framegen {
+}  // namespace cvr::framegen
+#else
 namespace cvr::framegen {
 namespace {
 bool ExternalBridgeLoaded() {
@@ -118,16 +128,11 @@ Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame
     previous.color[0]=previous.color[1]=nullptr;primed=true;
     return result;
 }
-void Presenter::Submitted(const Selection& result,ID3D12Fence* fence,uint64_t value,bool accepted,bool retainEndpoint) {
+void Presenter::Submitted(const Selection& result,ID3D12Fence* fence,uint64_t value,bool accepted) {
     if(result.frame.lease)result.frame.lease->fence=std::max(result.frame.lease->fence,value);
     if(result.generatedFrom)result.generatedFrom->fence=std::max(result.generatedFrom->fence,value);
     generator.ConsumerFence(fence,value);
-    // A transient swapchain/submit failure must not discard B after its midpoint was accepted. Keep the pinned
-    // endpoint for the next cycle; a recenter, menu transition or explicit Reset still invalidates it.
-    if(!accepted) {
-        if(!retainEndpoint || result.kind!=Cadence::Next::PendingReal)Reset();
-        return;
-    }
+    if(!accepted) {Reset();return;}
     cadence.Accepted(result.kind,result.frame.identity.serial);
     if(MetricsEnabled())OnSubmitted(result.frame.identity.serial,result.synthetic,result.kind==Cadence::Next::Repeat,NowMs());
     if(result.kind==Cadence::Next::PendingReal)pending={};
@@ -138,3 +143,4 @@ void Presenter::Reset() {
     if(generator.Reset() && !DepthCaptureEnabled())ReleaseInputs();
 }
 }
+#endif

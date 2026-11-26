@@ -117,6 +117,9 @@ public:
     HRESULT CreateArena(ID3D12Device*,ID3D12RootSignature*,const PairedRootPlan&,UINT maxDraws,UINT64 bytes);
     HRESULT AppendConstants(const PairedRootPlan&,std::span<const BankPair>,UINT& draw);
     bool RestartArena();
+    // The Rust build's test facades: the bank's storage handed over (a reference) and taken (one reference adopted).
+    void* DetachStorage();
+    void AttachStorage(void* storage);
     bool CapturedFor(ID3D12GraphicsCommandList*)const;
     // Record after native SRV producers, before their first overwrite/alias.
     // No CPU wait. All captures and users must execute on this one recording,

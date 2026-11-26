@@ -8,6 +8,12 @@
 #include <string>
 #include <vector>
 #include "Overlay/LauncherDialog.hpp"
+#include "Render/MonitorOutput.hpp"
+namespace cvr {
+static MonitorOutput savedMonitor = MonitorOutput::Default;
+MonitorOutput GetMonitorOutput() { return savedMonitor; }
+void SetMonitorOutput(MonitorOutput output) { savedMonitor = output; }
+}
 // Exercise the actual IAT handlers with fake cursor functions. The window test
 // runs on an unshown desktop and never clips or moves the real pointer.
 #include "../../src/Hooks/OsInput.cpp"
@@ -49,6 +55,10 @@ extern "C" void SetLauncherCustomResolution(int on){savedCustom=on;}
 extern "C" int GetLauncherLobby(){return savedLobby;}
 extern "C" void SetLauncherLobbyAndPersist(int on){savedLobby=on;}
 int savedInterface=1,savedPhysics=1;
+int savedVr=1,savedPlane=0;
+extern "C" int GetLauncherVrEnabled(){return savedVr;}
+extern "C" int GetLauncherWeaponPlane(){return savedPlane;}
+extern "C" void SetLauncherModes(int vr,int plane){savedVr=vr;savedPlane=plane;}
 extern "C" int GetLauncherInterface(){return savedInterface;}
 extern "C" void SetLauncherInterfaceAndPersist(int on){savedInterface=on;}
 extern "C" int GetLauncherHandPhysics(){return savedPhysics;}
@@ -163,6 +173,10 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             Check(FieldText(window,109)==L"6080" && FieldText(window,110)==L"5928","the size fields do not show the pick");
             PostMessageW(window,WM_CLOSE,0,0);
         } else if(mode==6) {
+            HWND monitor = GetDlgItem(window,117);
+            Check(SendMessageW(monitor,CB_GETCOUNT,0,0)==3 && SendMessageW(monitor,CB_GETCURSEL,0,0)==0 &&
+                  ComboText(monitor,1)==L"Left eye" && ComboText(monitor,2)==L"Right eye","monitor choices missing");
+            SendMessageW(monitor,CB_SETCURSEL,1,0);
             // OWN SIZES (engine stereo): typed sides, a typed aspect, - / +, the slider's keys, the lobby switch
             SelectHmd(window,2);    // Quest 3
             HWND combo=GetDlgItem(window,101);
@@ -191,7 +205,7 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             SendMessageW(GetDlgItem(window,112),BM_SETCHECK,BST_UNCHECKED,0);
             RECT left{},rightColumn{};
             GetWindowRect(GetDlgItem(window,104),&left);
-            for(int id : {112,113,114}) {
+            for(int id : {112,113,114,115,116}) {
                 const HWND toggle=GetDlgItem(window,id);
                 Check(toggle!=nullptr,"feature toggle missing");
                 GetWindowRect(toggle,&rightColumn);
@@ -199,10 +213,15 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             }
             SendMessageW(GetDlgItem(window,113),BM_CLICK,0,0);
             SendMessageW(GetDlgItem(window,114),BM_CLICK,0,0);
+            Check(SendMessageW(GetDlgItem(window,116),BM_GETCHECK,0,0)==BST_UNCHECKED,"new installation enabled the weapon plane");
+            SendMessageW(GetDlgItem(window,116),BM_CLICK,0,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
             Check(savedHmd==2 && savedWidth==2648 && savedHeight==2400 && savedCustom==1,"an own size was not saved as custom");
             Check(savedLobby==0 && savedInterface==0 && savedPhysics==0,"feature switches were not saved");
+            Check(savedVr==1 && savedPlane==1,"VR or weapon-plane selection lost");
         } else if(mode==7) {
+            Check(SendMessageW(GetDlgItem(window,117),CB_GETCURSEL,0,0)==1,"left eye did not reload");
+            SendMessageW(GetDlgItem(window,117),CB_SETCURSEL,2,0);
             // the own size reloads as the Custom item; without engine stereo it lands on the ladder
             HWND combo=GetDlgItem(window,101);
             const auto count=SendMessageW(combo,CB_GETCOUNT,0,0);
@@ -218,6 +237,18 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             for(int id : {112,113,114}) SendMessageW(GetDlgItem(window,id),BM_SETCHECK,BST_CHECKED,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
             Check(savedCustom==0 && savedLobby==1 && savedInterface==1 && savedPhysics==1,"feature re-enable was not saved");
+        } else if(mode==8) {
+            Check(SendMessageW(GetDlgItem(window,117),CB_GETCURSEL,0,0)==2,"right eye did not reload");
+            SendMessageW(GetDlgItem(window,117),CB_SETCURSEL,0,0);
+            Check(SendMessageW(GetDlgItem(window,116),BM_GETCHECK,0,0)==BST_CHECKED,"weapon plane choice did not reload");
+            SendMessageW(GetDlgItem(window,115),BM_CLICK,0,0);
+            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            Check(savedVr==0,"desktop selection was not saved");
+            Check(cvr::GetMonitorOutput()==cvr::MonitorOutput::Right,"desktop launch replaced VR mirror choice");
+        } else if(mode==9) {
+            Check(!IsWindowEnabled(GetDlgItem(window,117)),"desktop launch enabled eye selection");
+            Check(SendMessageW(GetDlgItem(window,115),BM_GETCHECK,0,0)==BST_UNCHECKED,"desktop choice did not reload");
+            PostMessageW(window,WM_CLOSE,0,0);
         }
     }catch(const std::exception& e){failure=e.what();if(window)PostMessageW(window,WM_CLOSE,0,0);else PostQuitMessage(20);}
 }
@@ -235,7 +266,7 @@ int main()try {
     InstallOSHooks();
     g_origClipCursor=FakeClip;g_origSetCursorPos=FakeWarp;g_origGetCursorPos=FakePos;
     g_origGetCursorInfo=FakeInfo;g_origGetMessagePos=FakeMessagePos;
-    for(mode=0;mode<8;++mode){
+    for(mode=0;mode<10;++mode){
         deadline=GetTickCount64()+3000;timer=SetTimer(nullptr,0,20,Inspect);Check(timer!=0,"timer unavailable");
         ShowLauncherDialog();KillTimer(nullptr,timer);
         Check(failure.empty(),failure.c_str());

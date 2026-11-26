@@ -1,6 +1,5 @@
 // SinglePass -- see include/Stereo/SinglePass.hpp.
 #include "Stereo/SinglePass.hpp"
-#include "Utils/DebugGate.hpp"
 #include "Render/SinglePassPipelines.hpp"
 #include "Stereo/StereoInternal.hpp"
 #include "Render/RenderProbeScope.hpp"
@@ -9,15 +8,23 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePass{1};   // on (measured: docs/vr-render-optimization-20261104.md)
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SinglePassNode{0x33DDA4};   // RenderElements; 0 = every node
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_SinglePassCounts[10]{};
@@ -43,9 +50,41 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_OcclusionCullRetest{8};
 // [0] queried draws, [1] predicated draws, [2] slots, [3] resolve runs, [4] lists resolved, [5] failures,
 // [6] lists reset with unresolved queries
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_OcclusionCullCounts[8]{};
+#endif
+#if !CVR_RUST_VRIK
 extern std::atomic<uint64_t> CyberpunkVR_PresentTiming[8];
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// SINGLE PASS IS RUST'S (rust/crates/cvr-render/src/single_pass.rs): the lists' state, the kept left draws and their
+// view-instanced partners, the chained command-list detours and the occlusion prototype. This file keeps the exports
+// above, the C++ names and the census' hook record lookup Rust reads its originals from.
+extern "C" {
+}
+static_assert(offsetof(cvr::detail::CommandListVtableHook, draw_original) == 56 &&
+                  offsetof(cvr::detail::CommandListVtableHook, viewports_original) == 88 &&
+                  offsetof(cvr::detail::CommandListVtableHook, setpso_original) == 112 &&
+                  offsetof(cvr::detail::CommandListVtableHook, iavb_original) == 120 &&
+                  offsetof(cvr::detail::CommandListVtableHook, groot_original) == 152 &&
+                  offsetof(cvr::detail::CommandListVtableHook, grootdt_original) == 160 &&
+                  offsetof(cvr::detail::CommandListVtableHook, iaib_original) == 176 &&
+                  offsetof(cvr::detail::CommandListVtableHook, topology_original) == 200 &&
+                  offsetof(cvr::detail::CommandListVtableHook, stencil_original) == 208 &&
+                  offsetof(cvr::detail::CommandListVtableHook, shading_rate_original) == 216 &&
+                  offsetof(cvr::detail::CommandListVtableHook, shading_image_original) == 224 &&
+                  offsetof(cvr::detail::CommandListVtableHook, blend_factor_original) == 272,
+              "CommandListVtableHook's head is mirrored in rust/crates/cvr-render/src/single_pass.rs");
+static_assert(sizeof(D3D12_VIEWPORT) == 24 && sizeof(D3D12_RECT) == 16 && sizeof(D3D12_VERTEX_BUFFER_VIEW) == 16 &&
+              sizeof(D3D12_INDEX_BUFFER_VIEW) == 16 && sizeof(std::atomic<uint64_t>) == 8 && sizeof(std::atomic<uint32_t>) == 4);
+
+namespace cvr::single_pass {
+}  // namespace cvr::single_pass
+#endif
+#else
 namespace cvr::single_pass {
 namespace {
 auto& Count(size_t i){return CyberpunkVR_SinglePassCounts[i];}
@@ -619,7 +658,7 @@ bool Draw(ID3D12GraphicsCommandList* list,uint32_t node,uint32_t kind,const uint
         if(l.phase!=1) {
             if(l.unsent){Cause(95);FlushList(list,l);}
             l.pending.clear();l.cursor=0;l.phase=1;l.broken=false;
-            if((Count(8).fetch_add(1,std::memory_order_relaxed)+1)%4096==0 && cvr::RuntimeDiagnosticsEnabled()) {   // where kept draws went, now and then (a diagnostic)
+            if((Count(8).fetch_add(1,std::memory_order_relaxed)+1)%4096==0) {   // where kept draws went, now and then
                 char line[1200];int u=0;
                 for(size_t i=0;i<96 && u<640;++i)if(const auto n=CyberpunkVR_SinglePassFlushBy[i].load(std::memory_order_relaxed))
                     u+=snprintf(line+u,sizeof(line)-u," %zu:%llu",i,static_cast<unsigned long long>(n));
@@ -675,3 +714,4 @@ bool Draw(ID3D12GraphicsCommandList* list,uint32_t node,uint32_t kind,const uint
     return true;
 }
 }
+#endif

@@ -22,16 +22,16 @@ static bool Read(uint64_t address,void* out,size_t bytes){
     if(unreadable || address<imageBase)return false;
     const auto rva=address-imageBase;
     if(bytes==8){
-        uint64_t method=imageBase+0x18D9C80;
-        if(rva==0x2B3A008+0x28)method=imageBase+0x18E4120;
-        else if(rva==0x2B3A038+0x28)method=imageBase+0x18E46C0;
-        else if(rva<0x2B39DF0 || rva>0x312E1B0)return false;
+        uint64_t method=imageBase+0xADF4E0;
+        if(rva==0x3094850+0x28)method=imageBase+0x1941AC0;
+        else if(rva==0x36CED58+0x28)method=imageBase+0x1942080;
+        else if(rva<0x30946F8 || rva>0x36D1DC0)return false;
         std::memcpy(out,&method,8);return true;
     }
     std::array<uint8_t,6> code{};
-    if(rva==0x18E4120 && bytes==6)code={0xB8,2,0,0,0,0xC3};
-    else if(rva==0x18E46C0 && bytes==6)code={0xB8,3,0,0,0,0xC3};
-    else if(rva==0x18D9C80 && bytes==3)code={0x33,0xC0,0xC3};
+    if(rva==0x1941AC0 && bytes==6)code={0xB8,2,0,0,0,0xC3};
+    else if(rva==0x1942080 && bytes==6)code={0xB8,3,0,0,0,0xC3};
+    else if(rva==0xADF4E0 && bytes==3)code={0x33,0xC0,0xC3};
     else return false;
     if(corruptLeaf)code[0]^=1;std::memcpy(out,code.data(),bytes);return true;
 }
@@ -39,10 +39,10 @@ struct Fixture {
     graph::Snapshot source;
     std::array<frontier::Edges,2> edges;
     Fixture(){
-        const uint32_t vtables[]{0x2B3A008,0x2B3A038,0x2B3A008,0x2B3A038};
+        const uint32_t vtables[]{0x3094850,0x36CED58,0x3094850,0x36CED58};
         for(uint32_t i=0;i<4;++i){graph::Node node;node.handle=node.order=i;
             Put(node.bytes,0,i);Put(node.bytes,8,uint32_t(4));Put(node.bytes,16,uint64_t(0x10000+i*64));
-            Put(node.bytes,24,i/2);node.vtable=Base+vtables[i];node.work=Base+(i%2?0x58DA9C:0x1EC1D0);
+            Put(node.bytes,24,i/2);node.vtable=Base+vtables[i];node.work=Base+(i%2?0x655FAC:0x332D5C);
             Put(node.definition,0,node.vtable);Put(node.definition,24,i%2?uint32_t(2):uint32_t(7));source.nodes.push_back(node);
         }
         for(auto& phase:edges)for(uint32_t i=1;i<4;++i)phase.emplace(i-1,i);

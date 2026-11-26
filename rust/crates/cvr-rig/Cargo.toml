@@ -1,0 +1,28 @@
+[package]
+name = "cvr-rig"
+description = "VRIK (stage 3): the player's own bones -- forward kinematics, the arm and leg solves, the hand targets, the body under the HMD"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cvr-body = { path = "../cvr-body" }
+cvr-settings = { path = "../cvr-settings" }
+cvr-camera = { path = "../cvr-camera" }
+cvr-crt = { path = "../cvr-crt" }
+cvr-engine = { path = "../cvr-engine" }
+cvr-host = { path = "../cvr-host" }
+cvr-input = { path = "../cvr-input" }
+cvr-physhands = { path = "../cvr-physhands" }
+red4ext-abi = { path = "../red4ext-abi" }
+serde_json = "1"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Performance", "Win32_System_Com", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi_Common", "Win32_Media_Audio", "Win32_Media_Audio_XAudio2", "Win32_System_Com", "Win32_System_LibraryLoader"] }
+
+[features]
+# The solve (src/vrik): it reads and writes the globals the C++ half defines, so only a binary that links those
+# (the DLL, tools/vrik_tests) enables it.
+engine = []
+
+[lints]
+workspace = true

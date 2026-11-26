@@ -1,0 +1,416 @@
+{
+  "multi-ship": {
+    "pid": 23068,
+    "item": "Items.Preset_Katana_Takemura",
+    "result": {
+      "edge-press": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "press_from_joint": true,
+          "edge_only": true,
+          "follow_mark": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2,
+          3
+        ],
+        "finalHoldDepth": 0.21900534629822,
+        "strength": 20,
+        "startingSerial": 1,
+        "joint": 1,
+        "nextSerial": 2,
+        "preservedJoint": true,
+        "ink": 956,
+        "kind": 1,
+        "hitShape": "LeftTorso",
+        "healthBefore": 222.70355224609,
+        "healthAfter": 0
+      },
+      "flat-press": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "press_from_joint": true,
+          "edge_only": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2
+        ],
+        "finalHoldDepth": 0.28031432628632,
+        "strength": 20,
+        "startingSerial": 3,
+        "joint": 2
+      },
+      "thrust": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "released": true,
+          "reentry": false
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2
+        ],
+        "finalHoldDepth": 0.30883133411407,
+        "reentryMaxDepth": 0.30220481753349,
+        "reentryMinHP": 0.61389994621277
+      },
+      "arc": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          1
+        ],
+        "finalHoldDepth": 0
+      },
+      "swing": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          1
+        ],
+        "finalHoldDepth": 0
+      },
+      "reverse": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "slash": true,
+          "no_static_repeat": true,
+          "idle": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          1
+        ],
+        "finalHoldDepth": 0
+      }
+    }
+  },
+  "multi-moving": {
+    "pid": 23068,
+    "item": "Items.Preset_Katana_Takemura",
+    "result": {
+      "edge-press": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "press_from_joint": true,
+          "edge_only": true,
+          "follow_mark": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": true,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2,
+          3
+        ],
+        "finalHoldDepth": 0.29336714744568,
+        "strength": 20,
+        "startingSerial": 8,
+        "joint": 7,
+        "nextSerial": 9,
+        "preservedJoint": true,
+        "ink": 752,
+        "kind": 1,
+        "hitShape": "LeftTorso",
+        "healthBefore": 220.0016784668,
+        "healthAfter": 0
+      },
+      "flat-press": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": false,
+          "no_static_repeat": true,
+          "idle": true,
+          "press_from_joint": true,
+          "edge_only": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": true,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2
+        ],
+        "finalHoldDepth": 0,
+        "strength": 20,
+        "startingSerial": 10,
+        "joint": 8
+      },
+      "thrust": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "released": true,
+          "reentry": false
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "restoreAiOnStroke": true,
+        "targetRecord": "Character.maelstrom_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2,
+          3
+        ],
+        "finalHoldDepth": 0.30982121825218,
+        "reentryMaxDepth": 0,
+        "reentryMinHP": 301.44573974609
+      }
+    }
+  },
+  "multi-val": {
+    "pid": 23068,
+    "item": "Items.Preset_Katana_Takemura",
+    "result": {
+      "edge-press": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "press_from_joint": true,
+          "edge_only": true,
+          "follow_mark": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 15.0,
+        "roll": -28.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.valentinos_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2,
+          3
+        ],
+        "finalHoldDepth": 0.29126247763634,
+        "strength": 20,
+        "startingSerial": 12,
+        "joint": 10,
+        "nextSerial": 13,
+        "preservedJoint": true,
+        "ink": 478,
+        "kind": 3,
+        "hitShape": "LeftTorso",
+        "healthBefore": 276.27066040039,
+        "healthAfter": 0
+      },
+      "thrust": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "released": true,
+          "reentry": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 15.0,
+        "roll": -28.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.valentinos_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2,
+          3
+        ],
+        "finalHoldDepth": 0.29129701852798,
+        "reentryMaxDepth": 0.33568844199181,
+        "reentryMinHP": 0
+      },
+      "flat-press": {
+        "checks": {
+          "tracked": true,
+          "start_clear": true,
+          "shape_crossing": true,
+          "target_hit": true,
+          "damage": true,
+          "mesh_mark": true,
+          "lodged_hold": true,
+          "no_static_repeat": true,
+          "idle": true,
+          "press_from_joint": true,
+          "edge_only": true
+        },
+        "air": {
+          "tracked": true,
+          "no_air_hit": true
+        },
+        "initialCapsules": 16,
+        "initialDepth": 0,
+        "yaw": 15.0,
+        "roll": -28.0,
+        "restoreAiOnStroke": false,
+        "targetRecord": "Character.valentinos_grunt1_melee1_knife_ma",
+        "incomingInk": [
+          2,
+          3
+        ],
+        "finalHoldDepth": 0.29569244384766,
+        "strength": 20,
+        "startingSerial": 16,
+        "joint": 13
+      }
+    }
+  }
+}

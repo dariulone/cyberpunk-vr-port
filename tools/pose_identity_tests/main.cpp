@@ -2,10 +2,20 @@
 #include "Camera/ImagePoseLedger.hpp"
 #include "Camera/ImagePoseMath.hpp"
 #include "Runtimes/CaptureBufferLeases.hpp"
+#include "Runtimes/CaptureFrontier.hpp"
+#include "Runtimes/AsymmetricProjection.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <string>
+
+extern "C" {
+int32_t CyberpunkVR_AsymProjection=1, CyberpunkVR_AsymSquarePixels=1;
+float CyberpunkVR_AsymInnerGuard=0;
+int32_t CyberpunkVR_EngineStereoEyeWindows=1, CyberpunkVR_MonoView=0;
+}
+int g_launcherWidth=2040, g_launcherHeight=2056;
+namespace cvr::engine_stereo { bool Enabled() { return true; } }
 
 namespace {
 struct Token { uint64_t id{},origin{1};uint32_t view{1}; };
@@ -109,6 +119,114 @@ void Reservations() {
     leases.Unpin(10);Check(leases.BeginWrite(10),"reader reservation leaked");
     leases.EndWrite(10);leases.Unpin(20);Check(leases.BeginWrite(20),"reused VRCAM slot stayed pinned");
 }
+void CaptureFrontier() {
+    // A 4-slot producer queues frames every tick; GPU completion is three ticks
+    // behind it. Latest/previous-only selection never observes a finished image.
+    // The retained frontier must make progress without extra buffers or a CPU wait.
+    struct Frame { uint64_t serial{}, fence{}; int slot{-1}; } latest, previous;
+    uint64_t presented=0;
+    unsigned delivered=0, legacyDelivered=0;
+    cvr::capture::BufferLeases leases;
+    for(uint64_t tick=1;tick<=300;++tick) {
+        const auto completed=tick>3 ? tick-3 : 0;
+        const bool protect=cvr::capture::ProtectPrevious(previous.serial,presented);
+        int write=-1;
+        for(int slot=0;slot<4;++slot) {
+            if(slot==latest.slot || (protect && slot==previous.slot))continue;
+            if(leases.BeginWrite(uintptr_t(slot+1))) {write=slot;break;}
+        }
+        Check(write>=0,"retaining the frontier exhausted the four capture slots");
+        Check(!protect || write!=previous.slot,"unfinished unpresented image was overwritten");
+        if(latest.serial && cvr::capture::ReplacePrevious(previous.serial,presented,latest.fence,completed))
+            previous=latest;
+        latest={tick,tick,write};leases.EndWrite(uintptr_t(write+1));
+        const auto pick=latest.fence<=completed ? latest : previous;
+        if(pick.serial>presented && pick.fence<=completed) {
+            Check(leases.Pin(uintptr_t(pick.slot+1)),"ready frontier was being written");
+            presented=pick.serial;++delivered;leases.Unpin(uintptr_t(pick.slot+1));
+        }
+        if(tick>1 && tick-1<=completed)++legacyDelivered;
+    }
+    Check(legacyDelivered==0,"fixture no longer reproduces the old starvation");
+    Check(delivered>=70 && presented>=294,"deep GPU queue starved the headset");
+    Check(cvr::capture::ReplacePrevious(8,4,9,9),"ready newer frame cannot replace the frontier");
+    Check(!cvr::capture::ReplacePrevious(8,4,9,7),"unfinished newer frame displaced the frontier");
+    Check(cvr::capture::ReplacePrevious(8,8,9,7),"presented frontier blocked future progress");
+    Check(!cvr::capture::ProtectPrevious(9,8,1,2),"old tracking origin kept a protected capture slot after recenter");
+    Check(cvr::capture::ProtectPrevious(9,8,2,2),"current tracking origin lost its unpresented frontier");
+    // With a pending framegen endpoint and the current consumer occupying the
+    // other slots, the producer skips rather than sacrificing either eye.
+    for(uintptr_t slot:{uintptr_t(3),uintptr_t(4)})Check(leases.Pin(slot),"cannot pin framegen/consumer slot");
+    bool available=false;
+    for(uintptr_t slot=1;slot<=4;++slot) {
+        if(slot==1 || (slot==2 && cvr::capture::ProtectPrevious(9,8)))continue;
+        if(leases.BeginWrite(slot)) {available=true;leases.EndWrite(slot);}
+    }
+    Check(!available,"capture overwrote a protected stereo pair under slot pressure");
+}
+void CaptureEyeOrigin() {
+    cvr::capture::BufferLeases leases;
+    struct Label {uint64_t origin{};bool valid{};} label{7,true};
+    uint64_t serial=100;
+    Check(leases.Pin(42),"cannot retain old eye while consumer uses it");
+    Check(!leases.BeginWrite(42,serial,label) && serial==100 && label.valid,
+        "failed write reservation invalidated the consumer's image metadata");
+    leases.Unpin(42);
+    Check(leases.BeginWrite(42,serial,label),"unused eye slot unavailable");
+    Check(!serial && !label.valid && !label.origin,"new write kept an older pixel label");
+    Check(!leases.Pin(42),"consumer read an unpublished write");
+    // GPU write was submitted, then origin reset cancelled publication.
+    leases.EndWrite(42);
+    Check(!cvr::capture::ReusableEye(serial,101,3,label.origin,8),
+        "discarded capture exposed overwritten pixels as the old frame");
+    serial=102;label={8,true};
+    Check(cvr::capture::ReusableEye(serial,102,0,label.origin,8),"exact current-origin eye rejected");
+    Check(cvr::capture::ReusableEye(serial,105,3,label.origin,8),"bounded current-origin reuse rejected");
+    Check(!cvr::capture::ReusableEye(serial,106,3,label.origin,8),"eye reuse exceeded configured frame age");
+    Check(!cvr::capture::ReusableEye(serial,102,3,label.origin,9),"exact serial bypassed tracking-origin check");
+    Check(!cvr::capture::ReusableEye(serial,103,3,label.origin,9),"previous eye crossed a recenter through reuse");
+    Check(!cvr::capture::ReusableEye(serial,101,3,label.origin,8),"future eye was paired with older MAIN");
+}
+void RuntimeFrusta() {
+    using namespace cvr::projection;
+    constexpr float radians=.0174532925199433f;
+    // Actual Steam Frame frusta in issue #243's attached log. These are not
+    // symmetric and their target aspect need not equal the runtime recommendation.
+    XrFovf fovs[2]={{-59.139f*radians,50.359f*radians,49.396f*radians,-60.061f*radians},
+                   {-50.287f*radians,59.187f*radians,49.905f*radians,-59.555f*radians}};
+    const XrQuaternionf eyes[2]={{0,0,0,1},{0,0,0,1}};
+    EyeWindow baseline[2];Check(Windows(fovs,eyes,baseline),"logged Steam Frame frusta rejected");
+    for(unsigned crop=0;crop<5;++crop) {
+        XrFovf altered[2]={fovs[0],fovs[1]};
+        if(crop==1) {altered[0].angleRight*=.5f;altered[1].angleLeft*=.5f;}
+        if(crop==2) {altered[0].angleLeft*=.8f;altered[1].angleRight*=.8f;}
+        if(crop==3)for(auto& eye:altered)eye.angleUp*=.7f;
+        if(crop==4)for(auto& eye:altered)eye.angleDown*=.7f;
+        EyeWindow fitted[2];Check(Windows(altered,eyes,fitted),"runtime crop rejected");
+        bool changed=false;
+        for(unsigned eye=0;eye<2;++eye) {
+            const auto& window=fitted[eye];const auto submitted=ToFov(window);const auto engine=ToEngine(window);
+            Near(engine.aspect,float(g_launcherWidth)/g_launcherHeight,"runtime crop stretched render pixels");
+            Check(window.l<=std::tan(altered[eye].angleLeft)+1e-5f &&
+                  window.r>=std::tan(altered[eye].angleRight)-1e-5f &&
+                  window.d<=std::tan(altered[eye].angleDown)+1e-5f &&
+                  window.u>=std::tan(altered[eye].angleUp)-1e-5f,"aspect fit clipped a visible lens edge");
+            const float sy=1/std::tan(engine.vfovDeg*radians*.5f),sx=sy/engine.aspect;
+            for(float nx:{-.8f,0.0f,.7f})for(float ny:{-.7f,0.0f,.8f}) {
+                const float x=window.l+(nx+1)*.5f*(window.r-window.l);
+                const float y=window.d+(ny+1)*.5f*(window.u-window.d);
+                Near(x*sx+engine.shiftX,nx,"rendered horizontal ray disagrees with submit frustum");
+                Near(y*sy+engine.shiftY,ny,"rendered vertical ray disagrees with submit frustum");
+            }
+            Near(std::tan(submitted.angleLeft),window.l,"submitted left edge disagrees with render");
+            Near(std::tan(submitted.angleUp),window.u,"submitted top edge disagrees with render");
+            changed=changed || std::abs(window.l-baseline[eye].l)>.001f ||
+                std::abs(window.r-baseline[eye].r)>.001f || std::abs(window.d-baseline[eye].d)>.001f ||
+                std::abs(window.u-baseline[eye].u)>.001f;
+        }
+        Check(crop==0 || changed,"runtime FOV change had no effect on rendered windows");
+    }
+}
 void EyeRebase() {
     const XrPosef old{{0,0,0,1},{1,2,3}};
     const XrPosef current{{0,std::sin(.4f),0,std::cos(.4f)},{-.3f,1.7f,.2f}};
@@ -163,6 +281,9 @@ int main(int argc,char** argv) {
     if(name=="camera_blend") { CameraBlend();return 0; }
     if(name=="camera_blend_reject") { CameraBlendReject();return 0; }
     if(name=="camera_blend_stale") { CameraBlendStale();return 0; }
+    if(name=="capture_frontier") { CaptureFrontier();return 0; }
+    if(name=="capture_eye_origin") { CaptureEyeOrigin();return 0; }
+    if(name=="runtime_frusta") { RuntimeFrusta();return 0; }
     if(name=="identical_pose")IdenticalPose();else if(name=="owner_generation")OwnerGeneration();
     else if(name=="changed_during_copy")ChangedDuringCopy();else if(name=="untracked_copy")UntrackedCopy();
     else if(name=="bounded_ledger")BoundedLedger();else if(name=="submission")Submission();

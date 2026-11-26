@@ -108,6 +108,11 @@
 namespace cvr {
 namespace detail {
 
+#if CVR_RUST_VRIK
+// THE DEVICE'S CREATION HOOKS AND THEIR INSTALLER ARE RUST'S (rust/crates/cvr-render/src/device_creation.rs): the
+// descriptor heaps, the committed and placed resources, the root signatures, the counts, stacks and video memory, the
+// streamed resources placed. What they announce to stays here (the runtime at the end of the file).
+#else
 void patch_descriptor_heap_size() {
     if (!g_enable_desc_heap_resize) return;
     bool expected = false;
@@ -135,6 +140,7 @@ void patch_descriptor_heap_size() {
         CyberpunkVR_DebugDescHeapResized = 0xEEEEEEEEu;
     }
 }
+#endif
 
 // STREAMED RESOURCES INTO THE ALLOCATOR'S HEAPS. The engine allocates through D3D12MA and asks for a dedicated
 // (committed) resource for every texture over 256 x 256 texels (sub_140347F74: w*h*d <= 0x10000) and every buffer
@@ -147,8 +153,15 @@ void patch_descriptor_heap_size() {
 // the allocator still makes anything over half a block committed itself, and render-target / depth / UAV
 // textures stay committed (their own flag test, untouched). Only the compare's immediate changes -- a stale or
 // half-written value is still a valid threshold -- and the original bytes are checked first.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) volatile int CyberpunkVR_StreamingPlaced=1;   // on by default (measured, above)
 extern "C" __declspec(dllexport) volatile uint32_t CyberpunkVR_StreamingPlacedState=0;   // 1 applied, 2 restored, 0xFFFFFFFF bytes differ
+#endif
+#if CVR_RUST_VRIK
+// The streaming placement poll: queue_dispatch.rs calls cvr_poll_streaming_placed itself.
+#else
 static void ApplyStreamingPlaced(bool on){
     struct Site{uint32_t rva;uint8_t opcode[2];size_t opcodeBytes;uint32_t original,raised;};
     static const Site sites[]{{0x3480EC,{0x81,0xF9},2,0x00010000u,0x01000000u},{0x3448E3,{0x3D,0},1,0x0003FFFFu,0x01FFFFFFu}};
@@ -182,6 +195,7 @@ static void PollStreamingPlaced(){
     int seen=applied.load(std::memory_order_relaxed);
     if(seen!=wanted && applied.compare_exchange_strong(seen,wanted))ApplyStreamingPlaced(wanted!=0);
 }
+#endif
 
 // Creation counts since launch (vr_bench ab --counters, per window): [0] committed resources, [1] their bytes,
 // [2] placed resources, [3] their allocation bytes, [4] descriptor heaps, [5] graphics/stream pipelines,
@@ -189,16 +203,34 @@ static void PollStreamingPlaced(){
 // [10] placed by the port, [11] placed by the exe (others: drivers, Streamline, DLSS); time inside the runtime and
 // driver: [12] committed, [13] placed (100 ns units); [14] mesh-shader pipelines (an MS subobject). No heaps or root signatures are created in play; resources are,
 // by the engine's streaming as the head turns (the port creates none) -- see CyberpunkVR_StreamingPlaced above.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_CreationCounts[15]{};
+#endif
+#if CVR_RUST_VRIK
+#else
 static uint64_t CreationClock(){LARGE_INTEGER t;QueryPerformanceCounter(&t);return static_cast<uint64_t>(t.QuadPart);}
 static void CountCreationTime(size_t i,uint64_t start){
     static const uint64_t frequency=[]{LARGE_INTEGER f;QueryPerformanceFrequency(&f);return static_cast<uint64_t>(f.QuadPart);}();
     CyberpunkVR_CreationCounts[i].fetch_add((CreationClock()-start)*10000000ull/frequency,std::memory_order_relaxed);
 }
+#endif
 // CyberpunkVR_CreationStacks=1: every committed / placed creation is keyed by the first exe frames of its call
 // stack (RVAs) plus the resource's dimension, heap type and size class; the 16 busiest keys go to the log every
 // 4096 creations. Off by default: a stack walk per creation is not free.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) volatile int CyberpunkVR_CreationStacks=0;
+#endif
+#if CVR_RUST_VRIK
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_VideoMemoryMB[2]{};   // last local usage, peak
+#endif
+#else
 namespace {
 struct CreationKey{uint32_t rva[4]{};uint32_t kind{};
     bool operator==(const CreationKey& o)const{return memcmp(this,&o,sizeof(*this))==0;}};
@@ -261,7 +293,7 @@ static void LogVideoMemory(ID3D12Device* device,const char* when,uint64_t count)
     CyberpunkVR_VideoMemoryMB[0]=local.CurrentUsage>>20;
     for(auto peak=CyberpunkVR_VideoMemoryMB[1].load();(local.CurrentUsage>>20)>peak &&
         !CyberpunkVR_VideoMemoryMB[1].compare_exchange_weak(peak,local.CurrentUsage>>20);){}
-    if(cvr::RuntimeDiagnosticsEnabled())log("[creation] video memory after %llu %s: local %llu / %llu MB budget, non-local %llu / %llu MB; "
+    log("[creation] video memory after %llu %s: local %llu / %llu MB budget, non-local %llu / %llu MB; "
         "since launch %llu graphics pipelines, %llu with a mesh shader",
         static_cast<unsigned long long>(count),when,static_cast<unsigned long long>(local.CurrentUsage>>20),
         static_cast<unsigned long long>(local.Budget>>20),static_cast<unsigned long long>(shared.CurrentUsage>>20),
@@ -294,6 +326,9 @@ static void CountCreation(size_t i,uint64_t bytes=0,const void* caller=nullptr){
         else if(m==exe)CyberpunkVR_CreationCounts[i==0?9:11].fetch_add(1,std::memory_order_relaxed);
     }
 }
+#endif
+#if CVR_RUST_VRIK
+#else
 static HRESULT STDMETHODCALLTYPE Hook_CreateDescriptorHeap(
         ID3D12Device* self, const D3D12_DESCRIPTOR_HEAP_DESC* desc,
         REFIID riid, void** out) {
@@ -330,37 +365,76 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateDescriptorHeap(
     if(SUCCEEDED(result) && use && use->Type==D3D12_DESCRIPTOR_HEAP_TYPE_RTV)rtv_descriptor_heap_created(use->NumDescriptors);
     return result;
 }
+#endif
 
 // --- ExecuteCommandLists probe: count actual GPU command-list executions per
 // frame. Definitive test for "does the eye execute?": if execLists/frame ~doubles
 // under stereo, the eye's command lists really run on the GPU. Queue vtable slot
 // 10 = ExecuteCommandLists; device vtable slot 8 = CreateCommandQueue.
+#if CVR_RUST_VRIK
+#else
 bool g_enable_exec_probe = true;
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_exec_total{0};        // cumulative command lists executed
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_exec_last_frame{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_exec_frame_ctr{0};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExecTotal    = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExecPerFrame = 0;
+#endif
 
 using PFN_ExecuteCommandLists =
     void (STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
 using PFN_CreateCommandQueue =
     HRESULT (STDMETHODCALLTYPE*)(ID3D12Device*, const D3D12_COMMAND_QUEUE_DESC*, REFIID, void**);
+#if CVR_RUST_VRIK
+// ExecuteCommandLists' dispatcher and the hooked queue tables: rust/crates/cvr-render/src/queue_dispatch.rs. The hook's
+// frame stays here (its return address); every subsystem is lent through the runtime below.
+extern "C" uintptr_t cvr_ecl_original(ID3D12CommandQueue*);
+#else
 struct QueueExecuteHook {void** table{};PFN_ExecuteCommandLists original{};};
 static std::array<QueueExecuteHook,16> g_queue_execute_hooks{};
 static std::atomic<uint32_t> g_queue_execute_count{};
 static std::mutex g_queue_execute_mutex;
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 static void ReadObservationUnavailable(){
     cvr::stereo::target_access::ObserverUnavailable();
     cvr::stereo::texture_read::ObserverUnavailable();cvr::stereo::buffer_read::ObserverUnavailable();
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // its C++ callers are the test variants'
+PFN_ExecuteCommandLists command_queue_original_execute(ID3D12CommandQueue* queue){
+    return reinterpret_cast<PFN_ExecuteCommandLists>(cvr_ecl_original(queue));
+}
+#endif
+#else
 PFN_ExecuteCommandLists command_queue_original_execute(ID3D12CommandQueue* queue){
     if(!queue)return nullptr;auto** table=*reinterpret_cast<void***>(queue);
     for(uint32_t i=0,n=g_queue_execute_count.load(std::memory_order_acquire);i<n;++i)
         if(g_queue_execute_hooks[i].table==table)return g_queue_execute_hooks[i].original;
     return nullptr;
 }
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs (game_objects)
 PFN_CreateCommandQueue  g_orig_CreateCommandQueue  = nullptr;
+#endif
 using PFN_CreateCommandList = HRESULT (STDMETHODCALLTYPE*)
     (ID3D12Device*, UINT, D3D12_COMMAND_LIST_TYPE, ID3D12CommandAllocator*,
      ID3D12PipelineState*, REFIID, void**);
@@ -373,7 +447,9 @@ using PFN_OMSetRenderTargets = void (STDMETHODCALLTYPE*)
      BOOL, const D3D12_CPU_DESCRIPTOR_HANDLE*);
 // Slot 14. Used only to NAME the node behind a dispatch: the light-tile pass was identified in
 // a capture by its group count, but a capture cannot say which frame-graph node issued it.
+#if !CVR_RUST_VRIK
 using PFN_Dispatch = void (STDMETHODCALLTYPE*)(ID3D12GraphicsCommandList*, UINT, UINT, UINT);
+#endif
 // hk_Dispatch moved with the census; declared in Stereo/StereoInternal.hpp.
 
 using PFN_ExecuteIndirect = void (STDMETHODCALLTYPE*)(ID3D12GraphicsCommandList*,
@@ -422,15 +498,25 @@ using PFN_GfxReset = HRESULT (STDMETHODCALLTYPE*)
     (ID3D12GraphicsCommandList*, ID3D12CommandAllocator*, ID3D12PipelineState*);
 using CreateRTVFn = void (STDMETHODCALLTYPE*)(ID3D12Device*, ID3D12Resource*,
     const D3D12_RENDER_TARGET_VIEW_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE);
+#if !CVR_RUST_VRIK   // the Rust build's slot is rust/crates/cvr-render/src/device_creation.rs's
 PFN_CreateCommandList    g_orig_CreateCommandList = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 PFN_ResourceBarrier      g_orig_ResourceBarrier = nullptr;
 PFN_CopyResource         g_orig_CopyResource = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 CreateRTVFn g_orig_CreateRTV = nullptr;
+#endif
 // Defined further down, with the constant-block probe it serves; declared here because the
 // device vtable is patched long before that point.
 using CreateCBVFn = void (STDMETHODCALLTYPE*)(ID3D12Device*,
     const D3D12_CONSTANT_BUFFER_VIEW_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE);
+#if !CVR_RUST_VRIK   // the Rust build's slot is rust/crates/cvr-render/src/device_creation.rs's
 CreateCBVFn g_orig_CreateCBV = nullptr;
+#endif
 // hk_CreateCBV is declared in Stereo/StereoInternal.hpp; its definition moved to another file.
 // Exposure probe: defined with the rest of it further down, used by the barrier hook above it.
 // expo_probe_copy moved with the census; declared in Stereo/StereoInternal.hpp.
@@ -441,12 +527,24 @@ CreateCBVFn g_orig_CreateCBV = nullptr;
 // cull_count_report moved with the census; declared in Stereo/StereoInternal.hpp.
 // tile_probe_copy moved with the census; declared in Stereo/StereoInternal.hpp.
 // tile_probe_report moved with the census; declared in Stereo/StereoInternal.hpp.
+#if !CVR_RUST_VRIK   // the Rust build's flag is rust/crates/cvr-render/src/device_creation.rs's
 static std::atomic<bool> g_rtv_hook_installed{false};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorGameQueue = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorReadyFence = 0;
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs (game_objects)
 std::mutex g_game_object_mtx;
 ID3D12Device* g_game_device = nullptr;
+#endif
 
 // The D3D12 debug-layer message drain that lived here is DELETED, its question answered on
 // 2026-08-29. Forced on from outside for this executable alone, the layer reports two errors
@@ -465,10 +563,12 @@ ID3D12Device* g_game_device = nullptr;
 // frame rate, and while it was on the 0x88 driver fault did not occur once in 1457 seconds
 // against a median of about two minutes without it -- suggestive, and the reason the control
 // run for that fault has to be done with the layer OFF.
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs (game_objects)
 ID3D12CommandQueue* g_game_queue = nullptr;
 // Accessors for the game-view ImGui overlay (overlay_imgui.cpp).
 extern "C" ID3D12Device*       CyberpunkVR_GetGameDevice() { return g_game_device; }
 extern "C" ID3D12CommandQueue* CyberpunkVR_GetGameQueue()  { return g_game_queue; }
+#endif
 
 // Moved to src/Stereo/Mirror.cpp: the game-side copy objects, borrowed by the command-list hooks.
 
@@ -490,19 +590,27 @@ extern "C" ID3D12CommandQueue* CyberpunkVR_GetGameQueue()  { return g_game_queue
 // (2444). Thread-local phase (set at vrcam eval, cleared at the command-list Reset that begins the
 // next frame's recording) keeps this from touching pre-DLSS passes; the render-size match keeps it
 // off MAIN (main never uses the square vrcam render size). Dims come from g_vrcam_dlss_r*/o*.
+#if !CVR_RUST_VRIK   // the Rust build's marker is rust/crates/cvr-render/src/stereo_shared.rs's
 thread_local bool t_vrcam_dlss_post = false;   // (legacy, unused) vrcam post-DLSS phase marker
+#endif
 // THREAD-AGNOSTIC crop fix: OMSetRenderTargets and RSSetViewports/ScissorRects for a given draw
 // run consecutively on the SAME command-list recording thread. So we capture the primary bound
 // RT's dimensions per-thread here, and the viewport/scissor hooks upscale a viewport that
 // under-fills that RT. This does not depend on which thread the DLSS eval ran on (the eval and
 // the vrcam blit are NOT reliably co-threaded in the live frame graph).
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local UINT t_cur_rt_w = 0;   // primary bound RT width  on THIS thread
+#endif
+#if !CVR_RUST_VRIK   // render_tls.rs
 thread_local UINT t_cur_rt_h = 0;   // primary bound RT height on THIS thread
+#endif
 // Set while the vrcam CopyToTexture (sub_1403FE078) node is recording on THIS thread: the crop
 // pass whose viewport comes from a render-res SOURCE resource (not VP+0x34), so the VP-swap alone
 // can't move it. While set, hk_RSSetViewports/Scissor upscale the render-res (1418) viewport to
 // output (2444) -> the copy fills the whole 2444 target. Scoped to just this one node + vrcam.
+#if !CVR_RUST_VRIK
 thread_local bool t_copytotex = false;
+#endif
 // (removed: investigation-only viewport/blit diagnostics -- crop root FOUND = raster tonemap
 //  sub_140557204 gated by group 20; fixed natively in Detour_RenderRes via view+0x17D0 match-main.
 //  The stack-capture + band-aid are no longer needed, and the per-viewport RtlCaptureStackBackTrace
@@ -527,13 +635,25 @@ thread_local bool t_copytotex = false;
 // position, and swapchain buffers are pinned independently of descriptor age.
 // Resource/dimension reads are one locked snapshot; an atomic handle alone did
 // not protect the plain fields from a concurrent descriptor replacement.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_rtv_dim_count{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<bool> g_rtv_dim_wrapped_logged{false};
+#endif
 // How often the HUD node binds a target, and how often we cannot say what that bind points at.
 // The second number rising with the first is the map above failing to answer, which is the whole
 // difference between "the HUD moved" and "we went blind to it".
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_hud_node_binds{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_hud_node_unresolved{0};
+#endif
 // d12_present_thread and d12_submit_mirror_copy moved to src/Stereo/Mirror.cpp; both are declared
 // in Stereo/StereoInternal.hpp. A `static` forward declaration here would promise a definition in
 // THIS file -- the shape that has now appeared in six extractions.
@@ -541,9 +661,26 @@ std::atomic<uint64_t> g_hud_node_unresolved{0};
 // Submission cost, QPC ticks summed (the tail of each view's graph is a chain of submissions):
 // [0] calls, [1] lists, [2] HookedExecuteCommandLists before it calls on, [3] this hook before the
 // driver call, [4] the driver call, [5] this hook after it. Hooks/DepthCapture.cpp writes [2].
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_EclTiming[8]{};
+#endif
+#if !CVR_RUST_VRIK   // nothing in the Rust build calls it
 static uint64_t EclTicks(){LARGE_INTEGER t{};QueryPerformanceCounter(&t);return uint64_t(t.QuadPart);}
+#endif
 
+#if CVR_RUST_VRIK
+// The runtime the Rust dispatch calls and the hook's entry are Rust's (rust/crates/cvr-render/src/ecl_table.rs, the
+// geometry freeze's submissions geometry_freeze.rs', the registered queue order's recursive lock ecl_table.rs').
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
+extern "C" {
+void cvr_cpp_ecl_registered_order(bool lock){
+    if(lock)cvr::stereo::constants::RegisteredQueueOrderMutex().lock();else cvr::stereo::constants::RegisteredQueueOrderMutex().unlock();
+}
+}
+#endif
+#else
 static void STDMETHODCALLTYPE Hook_ExecuteCommandLists(
         ID3D12CommandQueue* self, UINT n, ID3D12CommandList* const* lists) {
     const uint64_t eclStart=EclTicks();
@@ -682,7 +819,9 @@ static void patch_queue_vtable(void* queue) {
         ReadObservationUnavailable();
     }
 }
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs (game_objects)
 static HRESULT STDMETHODCALLTYPE Hook_CreateCommandQueue(
         ID3D12Device* self, const D3D12_COMMAND_QUEUE_DESC* desc, REFIID riid, void** out) {
     HRESULT hr = g_orig_CreateCommandQueue(self, desc, riid, out);
@@ -702,23 +841,39 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateCommandQueue(
     }
     return hr;
 }
+#endif
 
 // Filled by the PSO-creation hooks below; consumed by the sight probe further down.
 // pso_ids_record moved with the census; declared in Stereo/StereoInternal.hpp.
 // hud_adopt_by_node moved with the HUD; declared in Stereo/StereoInternal.hpp.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint64_t> g_hud_snap_tick{0};
+#endif
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_HudNodeRva;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_HudNodeRva2;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_HudByNode;
+#endif
 // fnv1a moved with the census; declared in Stereo/StereoInternal.hpp.
 // sight_ps_dump moved with the census; declared in Stereo/StereoInternal.hpp.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_SightPsHash;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_SightPsDump;
+#endif
 
+#if CVR_RUST_VRIK
+// The command lists' vtable hooks and their records: rust/crates/cvr-render/src/list_vtable.rs. The detours stay
+// here; their table (with the conditions each one waits for) is lent below.
+static_assert(sizeof(CommandListVtableHook)==448,"mirrored by list_vtable.rs");
+#else
 static std::array<CommandListVtableHook, 16> g_command_list_vtable_hooks{};
 static std::atomic<uint32_t> g_command_list_vtable_hook_count{0};
 static std::mutex g_command_list_vtable_hook_mtx;
+#endif
 
+#if CVR_RUST_VRIK
+#else
 const CommandListVtableHook* command_list_hook_entry(
         ID3D12GraphicsCommandList* command_list) {
     if (!command_list) return nullptr;
@@ -731,20 +886,27 @@ const CommandListVtableHook* command_list_hook_entry(
     }
     return nullptr;
 }
+#endif
 // Every command-list vtable patched so far, for subsystems that chain further slots at runtime
 // (Render/StageReplay.cpp). Entries are published before their count, never removed.
+#if CVR_RUST_VRIK
+#else
 uint32_t command_list_hook_entries(const CommandListVtableHook** out,uint32_t max) {
     const uint32_t count=g_command_list_vtable_hook_count.load(std::memory_order_acquire);
     const uint32_t n=count<max?count:max;
     for(uint32_t i=0;i<n;++i)out[i]=&g_command_list_vtable_hooks[i];
     return n;
 }
+#endif
+#if !CVR_RUST_VRIK
 PFN_OMSetRenderTargets command_list_original_om(
         ID3D12GraphicsCommandList* command_list) {
     const CommandListVtableHook* e = command_list_hook_entry(command_list);
     return e ? e->original : nullptr;
 }
+#endif
 
+#if !CVR_RUST_VRIK
 static void STDMETHODCALLTYPE ProbeHeaps(ID3D12GraphicsCommandList* list,UINT count,ID3D12DescriptorHeap* const* heaps) {
     const auto* e=command_list_hook_entry(list);if(!e || !e->heaps_original)return;
     e->heaps_original(list,count,heaps);cvr::stereo::scene_state::Heaps(list,count,heaps);
@@ -1016,6 +1178,10 @@ static void STDMETHODCALLTYPE ObserveMeshDispatch(ID3D12GraphicsCommandList6* li
     const auto* entry=command_list_hook_entry(list);if(!entry || !entry->dispatch_mesh_original)return;
     cvr::stereo::target_access::Unknown(list,22);cvr::stereo::target_handoff::Unknown(list,22);entry->dispatch_mesh_original(list,x,y,z);
 }
+#endif
+#if CVR_RUST_VRIK
+// Its runtime is Rust's (rust/crates/cvr-render/src/list_vtable.rs); the detours' table too (list_detours).
+#else
 static void patch_command_list_vtable(void* command_list) {
     if (!command_list) return;
     void** vtable = *reinterpret_cast<void***>(command_list);
@@ -1188,6 +1354,7 @@ static void patch_command_list_vtable(void* command_list) {
     log("[mirror] command-list hooked list=%p vt=%p om=%p rb=%p cr=%p",
         command_list,vtable,(void*)entry.original,(void*)entry.barrier_original,(void*)entry.copyres);
 }
+#endif
 
 // ID3D12Device slots 27 and 29. Only to answer "which resource owns this GPU address" -- a
 // vertex-buffer view carries an address and nothing else, and D3D12 offers no way back.
@@ -1197,13 +1364,19 @@ using PFN_CreateCommittedResource = HRESULT (STDMETHODCALLTYPE*)(
 using PFN_CreatePlacedResource = HRESULT (STDMETHODCALLTYPE*)(
     ID3D12Device*, ID3D12Heap*, UINT64, const D3D12_RESOURCE_DESC*,
     D3D12_RESOURCE_STATES, const D3D12_CLEAR_VALUE*, REFIID, void**);
+#if !CVR_RUST_VRIK   // unused by the Rust build
 using PFN_CreateCommittedResource1 = HRESULT (STDMETHODCALLTYPE*)(ID3D12Device4*,const D3D12_HEAP_PROPERTIES*,D3D12_HEAP_FLAGS,
     const D3D12_RESOURCE_DESC*,D3D12_RESOURCE_STATES,const D3D12_CLEAR_VALUE*,ID3D12ProtectedResourceSession*,REFIID,void**);
+#endif
+#if CVR_RUST_VRIK
+#else
 static PFN_CreateCommittedResource g_orig_CreateCommitted = nullptr;
 static PFN_CreateCommittedResource1 g_orig_CreateCommitted1 = nullptr;
 static PFN_CreatePlacedResource    g_orig_CreatePlaced = nullptr;
+#endif
 // buf_note moved with the census; declared in Stereo/StereoInternal.hpp.
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs
 static void buf_note_created(void* out, const D3D12_RESOURCE_DESC* d) {
     if (!out || !d || d->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) return;
     if (d->Width < 4096) return;                    // instance/vertex streams, not tiny scratch
@@ -1213,7 +1386,9 @@ static void buf_note_created(void* out, const D3D12_RESOURCE_DESC* d) {
     __except (EXCEPTION_EXECUTE_HANDLER) { return; }
     buf_note(res, va, d->Width);
 }
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs
 static void NoteCommittedResource(ID3D12Resource* resource,const D3D12_RESOURCE_DESC* desc,D3D12_RESOURCE_STATES state){
     cvr::cascades::ResourceCreated(resource,nullptr,0,0);
     cvr::stereo::constants::ObserveResourceApi(resource);
@@ -1224,6 +1399,10 @@ static void NoteCommittedResource(ID3D12Resource* resource,const D3D12_RESOURCE_
     buf_note_created(resource,desc);
     if(desc)cvr::diagnostics::ObserveResourceCreation(resource,*desc);
 }
+#endif
+#if CVR_RUST_VRIK
+// A placed resource's readers, as the Rust hook announces it.
+#else
 static HRESULT STDMETHODCALLTYPE Hook_CreateCommittedResource(
         ID3D12Device* self, const D3D12_HEAP_PROPERTIES* hp, D3D12_HEAP_FLAGS hf,
         const D3D12_RESOURCE_DESC* d, D3D12_RESOURCE_STATES st,
@@ -1278,6 +1457,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreatePlacedResource(
     }
     return hr;
 }
+#endif
 
 // ID3D12Device slot 16. There is no reflection from an ID3D12RootSignature back to its
 // description, so the only way to learn the binding contract our replacement shaders must live
@@ -1287,6 +1467,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreatePlacedResource(
 // rebound, and the muzzle direction can simply be set before the draw.
 using PFN_CreateRootSignature = HRESULT (STDMETHODCALLTYPE*)(
     ID3D12Device*, UINT, const void*, SIZE_T, REFIID, void**);
+#if !CVR_RUST_VRIK
 static PFN_CreateRootSignature g_orig_CreateRootSig = nullptr;
 static std::unordered_map<void*, std::vector<uint8_t>> g_rootsig_blobs;
 static std::mutex g_rootsig_mtx;
@@ -1316,13 +1497,25 @@ bool RootSignatureBlob(ID3D12RootSignature* rs,std::vector<uint8_t>& out) {
     out=it->second;
     return true;
 }
+#endif
 
 // Print the layout once, for the signature the sight's pipeline uses.
+#if CVR_RUST_VRIK
+// The blob read back and logged: rust/crates/cvr-render/src/rootsig_lines.rs.
+#endif
+#if !CVR_RUST_VRIK
 static void rootsig_dump(void* rs) {
     if (!rs) return;
     static std::atomic<void*> s_done{nullptr};
     void* expected = nullptr;
     if (!s_done.compare_exchange_strong(expected, rs)) return;
+#if CVR_RUST_VRIK
+    std::vector<uint8_t> blob;
+    if (!RootSignatureBlob(static_cast<ID3D12RootSignature*>(rs), blob)) {
+        log("[rootsig] sight signature %p: blob not captured (created before the hook)", rs);
+        return;
+    }
+#else
     std::vector<uint8_t> blob;
     {
         std::lock_guard<std::mutex> lk(g_rootsig_mtx);
@@ -1333,6 +1526,10 @@ static void rootsig_dump(void* rs) {
         }
         blob = it->second;
     }
+#endif
+#if CVR_RUST_VRIK
+    cvr_dh_rootsig_dump(rs,blob.data(),blob.size());
+#else
     ID3D12VersionedRootSignatureDeserializer* des = nullptr;
     if (FAILED(D3D12CreateVersionedRootSignatureDeserializer(
             blob.data(), blob.size(), IID_PPV_ARGS(&des))) || !des) {
@@ -1386,7 +1583,9 @@ static void rootsig_dump(void* rs) {
         }
     }
     des->Release();
+#endif
 }
+#endif
 
 // ID3D12Device slot 10 and ID3D12Device2 slot 47. Both are entry points the engine may use, and
 // which one it takes is not worth guessing -- hooking both costs one pointer each. All they do
@@ -1395,8 +1594,13 @@ using PFN_CreateGraphicsPipelineState = HRESULT (STDMETHODCALLTYPE*)(
     ID3D12Device*, const D3D12_GRAPHICS_PIPELINE_STATE_DESC*, REFIID, void**);
 using PFN_CreatePipelineState = HRESULT (STDMETHODCALLTYPE*)(
     ID3D12Device*, const D3D12_PIPELINE_STATE_STREAM_DESC*, REFIID, void**);
+#if !CVR_RUST_VRIK   // the Rust build's originals are rust/crates/cvr-render/src/pso_hooks.rs's
 static PFN_CreateGraphicsPipelineState g_orig_CreateGfxPso = nullptr;
 static PFN_CreatePipelineState         g_orig_CreatePso = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPsoGfx = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPsoStream = 0;
 
@@ -1411,9 +1615,15 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSightSwaps = 0;
 // vertex shader of the same two technique records as the pixel shader (sight_reflex_vs.hlsl says
 // what changed in it).
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_SightVsHash = 0xB99868EB53FB5975ull;
+#endif
+#if CVR_RUST_VRIK
+// The replacement shaders are read and held by Rust (rust/crates/cvr-render/src/shader_blobs.rs): 0 the sight's pixel
+// shader, 1 its vertex shader, 2 its scope variant, 3 the outline; empty until read or when missing.
+#else
 static std::vector<uint8_t> g_sight_blob;      // pixel
 static std::vector<uint8_t> g_sight_vs_blob;   // vertex
 static std::atomic<int> g_sight_blob_state{0};   // 0 untried, 1 loaded, -1 missing
+#endif
 
 // MAGNIFIED SCOPES KEEP THE RETICLE ON THE GLASS. The collimator build sizes its reticle by angle
 // (SIGHT_RETICLE_RELIEF), which is right for a reflex window and wrong for a scope: a scope's
@@ -1424,13 +1634,25 @@ static std::atomic<int> g_sight_blob_state{0};   // 0 untried, 1 loaded, -1 miss
 // pixel shader (CyberpunkVR_SightPsScope.dxil); SetPipelineState binds the twin while the path is
 // 'shader'. Missing file = no twins, collimator mapping for every sight as before.
 // kSightVariants holds one file today; each original PSO owns its path variants.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OpticsPath = 0;   // 0 none 1 collimator 2 shader 3 camera 4 native
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightScopeTwin = 1;   // 0 = always the collimator build
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightTwinForce = -1;  // diagnostics: -1 by path, 0 collimator, 1 scope
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_SightScopeTwins = 0;
+#endif
+#if !CVR_RUST_VRIK   // unused by the Rust build
 static constexpr int kSightVariants = 1;
+#endif
+#if CVR_RUST_VRIK
+#else
 static constexpr const char* kSightVariantFiles[kSightVariants]={"CyberpunkVR_SightPsScope.dxil"};
 static std::vector<uint8_t> g_sight_variant_blobs[kSightVariants];
+#endif
+#if CVR_RUST_VRIK
+// The sight twins: rust/crates/cvr-render/src/pso_hooks.rs (the index: cvr-gpu's pipeline_variants.rs).
+#else
 static cvr::render::PipelineVariantIndex<kSightVariants> g_sight_twins{
     GUID{0x93e581cd,0x1498,0x454d,{0x8b,0x9c,0x73,0x6d,0xf4,0x09,0x31,0x7b}}};
 
@@ -1462,10 +1684,15 @@ ID3D12PipelineState* sight_mask_twin(ID3D12PipelineState* pso) {
     const auto* owner=g_sight_twins.Find(pso);
     return owner ? owner->mask.Get() : nullptr;
 }
+#endif
 
 // Native SetVRPhysicalOpticsPath (Natives/OrientationProvider.cpp).
+#if !CVR_RUST_VRIK   // unused by the Rust build
 void SetPhysicalOpticsPath(int32_t path) { CyberpunkVR_OpticsPath=path; }
+#endif
 
+#if CVR_RUST_VRIK
+#else
 static bool sight_blob_ready() {
     int st = g_sight_blob_state.load(std::memory_order_acquire);
     if (st) return st > 0;
@@ -1541,7 +1768,9 @@ static bool sight_blob_ready() {
     g_sight_blob_state.store(-1, std::memory_order_release);
     return false;
 }
+#endif
 
+#if !CVR_RUST_VRIK
 static bool sight_is_target(const D3D12_SHADER_BYTECODE& ps, const D3D12_SHADER_BYTECODE& vs) {
     return CyberpunkVR_SightPsSwap && ps.pShaderBytecode && ps.BytecodeLength &&
            vs.pShaderBytecode && vs.BytecodeLength &&
@@ -1549,6 +1778,7 @@ static bool sight_is_target(const D3D12_SHADER_BYTECODE& ps, const D3D12_SHADER_
            fnv1a(vs.pShaderBytecode, vs.BytecodeLength) == CyberpunkVR_SightVsHash &&
            sight_blob_ready();
 }
+#endif
 
 // ---- the OUTLINE shader ------------------------------------------------------------------------
 //
@@ -1563,14 +1793,25 @@ static bool sight_is_target(const D3D12_SHADER_BYTECODE& ps, const D3D12_SHADER_
 // ON, with a self-validating guard rather than a promise: the pipeline is built against the root
 // signature the engine has ALREADY bound for this dispatch, so a node that is not the outline pass
 // fails creation (its signature does not fit our shader's bindings) and nothing is swapped.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_VisionCsSwap = 1;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisionCsSwaps = 0;
+#endif
+#if !CVR_RUST_VRIK
 static const uint8_t kVisionCsDigest[16] = {
     0x78, 0x6E, 0x64, 0xC7, 0x28, 0x8B, 0xCE, 0x14,
     0xF7, 0x70, 0x6B, 0x9A, 0x61, 0xC2, 0x64, 0xFF };
+#endif
+#if CVR_RUST_VRIK
+#else
 static std::vector<uint8_t> g_vision_cs_blob;
 static std::atomic<int> g_vision_cs_state{0};   // 0 untried, 1 loaded, -1 missing
+#endif
 
+#if CVR_RUST_VRIK
+#else
 static bool vision_cs_blob_ready() {
     int st = g_vision_cs_state.load(std::memory_order_acquire);
     if (st) return st > 0;
@@ -1608,7 +1849,9 @@ static bool vision_cs_blob_ready() {
     g_vision_cs_state.store(-1, std::memory_order_release);
     return false;
 }
+#endif
 
+#if !CVR_RUST_VRIK
 static bool vision_cs_is_target(const D3D12_SHADER_BYTECODE& cs) {
     if (!CyberpunkVR_VisionCsSwap || !cs.pShaderBytecode || cs.BytecodeLength < 20) return false;
     const uint8_t* b = static_cast<const uint8_t*>(cs.pShaderBytecode);
@@ -1616,12 +1859,18 @@ static bool vision_cs_is_target(const D3D12_SHADER_BYTECODE& cs) {
     if (memcmp(b + 4, kVisionCsDigest, sizeof(kVisionCsDigest)) != 0) return false;
     return vision_cs_blob_ready();
 }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 using PFN_CreateComputePipelineState = HRESULT (STDMETHODCALLTYPE*)(
     ID3D12Device*, const D3D12_COMPUTE_PIPELINE_STATE_DESC*, REFIID, void**);
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's original is rust/crates/cvr-render/src/pso_hooks.rs's
 static PFN_CreateComputePipelineState g_orig_CreateComputePso = nullptr;
+#endif
 
 
+#if !CVR_RUST_VRIK
 // The last compute root signature the engine bound anywhere, kept in CommandListCensus.cpp.
 // Needed because the thread-local one is null on lists recorded by other threads.
 extern std::atomic<ID3D12RootSignature*> g_last_compute_rootsig;
@@ -1672,9 +1921,11 @@ ID3D12PipelineState* vision_cs_pso_get(ID3D12GraphicsCommandList* list) {
     log("[pso] outline CS pipeline built against the engine's root signature rs=%p", (void*)rs);
     return g_vision_cs_pso;
 }
+#endif
 
 
 
+#if !CVR_RUST_VRIK
 static HRESULT STDMETHODCALLTYPE Hook_CreateComputePipelineState(
         ID3D12Device* self, const D3D12_COMPUTE_PIPELINE_STATE_DESC* desc,
         REFIID riid, void** out) {
@@ -1707,11 +1958,16 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateComputePipelineState(
     }
     return hr;
 }
+#endif
 
 // ID3D12Device5::CreateStateObject (slot 62): the ray-traced reflections' DXIL libraries get their stereo_rt\ twin
 // (HiddenAreaShaders group 15). Export names are unchanged, so shader identifiers and tables resolve as before.
 // A rejected twin falls back to the engine's own libraries; losing the state object would lose RT entirely.
+#if !CVR_RUST_VRIK
 using PFN_CreateStateObject = HRESULT (STDMETHODCALLTYPE*)(ID3D12Device5*, const D3D12_STATE_OBJECT_DESC*, REFIID, void**);
+#endif
+#if CVR_RUST_VRIK
+#else
 static PFN_CreateStateObject g_orig_CreateStateObject = nullptr;
 static HRESULT STDMETHODCALLTYPE Hook_CreateStateObject(ID3D12Device5* self, const D3D12_STATE_OBJECT_DESC* desc,
                                                         REFIID riid, void** out) {
@@ -1728,7 +1984,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateStateObject(ID3D12Device5* self, con
             libraries[i].DXILLibrary = twin;
             subobjects[i].pDesc = &libraries[i];
             ++twinned;
-            if (cvr::RuntimeDiagnosticsEnabled()) log("[pso] stereo_rt twin for a %zu-byte library with %u export(s), first %ls", library.DXILLibrary.BytecodeLength,
+            log("[pso] stereo_rt twin for a %zu-byte library with %u export(s), first %ls", library.DXILLibrary.BytecodeLength,
                 library.NumExports, library.NumExports && library.pExports ? library.pExports[0].Name : L"(all)");
         }
         if (twinned) {
@@ -1745,14 +2001,15 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateStateObject(ID3D12Device5* self, con
             D3D12_STATE_OBJECT_DESC twin{desc->Type, desc->NumSubobjects, subobjects.data()};
             const HRESULT hr = g_orig_CreateStateObject(self, &twin, riid, out);
             cvr::hidden_area::shaders::LibraryTwinCreated(SUCCEEDED(hr), twinned);
-            if (FAILED(hr) || cvr::RuntimeDiagnosticsEnabled())
-                log("[pso] state object with %u stereo_rt library twin(s): hr=0x%08X", twinned, static_cast<unsigned>(hr));
+            log("[pso] state object with %u stereo_rt library twin(s): hr=0x%08X", twinned, static_cast<unsigned>(hr));
             if (SUCCEEDED(hr)) return hr;
         }
     }
     return g_orig_CreateStateObject(self, desc, riid, out);
 }
+#endif
 
+#if !CVR_RUST_VRIK
 // The upscaler history-mask twin of a pipeline (lens_mask_ps / sight_mask_ps): same VS,
 // root signature and depth test, one R8_UNORM target, no blending, no depth or stencil writes.
 static ID3D12PipelineState* history_mask_twin(ID3D12Device* self,const D3D12_GRAPHICS_PIPELINE_STATE_DESC& base,
@@ -1889,12 +2146,17 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateGraphicsPipelineState(
     }
     return hr;
 }
+#endif
 
 // The stream form is a tagged blob: {alignas(void*) SUBOBJECT_TYPE, payload} repeated. Walking it
 // is the only way to see the shaders, and the walk has to respect the pointer alignment between
 // entries or it desynchronises and reads garbage.
 // Offsets of the PS and VS payloads inside the tagged stream, SIZE_MAX when absent. Kept in its
 // own function on purpose: it needs SEH, and SEH cannot share a frame with objects that unwind.
+#if CVR_RUST_VRIK
+// The pipeline creation hooks and their consumers' runtime: rust/crates/cvr-render/src/pso_hooks.rs (the device
+// creation runtime installs them with Rust's originals).
+#else
 static void pso_stream_find(const uint8_t* p, size_t len, size_t* psoff, size_t* vsoff, size_t* cacheoff=nullptr) {
     *psoff = SIZE_MAX; *vsoff = SIZE_MAX;
     if(cacheoff) *cacheoff=SIZE_MAX;
@@ -2090,7 +2352,9 @@ static HRESULT STDMETHODCALLTYPE Hook_CreatePipelineState(
     }
     return hr;
 }
+#endif
 
+#if !CVR_RUST_VRIK   // the Rust build's hook is rust/crates/cvr-render/src/device_creation.rs's
 static HRESULT STDMETHODCALLTYPE Hook_CreateCommandList(
         ID3D12Device* self, UINT node_mask, D3D12_COMMAND_LIST_TYPE type,
         ID3D12CommandAllocator* allocator, ID3D12PipelineState* initial_state,
@@ -2119,7 +2383,18 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateCommandList(
     }
     return hr;
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The device creation runtime is Rust's (rust/crates/cvr-render/src/device_creation.rs, table); the descriptor
+// audit's mutation scope stays C++.
+extern "C" {
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's mutation scope is device_creation.rs' (over descriptor_audit.rs)
+void* cvr_cpp_mutation_enter(){return new cvr::stereo::descriptors::MutationScope();}
+void cvr_cpp_mutation_leave(void* scope){delete static_cast<cvr::stereo::descriptors::MutationScope*>(scope);}
+#endif
+}
+#else
 void patch_device_descriptor_slot(void* device) {
     if (!device) return;
     bool expected = false;
@@ -2277,10 +2552,26 @@ void patch_device_descriptor_slot(void* device) {
             device, (void*)g_orig_CreateRTV);
     }
 }
+#endif
 
 }  // namespace detail
 }  // namespace cvr
 
+#if !CVR_RUST_VRIK   // the Rust build's: rust/crates/cvr-render/src/device_creation.rs (cvr_cpp_rootsig_blob)
 namespace cvr::rootsig {
 bool Blob(ID3D12RootSignature* rs,std::vector<uint8_t>& out) {return cvr::detail::RootSignatureBlob(rs,out);}
 }
+// The blob for the Rust half (rust/crates/cvr-render/src/pair_probe.rs): its length, copied when it fits in capacity.
+extern "C" size_t cvr_cpp_rootsig_blob(ID3D12RootSignature* rs,uint8_t* out,size_t capacity) {
+    std::vector<uint8_t> blob;
+    if(!cvr::rootsig::Blob(rs,blob))return 0;
+    if(out && capacity>=blob.size())std::memcpy(out,blob.data(),blob.size());
+    return blob.size();
+}
+#endif
+#if CVR_RUST_VRIK
+// The layouts rust/crates/cvr-render/src/cull_visibility.rs mirrors (CullVisibility.cpp checks them in the C++ build).
+static_assert(offsetof(cvr::detail::ReplayVisibilityBatch, count) == 0x100);
+static_assert(sizeof(cvr::stereo::preparation::Ticket) == 136, "the Ticket rust/crates/cvr-render/src/cull_visibility.rs keeps");
+static_assert(sizeof(cvr::stereo::preparation::MaterializeTicket) == 120, "the MaterializeTicket cull_visibility.rs keeps");
+#endif

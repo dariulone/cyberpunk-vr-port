@@ -9,8 +9,17 @@
 #include <algorithm>
 #include <cstring>
 #include <unordered_map>
+#if CVR_RUST_VRIK
+// The game-code contract: rust/crates/cvr-render/src/binding_code.rs (0 pair preparation, 1 material read, 2 material
+// binding; through ReadProcessMemory).
+#endif
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// The exported state is Rust's (rust/crates/cvr-render/src/native_state_exports.rs), declared in the header.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationRequest{},CyberpunkVR_PreparationState{},CyberpunkVR_PreparationSeq{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationCount{},CyberpunkVR_PreparationPacketCount{},CyberpunkVR_PreparationFailure{};
 __declspec(dllexport) uint64_t CyberpunkVR_PreparationRecords{},CyberpunkVR_PreparationPackets{};
@@ -30,7 +39,103 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationRunRequest{},
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationRunFailure{},CyberpunkVR_PreparationRunFrames{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationRunDepth[2]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationRunEyeCopies{},CyberpunkVR_PreparationRunEyeSubmissions{};
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The trace and the pair preparation: rust/crates/cvr-render/src/preparation_trace.rs (the exports by their symbols),
+// with the graph parent, the thread's graph context and the graph job polls; the DrawScope class and
+// InvokeGraphContext's scene-child scope stay here.
+extern "C" {
+void cvr_prep_attach(const void*);
+bool cvr_prep_current_parent(int32_t,uint32_t,cvr::stereo::preparation::GraphParentRecord*);
+bool cvr_prep_revalidate_parent(const cvr::stereo::preparation::GraphParentRecord*);
+uint64_t cvr_prep_graph_context_swap(uint64_t);
+void cvr_prep_poll_graph_jobs();
+void cvr_prep_frame_boundary();
+void cvr_prep_begin_stage(uint64_t,uint64_t,uint64_t,uint32_t,uint32_t,int32_t,cvr::stereo::preparation::Ticket*);
+void cvr_prep_end_stage(const cvr::stereo::preparation::Ticket*);
+void cvr_prep_output(uint32_t,uint64_t);
+void cvr_prep_consume(uint32_t,int32_t,uint64_t,uint64_t);
+void cvr_prep_begin_task(uint32_t,uint64_t,uint64_t,int32_t,cvr::stereo::preparation::MaterializeTicket*);
+void cvr_prep_end_task(uint32_t,const cvr::stereo::preparation::MaterializeTicket*);
+void* cvr_prep_prepare_pair(cvr::stereo::preparation::PrepareGraph,void*,void*,void*,uint64_t,uint64_t,bool,uint64_t);
+bool cvr_prep_suppress_rtt(uint64_t,uint64_t,bool);
+void cvr_prep_root_completed(uint64_t,uint64_t);
+void cvr_prep_eye_copy(uint64_t,uint64_t,uint64_t);
+void cvr_prep_copy_source(const cvr::stereo::preparation::CopySource*,cvr::stereo::preparation::CopySource*);
+void cvr_prep_draw_scope(uint32_t,void*,uint32_t,int32_t,uint64_t);
+void cvr_prep_draw_tag(cvr::stereo::preparation::DrawTag*);
+void cvr_prep_draw_recorded(uint64_t);
+void cvr_prep_submit_lists(uint64_t,uint32_t,ID3D12CommandList* const*,bool);
+void cvr_prep_reset_list(uint64_t);
+}
+namespace cvr::stereo::preparation {
+static_assert(sizeof(Ticket)==136 && sizeof(MaterializeTicket)==120 && sizeof(CopySource)==16 && sizeof(DrawTag)==24 &&
+    sizeof(DrawScope)==904,"mirrored by preparation_trace.rs");
+namespace {
+// The exports in preparation_trace.rs's Exports order.
+const void* const kExports[]{
+    &CyberpunkVR_PreparationRequest,&CyberpunkVR_PreparationState,&CyberpunkVR_PreparationSeq,&CyberpunkVR_PreparationCount,
+    &CyberpunkVR_PreparationPacketCount,&CyberpunkVR_PreparationFailure,&CyberpunkVR_PreparationRecords,&CyberpunkVR_PreparationPackets,
+    &CyberpunkVR_PreparationPairRequest,&CyberpunkVR_PreparationPairState,&CyberpunkVR_PreparationPairCompatible,
+    CyberpunkVR_PreparationPairData,CyberpunkVR_PreparationPairEligibility,CyberpunkVR_PreparationPairRoot,
+    &CyberpunkVR_PreparationCameraTrace,&CyberpunkVR_PreparationAllStages,&CyberpunkVR_PreparationGraphParents,
+    &CyberpunkVR_PreparationGraphParentCount,&CyberpunkVR_PreparationPairVerified,&CyberpunkVR_PreparationRootSkipped,
+    &CyberpunkVR_PreparationRootCompatible,&CyberpunkVR_PreparationPairMergeLimit,&CyberpunkVR_PreparationPairMerged,
+    &CyberpunkVR_PreparationPairCompleted,&CyberpunkVR_PreparationPairGeneration,&CyberpunkVR_PreparationRunRequest,
+    &CyberpunkVR_PreparationRunState,&CyberpunkVR_PreparationRunStop,&CyberpunkVR_PreparationRunFailure,&CyberpunkVR_PreparationRunFrames,
+    CyberpunkVR_PreparationRunDepth,&CyberpunkVR_PreparationRunEyeCopies,&CyberpunkVR_PreparationRunEyeSubmissions};
+static_assert(sizeof(kExports)==264,"mirrored by preparation_trace.rs");
+const bool kAttached=(cvr_prep_attach(kExports),true);
+}
+bool Active(){return CyberpunkVR_PreparationState.load(std::memory_order_relaxed)==1;}
+bool RunActive(){return CyberpunkVR_PreparationRunState.load(std::memory_order_acquire)==1;}
+void PollGraphJobs(){cvr_prep_poll_graph_jobs();}
+void FrameBoundary(){cvr_prep_frame_boundary();}
+Ticket BeginStage(const void* context,const void* buckets,const void* output,UINT flags0,UINT flags1,int side){
+    Ticket ticket;cvr_prep_begin_stage(reinterpret_cast<uintptr_t>(context),reinterpret_cast<uintptr_t>(buckets),reinterpret_cast<uintptr_t>(output),
+        flags0,flags1,side,&ticket);return ticket;
+}
+void EndStage(const Ticket& ticket){cvr_prep_end_stage(&ticket);}
+void Output(Kind kind,const void* output){cvr_prep_output(uint32_t(kind),reinterpret_cast<uintptr_t>(output));}
+void Consume(UINT node,int side,const void* context,const void* span){
+    cvr_prep_consume(node,side,reinterpret_cast<uintptr_t>(context),reinterpret_cast<uintptr_t>(span));
+}
+MaterializeTicket BeginMaterialize(const void* task,int side){
+    MaterializeTicket ticket;cvr_prep_begin_task(0,reinterpret_cast<uintptr_t>(task),0,side,&ticket);return ticket;
+}
+void EndMaterialize(const MaterializeTicket& ticket){cvr_prep_end_task(0,&ticket);}
+MaterializeTicket BeginProxyGather(const void* context,const void* range,int side){
+    MaterializeTicket ticket;cvr_prep_begin_task(1,reinterpret_cast<uintptr_t>(context),reinterpret_cast<uintptr_t>(range),side,&ticket);return ticket;
+}
+void EndProxyGather(const MaterializeTicket& ticket){cvr_prep_end_task(1,&ticket);}
+void* PreparePair(PrepareGraph original,void* manager,void* arguments,void* requested,uint64_t eyeName,uintptr_t mainView,bool gameplay,uintptr_t vrcamView){
+    return cvr_prep_prepare_pair(original,manager,arguments,requested,eyeName,mainView,gameplay,vrcamView);
+}
+bool SuppressRtt(const void* frameData,uint64_t eyeName,bool gameplay){return cvr_prep_suppress_rtt(reinterpret_cast<uintptr_t>(frameData),eyeName,gameplay);}
+void RootCompleted(const void* frameData,uint64_t generationBefore){cvr_prep_root_completed(reinterpret_cast<uintptr_t>(frameData),generationBefore);}
+void EyeCopyRecorded(const void* list,const void* source,const void* destination){
+    cvr_prep_eye_copy(reinterpret_cast<uintptr_t>(list),reinterpret_cast<uintptr_t>(source),reinterpret_cast<uintptr_t>(destination));
+}
+CopySource SetCopySource(CopySource value){CopySource previous;cvr_prep_copy_source(&value,&previous);return previous;}
+DrawScope::DrawScope(uint32_t node,int side,const void* arguments){cvr_prep_draw_scope(0,this,node,side,reinterpret_cast<uintptr_t>(arguments));}
+DrawTag CurrentDrawTag(){DrawTag tag;cvr_prep_draw_tag(&tag);return tag;}
+GraphContextScope::GraphContextScope(uint64_t context):previous_(cvr_prep_graph_context_swap(context)){}
+GraphContextScope::~GraphContextScope(){cvr_prep_graph_context_swap(previous_);}
+bool CurrentGraphParent(int side,uint32_t expectedFrame,GraphParentRecord& row){return cvr_prep_current_parent(side,expectedFrame,&row);}
+bool RevalidateGraphParent(const GraphParentRecord& expected){return cvr_prep_revalidate_parent(&expected);}
+DrawScope::~DrawScope(){cvr_prep_draw_scope(1,this,0,0,0);}
+void DrawRecorded(const void* list){cvr_prep_draw_recorded(reinterpret_cast<uintptr_t>(list));}
+void SubmitLists(const void* queue,uint32_t count,ID3D12CommandList* const* lists,bool serialized){
+    cvr_prep_submit_lists(reinterpret_cast<uintptr_t>(queue),count,lists,serialized);
+}
+void ResetList(const void* list){cvr_prep_reset_list(reinterpret_cast<uintptr_t>(list));}
+}
+#endif
+#else
 namespace cvr::stereo::preparation {
 namespace {
 std::mutex mutex;UINT frame{},limit{};uint64_t epoch{},nextScope{},nextSubmission{};
@@ -435,6 +540,9 @@ bool PairPrepareCompatible() {
     if(!CyberpunkVR_PreparationPairRequest.load(std::memory_order_relaxed))return false;
     static const bool compatible=[]{
         const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+#if CVR_RUST_VRIK
+        return cvr_binding_code(0,base);
+#else
         struct Region {uint32_t rva,bytes;uint64_t hash;};
         // 2.5: GraphContextPrepare (sub_140423180) absorbed its 2.31 cold chunk (0x1EF9E44) and was rewritten
         // (921 -> 1901 bytes); the pairing contract is not re-audited, so its row never matches.
@@ -445,7 +553,9 @@ bool PairPrepareCompatible() {
             uint64_t hash=14695981039346656037ull;for(UINT i=0;i<region.bytes;++i)hash=(hash^bytes[i])*1099511628211ull;
             if(hash!=region.hash)return false;}
         return true;
+#endif
     }();
     CyberpunkVR_PreparationPairCompatible.store(compatible?1:2,std::memory_order_release);return compatible;
 }
 }
+#endif

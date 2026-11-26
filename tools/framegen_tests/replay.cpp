@@ -12,10 +12,12 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <DirectXPackedVector.h>
+#include "hand_motion.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -55,8 +57,11 @@ struct Parser {
     }
 };
 std::vector<uint8_t> ReadFile(const std::filesystem::path& path) {
-    std::ifstream f(path,std::ios::binary);Check(f.good(),"capture file missing");
-    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),std::istreambuf_iterator<char>());
+    std::ifstream f(path,std::ios::binary|std::ios::ate);Check(f.good(),"capture file missing");
+    const auto size=f.tellg();Check(size>=0,"capture file size");
+    std::vector<uint8_t> bytes(static_cast<size_t>(size));
+    f.seekg(0);Check(bool(f.read(reinterpret_cast<char*>(bytes.data()),size)),"short capture file");
+    return bytes;
 }
 
 struct EyeFrame {
@@ -80,6 +85,8 @@ EyeFrame LoadEye(const std::filesystem::path& dir,const Value& eye,size_t frame,
     e.depth.resize(depth.size()/4);std::memcpy(e.depth.data(),depth.data(),depth.size());
     std::snprintf(name,sizeof(name),"f%zu_e%u_motion.raw",frame,index);auto motion=ReadFile(dir/name);
     const size_t texels=size_t(e.motionWidth)*e.motionHeight;e.motion.resize(texels*2);
+    const size_t stride=motionFormat==DXGI_FORMAT_R16G16_FLOAT ? 4 : 8;
+    Check(texels && motion.size()==texels*stride,"motion size");
     for(size_t i=0;i<texels;++i) {
         if(motionFormat==DXGI_FORMAT_R16G16_FLOAT) {uint16_t h[2];std::memcpy(h,&motion[i*4],4);e.motion[i*2]=Half(h[0]);e.motion[i*2+1]=Half(h[1]);}
         else if(motionFormat==DXGI_FORMAT_R16G16B16A16_FLOAT) {uint16_t h[2];std::memcpy(h,&motion[i*8],4);e.motion[i*2]=Half(h[0]);e.motion[i*2+1]=Half(h[1]);}
@@ -177,6 +184,30 @@ void SavePng(const std::filesystem::path& path,const std::vector<uint8_t>& rgba,
 }
 }
 
+// CPU-only corresponding points and engine vectors for a ROI marked on frame 1.
+int HandMotion(const std::filesystem::path& dir,int eye,hand_motion::Region roi) {
+    using namespace replay;
+    Check(eye==0 || eye==1,"eye must be 0 or 1");
+    const auto bytes=ReadFile(dir/"capture.json");const std::string json(bytes.begin(),bytes.end());
+    const auto frames=Parser{json}.Parse()["frames"];
+    Check(frames.items.size()==3,"three frames expected");
+    EyeFrame f[3];hand_motion::Pyramid luma[3];
+    for(int k=0;k<3;++k) {
+        Check(k==0 || frames[k]["frame"].number==frames[k-1]["frame"].number+1,"nonconsecutive frame IDs");
+        f[k]=LoadEye(dir,frames[k]["eyes"][eye],k,eye);
+        Check(f[k].width==f[0].width && f[k].height==f[0].height && f[k].depthWidth && f[k].depthHeight,"input dimensions");
+        Check(!f[k].camera.jittered,"measurement requires unjittered motion vectors");
+        luma[k]=hand_motion::Luma(f[k].color,f[k].width,f[k].height);
+    }
+    Check(roi.x>=0 && roi.y>=0 && roi.w>0 && roi.h>0 && int64_t(roi.x)+roi.w<=f[1].width &&
+          int64_t(roi.y)+roi.h<=f[1].height,"ROI outside middle frame");
+    for(int k=1;k<=2;++k) {
+        std::printf("eye %d frame %.0f -> %.0f: ",eye,frames[k]["frame"].number,frames[k-1]["frame"].number);
+        hand_motion::Measure(f[k],luma[1],luma[k==1?0:2],roi,k==1);
+    }
+    return 0;
+}
+
 // Uses the harness's Gpu helper through these callbacks so the device code stays in main.cpp.
 struct ReplayGpu {
     std::function<ComPtr<ID3D12Resource>(unsigned,unsigned,DXGI_FORMAT,D3D12_RESOURCE_STATES)> texture;
@@ -186,6 +217,93 @@ struct ReplayGpu {
     ID3D12Device* device{};ID3D12CommandQueue* queue{};
     std::function<void(ID3D12Fence*,uint64_t*)> fence;
 };
+
+ComPtr<ID3D12Resource> UploadEye(ReplayGpu& gpu,const replay::EyeFrame& src,const std::vector<float>& motion,
+                                 std::shared_ptr<const Inputs>& result,bool normalized,uint32_t frameId) {
+    auto in=std::make_shared<Inputs>();
+    in->width=src.depthWidth;in->height=src.depthHeight;in->motionWidth=src.motionWidth;in->motionHeight=src.motionHeight;
+    in->camera=src.camera;in->hasDepth=in->hasMotion=true;in->frameId=frameId;
+    if(normalized)in->camera.motionScale[0]=in->camera.motionScale[1]=1;
+    auto color=gpu.texture(src.width,src.height,DXGI_FORMAT_R8G8B8A8_UNORM,D3D12_RESOURCE_STATE_COPY_DEST);
+    gpu.upload(color.Get(),src.color.data(),4,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    in->depth=gpu.texture(src.depthWidth,src.depthHeight,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+    gpu.upload(in->depth.Get(),src.depth.data(),4,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    in->motion=gpu.texture(src.motionWidth,src.motionHeight,DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+    gpu.upload(in->motion.Get(),motion.data(),8,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    result=in;
+    return color;
+}
+
+int HandMidpoints(ReplayGpu& gpu,const std::filesystem::path& dir,const std::filesystem::path& out,
+                  const hand_motion::Region (&regions)[2],int flowScale) {
+    using namespace replay;
+    const auto bytes=ReadFile(dir/"capture.json");const std::string json(bytes.begin(),bytes.end());
+    const auto frames=Parser{json}.Parse()["frames"];
+    Check(frames.items.size()==3,"three frames expected");
+    EyeFrame f[3][2];
+    for(int k=0;k<3;++k)for(int e=0;e<2;++e) {
+        Check(k==0 || frames[k]["frame"].number==frames[k-1]["frame"].number+1,"nonconsecutive frame IDs");
+        auto& src=f[k][e];src=LoadEye(dir,frames[k]["eyes"][e],k,e);
+        const auto& r=regions[e];
+        Check(src.width==f[0][e].width && src.height==f[0][e].height && r.x>=0 && r.y>=0 && r.w>0 && r.h>0 &&
+              int64_t(r.x)+r.w<=src.width && int64_t(r.y)+r.h<=src.height,"ROI or frame size");
+    }
+    std::filesystem::create_directories(out);
+    Hr(CoInitializeEx(nullptr,COINIT_MULTITHREADED));
+    Settings settings;settings.enabled=true;settings.backend=Backend::Nvidia;settings.quality=2;settings.flowScale=flowScale;
+    SetSettings(settings);Generator generator;
+    LARGE_INTEGER frequency{};Check(QueryPerformanceFrequency(&frequency)!=0,"QPC frequency");
+    uint64_t dispatch=0;
+    for(int k=0;k<3;++k) {
+        ComPtr<ID3D12Resource> color[2];ID3D12Resource* colors[2]{};std::shared_ptr<const Inputs> inputs[2];EyePair cameras[2];
+        for(int e=0;e<2;++e) {
+            const auto& src=f[k][e];
+            const auto frameId=uint32_t(frames[k]["frame"].number);
+            if(k==0)color[e]=UploadEye(gpu,src,std::vector<float>(src.motion.size()),inputs[e],false,frameId);
+            else color[e]=UploadEye(gpu,src,src.motion,inputs[e],false,frameId);
+            colors[e]=color[e].Get();cameras[e]={f[std::max(k-1,0)][e].eye,src.eye};
+        }
+        // Prime FI's ten-dispatch reset window with a stationary first endpoint.
+        // The measured pairs retain their original consecutive motion vectors.
+        double frameMs=22.22;
+        if(k && frames[k]["eyes"][0].fields.count("qpc") && frames[k-1]["eyes"][0].fields.count("qpc")) {
+            const double ticks=frames[k]["eyes"][0]["qpc"].number-frames[k-1]["eyes"][0]["qpc"].number;
+            frameMs=1000*ticks/double(frequency.QuadPart);
+            Check(frameMs>0 && frameMs<250,"invalid same-host interval");
+        }
+        for(int i=0;i<(k==0?12:1);++i) {
+            bool interpolated=false;const bool reset=dispatch==0;
+            Check(generator.Generate(gpu.device,gpu.queue,colors,inputs,cameras,settings,frameMs,reset,++dispatch,&interpolated),"generation failed");
+            gpu.wait();Check(ActiveBackend()==Backend::Nvidia && interpolated!=reset,"unexpected backend or reset");
+        }
+        if(!k)continue;
+        for(int e=0;e<2;++e) {
+            const auto& src=f[k][e];const auto& other=f[k==1?0:2][e];
+            const auto middle=hand_motion::Luma(f[1][e].color,src.width,src.height);
+            const auto adjacent=hand_motion::Luma(other.color,src.width,src.height);
+            const auto pairs=hand_motion::Matches(middle,adjacent,regions[e]);
+            const auto pixels=gpu.read(generator.Output(e));
+            std::printf("eye %d frames %.0f/%.0f ",e,frames[k-1]["frame"].number,frames[k]["frame"].number);
+            const auto mae=hand_motion::ScoreMidpoint(middle[0],adjacent[0],hand_motion::Luma(pixels,src.width,src.height)[0],pairs);
+            std::printf("midpoint %zu tracks, 5x5 patch luma MAE %.2f/255; unwarped blend %.2f/255\n",
+                pairs.size(),mae.generated,mae.blend);
+            const auto r=regions[e];
+            int left=r.x,top=r.y,right=r.x+r.w,bottom=r.y+r.h;
+            for(const auto& pair:pairs) {
+                left=std::min(left,pair.other.x);top=std::min(top,pair.other.y);
+                right=std::max(right,pair.other.x+1);bottom=std::max(bottom,pair.other.y+1);
+            }
+            left=std::max(0,left-12);top=std::max(0,top-12);
+            right=std::min(int(src.width),right+12);bottom=std::min(int(src.height),bottom+12);
+            const auto name="f"+std::to_string(k)+"_e"+std::to_string(e);
+            auto save=[&](const char* suffix,const std::vector<uint8_t>& image) {
+                SavePng(out/(name+suffix),image,src.width,src.height,left,top,right-left,bottom-top);
+            };
+            save("_before.png",f[k-1][e].color);save("_mid.png",pixels);save("_after.png",src.color);
+        }
+    }
+    return 0;
+}
 
 int Replay(ReplayGpu& gpu,const std::filesystem::path& dir,const std::filesystem::path& out) {
     using namespace replay;
@@ -229,28 +347,24 @@ int Replay(ReplayGpu& gpu,const std::filesystem::path& dir,const std::filesystem
         if(backend==Backend::DlssG && !dlssg::Available(gpu.device)) {std::printf("  %-26s unavailable: %s\n","DLSS-G",dlssg::Reason());continue;}
         Generator generator;Settings settings;settings.enabled=true;settings.backend=backend;settings.quality=2;settings.flowScale=variant.flowScale;SetSettings(settings);
         std::vector<uint8_t> results[2];bool ok=true;
-        for(int step=0;step<2 && ok;++step) {
-            const size_t k=step?2:0;
+        // CVR_REPLAY_WARM=N feeds frames 0,2,0,2... N extra times before the measured 0 -> 2 pair: FidelityFX frame
+        // interpolation ignores optical flow for its first 10 dispatches after a reset, so a single pair never shows it.
+        const char* warmText=std::getenv("CVR_REPLAY_WARM");
+        const int steps=2+2*std::max(0,warmText?std::atoi(warmText):0);
+        for(int step=0;step<steps && ok;++step) {
+            const size_t k=(step%2)?2:0;const bool last=step==steps-1;
             ComPtr<ID3D12Resource> color[2];ID3D12Resource* colors[2]{};std::shared_ptr<const Inputs> inputs[2];EyePair cameras[2];
             for(unsigned e=0;e<2;++e) {
-                const auto& src=f[k][e];auto in=std::make_shared<Inputs>();
-                in->width=src.depthWidth;in->height=src.depthHeight;in->motionWidth=src.motionWidth;in->motionHeight=src.motionHeight;
-                in->camera=src.camera;in->hasDepth=in->hasMotion=true;in->frameId=uint32_t(frames[int(k)]["frame"].number);
-                color[e]=gpu.texture(src.width,src.height,DXGI_FORMAT_R8G8B8A8_UNORM,D3D12_RESOURCE_STATE_COPY_DEST);
-                gpu.upload(color[e].Get(),src.color.data(),4,D3D12_RESOURCE_STATE_COPY_SOURCE);
-                auto depth=gpu.texture(src.depthWidth,src.depthHeight,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
-                gpu.upload(depth.Get(),src.depth.data(),4,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-                std::vector<float> vectors=step?Compose(src,f[1][e]):src.motion;
-                if(step)in->camera.motionScale[0]=in->camera.motionScale[1]=1;
-                auto mv=gpu.texture(src.motionWidth,src.motionHeight,DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
-                gpu.upload(mv.Get(),vectors.data(),8,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-                in->depth=depth;in->motion=mv;colors[e]=color[e].Get();inputs[e]=in;
+                const auto& src=f[k][e];
+                std::vector<float> vectors=k?Compose(src,f[1][e]):src.motion;
+                color[e]=UploadEye(gpu,src,vectors,inputs[e],k!=0,uint32_t(frames[int(k)]["frame"].number));
+                colors[e]=color[e].Get();
                 cameras[e].previous=f[0][e].eye;cameras[e].current=f[k][e].eye;
             }
             bool interpolated=false;
             ok=generator.Generate(gpu.device,gpu.queue,colors,inputs,cameras,settings,44.4,step==0,uint64_t(step+1),&interpolated);
             gpu.wait();
-            if(ok && step) {
+            if(ok && last) {
                 ok=interpolated && ActiveBackend()==backend;
                 for(unsigned e=0;e<2 && ok;++e) {
                     auto pixels=gpu.read(generator.Output(e));
@@ -258,6 +372,17 @@ int Replay(ReplayGpu& gpu,const std::filesystem::path& dir,const std::filesystem
                     results[e]=Reproject(pixels,w,h,shown,f[1][e].eye,nullptr);
                 }
             }
+        }
+        if(ok) {
+            uint32_t fw{},fh{};const auto flow=generator.ReadFlow(0,&fw,&fh);
+            size_t nonzero=0;double sum=0,peak=0;
+            for(size_t i=0;i+1<flow.size();i+=2) {const double m=std::hypot(double(flow[i]),double(flow[i+1]));if(m>0)++nonzero;sum+=m;peak=std::max(peak,m);}
+            if(!flow.empty()) {
+                std::string fname=variant.name;for(auto& c:fname)if(!std::isalnum(uint8_t(c)))c='_';
+                std::ofstream(out/(fname+"_flow_e0.raw"),std::ios::binary).write(reinterpret_cast<const char*>(flow.data()),std::streamsize(flow.size()*2));
+            }
+            if(!flow.empty())std::printf("  %-26s flow eye 0 %ux%u: nonzero %.1f%%, mean |v| %.2f, max %.1f (raw units)\n",variant.name,fw,fh,
+                100.0*double(nonzero)/double(flow.size()/2),sum/double(flow.size()/2),peak);
         }
         if(!ok) {std::printf("  %-26s FAILED (active %s)\n",variant.name,BackendName(ActiveBackend()));continue;}
         report(variant.name,results);

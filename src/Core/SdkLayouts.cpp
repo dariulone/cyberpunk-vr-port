@@ -22,7 +22,9 @@
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/RTTITypes.hpp>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 
 namespace {
 
@@ -43,6 +45,12 @@ struct SdkType {
 // At file scope: it starts with the SDK headers, then defines kSdkTypes[] (static).
 #include "SdkLayouts.gen.inc"
 
+#if CVR_RUST_VRIK
+// The Rust build's check is rust/crates/cvr-ffi/src/sdk_layouts.rs; the generated table stays here and is handed over.
+static_assert(sizeof(SdkField) == 16 && sizeof(SdkType) == 32, "rust/crates/cvr-ffi/src/sdk_layouts.rs SdkField/SdkType");
+extern "C" void cvr_sdk_layouts_check(const void* types, size_t count);
+void CyberpunkVR_CheckSdkLayouts() { cvr_sdk_layouts_check(kSdkTypes, std::size(kSdkTypes)); }
+#else
 namespace {
 
 struct Tally {
@@ -112,3 +120,4 @@ void CyberpunkVR_CheckSdkLayouts() {
         "(%u SDK fields RTTI does not list)\n",
         t.types, t.unknown, t.fields, t.sizes, t.offsets, t.absent);
 }
+#endif

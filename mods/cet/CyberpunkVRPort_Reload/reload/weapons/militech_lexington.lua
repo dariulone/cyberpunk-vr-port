@@ -43,6 +43,7 @@ return {
     barrel = { front = 'vrp_muzzle_slot', back = 'vrp_barrel_back' },
 
     slide = {
+        ejectLiveRound = true,
         slot       = 'vrp_barrel_back',
         which      = 1, bone = 3,
         -- HOW FAR IT CAN GO, from its own rig animation rather than from one reload: empty_reload takes the slide to

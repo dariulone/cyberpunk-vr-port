@@ -1,0 +1,20 @@
+[package]
+name = "cvr-settings"
+description = "The port's settings: vrport.ini read as the C++ half read it, and the game's UserSettings.json (stage 3, docs/rust-migration-plan.md)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cvr-crt = { path = "../cvr-crt" }
+cvr-host = { path = "../cvr-host" }
+yaml-rust2 = { version = "0.10", default-features = false }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Environment", "Win32_System_IO", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_StationsAndDesktops", "Win32_System_LibraryLoader", "Win32_System_WindowsProgramming", "Win32_Graphics_Gdi", "Win32_Graphics_GdiPlus", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_UI_Controls", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi"] }
+
+[lints]
+workspace = true
+
+[features]
+# The plugin's Rust build (cvr-render's rust-build): the runtime tables the C++ half used to attach are built
+# here from the plugin's exports; a test program without it attaches its own.
+plugin-tables = []

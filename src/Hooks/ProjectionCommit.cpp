@@ -1,10 +1,16 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // ProjectionCommit -- one hook, one file. It registers itself at the bottom; Hooks/Hook.hpp says why the
 // stage and order live here rather than in a boot function.
 //
 // Where the projection block is committed. Historically called the "unifix" site.
 
+#include "Hooks/Hook.hpp"
+#if CVR_RUST_VRIK
+// rust/crates/cvr-rig/src/vrik/projection_commit.rs: the same stub and callback.
+extern "C" bool cvr_hook_projection_commit_install();
+CVR_HOOK("ProjectionCommit", ::cvr::hooks::Stage::Boot, 45, cvr_hook_projection_commit_install);
+#else
 #include "Core/VrCoreShared.hpp"
-#include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Core/Telemetry.hpp"
 #include "Hooks/Hook.hpp"
@@ -53,7 +59,7 @@ extern "C" void __fastcall OnUnifixHookCallback(void* projectionData, void* rend
         bool shouldLog = false;
         if (rbxNonZero && !s_seenNonZeroRbx) { s_seenNonZeroRbx = true; shouldLog = true; }
         if (g_unifixHits <= 5) shouldLog = true;
-        if ((g_unifixHits % 600) == 0 && cvr::RuntimeDiagnosticsEnabled()) shouldLog = true;
+        if ((g_unifixHits % 600) == 0) shouldLog = true;
 
         if (shouldLog) {
             Log("Unifix: hits=%llu r13zero=%d rbxZero=%d\n",
@@ -170,3 +176,5 @@ bool InstallUnifixHook() {
     return true;
 }
 CVR_HOOK("ProjectionCommit", ::cvr::hooks::Stage::Boot, 45, InstallUnifixHook);
+#endif
+#endif

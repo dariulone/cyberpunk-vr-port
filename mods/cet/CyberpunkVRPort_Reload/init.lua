@@ -138,17 +138,37 @@ local slotComp, slotEnt = nil, nil
 -- answered "no weapon" several times during this work while a pistol was plainly held. Re-resolving every frame
 -- therefore drops the weapon's collision at random, and it is what made the rig census record nothing.
 --
--- So the last weapon is kept and re-validated cheaply -- can its world position still be read -- and only given
--- up after a run of failures, which is what holstering actually looks like.
+-- Ask the real attachment slots when GetActiveWeapon misses. An entity can keep
+-- answering GetWorldPosition for a second AFTER holstering; that is not evidence
+-- that its reload highlight still belongs in the hand.
 local lastW, wMiss = nil, 0
 local W_GIVE_UP = 30       -- frames of failure before the weapon is considered gone (~0.7 s at 45 fps)
+local heldConfirmed = false
+local WEAPON_SLOTS = {}
+local function slotWeapon(pl, side)
+    local id = WEAPON_SLOTS[side]
+    if not id then
+        id = TweakDBID.new(side == 0 and 'AttachmentSlots.WeaponLeft' or 'AttachmentSlots.WeaponRight')
+        WEAPON_SLOTS[side] = id
+    end
+    return Game.GetTransactionSystem():GetItemInSlot(pl, id)
+end
 
 local function heldWeapon()
+    heldConfirmed = false
     local pl = Game.GetPlayer()
     if not pl then lastW, wMiss = nil, 0 return nil end
     local ok, w = pcall(activeWeapon, pl)
     if ok and w then
+        heldConfirmed = true
         lastW, wMiss = w, 0
+        return w
+    end
+    local okR, right = pcall(slotWeapon, pl, 1)
+    local okL, left = pcall(slotWeapon, pl, 0)
+    if okR and okL then
+        w = right or left
+        lastW, wMiss, heldConfirmed = w, 0, w ~= nil
         return w
     end
     if lastW then
@@ -425,6 +445,13 @@ local dbgNote2 = '-'
 -- Writing only on a change also means the far more common case, a reload owning no hand, costs nothing
 -- and says nothing.
 local lastOwned = nil
+-- RUST (stage 6): bit 28 of VRRustMechanics -- this mod's onUpdate (the dual wield, the held gun and its holder, the
+-- reload's frame with its magazine, slide, hatch, hammer, cylinder and shotguns, the glow, the owned wrist) is the
+-- plugin's (rust/crates/cvr-ffi/src/mechanics/reload*.rs). The overlay's magazine tuner stays here and reports what it
+-- holds to VRReloadTune / VRReloadTuneJoint.
+local function rustOwns()
+    return type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 268435456) % 2 == 1
+end
 local function publishOwnedHand(hand)
     if type(SetVRReloadOwnedHand) ~= 'function' then return end
     local v = (hand == 0 or hand == 1) and hand or nil
@@ -435,6 +462,8 @@ local function publishOwnedHand(hand)
 end
 
 registerForEvent('onUpdate', function(dt)
+    if rustOwns() then return end
+    if Reload then pcall(Reload.tickLooseRounds, dt) end
     if type(VRHandRawModel) ~= 'function' or type(VRHandStopModel) ~= 'function' then return end
     if type(VRBoneModelPos) ~= 'function' or type(VRBoneModelRot) ~= 'function' then return end
     if type(SetVRDiagCapture) ~= 'function' then return end
@@ -446,7 +475,11 @@ registerForEvent('onUpdate', function(dt)
     local rl, rr = VRHandRawModel(0), VRHandRawModel(1)
     if rl and rl.w < 0.5 then rl = nil end
     if rr and rr.w < 0.5 then rr = nil end
-    if not rl and not rr then return end
+    if not rl and not rr then
+        -- No tracked hands means no valid position for a hand-mounted highlight.
+        if Glow then pcall(Glow.hide) end
+        return
+    end
     RAW[0], RAW[1] = rl, rr
     if rl then PX[0], PY[0], PZ[0] = rl.x, rl.y, rl.z end
     if rr then PX[1], PY[1], PZ[1] = rr.x, rr.y, rr.z end
@@ -476,7 +509,7 @@ registerForEvent('onUpdate', function(dt)
     end
     -- Two guns in hand, or the game's own reload running: nothing is wanted of a free hand.
     if Glow then
-        local mine = Reload and not dual and dbgNote2 == '-'
+        local mine = Reload and heldConfirmed and haveGun and not dual and dbgNote2 == '-'
         pcall(Glow.frame, mine and Reload or nil, lastW, (Reload and Reload.holderOk) or holder, slotComp, dt)
     end
 
@@ -595,6 +628,11 @@ registerForEvent('onDraw', function()
             t.stage = -1.0
         end
         ImGui.End()
+        if rustOwns() and type(VRReloadTune) == 'function' then
+            VRReloadTune(t.hold == true, t.dx, t.dy, t.dz, t.rx, t.ry, t.rz, t.stage or -1.0, t.seat or -1.0,
+                         t.lead or 0.0, t.rev or 0)
+            for i = 1, 19 do VRReloadTuneJoint(i, t.w[i] or 1.0) end
+        end
     end)
 end)
 -- ---- ADAPTED from init.lua 1171-1178 -- not a verbatim extract, unlike everything above --------
@@ -602,6 +640,8 @@ end)
 -- Two differences, both deliberate: the wrist release is published to the collision mod, and the
 -- VRHandStopDeadband(0.02) restore stayed in that mod, whose setting it is.
 registerForEvent('onShutdown', function()
+    if rustOwns() then return end
+    if Reload and Reload.sg then pcall(Reload.sg.clearLooseRounds, Reload.sgH) end
     -- Release the wrist and say so, or the collision mod would keep excluding a hand nobody holds.
     publishOwnedHand(nil)
     pcall(function() VRHandStopModel(0, false, Vector4.new(0, 0, 0, 0)) end)
@@ -654,6 +694,7 @@ return {
         if not okG then return 'hot reload failed: ' .. tostring(newG) end
         if Glow then pcall(Glow.clear) end
         Glow = newG
+        if Reload and Reload.sg then pcall(Reload.sg.clearLooseRounds, Reload.sgH) end
         if Reload and Reload.release then pcall(Reload.release, lastW) end
         Reload = new
         if DualWield and DualWield.release then pcall(DualWield.release) end

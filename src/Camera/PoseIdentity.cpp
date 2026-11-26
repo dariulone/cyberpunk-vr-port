@@ -7,14 +7,16 @@
 #include <cstring>
 #include <vector>
 
+// The counters are defined in src/Camera/CameraLinkState.cpp (both builds); OpenXR is asked through
+// src/Camera/CameraServices.cpp. Under CVR_RUST_VRIK rust/crates/cvr-rig/src/vrik/pose_identity.rs runs instead
+// (src/Camera/PoseIdentityRust.cpp).
 extern "C" {
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdComponent[2]{};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdCopied{0};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdCopyChanged{0};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdFinal[2]{};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdFinalMiss[2]{};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdVrikSource{0};
-__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PoseIdVrikInputChanged{0};
+extern std::atomic<uint64_t> CyberpunkVR_PoseIdComponent[2];
+extern std::atomic<uint64_t> CyberpunkVR_PoseIdCopied;
+extern std::atomic<uint64_t> CyberpunkVR_PoseIdCopyChanged;
+uint64_t cvr_cpp_xr_tracking_origin_serial();
+bool cvr_cpp_xr_resolve_rendered_pose(const OpenXRHeadPose* head,XrPosef* out);
+bool cvr_cpp_xr_external_pose_reset_pending();
 }
 namespace cvr::camera {
 namespace {
@@ -56,7 +58,7 @@ void PublishCameraSetupPose(uintptr_t address,uintptr_t component,uint32_t view,
     PoseIdentity value{};
     PoseFingerprint fingerprint{};
     if(!poseId || view<1 || view>2 || !Fingerprint(address,&fingerprint) ||
-       !OpenXRManager::Get().ResolveRenderedPose(head,&value.localHead)) {
+       !cvr_cpp_xr_resolve_rendered_pose(&head,&value.localHead)) {
         s_addresses.Invalidate(address);return;
     }
     value.poseId=poseId;value.writeId=s_writeId.fetch_add(1,std::memory_order_relaxed)+1;
@@ -75,10 +77,10 @@ void PublishSerializedPose(uintptr_t destination,const PoseReceipt& source) {
     TransferPoseAddress(source,destination);
 }
 bool ReadCameraPoseIdentity(uintptr_t camera,uint32_t view,PoseIdentity* out) {
-    if(!out || view<1 || view>2 || OpenXRManager::Get().ExternalPoseResetPending())return false;
+    if(!out || view<1 || view>2 || cvr_cpp_xr_external_pose_reset_pending())return false;
     const auto record=CapturePoseAddress(camera);
     if(!record || record.payload.view!=view ||
-       record.payload.head.originSerial!=OpenXRManager::Get().GetTrackingOriginSerial())return false;
+       record.payload.head.originSerial!=cvr_cpp_xr_tracking_origin_serial())return false;
     *out=record.payload;return true;
 }
 bool PublishBlendedPose(uintptr_t destination,std::span<const WeightedPoseReceipt> inputs) {

@@ -41,6 +41,31 @@ inline bool Finite(const Matrix& value) {
 }
 }
 
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/shader_camera.rs (tools/single_pass_tests/shader_camera_test runs its cases against
+// them in its Rust variant), with the native matrix helper's float rounding. camera_math stays for the fixtures.
+extern "C" {
+bool cvr_scam_build(const ShaderCamera*,const uint8_t*,const uint8_t*,size_t,float,InvertShaderMatrix,ShaderCamera*);
+bool cvr_scam_decode(const uint8_t*,size_t,const ShaderCameraHistory*,uint8_t*,float*);
+}
+// Same-projection, perspective, camera-relative scene constants. Shared view
+// metadata must already be eligible; previous data and temporal weight belong
+// to the PEER eye. Never substitute the first eye's temporal history.
+// The matrix callback is pure numeric work on owned buffers, not a GPU upload.
+inline bool BuildPeerShaderCamera(const ShaderCamera& shared,const CameraInput& current,
+    const CameraInput& previous,float temporalWeight,InvertShaderMatrix invert,ShaderCamera& output) {
+    return cvr_scam_build(&shared,current.bytes.data(),previous.bytes.data(),current.bytes.size(),temporalWeight,invert,&output);
+}
+// The paired graph has already prepared both current cameras. Its history
+// object is separate from camera +0x70: native 0x297904 reads pose at +8/+0x20,
+// view/projection at +0x30/+0xB0 and the temporal weight at +0x180.
+inline bool DecodeShaderCameraHistory(const CameraInput& current,const ShaderCameraHistory& history,
+    CameraInput& previous,float& temporalWeight){
+    CameraInput result=current;
+    if(!cvr_scam_decode(current.bytes.data(),current.bytes.size(),&history,result.bytes.data(),&temporalWeight))return false;
+    previous=result;return true;
+}
+#else
 // Same-projection, perspective, camera-relative scene constants. Shared view
 // metadata must already be eligible; previous data and temporal weight belong
 // to the PEER eye. Never substitute the first eye's temporal history.
@@ -113,6 +138,7 @@ inline bool DecodeShaderCameraHistory(const CameraInput& current,const ShaderCam
     }
     previous=result;temporalWeight=weight;return true;
 }
+#endif
 }
 #if defined(_MSC_VER)
 #pragma float_control(pop)

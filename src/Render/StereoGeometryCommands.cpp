@@ -6,8 +6,127 @@
 #include <map>
 #include <tuple>
 
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+// The commands: rust/crates/cvr-render/src/geometry_commands.rs (tools/single_pass_tests/geometry_commands_test runs its
+// cases against them in its Rust variant).
+extern "C" {
+HRESULT cvr_sgc_create(ID3D12Device*,const void*,size_t,void**);
+HRESULT cvr_sgc_create_sources(ID3D12Device*,const void*,size_t,void(*)(void*,void*),void**);
+bool cvr_sgc_record(void*,ID3D12GraphicsCommandList*,UINT,bool,bool(*)(void*,void*),void(*)(void*,void*));
+void cvr_sgc_counts(void*,UINT*,UINT*,UINT64*);
+HRESULT cvr_sgc_capture_indirect(ID3D12GraphicsCommandList*,const void*,const void*,const void*,void(*)(void*,void*),
+    bool(*)(void*,void*,UINT,UINT64,UINT64),void*,bool(*)(void*,void*),void*);
+}
+#endif
+#endif
 namespace cvr::stereo {
 using Microsoft::WRL::ComPtr;
+#if CVR_RUST_VRIK
+// The storages are Rust objects (their IUnknown vtables are Rust's); the inputs are lent as mirrors, the command
+// resources' Keep, the signature receipts and the copy validation are callbacks.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's commands are geometry_commands.rs' (the Rust test variants use these)
+namespace {
+struct RustLease {ID3D12Resource* resource;UINT64 gpu,bytes;};
+struct RustResources {RustLease index;std::array<RustLease,16> vertices;const native_probe::DrawRecord* draw;const uint8_t* instances;size_t instanceCount;};
+struct RustIndirect {ID3D12CommandSignature* signature;UINT maxCommandCount;ID3D12Resource* arguments;UINT64 argumentOffset;
+    ID3D12Resource* countBuffer;UINT64 countOffset;};
+struct RustPair {std::array<RustResources,2> eyes;bool instanceRebaseSafe;};
+struct RustSource {RustResources geometry;const RustIndirect* indirect;};
+struct RustProof {ID3D12Resource* resource;bool stateKnown;D3D12_RESOURCE_STATES state;UINT64 recordingGeneration,commandPosition;IUnknown* allocationOwner;};
+struct RustCaptured {ID3D12Resource* arguments;ID3D12Resource* countBuffer;IndirectSnapshotReceipt receipt;IUnknown* owner;};
+static_assert(sizeof(RustLease)==24 && sizeof(RustResources)==432 && sizeof(RustIndirect)==48 && sizeof(RustPair)==872 &&
+    sizeof(RustSource)==440 && sizeof(RustProof)==40 && sizeof(IndirectSnapshotReceipt)==64 && sizeof(RustCaptured)==88 &&
+    sizeof(native_probe::DrawRecord)==1096,"mirrored by geometry_commands.rs");
+RustLease Lend(const geometry::BufferLease& lease){return {lease.resource.Get(),lease.gpu,lease.bytes};}
+RustResources Lend(const geometry::DrawResources& value){
+    RustResources lent{Lend(value.index),{},&value.draw,value.instances.data(),value.instances.size()};
+    for(UINT slot=0;slot<16;++slot)lent.vertices[slot]=Lend(value.vertices[slot]);return lent;
+}
+RustIndirect Lend(const PureIndirectSource& value){
+    return {value.signature.Get(),value.maxCommandCount,value.arguments.Get(),value.argumentOffset,value.countBuffer.Get(),value.countOffset};
+}
+RustProof Lend(const IndirectCopyProof& value){
+    return {value.resource.Get(),value.state.has_value(),value.state.value_or(D3D12_RESOURCE_STATES{}),value.recordingGeneration,
+        value.commandPosition,value.allocationOwner.Get()};
+}
+bool Keep(void* list,void* object)noexcept{
+    try{return gpu::KeepCommandResources(static_cast<ID3D12GraphicsCommandList*>(list),{static_cast<IUnknown*>(object)});}catch(...){return false;}
+}
+void Describe(void* signature,void* receipt)noexcept{
+    *static_cast<indirect_policy::detail::Receipt*>(receipt)=indirect_policy::Describe(static_cast<ID3D12CommandSignature*>(signature));
+}
+struct Validation {ValidateIndirectCopy validate;std::array<const IndirectCopyProof*,2> proofs;};
+bool Validate(void* context,void* list,UINT which,UINT64 offset,UINT64 bytes)noexcept{
+    const auto& value=*static_cast<const Validation*>(context);
+    try{return which<2 && value.proofs[which] && value.validate(static_cast<ID3D12GraphicsCommandList*>(list),*value.proofs[which],offset,bytes);}
+    catch(...){return false;}
+}
+struct Counts {UINT draws{},sources{};UINT64 bytes{};};
+Counts CountsOf(IUnknown* storage){Counts counts;if(storage)cvr_sgc_counts(storage,&counts.draws,&counts.sources,&counts.bytes);return counts;}
+}
+struct StereoGeometryCommands::Storage:IUnknown {};
+StereoGeometryCommands::StereoGeometryCommands()=default;
+StereoGeometryCommands::~StereoGeometryCommands()=default;
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+HRESULT StereoGeometryCommands::Create(ID3D12Device* device,std::span<const GeometryCommandPair> inputs)try{
+    if(storage_ || !device || inputs.empty() || inputs.size()>2048)return E_INVALIDARG;
+    std::vector<RustPair> lent;lent.reserve(inputs.size());
+    for(const auto& input:inputs)lent.push_back({{Lend(input.eyes[0]),Lend(input.eyes[1])},input.instanceRebaseSafe});
+    void* created{};const auto hr=cvr_sgc_create(device,lent.data(),lent.size(),&created);if(FAILED(hr))return hr;
+    storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(created)));return S_OK;
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
+bool StereoGeometryCommands::RecordGeometry(ID3D12GraphicsCommandList* list,UINT index)const{
+    return storage_ && list && cvr_sgc_record(storage_.Get(),list,index,false,&Keep,&Describe);
+}
+UINT StereoGeometryCommands::DrawCount()const{return CountsOf(storage_.Get()).draws;}
+UINT64 StereoGeometryCommands::InstanceBytes()const{return CountsOf(storage_.Get()).bytes;}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+HRESULT StereoGeometryCommands::CreateSources(ID3D12Device* device,std::span<const geometry::DrawResources> inputs){
+    return CreateSourcesImpl(device,inputs,{});
+}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's source commands are retained_geometry_native.rs' (CompileSources)
+HRESULT StereoGeometryCommands::CreateMixedSources(ID3D12Device* device,std::span<const GeometrySourceCommand> inputs){
+    return CreateSourcesImpl(device,{},inputs);
+}
+HRESULT StereoGeometryCommands::CreateSourcesImpl(ID3D12Device* device,std::span<const geometry::DrawResources> direct,
+    std::span<const GeometrySourceCommand> mixed)try{
+    const auto count=direct.empty()?mixed.size():direct.size();
+    if(storage_ || !device || !count || count>MaxSourceCommands || (!direct.empty() && !mixed.empty()))return E_INVALIDARG;
+    std::vector<RustIndirect> indirects;indirects.reserve(count);std::vector<RustSource> lent;lent.reserve(count);
+    for(size_t i=0;i<count;++i){
+        const auto& input=direct.empty()?mixed[i].geometry:direct[i];const RustIndirect* indirect{};
+        if(direct.empty() && mixed[i].indirect){indirects.push_back(Lend(*mixed[i].indirect));indirect=&indirects.back();}
+        lent.push_back({Lend(input),indirect});
+    }
+    void* created{};const auto hr=cvr_sgc_create_sources(device,lent.data(),lent.size(),&Describe,&created);if(FAILED(hr))return hr;
+    storage_.Attach(static_cast<Storage*>(static_cast<IUnknown*>(created)));return S_OK;
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+bool StereoGeometryCommands::RecordSourceGeometry(ID3D12GraphicsCommandList* list,UINT index)const{
+    return storage_ && list && cvr_sgc_record(storage_.Get(),list,index,true,&Keep,&Describe);
+}
+#endif
+UINT StereoGeometryCommands::SourceCount()const{return CountsOf(storage_.Get()).sources;}
+#endif
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
+HRESULT StereoGeometryCommands::CaptureIndirectSource(ID3D12GraphicsCommandList* list,const PureIndirectSource& source,
+    const IndirectCopyProof& arguments,const IndirectCopyProof* count,ValidateIndirectCopy validate,CapturedIndirectSource& output)try{
+    if(!list || !validate || output.owner || output.replay.signature || output.replay.arguments || output.replay.countBuffer)return E_INVALIDARG;
+    const auto lentSource=Lend(source);const auto lentArguments=Lend(arguments);RustProof lentCount{};if(count)lentCount=Lend(*count);
+    const Validation context{validate,{&arguments,count}};RustCaptured captured{};CapturedIndirectSource result;
+    const auto hr=cvr_sgc_capture_indirect(list,&lentSource,&lentArguments,count?&lentCount:nullptr,&Describe,&Validate,
+        const_cast<Validation*>(&context),&Keep,&captured);
+    if(FAILED(hr))return hr;
+    result.replay.arguments.Attach(captured.arguments);result.replay.countBuffer.Attach(captured.countBuffer);result.owner.Attach(captured.owner);
+    result.replay.signature=source.signature;result.replay.maxCommandCount=source.maxCommandCount;result.receipt=captured.receipt;
+    output=std::move(result);return S_OK;
+}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}catch(...){return E_FAIL;}
+#endif
+#else
 struct StereoGeometryCommands::Storage final: IUnknown {
     struct Draw {
         D3D12_INDEX_BUFFER_VIEW index{};std::array<D3D12_VERTEX_BUFFER_VIEW,16> vertices{};
@@ -241,4 +360,5 @@ HRESULT StereoGeometryCommands::CaptureIndirectSource(ID3D12GraphicsCommandList*
     if(sourceCount)list->ResourceBarrier(sourceCount,sourceBarriers.data());
     list->ResourceBarrier(destinationCount,destinations.data());output=std::move(result);return S_OK;
 }catch(const std::bad_alloc&){return E_OUTOFMEMORY;}catch(...){return E_FAIL;}
+#endif
 }

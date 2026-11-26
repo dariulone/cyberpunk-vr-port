@@ -19,7 +19,10 @@ std::shared_ptr<const Family> Lookup(ID3D12PipelineState*){return {};}
 }
 namespace cvr::stereo::camera_upload {Context CurrentContext(uintptr_t){return {};}}
 namespace cvr::stereo::native_recording {bool ValidateRecording(const Lease&,ID3D12GraphicsCommandList*,camera_upload::Context){return false;}}
+#if !CVR_RUST_VRIK
+// The Rust build defines it (the header forwards to Rust).
 namespace cvr::stereo::scene_state {bool CaptureSourceBindings(ID3D12GraphicsCommandList*,Bindings& output){output={};return false;}}
+#endif
 namespace cvr::stereo::texture_read {
 bool PinFixedAsset(ID3D12GraphicsCommandList*,uint64_t,FixedAssetPins& output){output={};return false;}
 bool GetFixedPinnedResource(const FixedAssetPins&,ComPtr<ID3D12Resource>& output){output.Reset();return false;}

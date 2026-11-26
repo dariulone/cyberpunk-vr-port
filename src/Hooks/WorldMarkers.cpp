@@ -1,4 +1,5 @@
 #include "Utils/DebugGate.hpp"
+#include "Natives/NativeFunctions.hpp"  // the natives defined here, with C linkage in the Rust build
 // Native ink paint/primitive ownership, verified in world-markers-20260923.md.
 #include "Stereo/WorldMarkers.hpp"
 #include "Stereo/StereoInternal.hpp"
@@ -28,6 +29,7 @@
 #include <unordered_map>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*,...);
 extern "C" float CyberpunkVRPort_HalfIpd();
 extern "C" float GetGameRenderFovDeg();
@@ -35,12 +37,24 @@ extern "C" float CyberpunkVR_MainAdsZoomFactor;
 extern "C" int CyberpunkVR_MainIsRightEye;
 extern "C" int CyberpunkVR_StereoSubmit;
 extern "C" void CvrWorldMarkerTextPublishDetour();
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's is rust/crates/cvr-render/src/world_markers.rs's
 extern "C" { uintptr_t CvrWorldMarkerTextPublishTarget{}; }   // the native publication the thunk jumps on to
+#endif
+#if !CVR_RUST_VRIK
 extern "C" int GetMenuMode();
+#endif
 extern "C" float CyberpunkVR_HudRootWidth, CyberpunkVR_HudRootHeight;   // Natives/HudPanel.cpp
+#if !CVR_RUST_VRIK
 extern int g_launcherWidth;
 extern int g_launcherHeight;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
 __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_WorldMarkerStereo{1};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_WorldMarkerRoots{0};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_WorldMarkerQuads{0};
@@ -93,8 +107,26 @@ __declspec(dllexport) uint64_t CyberpunkVR_WorldMarkerLayerRoot=0;
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_WorldMarkerLayerCount{0};
 __declspec(dllexport) uint64_t CyberpunkVR_WorldMarkerLayerWords[64][4]{};
 __declspec(dllexport) float CyberpunkVR_WorldMarkerLayerFloats[64][8]{};
+#endif
+#if !CVR_RUST_VRIK
+}
+#endif
+
+#if CVR_RUST_VRIK
+// The Rust build's markers are rust/crates/cvr-render/src/world_markers.rs (their arithmetic world_marker_math.rs, the
+// natives VRWorldMarkerAnchor/ScreenPoint/Projection and CvrWorldMarkerTextTag there too); this file keeps the exports
+// above, the hook's registration and the constant upload's forwarder. The edge clamp's switch is exported by its C
+// name here.
+extern "C" {
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/input_exports.rs.
+#else
+__declspec(dllexport) std::atomic<int32_t> CyberpunkVR_WorldMarkerEdgeClamp{0};
+#endif
 }
 
+
+#else
 namespace cvr::markers {
 namespace {
 using namespace RED4ext;
@@ -1218,3 +1250,4 @@ void VRWorldMarkerProjection(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,v
     RED4ext::GetParameter(stack,&widget);RED4ext::GetParameter(stack,&projection);stack->code++;
     cvr::markers::RegisterProjection(widget,projection);
 }
+#endif

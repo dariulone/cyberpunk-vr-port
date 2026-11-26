@@ -18,6 +18,9 @@
 #include <mutex>
 
 extern "C" {
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) uint64_t CyberpunkVR_PreparationRootObserved[16][8]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationRootObservedCount{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationGraphRequest{},CyberpunkVR_PreparationGraphState{},CyberpunkVR_PreparationGraphSeq{};
@@ -32,7 +35,15 @@ __declspec(dllexport) uint64_t CyberpunkVR_PreparationContextOrderStats[24]{};
 __declspec(dllexport) uint64_t CyberpunkVR_PreparationContextOrderWitnesses{};
 __declspec(dllexport) uint32_t CyberpunkVR_PreparationContextOrderWitnessCount{},CyberpunkVR_PreparationContextOrderWitnessBytes=24;
 __declspec(dllexport) uint64_t CyberpunkVR_PreparationSharedOwnerStats[8]{},CyberpunkVR_PreparationSharedOwnerRows{};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) uint32_t CyberpunkVR_PreparationSharedOwnerRowBytes=32;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationGraphJobsMode{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationGraphJobsEpoch{};
 __declspec(dllexport) uint64_t CyberpunkVR_PreparationGraphJobsStats[8]{};
@@ -49,7 +60,26 @@ __declspec(dllexport) uint64_t CyberpunkVR_PreparationScheduleRanges[4]{},Cyberp
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_PreparationScheduleCache{1};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PreparationScheduleCpu[6]{};
 __declspec(dllexport) uint64_t CyberpunkVR_PreparationScheduleCpuFrequency{};
+#endif
 }
+#if CVR_RUST_VRIK
+// The paired frame's engine hooks: rust/crates/cvr-render/src/paired_frame.rs (the six detours registered there with
+// their code contracts; the graph captures, frontier plans, owned graph comparison, job receipts, resource uses and
+// schedule cache; preparation's graph parent source, graph job poll and definition tracking are called in Rust); the
+// exports' C++ definitions above serve the C++ build.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin registers them in rust/crates/cvr-render/src/engine_detours.rs cvr_static_registrations
+namespace {
+extern "C" void cvr_npf_attach();
+const bool kPairedFrameAttached=(cvr_npf_attach(),true);
+}
+#endif
+#else
+#if CVR_RUST_VRIK
+// The game-code contracts: rust/crates/cvr-render/src/paired_frame_code.rs (0 root, 1 graph, 2 sort, 3 resource uses,
+// 4 resource markers, 5 proxy gather, 6 schedule; the switch, caches and exports stay here).
+extern "C" bool cvr_npf_code(uint32_t,uint64_t);
+extern "C" bool cvr_npf_graph_jobs(uint64_t,uint64_t*);
+#endif
 
 namespace cvr::detail {
 namespace {
@@ -138,10 +168,15 @@ void Observe(void* data,uintptr_t caller){
 }
 bool Compatible(){
     if(!GetEnvironmentVariableW(L"CVR_STEREO_PAIRED_ROOT",nullptr,0))return false;
+#if CVR_RUST_VRIK
+    const bool valid=cvr_npf_code(0,reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+    CyberpunkVR_PreparationRootCompatible=valid?1:2;return valid;
+#else
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));std::array<uint8_t,0xA00> code{};SIZE_T copied{};
     bool valid=ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(base+0x409DD4),code.data(),code.size(),&copied) && copied==code.size();
     uint64_t hash=14695981039346656037ull;for(auto byte:code)hash=(hash^byte)*1099511628211ull;
     valid=valid && hash==0xDED3369EB748ED88ull;CyberpunkVR_PreparationRootCompatible=valid?1:2;return valid;
+#endif
 }
 void* FrameData(void* context){
     __try {
@@ -170,12 +205,19 @@ uintptr_t Hook(void* renderer,void* context){
 CVR_DETOUR_IF("[single-pass] bounded paired-frame root",0x409DD4,Hook,original,Compatible)
 bool GraphCompatible(){
     if(!GetEnvironmentVariableW(L"CVR_STEREO_PAIRED_ROOT",nullptr,0))return false;
+#if CVR_RUST_VRIK
+    return cvr_npf_code(1,reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+#else
     const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));std::array<uint8_t,0x5F> bytes{};
     if(!Read(base+0x547CF4,bytes.data(),bytes.size()))return false;
     uint64_t hash=14695981039346656037ull;for(auto byte:bytes)hash=(hash^byte)*1099511628211ull;
     return hash==0xB21BDD71777C2FE4ull;
+#endif
 }
 bool NativeSortCompatible(){
+#if CVR_RUST_VRIK
+    static const bool valid=cvr_npf_code(2,reinterpret_cast<uintptr_t>(g_exe_base));return valid;
+#else
     static const bool valid=[] {
         constexpr struct Code {UINT rva,bytes;uint64_t hash;} code[]{
             {0x8E9B28,0x1A2,0xBBD50CE198B2DC60ull},{0x8E9FEC,0xDE,0x7EDD805AFDD84978ull}};
@@ -185,6 +227,7 @@ bool NativeSortCompatible(){
             if(hash!=row.hash)return false;}
         return true;
     }();return valid;
+#endif
 }
 bool NativeSort(void* graph){
     __try{reinterpret_cast<void(*)(void*)>(reinterpret_cast<uintptr_t>(g_exe_base)+0x8E9B28)(graph);return true;}
@@ -344,6 +387,10 @@ bool GraphJobsCompatible(){
     // The schedule contract includes this function's original body. Cache it
     // before installing our queue observer, not after its detour is enabled.
     diagnostic[2]=ScheduleCompatible();if(!diagnostic[2])return false;
+#if CVR_RUST_VRIK
+    const auto base=reinterpret_cast<uintptr_t>(g_exe_base);diagnostic[1]=base;
+    if(!cvr_npf_graph_jobs(base,diagnostic+3))return false;
+#else
     constexpr struct Code {UINT rva,bytes;uint64_t hash;} code[]{
         {0x32D60C,0x12C,0x9C49D739DEEFCCACull},{0x2744CC,0x4A,0xBF52C1744ED0577Cull},
         {0x272B40,0x183,0xFDFF35624D704435ull},{0x2746D8,0x156,0xA28DBE6ABEB41274ull},
@@ -356,6 +403,7 @@ bool GraphJobsCompatible(){
         if(!Read(base+row.rva,bytes.data(),row.bytes))return false;
         uint64_t hash=14695981039346656037ull;for(UINT i=0;i<row.bytes;++i)hash=(hash^bytes[i])*1099511628211ull;
         diagnostic[5]=hash;if(hash!=row.hash)return false;}
+#endif
     diagnostic[0]=1;return true;
     }();
     if(valid)cvr::stereo::preparation::SetGraphJobPoll(PollOwnedGraphJobs);
@@ -410,6 +458,11 @@ using CompileResourcePool=uintptr_t(*)(void*,uint8_t,void*);
 CompileResourcePool originalCompilePool{};
 bool ResourceUsesCompatible(){
     if(!GetEnvironmentVariableW(L"CVR_STEREO_PAIRED_ROOT",nullptr,0))return false;
+#if CVR_RUST_VRIK
+    const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
+    if(!cvr_npf_code(3,base))return false;
+    const bool valid=cvr_npf_code(4,base);
+#else
     std::array<uint8_t,0x1FF> bytes{};const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
     if(!Read(base+0x3E0330,bytes.data(),bytes.size()))return false;
     uint64_t hash=14695981039346656037ull;for(const auto byte:bytes)hash=(hash^byte)*1099511628211ull;
@@ -422,6 +475,7 @@ bool ResourceUsesCompatible(){
     for(const auto& row:markers){if(!Read(base+row.rva,body.data(),row.bytes)){valid=false;break;}
         uint64_t actual=14695981039346656037ull;for(UINT i=0;i<row.bytes;++i)actual=(actual^body[i])*1099511628211ull;
         if(actual!=row.hash){valid=false;break;}}
+#endif
     CyberpunkVR_PreparationResourceMarkerContract=valid?1:2;
     return true;
 }
@@ -472,10 +526,14 @@ using ProxyGather=uintptr_t(*)(void*,void*);
 ProxyGather originalProxyGather{};
 bool ProxyGatherCompatible(){
     if(!GetEnvironmentVariableW(L"CVR_STEREO_PAIRED_ROOT",nullptr,0))return false;
+#if CVR_RUST_VRIK
+    return cvr_npf_code(5,reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+#else
     std::array<uint8_t,0x108> bytes{};
     if(!Read(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))+0x33020C,bytes.data(),bytes.size()))return false;
     uint64_t hash=14695981039346656037ull;for(auto byte:bytes)hash=(hash^byte)*1099511628211ull;
     return hash==0xDED60A539B29A3F2ull;
+#endif
 }
 uintptr_t ProxyGatherHook(void* context,void* range){
     cvr::stereo::preparation::MaterializeTicket ticket;
@@ -503,6 +561,9 @@ void ScheduleTime(unsigned phase,uint64_t ticks){
 bool ScheduleCompatible(){
     if(!GetEnvironmentVariableW(L"CVR_STEREO_PAIRED_ROOT",nullptr,0))return false;
     static const bool valid=[] {
+#if CVR_RUST_VRIK
+    const bool matched=cvr_npf_code(6,reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
+#else
     struct Region {uintptr_t offset;size_t size;uint64_t hash;};
     constexpr Region regions[]{{0x8EA1C8,0x132,0xC35ED8EB6A3F9C5Dull},{0x32D60C,0x12C,0x9C49D739DEEFCCACull},
         {0x3E8F58,0x199,0x80DA43519D13BA70ull},{0x40B10C,0x82,0x177EF1EE2846E667ull}};
@@ -510,6 +571,7 @@ bool ScheduleCompatible(){
     for(const auto& region:regions){std::array<uint8_t,0x200> bytes{};matched=matched && Read(base+region.offset,bytes.data(),region.size);
         uint64_t hash=14695981039346656037ull;for(size_t i=0;i<region.size;++i)hash=(hash^bytes[i])*1099511628211ull;
         matched=matched && hash==region.hash;}
+#endif
     LARGE_INTEGER frequency{};QueryPerformanceFrequency(&frequency);CyberpunkVR_PreparationScheduleCpuFrequency=frequency.QuadPart;
     return matched;
     }();CyberpunkVR_PreparationScheduleCompatible=valid?1:2;return valid;
@@ -573,3 +635,4 @@ CVR_DETOUR_IF("[single-pass] bounded CPU preparation schedule",0x8EA1C8,Dependen
 namespace cvr::stereo::preparation {
 void PrepareGraphJobCodeGuards(){cvr::detail::GraphJobsCompatible();}
 }
+#endif

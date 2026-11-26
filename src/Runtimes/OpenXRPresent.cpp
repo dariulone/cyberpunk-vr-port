@@ -1,17 +1,27 @@
 #include "Utils/DebugGate.hpp"
 // 1 (default) = label each captured frame with the head orientation the camera injection
 // actually used for it, instead of the pose cache as of Present. See the use site.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_BindPoseToImage = 1;
 // 1 = the SECOND EYE is submitted with the label its own image was drawn with, taken from its own
 // read-back queue. 0 restores the shared label, which is what it had before, so the two can be compared
 // live without a rebuild.
 extern "C" __declspec(dllexport) int CyberpunkVR_VrcamOwnLabel = 1;
+#endif
 // How many captures actually used it. If this tracks the present rate the second eye is being labelled
 // from its own frames; if it stays at zero the queue is not being filled and the eye is on MAIN's label.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugVrcamLabelUsed = 0;
+#endif
 // Which eye VRCAM is. Declared here because this file needs it and does not otherwise pull in the camera
 // header; defined with the rest of the camera state.
+#if !CVR_RUST_VRIK
 extern "C" extern int CyberpunkVR_MainIsRightEye;
+#endif
 // Render-ahead depth, in PRESENT INTERVALS (not in pushes -- see the ring in the header).
 //
 // 0, and it is not a preference -- it is the only value CONSISTENT with the exact path.
@@ -27,31 +37,59 @@ extern "C" extern int CyberpunkVR_MainIsRightEye;
 //
 // 1 and 2 stay reachable because a different runtime could genuinely render deeper, but they
 // must be compared against the exact path, not chosen on feel.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_PoseFrameLag = 0;
+#endif
 // One [vrik] line every two seconds: present rate vs the skeleton's real update rate.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) int CyberpunkVR_VrikRateLog = 1;   // (declared above <cstdint>, so plain int)
+#endif
 // How often the frame's pose is the exact one recorded inside that frame, versus the
 // interval estimate. Exact should dominate; a rising estimate count means the depth barrier
 // is not firing for those frames and the binding is back to guessing there.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPoseExact = 0;
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPoseEstimated = 0;
+#endif
 // Thread the present/capture runs on; see the write site for why this settles PoseFrameLag.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) unsigned int CyberpunkVR_DebugTidPresent = 0;
+#endif
 // How often the frame being submitted had its own published slot (pose + per-eye offset + per-eye
 // FOV, all located together for THIS serial) versus had to fall back to the live values. A miss
 // is the old mixed-timeline path; it should be rare and it should not grow during gameplay.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugSlotHit  = 0;
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugSlotMiss = 0;
 // Intervals that contained no locate of their own, so the frame legitimately carries the previous
 // slot. Expected to be substantial whenever the game presents faster than the XR loop cycles;
 // only DebugSlotMiss (no slot at all) is a real fallback to live values.
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugSlotReused = 0;
+#endif
 // Defined in openxr_frameloop.cpp -- which source the submitted centre pose came from.
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPoseFromWrite;
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPoseFromSlot;
+#endif
 // Frames labelled with the pose read back out of the engine at frame-open (vr_core.cpp).
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPoseReadBack = 0;
+#endif
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) int CyberpunkVR_PoseReadBack;
+#endif
 
 // openxr_present.cpp - OnPresent(): per-Present capture/submit trigger + eye schedule.
 // Split verbatim from openxr_manager.cpp (OpenXRManager method). Shared module
@@ -62,10 +100,12 @@ extern "C" __declspec(dllexport) int CyberpunkVR_PoseReadBack;
 #include "Runtimes/OpenXRInternal.hpp"
 #include "Utils/XrMath.hpp"
 #include "Utils/SharedSlots.hpp"
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpSpeed;
 extern "C" __declspec(dllexport) extern int CyberpunkVR_XrDeepDiag;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_VrikBatchGapMs;
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugHandPerFrameLocates;
+#endif
 #include "Anim/CharacterRig.hpp"   // g_VrikFrameEpoch: the frame counter VRIK keys on
 #include "Runtimes/RuntimeFovCorrection.hpp"
 #include "Stereo/EngineStereo.hpp"
@@ -82,6 +122,7 @@ extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugHand
 #include <algorithm>
 #include <dxgi1_4.h>
 
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) extern volatile uint64_t CyberpunkVR_DebugRebindLoopCalls;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HeadingLeadFrames;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_DebugHeadingStepDeg;
@@ -94,27 +135,31 @@ extern "C" __declspec(dllexport) extern float CyberpunkVR_DebugYawLagWriteDeg;
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugYawWritesAll;
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugYawWritesPlayer;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugHeadingLedComps;
+#endif
 
-// WHERE THE GAME'S PRESENT WAITS INSIDE OnPresent, accumulated microseconds per phase, with RuntimeDiagnostics on
-// only: 0 hand lock, 1 FlushHandsToShared, 2 view lock, 3 render pose lock, 4 mono capture, 5 foveated/VRS ticks,
-// 6 main HUD capture (with the optics probe), 7 the other HUD channels. A lock wait here is the XR thread holding it.
-extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_OnPresentPhaseUs[8]{};
-namespace {
-uint64_t PhaseStart() {
-    if (!cvr::RuntimeDiagnosticsEnabled()) return 0;
-    LARGE_INTEGER t{}; QueryPerformanceCounter(&t); return static_cast<uint64_t>(t.QuadPart);
-}
-void PhaseEnd(unsigned index, uint64_t start) {
-    if (!start) return;
-    static const uint64_t frequency = [] { LARGE_INTEGER f{}; QueryPerformanceFrequency(&f); return static_cast<uint64_t>(f.QuadPart); }();
-    LARGE_INTEGER t{}; QueryPerformanceCounter(&t);
-    CyberpunkVR_OnPresentPhaseUs[index].fetch_add((static_cast<uint64_t>(t.QuadPart) - start) * 1000000 / frequency,
-        std::memory_order_relaxed);
-}
-}
-
+#if CVR_RUST_VRIK
+// Present's diagnostics: rust/crates/cvr-xr/src/present_diag.rs.
+// The eyes a presented mono frame is submitted with: rust/crates/cvr-xr/src/mono_eyes.rs.
+#endif
+#if CVR_RUST_VRIK
+// The present's host is Rust's (rust/crates/cvr-render/src/xr_present_host.rs); the HUD channels' capture stays here.
+// cvr_cpp_xr_hud_capture: rust/crates/cvr-render/src/xr_manager_services.rs.
+#else
 void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     // [HANDS] Shared Memory Output
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
+    {
+        // The slots Present refreshes: rust/crates/cvr-xr/src/published.rs.
+        struct Slots { int32_t handTrackingMode, weaponAimEnable, immersiveHolsters, bodyHandsOnly; float cameraOffset[3]; int32_t logDiag, reloadGlow; };
+        Slots slots{m_vrHandTrackingMode.load(std::memory_order_relaxed), m_weaponAimEnable.load(std::memory_order_relaxed),
+                    m_immersiveHolsters.load(std::memory_order_relaxed), m_bodyHandsOnly.load(std::memory_order_relaxed), {},
+                    m_logDiagReq.load(std::memory_order_relaxed), 1};
+        GetCameraOffset(slots.cameraOffset);
+        if (float* block = cvr_xr_publish_present_slots(&slots)) m_sharedHandsPtr = block;
+    }
+#endif
+#else
     static HANDLE s_hMapFile = NULL;
     static float* s_pSharedHands = nullptr;
     if (!s_hMapFile) {
@@ -125,9 +170,7 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         }
     }
     if (s_pSharedHands) {
-        const uint64_t handWait = PhaseStart();
-        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
-        PhaseEnd(0, handWait);
+        std::lock_guard lock(m_handMutex);
         // Slot [32]: VR hand-tracking request for the RED4ext plugin (set from the overlay menu).
         s_pSharedHands[32] = static_cast<float>(m_vrHandTrackingMode.load(std::memory_order_relaxed));
         s_pSharedHands[58] = static_cast<float>(m_weaponAimEnable.load(std::memory_order_relaxed)); // weapon-aim enable
@@ -137,8 +180,6 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         s_pSharedHands[23] = (m_immersiveHolsters.load(std::memory_order_relaxed) != 0) ? 0.0f : 1.0f;
         // shared[173]: 1 = hands only (the CET HandsOnly mod hides the rest of the body, NeckCap keeps the cap off).
         s_pSharedHands[vrshared::kBodyHandsOnly] = m_bodyHandsOnly.load(std::memory_order_relaxed) != 0 ? 1.0f : 0.0f;
-        // shared[174]: 1 = the reload highlight is OFF. Inverted like [23], so the zero-initialized block means on.
-        s_pSharedHands[vrshared::kReloadGlowOff] = m_reloadGlow.load(std::memory_order_relaxed) != 0 ? 0.0f : 1.0f;
         s_pSharedHands[59] = 5.0f;  // mode 5 = game muzzle xform (the working solution)
         // [70..75]: anatomical HMD/body->shoulder offsets (auto-calibration result).
         // Right (rx,ry,rz), then left (lx,ly,lz). [76] = valid flag. Kept outside
@@ -182,6 +223,7 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         for (int i = 0; i < 14; ++i) s_pSharedHands[34 + i] = m_calib[i].load(std::memory_order_relaxed);
         s_pSharedHands[48] = static_cast<float>(m_logDiagReq.load(std::memory_order_relaxed));
     }
+#endif
 
     if (!swapChain) return;
 
@@ -211,6 +253,9 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     // So the interval is bucketed instead. Bucket 3+ counts frames that took longer than three display
     // periods; if that lands at roughly one per second, the jumps are the game's frame-time spikes and
     // no change on the XR side will remove them.
+#if CVR_RUST_VRIK
+    cvr_xr_present_gap(m_predictedDisplayPeriodNs.load(std::memory_order_relaxed));
+#else
     {
         // Behind CyberpunkVR_XrDeepDiag: a clock read on EVERY present, for a number that only means
         // anything next to [xrgap]. See the flag's definition in OpenXRFrameLoop.cpp.
@@ -242,15 +287,14 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
             s_prevPresentMs = nowMs;
         }
     }
+#endif
     const bool monoEnabled = m_monoSubmitEnabled.load(std::memory_order_relaxed);
 
     // Present is the fallback publisher. On foot, native roomscale publishes
     // before the CCT/animation tick from the very head sample used by physics.
     // FlushHandsToShared checks that ownership under its mutex, so Present
     // cannot replace the tick's packet with a differently timed XR head cache.
-    const uint64_t flushPhase = PhaseStart();
     FlushHandsToShared();
-    PhaseEnd(1, flushPhase);
 
     // VRIK RATE CENSUS -- the skeleton's update rate, which is not the present rate.
     //
@@ -266,6 +310,9 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     //
     // The clock is no longer the CET mod's onUpdate either: freshSolve is now paced by
     // g_VrikFrameEpoch, one per Present, from inside this process.
+#if CVR_RUST_VRIK
+    cvr_xr_vrik_rate_log(s_presentCount);
+#else
     if (CyberpunkVR_VrikRateLog) {
         static uint64_t s_last = 0, s_presPrev = 0;
         static unsigned long long s_prevApply = 0;
@@ -478,6 +525,7 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
             s_last = now; s_presPrev = s_presentCount;
         }
     }
+#endif
 
     DXGI_SWAP_CHAIN_DESC desc{};
     if (FAILED(swapChain->GetDesc(&desc))) {
@@ -502,10 +550,22 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     XrPosef monoCapturedCenters[2]{};
     XrFovf monoCapturedFovs[2]{};
     bool monoCapturedViews[2] = {};
+#if CVR_RUST_VRIK
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not use it; the Rust test variants do
     if (monoEnabled) {
-        const uint64_t viewWait = PhaseStart();
-        std::lock_guard<std::mutex> viewLock(m_viewMutex);
-        PhaseEnd(2, viewWait);
+        CvrMonoInputs in{s_presentCount, static_cast<float>(desc.BufferDesc.Width), static_cast<float>(desc.BufferDesc.Height),
+                         0.0f, 0.0f, cvr::projection::Active()};
+        if ((in.fovWidth <= 1.0f || in.fovHeight <= 1.0f) && resourceDesc.Width != 0 && resourceDesc.Height != 0) {
+            in.fovWidth = static_cast<float>(resourceDesc.Width);
+            in.fovHeight = static_cast<float>(resourceDesc.Height);
+        }
+        cvr::projection::WindowParams(true, &in.asymGuard, &in.asymTarget);
+        cvr_xr_mono_eye_poses(&in, monoCapturedPoses, monoCapturedCenters, monoCapturedFovs, monoCapturedViews);
+    }
+#endif
+#else
+    if (monoEnabled) {
+        std::lock_guard viewLock(m_viewMutex);
         if (m_views.size() >= 2) {
             float fovWidth = static_cast<float>(desc.BufferDesc.Width);
             float fovHeight = static_cast<float>(desc.BufferDesc.Height);
@@ -517,10 +577,11 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
             bool hasRenderHeadPose = false;
             XrPosef renderHeadPose{};
             renderHeadPose.orientation.w = 1.0f;
+#if CVR_RUST_VRIK
+            hasRenderHeadPose = cvr_xr_render_head_pose_for_seq(GetRenderedCameraSeq(), &renderHeadPose);
+#else
             {
-                const uint64_t renderWait = PhaseStart();
-                std::lock_guard<std::mutex> renderLock(m_renderPoseMutex);
-                PhaseEnd(3, renderWait);
+                std::lock_guard renderLock(m_renderPoseMutex);
                 uint32_t renderedSeq = GetRenderedCameraSeq();
                 int idx = renderedSeq % 256;
                 
@@ -532,6 +593,7 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                     hasRenderHeadPose = true;
                 }
             }
+#endif
 
             // THE FRAME'S OWN SLOT, not "the current values".
             //
@@ -716,16 +778,19 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                     monoPairFovs, eye, fovWidth, fovHeight);
                 // No cant pose rotation (removed): in mono both eyes derive from ONE
                 // frame, so a per-eye cant delta doubled the whole image.
-                monoCapturedViews[eye] = true;
+                // NOT BEFORE THE VIEW WAS LOCATED. EnsureMonoSubmitResources sizes m_views before the first
+                // xrLocateViews fills it: a Present in between had two views of zeros -- zero poses and a zero
+                // FOV -- and the frame went to the runtime as it was. A located orientation is never all zero.
+                const XrQuaternionf& located = srcPose.orientation;
+                monoCapturedViews[eye] = located.x != 0.0f || located.y != 0.0f || located.z != 0.0f || located.w != 0.0f;
             }
         }
     }
+#endif
     bool monoCaptureOk = false;
     if (monoEnabled && backBuffer) {
-        const uint64_t capturePhase = PhaseStart();
         monoCaptureOk = CaptureMonoPresentedFrame(backBuffer, resourceDesc, s_presentCount,
             monoCapturedPoses,monoCapturedFovs,monoCapturedViews,monoCapturedCenters);
-        PhaseEnd(4, capturePhase);
         if (!monoCaptureOk && (s_presentCount % 300) == 1) {
             Log("OpenXRManager: Mono capture failed. serial=%llu views=(%d,%d)\n",
                 static_cast<unsigned long long>(s_presentCount),
@@ -734,20 +799,13 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         }
     }
 
-    const uint64_t tickPhase = PhaseStart();
     cvr::foveated::Tick(m_d3dDevice,m_d3dQueue);
     cvr::vrs::Tick(m_d3dDevice,m_d3dQueue);
-    PhaseEnd(5, tickPhase);
-    const uint64_t hudPhase = PhaseStart();
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue);
-    PhaseEnd(6, hudPhase);
-    const uint64_t channelPhase = PhaseStart();
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::Interaction);
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::Basilisk);
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::Surveillance);
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::HitMarker);
-    cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::VehicleMinimap);
-    PhaseEnd(7, channelPhase);
 
     std::unique_lock<std::mutex> presentLock(m_presentMutex);
         if (m_lastPresentedBackBuffer) {
@@ -787,3 +845,4 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         resourceDesc.Height,
         IsSessionRunning() ? 1 : 0);
 }
+#endif

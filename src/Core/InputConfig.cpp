@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Core/InputConfig.hpp"
 #include "Core/Paths.hpp"
 #include "Stereo/EngineRvas.hpp"
@@ -12,8 +13,14 @@
 #include <string>
 #include <vector>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's merge is rust/crates/cvr-ffi/src/input_config.rs (the XML, pugixml's byte for byte,
+// rust/crates/cvr-settings/src/xml_merge.rs).
+#else
 namespace cvr::input_config {
 namespace {
 
@@ -186,3 +193,5 @@ void Apply() {
 }
 
 }  // namespace cvr::input_config
+#endif
+#endif

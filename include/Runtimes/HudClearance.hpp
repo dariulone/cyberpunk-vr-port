@@ -23,7 +23,16 @@ constexpr float kMinDistance = 0.35f;   // nearer than this is uncomfortable to 
 constexpr float kFree        = 99.0f;   // published when no ray hit anything: open space
 
 // Nearest depth in metres; kFree in open space; 0 when nothing fresh was published (the Lua mod stopped).
+#if CVR_RUST_VRIK
+// The published value and the grow factor: rust/crates/cvr-xr/src/hud_natives.rs (SetVRHudClearance is there too).
+}
+extern "C" float cvr_hud_clearance_published(uint64_t nowMs);
+extern "C" float cvr_hud_clearance_grow_factor(float configured,float distance,float grow);
+namespace cvr::hud::clearance {
+inline float Published(uint64_t nowMs) { return cvr_hud_clearance_published(nowMs); }
+#else
 float Published(uint64_t nowMs);
+#endif
 
 // HOW MUCH A PANEL GROWS WHEN IT COMES IN. Kept at a constant angular size, a panel that comes nearer is
 // read as SHRINKING: the eyes see it nearer, the size on the retina does not change, and size constancy
@@ -31,7 +40,11 @@ float Published(uint64_t nowMs);
 // up close. `grow` is the compromise exponent (xr_hud_clearance_grow): the angular size is multiplied by
 // (configured / distance)^grow -- 0 = constant angular size, 1 = fixed world size, 0.5 by default
 // (half the distance -> about 1.41 x larger).
+#if CVR_RUST_VRIK
+inline float GrowFactor(float configured, float distance, float grow) { return cvr_hud_clearance_grow_factor(configured, distance, grow); }
+#else
 float GrowFactor(float configured, float distance, float grow);
+#endif
 
 // Where a panel configured at `configured` metres may sit, given the published clearance.
 constexpr float Limit(float configured, float published) {

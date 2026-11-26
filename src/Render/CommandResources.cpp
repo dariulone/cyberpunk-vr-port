@@ -7,6 +7,8 @@
 #include <new>
 #include <unordered_map>
 
+#if !CVR_RUST_VRIK
+// The C++ build's tracker; the Rust build's is rust/crates/cvr-gpu/src/command_resources.rs (the header calls it).
 namespace cvr::gpu {
 using Microsoft::WRL::ComPtr;
 struct ResourceBatch { std::vector<ComPtr<IUnknown>> resources; };
@@ -149,3 +151,4 @@ void CollectCommandResources() {
     PruneRecordings();
 }
 }
+#endif

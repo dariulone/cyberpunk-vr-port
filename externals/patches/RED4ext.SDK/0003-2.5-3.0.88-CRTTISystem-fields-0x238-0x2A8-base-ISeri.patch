@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: patchday <patchday@local>
+Date: Thu, 22 Oct 2026 17:40:30 +0300
+Subject: [PATCH 3/4] 2.5 (3.0.88): CRTTISystem fields 0x238-0x2A8, base
+ ISerializable::sub_A0 hash
+
+---
+ include/RED4ext/Detail/AddressHashes.hpp | 2 +-
+ include/RED4ext/RTTISystem.hpp           | 6 +++++-
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/include/RED4ext/Detail/AddressHashes.hpp b/include/RED4ext/Detail/AddressHashes.hpp
+index 7ab9a847..637f495e 100644
+--- a/include/RED4ext/Detail/AddressHashes.hpp
++++ b/include/RED4ext/Detail/AddressHashes.hpp
+@@ -151,7 +151,7 @@ constexpr std::uint32_t IScriptable_DestructValueHolder = 0x3521331;
+ constexpr std::uint32_t ISerializable_sub_30 = 0x6D63649;
+ constexpr std::uint32_t ISerializable_sub_40 = 0x88B30FF9;
+ constexpr std::uint32_t ISerializable_sub_78 = 0xA1D93993;
+-constexpr std::uint32_t ISerializable_sub_A0 = 0xED221B32;
++constexpr std::uint32_t ISerializable_sub_A0 = 0x67440F8A; // 2.5: the base implementation (in 6652 vtables); 0xED221B32 is an override (4)
+ constexpr std::uint32_t ISerializable_sub_C0 = 0xDBE91251;
+ constexpr std::uint32_t ISerializable_Counter = 2630817091;
+ #pragma endregion
+diff --git a/include/RED4ext/RTTISystem.hpp b/include/RED4ext/RTTISystem.hpp
+index e493d8ea..1f0bfd03 100644
+--- a/include/RED4ext/RTTISystem.hpp
++++ b/include/RED4ext/RTTISystem.hpp
+@@ -98,8 +98,12 @@ struct CRTTISystem : IRTTISystem
+     Mutex unk1E0;                                    // 1E0
+     SharedSpinLock typesLock;                        // 208
+     Mutex rttiRegistratorMutex;                      // 210
++    DynArray<void*> unk238;                          // 238 - added in 2.5, sub_138 adds / sub_148 removes
++    DynArray<void*> unk248;                          // 248 - added in 2.5, sub_140 adds / sub_150 removes
++    Mutex unk258;                                    // 258 - added in 2.5, guards unk238
++    Mutex unk280;                                    // 280 - added in 2.5, guards unk248
+ };
+-RED4EXT_ASSERT_SIZE(CRTTISystem, 0x238);
++RED4EXT_ASSERT_SIZE(CRTTISystem, 0x2A8);
+ RED4EXT_ASSERT_OFFSET(CRTTISystem, types, 0x10);
+ RED4EXT_ASSERT_OFFSET(CRTTISystem, funcs, 0xA0);
+ RED4EXT_ASSERT_OFFSET(CRTTISystem, scriptToNative, 0x150);

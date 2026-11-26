@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Utils/DebugGate.hpp"
 // BodyYawCensus -- WHEN the body's yaw is computed, relative to the animation pass that draws it.
 //
@@ -44,17 +45,27 @@
 // Written on a game job thread, read on the animation thread and in Present. Plain 8-byte aligned
 // scalars: on x86-64 those loads and stores do not tear, and a census that is one sample stale is
 // still a census. Nothing here is load-bearing for the pose.
-extern "C" __declspec(dllexport) double   CyberpunkVR_DebugYawWriteMs = 0.0;
-// THESE TWO ARE LOAD-BEARING, not a census: the solve converts world to model with this yaw.
-// Model space IS the entity frame, so the entity yaw is the correct converter by definition --
-// the camera heading only equalled it while standing still (measured), and lagged it by a frame
-// on every turn (measured: 5-10 deg at ordinary mouse speeds, [yawphase] lag vs written yaw).
-extern "C" __declspec(dllexport) float    CyberpunkVR_EngineBodyYawZ  = 0.0f;
-extern "C" __declspec(dllexport) float    CyberpunkVR_EngineBodyYawW  = 1.0f;
-extern "C" __declspec(dllexport) int      CyberpunkVR_EngineBodyYawValid = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugYawWritesAll = 0;
-extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugYawWritesPlayer = 0;
+// The exports (CyberpunkVR_DebugYawWriteMs, CyberpunkVR_EngineBodyYaw*, CyberpunkVR_DebugYawWrites*) are
+// src/Hooks/BodyHooksState.cpp's (both builds). The engine yaw is LOAD-BEARING, not a census: the solve converts world to
+// model with it (model space IS the entity frame; the camera heading lagged it a frame on every turn).
+extern "C" {
+#if !CVR_RUST_VRIK
+extern double CyberpunkVR_DebugYawWriteMs;
+#endif
+extern float CyberpunkVR_EngineBodyYawZ,CyberpunkVR_EngineBodyYawW;
+#if !CVR_RUST_VRIK
+extern int CyberpunkVR_EngineBodyYawValid;
+#endif
+extern uint64_t CyberpunkVR_DebugYawWritesAll,CyberpunkVR_DebugYawWritesPlayer;
+}
 
+#if CVR_RUST_VRIK
+// THE SITE IS RUST'S (rust/crates/cvr-rig/src/vrik/body_yaw_census.rs: the stub, the callback, the census); the
+// registration stays here, so the install order holds.
+#if !CVR_RUST_VRIK   // registered from rust/crates/cvr-render/src/hook_table.rs
+CVR_HOOK("BodyYawCensus", ::cvr::hooks::Stage::Boot, 61, cvr_hook_body_yaw_census_install);
+#endif
+#else
 // Defined in src/Hooks/BodyYawFollow.cpp.
 extern "C" void BodyYawFollowTick(float engineZ, float engineW, const float* enginePos);
 
@@ -187,3 +198,5 @@ bool InstallBodyYawCensusHook() {
 }  // namespace
 
 CVR_HOOK("BodyYawCensus", ::cvr::hooks::Stage::Boot, 61, InstallBodyYawCensusHook);
+#endif
+#endif

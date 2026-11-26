@@ -1,3 +1,5 @@
+#if !CVR_RUST_VRIK
+// The C++ build's atlas copy; the Rust build's is in rust/crates/cvr-gpu/src/mono_cascades.rs.
 #include "Render/MonoCascadeImage.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
@@ -68,3 +70,4 @@ bool AtlasImage::Restore(ID3D12GraphicsCommandList* list,ID3D12Resource* destina
     }return true;
 }
 }
+#endif

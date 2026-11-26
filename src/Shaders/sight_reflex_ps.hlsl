@@ -129,6 +129,28 @@
 #define SIGHT_COLLIMATOR_COVER 0.85f
 #endif
 
+// FIXED FRAME, COLLIMATED DOT. The whole atlas rect used to be collimated: the reticle AND the
+// frame/ring around it slid across the glass with the line of sight. Only the dot belongs to the
+// bore; the frame is painted on the glass. With SIGHT_FRAME_FIXED=1 the atlas is sampled twice: at the
+// collimated coordinate, kept only inside SIGHT_DOT_RADIUS of the rect centre (the dot), and at the
+// stock painted-on coordinate, kept only outside that radius (the frame). The radius is in atlas-rect
+// units (0.5 = the whole rect); the edge is soft over SIGHT_DOT_SOFT of it.
+#ifndef SIGHT_FRAME_FIXED
+#define SIGHT_FRAME_FIXED 1
+#endif
+#ifndef SIGHT_DOT_RADIUS
+#define SIGHT_DOT_RADIUS 0.12f
+#endif
+#ifndef SIGHT_DOT_SOFT
+#define SIGHT_DOT_SOFT 0.25f
+#endif
+// Faint background inside the dot region (Add-Vantage's 4 % box and glows) is not part of the dot: the
+// collimator lift turned it into a visible square. Whatever is below this level in the collimated
+// sample is dropped, and the rest is rescaled so the dot keeps its full level.
+#ifndef SIGHT_DOT_FLOOR
+#define SIGHT_DOT_FLOOR 0.15f
+#endif
+
 #ifndef SIGHT_ZERO_U
 #define SIGHT_ZERO_U 0.0f
 #endif
@@ -281,7 +303,41 @@ float4 nativeOpticMarks(float2 slope,float axial,float4 projection,float2 tile,f
     return float4(color,max(cover,edge)*fade);
 }
 
+// Only the port's built-in sight surfaces use these materials. Size the ink in
+// view angles so leaning along the glass does not resize or duplicate the mark.
+float4 integratedReticle(PSIn input, float style) {
+    const float3 t = normalize(float3(input.BYZ_TXY.zw, input.TZ_WPOS.x));
+    const float3 b = normalize(float3(input.NRM_BX.w, input.BYZ_TXY.xy));
+    const float3 ray = input.TZ_WPOS.yzw;
+    const float axial = dot(ray, normalize(input.NRM_BX.xyz));
+    const float2 slope = (float2(dot(ray,t),dot(ray,b)) - axial * input.COLOR.zw) / max(abs(axial), 1e-5f);
+    const float2 a = abs(slope);
+    const float radius = length(slope);
+    const float px = max(max(fwidth(slope.x),fwidth(slope.y)), 1e-5f);
+    const float dotEdge = radius - (style == 1.0f ? .0016f : .0021f);
+    // Four open arcs, with a quiet centre. The smart sights use short corner
+    // brackets to distinguish the mark from the game's separate lock-on HUD.
+    float frame = max(abs(radius - .013f) - .0011f, .0035f - min(a.x,a.y));
+    if (style == 2.0f)
+        frame = max(abs(max(a.x,a.y) - .012f) - .0011f, .006f - min(a.x,a.y));
+    // Senkoh LX has four rounded ivory corners around an open centre.
+    // Keep them in angular space so the native atlas' dot mask cannot cut them in half.
+    if (style == 3.0f) {
+        const float2 q = a - .009f;
+        const float rounded = length(max(q,0.0f)) + min(max(q.x,q.y),0.0f) - .003f;
+        frame = max(abs(rounded) - .0013f, .003f - min(a.x,a.y));
+    }
+    const float edge = min(dotEdge,frame);
+    const float ink = saturate(.5f - edge / px);
+    const float coverage = saturate(.5f - (edge - .8f * px) / px);
+    const float3 color = style == 3.0f ? float3(1.26f,1.13f,.75f) :
+                         style == 0.0f ? float3(1.4f,.72f,.27f) : float3(.46f,1.22f,1.03f);
+    return float4(color * ink, coverage);
+}
+
 float4 main(PSIn IN) : SV_Target {
+    if (_29_m0[6].x == -718.25f)
+        return integratedReticle(IN, _29_m0[8].x);
 #if SIGHT_SCOPE_GLASS
     // MAGNIFIED SCOPE PANELS (optics path 'shader'). A scope's native rear panel -- the
     // crosshair of long_01..03 -- hangs behind the lens, and the glass drawn over it hid
@@ -342,7 +398,8 @@ float4 main(PSIn IN) : SV_Target {
     // in the authored VR lens material; all native reticle materials continue
     // through the existing collimator path. A full scene image must use the
     // lens UVs, never the eye-dependent reticle offset below.
-    if (_29_m0[6].x == -713.25f || _29_m0[6].x == -714.25f || _29_m0[6].x == -716.25f) {
+    const bool integratedCamera = _29_m0[6].x == -717.25f;
+    if (_29_m0[6].x == -713.25f || _29_m0[6].x == -714.25f || _29_m0[6].x == -716.25f || integratedCamera) {
         const bool composite = _29_m0[6].x == -714.25f;
         const bool marks = _29_m0[6].x == -716.25f;
         const float3 lensT = normalize(float3(IN.BYZ_TXY.z, IN.BYZ_TXY.w, IN.TZ_WPOS.x));
@@ -370,6 +427,10 @@ float4 main(PSIn IN) : SV_Target {
         // storage factor; a monitor's EmissiveEV would expose the camera again.
         float3 scene = max(_13.SampleLevel(_32, uv,0).rgb, 0.0f) * 2.0f;
         if (!rayVisible) scene = 0.0f;
+        if (integratedCamera) {
+            const float4 reticle = integratedReticle(IN, _29_m0[8].x);
+            return float4(scene * (1.0f - reticle.a) + reticle.rgb, 1.0f);
+        }
         if (composite) {
             // Camera and the native LCD labels occupy separate atlas halves.
             // The labels stay on the physical screen as eye distance changes.
@@ -548,12 +609,39 @@ float4 main(PSIn IN) : SV_Target {
                                                              clamp(min(max(uvCrisp.y + y * fp.y, _147), _148), 0.0f, 1.0f)), 0));
     }
 #endif
+#if !SIGHT_SCOPE_GLASS && SIGHT_FRAME_FIXED
+    // Dot = the collimated sample inside the radius; frame = the stock painted-on sample outside it.
+    const float dotMaskC = 1.0f - smoothstep(SIGHT_DOT_RADIUS * (1.0f - SIGHT_DOT_SOFT), SIGHT_DOT_RADIUS,
+                                             length(uvC - 0.5f));
+    {
+        const float2 uvS = float2(ucoord, vcoord);
+        const float frameMask = smoothstep(SIGHT_DOT_RADIUS * (1.0f - SIGHT_DOT_SOFT), SIGHT_DOT_RADIUS,
+                                           length(uvS - 0.5f));
+        const float _sx = (_121 * uvS.x) + _29_m0[12].x;
+        const float _sy = (_122 * uvS.y) + _29_m0[12].y;
+        const float _sy2 = (_29_m0[15].x != 0.0f) ? 1.0f - _sy : _sy;
+        const float2 uvStock = float2(clamp(min(max(_sx, _126), _131), 0.0f, 1.0f),
+                                      clamp(min(max(_sy2, _147), _148), 0.0f, 1.0f));
+        float4 stock = _13.Sample(_32, uvStock);
+        uint sw, sh; _13.GetDimensions(sw, sh);
+        const float2 sfp = max(fwidth(uvStock), 1.0f / float2(sw, sh)) * .45f;
+        [unroll] for (int sx = -1; sx <= 1; ++sx)
+            [unroll] for (int sy = -1; sy <= 1; ++sy)
+                stock = max(stock, _13.SampleLevel(_32, float2(clamp(min(max(uvStock.x + sx * sfp.x, _126), _131), 0.0f, 1.0f),
+                                                               clamp(min(max(uvStock.y + sy * sfp.y, _147), _148), 0.0f, 1.0f)), 0));
+        _229 = max(max(_229 - SIGHT_DOT_FLOOR, 0.0f) / (1.0f - SIGHT_DOT_FLOOR) * dotMaskC, stock * frameMask);
+    }
+#endif
     float4 _235 = _13.Sample(_32, float2(clamp(min(max((_155 * vT) + _135, _126), _131), 0.0f, 1.0f),
                                          clamp(min(max((_155 * vB) + _146, _147), _148), 0.0f, 1.0f)));
     float4 _241 = _13.Sample(_32, float2(clamp(min(max(((vT * 2.0f) * _155) + _135, _126), _131), 0.0f, 1.0f),
                                          clamp(min(max(((vB * 2.0f) * _155) + _146, _147), _148), 0.0f, 1.0f)));
     float4 _247 = _13.Sample(_32, float2(clamp(min(max(((vT * 3.0f) * _155) + _135, _126), _131), 0.0f, 1.0f),
                                          clamp(min(max(((vB * 3.0f) * _155) + _146, _147), _148), 0.0f, 1.0f)));
+
+#if !SIGHT_SCOPE_GLASS && SIGHT_FRAME_FIXED
+    _235 = max(_235 - SIGHT_DOT_FLOOR, 0.0f) * dotMaskC; _241 = max(_241 - SIGHT_DOT_FLOOR, 0.0f) * dotMaskC; _247 = max(_247 - SIGHT_DOT_FLOOR, 0.0f) * dotMaskC;
+#endif
 
     // --- everything below is the original, unchanged -----------------------------------------
     const float _259 = min(max(_29_m0[11].x, 0.75f), 1.0f);

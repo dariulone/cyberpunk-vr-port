@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 // NO START SCREEN: the game goes from its boot straight to the main menu, as -skipStartScreen has it, without the
 // argument. The start screen ("press any key", the engagement screen) is a flat picture waiting for a key; in the
 // headset the game starts in the lobby, with its own intro (mods/cet/CyberpunkVRPort_Lobby). Verified against game
@@ -13,11 +14,23 @@
 #include "Stereo/StereoInternal.hpp"
 #include <cstdint>
 
+#if !CVR_RUST_VRIK
 extern "C" {
+#endif
 // 0 = the start screen shows unless -skipStartScreen is given, as the game has it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 __declspec(dllexport) int32_t CyberpunkVR_SkipStartScreen = 1;
+#endif
+#if !CVR_RUST_VRIK
 }
+#endif
 
+#if CVR_RUST_VRIK
+// The Rust build's detour, its original and its registration are Rust's (rust/crates/cvr-render/src/start_screen.rs,
+// engine_detours.rs).
+#else
 namespace {
 constexpr uintptr_t PRE_GAME_ENTER_RVA = 0x18D6F4;
 constexpr uintptr_t kSkipStartScreen = 0x3C2B4E0;
@@ -33,3 +46,5 @@ int64_t __fastcall Detour_PreGameEnter(void* state, void* app, void* params, voi
 }  // namespace
 
 CVR_DETOUR("[boot] pre-game session enter sub_14018D6F4", PRE_GAME_ENTER_RVA, Detour_PreGameEnter, g_origPreGameEnter)
+#endif
+#endif

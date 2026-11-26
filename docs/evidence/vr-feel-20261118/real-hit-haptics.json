@@ -1,0 +1,110 @@
+{
+  "pid": 17436,
+  "clip": "short",
+  "equipment": "Items.Preset_Katana_Default",
+  "input": "OpenXR hand position only",
+  "airBefore": {
+    "shortQueries": 0,
+    "shortDispatch": 0,
+    "serial": 0,
+    "full": 1,
+    "hits": 0,
+    "follow": false,
+    "sounds": 1,
+    "haptic": {
+      "accepted": 0,
+      "left": 0,
+      "right": 0,
+      "xrResult": 0,
+      "profile": 0,
+      "dropped": 0,
+      "shots": 0,
+      "events": 0
+    }
+  },
+  "airAfter": {
+    "shortQueries": 1,
+    "shortDispatch": 0,
+    "serial": 0,
+    "full": 1,
+    "hits": 0,
+    "follow": false,
+    "sounds": 1,
+    "haptic": {
+      "accepted": 0,
+      "left": 0,
+      "right": 0,
+      "xrResult": 0,
+      "profile": 0,
+      "dropped": 0,
+      "shots": 0,
+      "events": 0
+    }
+  },
+  "touchBefore": {
+    "mark": "attached=0 pending=0 last=None shape=None",
+    "full": 2,
+    "hits": 0,
+    "shortQueries": 1,
+    "follow": false,
+    "sounds": 2,
+    "serial": 0,
+    "shortDispatch": 0,
+    "health": 613.89996337891,
+    "haptic": {
+      "accepted": 0,
+      "left": 0,
+      "right": 0,
+      "xrResult": 0,
+      "profile": 0,
+      "dropped": 0,
+      "shots": 0,
+      "events": 0
+    }
+  },
+  "touchAfter": {
+    "mark": "attached=1 pending=0 last=AttachedShape shape=Belly",
+    "full": 2,
+    "hits": 1,
+    "shortQueries": 2,
+    "follow": false,
+    "sounds": 2,
+    "serial": 1,
+    "shortDispatch": 1,
+    "health": 551.23870849609,
+    "haptic": {
+      "accepted": 1,
+      "left": 0,
+      "right": 2,
+      "xrResult": 0,
+      "profile": 14,
+      "dropped": 0,
+      "shots": 0,
+      "events": 1
+    }
+  },
+  "still": {
+    "shortQueries": 2,
+    "mark": "attached=1 pending=0 last=AttachedShape shape=Belly",
+    "full": 2,
+    "hits": 1,
+    "follow": false,
+    "sounds": 2,
+    "serial": 1,
+    "shortDispatch": 1,
+    "health": 551.23870849609,
+    "haptic": {
+      "accepted": 1,
+      "left": 0,
+      "right": 2,
+      "xrResult": 0,
+      "profile": 14,
+      "dropped": 0,
+      "shots": 0,
+      "events": 1
+    }
+  },
+  "pass": true,
+  "hapticsEnabled": 1,
+  "hapticPass": true
+}

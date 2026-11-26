@@ -1,5 +1,7 @@
 #include "Render/SrgbToLinearPass.hpp"
 
+#if !CVR_RUST_VRIK
+// The C++ build's pass; the Rust build's is rust/crates/cvr-gpu/src/srgb_pass.rs (the header calls it).
 #include <cstring>
 #include <d3dcompiler.h>
 
@@ -267,3 +269,4 @@ bool SrgbToLinearPass::Record(ID3D12GraphicsCommandList* cmdList,
     cmdList->DrawInstanced(3, 1, 0, 0);
     return true;
 }
+#endif

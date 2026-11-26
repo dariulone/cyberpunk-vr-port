@@ -57,10 +57,15 @@
 namespace cvr {
 namespace detail {
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static void maybe_resize_rtt(uintptr_t comp);   // defined after g_main_ctx
+#endif
 
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin's scope is rust/crates/cvr-render/src/frame_graph.rs'
 thread_local bool t_rtt_prepare_ours = false;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 // The original, called with the scope flag raised when this preparer call is for OUR view. Every
 // return path of the detour below goes through here, so the flag cannot leak past the call.
 // Identified by the camera-name hash at a1+0x260 and by nothing else, which is this project's
@@ -189,6 +194,7 @@ static __int64 __fastcall Detour_RTTViewCreate(__int64 a1, __int64 a2) {
     }
     return rtt_call_orig(a1, a2);
 }
+#endif
 
 // --- DIAGNOSTIC (phase 1): where does the eye go in sub_140409DD4's per-view loop? ---
 // FULL build  = sub_141D43040(v3, v50, v50+112, ctx+6096, v5)  -> a4 = ctx+6096
@@ -197,13 +203,24 @@ static __int64 __fastcall Detour_RTTViewCreate(__int64 a1, __int64 a2) {
 // If FullEye stays 0 while FullTotal climbs => the eye is diverted BEFORE the full
 // build (FinalOnly/skip) => it needs the natural view path, not forcing.
 using BuildFn = __int64 (__fastcall*)(__int64, __int64, __int64, __int64, __int64);
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
 static BuildFn g_orig_full_build = nullptr;
+#endif
+#if !CVR_RUST_VRIK
 static BuildFn g_orig_incr_build = nullptr;
+#endif
+#if CVR_RUST_VRIK
+#else
 bool g_enable_build_probe = true;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFullEye = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFullTotal = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugIncrEye = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugIncrTotal = 0;
+#endif
 
 // ---- FrameGraph feature-flag diff + force for the VRCAM (RTT) view ----------
 // a4 = ctx+6096; a4[0]/a4[1] are the two 64-bit feature-flag words read by the
@@ -219,27 +236,41 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugIncrTotal = 0;
 // early (before any UI toggle), so the OR must already be armed when that single
 // build executes. Use a bootstrap template until the real MAIN view is known;
 // then consume its freshly computed flags, including settings being turned OFF.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 std::atomic<bool> g_rtt_force_flags{true};
+#endif
 // Force VRCAM's feature flags to main's for full quality, but additionally SET
 // feature-bit 50 = "reuse shadow cascades" (fg builder sub_141D43040: if
 // sub_1407305B0(flags,50) -> SKIP ClearShadowCascades + RenderCascade%u and
 // reference the existing atlas). main has bit50 CLEAR (it renders cascades);
 // giving VRCAM bit50 makes it SAMPLE main's cascades instead of regenerating
 // them into the shared atlas -> no main shadow flicker, VRCAM keeps quality.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 std::atomic<bool> g_force_view_flags{true};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OpticsSceneLinear=1;
+#endif
+#if !CVR_RUST_VRIK
 static const uint64_t SHADOW_CASCADE_REUSE_BIT = (1ULL << 51);  // SET = skip cascade regen (2.31: bit 50)
+#endif
 // Distant shadows: work-fn sub_1405A93E8 renders them only if flags bit 11
 // (0x800) is set. VRCAM naturally lacks it; forcing flags=main gave it bit11 ->
 // VRCAM regenerated distant shadows into the shared distant-shadow buffer ->
 // out-the-window flicker on main. CLEAR it so VRCAM reuses main's distant shadows.
+#if !CVR_RUST_VRIK
 static const uint64_t DISTANT_SHADOW_BIT = (1ULL << 11);         // CLEAR = skip distant regen
+#endif
 // f1 bit 24 (overall bit 88) is the master gate for the async lighting-compute
 // block (GI / clustered light grid / reflections). Builder: v19 = f1 & 0x1082850
 // gates v21..v26 -> v273 -> AsyncComputeDuringShadowmaps. VRCAM rebuilding those
 // view-dependent global structures collides with main -> light/shadow flicker on
 // distant (out-the-window) geometry. CLEAR it so VRCAM reuses main's.
+#if !CVR_RUST_VRIK
 static const uint64_t LIGHTING_COMPUTE_BIT_F1 = (1ULL << 29);    // CLEAR in f1 = reuse main's GI/clusters (overall 93; 2.31: 88)
+#endif
 // BISECTION: main-has / vrcam-naturally-lacks f0 bits are the suspects that make
 // vrcam rebuild view-dependent global lighting structures. Clearing this group
 // from the forced flags tests whether the out-the-window light/shadow collision
@@ -250,24 +281,41 @@ static const uint64_t LIGHTING_COMPUTE_BIT_F1 = (1ULL << 29);    // CLEAR in f1 
 // main has it (builds GI); VRCAM forcing it -> rebuilds the shared GI buffer from
 // its frustum -> main GI (ambient light/shadows) flicker out-the-window. CLEARED
 // for VRCAM -> its GI node skips the update and reuses main's GI.
+#if !CVR_RUST_VRIK
 static const uint64_t GI_FEATURE_BIT = (1ULL << 31);
+#endif
 // THE SCOPE VIEW'S SCREEN-SPACE PASSES, off whatever MAIN has. FlagCompute sub_14227E5D0 sets bit 15 from the
 // ambient occlusion setting (Developer/FeatureToggles/SSAO and the graphics menu's AO) and bit 21 from SSR
 // (Developer/FeatureToggles/ScreenSpaceReflection); bit 22, planar SSR, requires 21. The scope view takes MAIN's
 // flags, so both ran on a narrow image that the lens then magnifies, noise and all.
+#if !CVR_RUST_VRIK
 static const uint64_t SCOPE_SCREEN_SPACE_BITS = (1ULL << 15) | (1ULL << 21) | (1ULL << 22);
+#endif
 // 1 = the scope view renders without AO and SSR (default), 0 = with MAIN's, for A/B.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OpticsNoScreenSpace = 1;
+#endif
 // THE SCOPE VIEW IS ONE EYE. Under engine stereo MAIN carries render feature 98 (both eyes in one frame) and
 // 99, which FlagCompute derives from it; f1 bits 34/35. Taken over with MAIN's f1 they made the engine draw the
 // scope view's passes per eye (sub_14033DDA4: `if (feature 98)` eye 1, eye 2), with the eye functor of a view
 // that never built eyes -- a call through null at +0x2093FC2, the moment a camera scope came up.
+#if !CVR_RUST_VRIK
 static const uint64_t SCOPE_STEREO_BITS_F1 = (1ULL << (98 - 64)) | (1ULL << (99 - 64));
+#endif
 // 2.5 numbering: 2.31's main flags {0x3C00017FAD75FF51, 0x517F008} with every group renumbered
 // (FlagCompute 2.31 vs 2.5: groups 0-43 kept, 44-74 +1, 76-86 +3, 87-90 +5; 2.5 adds 44, 76, 78, 90, 91, 96+).
+#if !CVR_RUST_VRIK
 static constexpr cvr::stereo::FrameGraphFlags kBootstrapMainFlags{0x7800017FAD75FF51ULL,0x00000000A0BF8010ULL};
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/typed_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFgMainF0 = kBootstrapMainFlags.f0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFgMainF1 = kBootstrapMainFlags.f1;
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static cvr::stereo::MainViewFeatureCache g_main_features;
 
 static cvr::stereo::FrameGraphFlags MainFeaturesForVrcam() {
@@ -286,8 +334,13 @@ static void ObserveMainFeatures(uintptr_t context,uintptr_t computed) {
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFgRttF0 = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFgRttF1 = 0;
+#endif
 //  FRAME-GRAPH UPSCALER SELECTOR (ROOT crop fix) 
 // SCENE_FULL (sub_141D43040) picks the temporal upscaler at BUILD time via
 // sub_1407305B0(a4,N) = bit(N&0x3F) of a4[N>>6]. Groups 69/71/72/73 = DLSS/FSR2/FSR3/
@@ -301,16 +354,26 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFgRttF1 = 0;
 // ONLY (not VrcamDlssScale): group69 must be set even for DLAA else the builder thinks
 // there's no temporal upscaler. Only forced when MAIN itself selected DLSS.
 // 2.5: the builder (sub_142276E60) tests 70/72/73/74 and the two new upscaler groups 76/78 (2.31: 69/71/72/73).
+#if !CVR_RUST_VRIK
 constexpr uint64_t FG_DLSS_BIT_F1      = 1ull << (70 - 64);   // 0x040 (group 70 / DLSS)
+#endif
 constexpr uint64_t FG_UPSCALER_MASK_F1 =                      // 0x5740
     (1ull << (70 - 64)) | (1ull << (72 - 64)) | (1ull << (73 - 64)) | (1ull << (74 - 64)) |
     (1ull << (76 - 64)) | (1ull << (78 - 64));
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static std::atomic<uint64_t> g_main_upscaler_groups{0};       // MAIN's chosen upscaler groups (f1 & mask)
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainUpscalerGroups = 0; // diag: main's upscaler bits
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugUpscalerForceHits  = 0; // diag: vrcam forced -> DLSS count
+#endif
 // fwd (real definitions live further below near the DLSS-for-vrcam block)
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_VrcamDlss;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamDlssScale;
+#endif
 // LIVE A/B of the two reuse bits that are the ONLY difference between vrcam and
 // main flags (camera + env handles proven identical). Diagnoses which reuse bit
 // breaks vrcam lighting (wrong light / triangle shadows / light bleed / no refl).
@@ -357,6 +420,9 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamDlssScale;
 // in-frame probe already showed to be identical at both passes -- no staleness at all. That cannot be done
 // from here (this path forces the second view's flags, not MAIN's); it belongs in the cascade node detour,
 // where the node can simply be skipped for MAIN. See CyberpunkVR_CascadeSkipMain in ViewReuse.cpp.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamFlagMode = 1;
 // VRCAM final-color EXTRACTION fix: the full scene builder gates ExtractionSceneColor
 // (sub_1428E5748) and ExtractionFinalColor (sub_1408EAFCC) on build-bit 64
@@ -378,6 +444,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamExtractionHits =
 // re-declare final-color) -> enable + verify live.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamFinalGroup = 0;         // OFF: ClearFinalColorTarget literally clears 0x3D7E6258 (the RenderFinal2D output we capture) to the bg color -> wipes the vrcam frame to black. RenderFinal2D already draws the full frame; no clear needed.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamFinalGroupHits = 0;
+#endif
 // VRCAM composition GROUP: DrawComposition / CompositionPostProcess / FullscreenVideo
 // live in SCENE_FULL under build-bit 82 and in the final builder sub_140982C7C; VRCAM
 // runs SCENE_INCR (sub_14227BD10) which has NEITHER -> missing. RenderFinal2D is added
@@ -385,13 +452,24 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamFinalGroupHits =
 // the builder ctx). NOTE: CopyToTexture copies final-color 0x3D7E6258 (pre-composition);
 // composition writes 0x31CF52F9 -> adding it does NOT change what the mirror copies. It
 // makes VRCAM's graph node-complete. Default OFF -> enable + verify live.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamCompositionGroup = 0;   // default OFF: composition inputs absent in VRCAM RTT graph -> downstream fault
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamCompositionHits = 0;
+#endif
 // VRCAM actually builds via the RTT builder sub_141D47FF0 (live: FullEye/IncrEye=0 yet
 // Extraction present). MAIN never enters it (main uses SCENE_FULL + final sub_140982C7C),
 // so injecting when the Extraction adder is called from here is VRCAM-only.
+#if !CVR_RUST_VRIK
 using PassAdderFn = __int64 (__fastcall*)(__int64, __int64, __int64, int);
 using NamedPassFn = __int64 (__fastcall*)(unsigned int, __int64, __int64, __int64, const char*, int);
+#endif
+#if !CVR_RUST_VRIK
 static PassAdderFn g_orig_extraction_adder = nullptr;
 static PassAdderFn g_declare_adder = nullptr;
 static PassAdderFn g_clear_adder = nullptr;
@@ -399,7 +477,9 @@ static PassAdderFn g_drawcomp_adder = nullptr;
 static PassAdderFn g_composition_adder = nullptr;
 static PassAdderFn g_fsvideo_adder = nullptr;
 static NamedPassFn g_add_named_pass = nullptr;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static uint64_t g_fg_logged[32];
 static int      g_fg_logged_n = 0;
 static bool g_fg_vrcam_full_logged = false;
@@ -604,6 +684,7 @@ static __int64 __fastcall Detour_IncrBuild(__int64 a1, __int64 a2, __int64 a3,
     }
     return g_orig_incr_build(a1, a2, a3, a4, a5);
 }
+#endif
 
 // --- per-frame feature-flag WRITER hook (sub_141D49540) ----------------------
 // The view's render-feature flags (viewobj+0x17D0 == ctx+6096) are RE-DERIVED
@@ -617,15 +698,26 @@ static __int64 __fastcall Detour_IncrBuild(__int64 a1, __int64 a2, __int64 a3,
 // (the tonemap/bloom/exposure work-fns read viewobj+0x17D0 at record time). If
 // these flags gate the reduced passes, they now light up; if not, this proves it.
 // a1=renderer a2=outFlags a3=view context a4=view-state; return=outFlags.
+#if !CVR_RUST_VRIK
 using FlagComputeFn = __int64(__fastcall*)(void*, __int64, __int64, __int64);
+#endif
+#if !CVR_RUST_VRIK
 FlagComputeFn g_orig_flag_compute = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRttFlagForceHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRttEnvBindHits = 0;
+#endif
 // LIVE A/B control for distant-shadow reuse (write via x64dbg to isolate distant
 // in VRCAM):  0 = distant OFF for vrcam (bit 11 cleared -> node no-ops, no distant
 // shadows).  1 = distant REUSE (bit 11 kept SET + vrcam's distant work skipped ->
 // vrcam samples main's distant map).  Flip 1->0->1 and watch vrcam's far-field
 // (out-the-window) sun shadows disappear/reappear = proof distant reuse is live.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DistantReuseMode = 1;
 // Force VRCAM camera to match MAIN instead of relying on the RTT-camera asset.
 // Camera params live at ctx+0x70 (a3-view-params). We copy PROJECTION from main
@@ -693,31 +785,49 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ForceVrcamCam = 1;   // vr
 //
 // F is the old behaviour, 3 is what ships.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamCamFields = 3;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ForceVrcamRes = 0;   // DISABLED (breaks RTT view)
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugForceCamHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugForceResHits = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainW = 0;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainH = 0;
+#endif
 
 // Engine handle copy-assign: sub_1407CDAE4(dst, src) -> AddRef(src), Release(old
 // dst), dst = src. This is how the per-view setup (sub_14036F7D4) binds the world
 // environment handle into MAIN's view ctx. RTT views never get it (fields stay 0)
 // -> no exposure/tonemap/bloom. Using the engine's own refcounted assign (not a
 // raw pointer copy) keeps the env alive -> no use-after-free / -1 deref crash.
+#if !CVR_RUST_VRIK
 using HandleAssignFn = void*(__fastcall*)(void* dst, void* src);
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/stereo_shared.rs.
+#else
 HandleAssignFn g_handle_assign = nullptr;
+#endif
 
 // Live MAIN view ctx (key==0): source of the environment handles to mirror.
+#if CVR_RUST_VRIK
+#else
 static uintptr_t g_main_ctx = 0;
+static uintptr_t main_ctx_now() { return g_main_ctx; }
+#endif
 // Which named render-mask categories does each view actually hold? One line, both views,
 // every category -- so the next "the second eye is missing X" question is answered by reading
 // the log instead of by another session of bisecting nodes.
+#if CVR_RUST_VRIK
+// The report and its table are Rust's: rust/crates/cvr-render/src/render_mask_report.rs.
+#else
  void render_mask_report() {
     if(!cvr::RuntimeDiagnosticsEnabled())return;
     static uint64_t s_last = 0;
     const uint64_t now = GetTickCount64();
     if (s_last && now - s_last < 20000) return;
-    const uintptr_t mc = g_main_ctx;
+    const uintptr_t mc = main_ctx_now();
     const uintptr_t vc = g_vrcam_ctx_seen.load(std::memory_order_acquire);
     if (!mc || !vc || !g_exe_base) return;
     s_last = now;
@@ -743,10 +853,13 @@ static uintptr_t g_main_ctx = 0;
     }
     log("[rmask] per-view render-mask categories (M = main has it, V = vrcam has it): %s", line);
 }
+#endif
 
 // The 3 environment handle slots (16 bytes each) that MAIN fills and VRCAM leaves
 // zero (found by live diff). Assigned via the engine's refcounted handle-assign.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static const uint32_t kEnvHandleOffs[] = { 0x2490, 0x2B18, 0x2FD8 };
+#endif
 
 // Additional environment slots, for the scanner's colour grade.
 //
@@ -767,6 +880,7 @@ static const uint32_t kEnvHandleOffs[] = { 0x2490, 0x2B18, 0x2FD8 };
 //
 // One bit per offset so they can be bisected live. Default 0: these are refcounted handles and a
 // wrong guess here can take the process down, so they get turned on deliberately, not by default.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static const uint32_t kEnvExtraOffs[] = {
     0x1F0, 0x220, 0x380,      // element 0
     0x590, 0x5C0, 0x720,      // element 1  (+0x3A0)
@@ -774,8 +888,17 @@ static const uint32_t kEnvExtraOffs[] = {
 };
 static const uint32_t kEnvExtraCount =
     static_cast<uint32_t>(sizeof(kEnvExtraOffs) / sizeof(kEnvExtraOffs[0]));
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_EnvExtraMask = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEnvExtraBinds = 0;
+#endif
 
 // ---- the water description --------------------------------------------------------------------
 //
@@ -817,6 +940,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEnvExtraBinds = 0;
 // bytes, and some of them read as user-space addresses, so the copy refuses to overwrite them.
 // Kept in the tree, defaulted off, so the next attempt starts from the measurement instead of
 // rediscovering it.
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static const struct { uint32_t off, len; } kWaterMirror[] = {
     { 0x25E0, 0x08 },   // bit 0: depth under the surface, and the surface's height
     { 0x25E8, 0x18 },   // bit 1: the volume's own constants (0.75 / -10 / -10 / 5 / 1)
@@ -825,16 +949,30 @@ static const struct { uint32_t off, len; } kWaterMirror[] = {
 };
 static const uint32_t kWaterCount =
     static_cast<uint32_t>(sizeof(kWaterMirror) / sizeof(kWaterMirror[0]));
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_WaterMirror = 0;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugWaterMirrors = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugWaterPtrSkips = 0;
+#endif
 
 // The second view's own view object, captured where it is unambiguous -- inside FlagCompute, off the
 // camera-name key. `g_vrcam_ctx_seen` says the same thing but is written from the node dispatcher,
 // and the assignment hook below has to be certain which object it is refusing to feed.
+#if CVR_RUST_VRIK
+#else
 static std::atomic<uintptr_t> g_vrcam_view{0};
 static std::atomic<uintptr_t> g_optics_view{0};
+static uintptr_t vrcam_view_now() { return g_vrcam_view.load(std::memory_order_acquire); }
+#endif
 
+#if !CVR_RUST_VRIK   // unused by the Rust build
 bool PhysicalOpticsStereoReady() {
     // The auxiliary camera may only start after the right eye has produced a
     // fresh frame. An XR session alone is already active on the loading screen.
@@ -847,7 +985,7 @@ bool PhysicalOpticsStereoReady() {
     const auto now=GetTickCount64();
     if(!tick || now<tick || now-tick>500)return false;
     const auto main=g_main_view_ctx.load(std::memory_order_acquire);
-    const auto right=g_vrcam_view.load(std::memory_order_acquire);
+    const auto right=vrcam_view_now();
     const auto key=g_vrcam_ctx_key.load(std::memory_order_acquire);
     if(!main || !right || main==right || !key)return false;
     __try {
@@ -855,6 +993,8 @@ bool PhysicalOpticsStereoReady() {
             *reinterpret_cast<const uint64_t*>(right+0x28)==key;
     } __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
 }
+#endif
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static const uint32_t kWaterOff = 0x25E0;
 
 // Eight bytes at a time, refusing any pair that reads as a user-space address on EITHER side:
@@ -886,7 +1026,9 @@ static void water_mirror_apply(uintptr_t view) {
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 // Resolve the render texture-manager: texMgr = *(*(exe+0x3BBCAE8)+0x70).
 static void* resolve_texmgr() {
     __try {
@@ -911,9 +1053,10 @@ static void maybe_resize_rtt(uintptr_t comp) {
         CyberpunkVR_DebugRttDtexH = ch;
         uint32_t tw = CyberpunkVR_RttResizeW, th = CyberpunkVR_RttResizeH;
         if (!tw || !th) {                 // no explicit target -> match MAIN
-            if (!g_main_ctx) return;
-            tw = *reinterpret_cast<uint32_t*>(g_main_ctx + 0x44);
-            th = *reinterpret_cast<uint32_t*>(g_main_ctx + 0x4C);
+            const uintptr_t main = main_ctx_now();
+            if (!main) return;
+            tw = *reinterpret_cast<uint32_t*>(main + 0x44);
+            th = *reinterpret_cast<uint32_t*>(main + 0x4C);
         }
         if (!tw || !th || tw > 8192 || th > 8192) return;
         if (cw == tw && ch == th) return; // already correct
@@ -931,14 +1074,23 @@ static void maybe_resize_rtt(uintptr_t comp) {
         CVR_DIAGNOSTIC(++CyberpunkVR_DebugRttResizeHits);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
+#endif
 
 // Bridges the FlagCompute hook to the RectCompute hook within a single per-view
 // setup pass (both run sequentially on the same thread inside sub_1404E4xxx).
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static thread_local PendingVrcamViewport t_vrcam_viewport{};
+#endif
 // Same numbers, readable from the RECORDING threads. The pending viewport is
 // thread-local to setup, so a command-list hook cannot use it.
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_vrcam_view_w{0};
+#endif
+#if CVR_RUST_VRIK
+#else
 std::atomic<uint32_t> g_vrcam_view_h{0};
+#endif
 
 // STEP 1 SCOPE: this file forces the VRCAM view's PROJECTION only -- fov, zoom, near
 // and far, copied from MAIN so the second view frames the world identically. It does
@@ -947,39 +1099,80 @@ std::atomic<uint32_t> g_vrcam_view_h{0};
 // culling and after the weapon viewmodel is placed, so it slid the world and dragged
 // the weapon with the head. Camera work belongs in the engine's own camera hooks and
 // is a later step.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlayVisible = 1;
+#endif
 
 // Captured from MAIN's camera ctx (slot 0) and applied to vrcam (slot 1) in the same
 // per-frame camera writer -> smooth fov + weapon ZOOM match (fov@0x90, zoom@0x9C).
+#if CVR_RUST_VRIK
+#else
 float g_main_cam_fov  = 0.f;
+#endif
+#if CVR_RUST_VRIK
+#else
 float g_main_cam_zoom = 0.f;
+#endif
+#if CVR_RUST_VRIK
+#else
 float g_main_cam_near = 0.f;
+#endif
+#if CVR_RUST_VRIK
+#else
 float g_main_cam_far  = 0.f;
+#endif
 // MAIN's forward-projection vertical scale (ctx+0x214 = cot(fovV/2)) -- the field that
 // actually carries weapon ADS, and the source the vrcam fov is derived from.
+#if CVR_RUST_VRIK
+#else
 float g_main_proj_yy = 0.f;
+#endif
+#if CVR_RUST_VRIK
+#else
 float g_ads_factor   = 1.0f;   // ADS as a scale factor, 1.0 = no zoom
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/declared_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugMainCamFov      = 0.f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugMainProjYY      = 0.f;
 extern "C" __declspec(dllexport) float CyberpunkVR_MainAdsZoomFactor = 0.f;
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugVrcamWantFov    = 0.f;
+#endif
 // Explicit vertical FOV in degrees for the vrcam eye. 0 = follow MAIN, which is what the
 // flat-screen testbed wants. This is the hook for the headset: once the HMD drives the eye,
 // put its FOV here and weapon ADS keeps applying on top of it.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) float CyberpunkVR_VrcamFovDeg = 0.f;
+#endif
 // Last fov/zoom we forced a vrcam view-rebuild for -> only re-dirty on an actual change
 // (avoids a per-frame RTT view rebuild when fov/zoom are stable; the game already
 // rebuilds on camera movement).
+#if !CVR_RUST_VRIK
 static float g_last_forced_fov  = -1.f;
 static float g_last_forced_zoom = -1.f;
+#endif
 
 // A scope is an independent RTT view. It needs a drawable native viewport and
 // an extracted final colour, but must never enter the second-eye pose/history
 // path. Match the authored camera name, not its size or its place in a frame.
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // no code of the plugin names it
 static const uint64_t kPhysicalOpticsViewKey = cvr::cname_hash("vr_optics_feed");
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsViewSetupHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_OpticsViewExtractHits = 0;
+#endif
 
+#if CVR_RUST_VRIK
+// FLAGCOMPUTE IS RUST'S (rust/crates/cvr-render/src/frame_graph.rs), registered from engine_detours.rs.
+#else
 __int64 __fastcall Detour_FlagCompute(void* a1, __int64 a2, __int64 a3, __int64 a4) {
     t_vrcam_viewport = {};
     bool vrcam = false;
@@ -1226,6 +1419,7 @@ __int64 __fastcall Detour_FlagCompute(void* a1, __int64 a2, __int64 a3, __int64 
     }
     return res;
 }
+#endif
 
 // The viewport-rect computer. Its caller does: call sub_1404E3EB4 ; movups
 // xmm0,[rax] ; movdqu [ctx+0x14],xmm0. For the VRCAM view (flagged by the
@@ -1233,10 +1427,19 @@ __int64 __fastcall Detour_FlagCompute(void* a1, __int64 a2, __int64 a3, __int64 
 // the result is (0,0,0,0), which makes the engine skip the entire lighting
 // composite. Overwrite the result with the full RTT rect (0,0,W,H) so the rect
 // written into ctx+0x14 is valid -> full lighting flags + resources + integrate.
+#if !CVR_RUST_VRIK
 using RectComputeFn = __int64(__fastcall*)(void*, void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 static RectComputeFn g_orig_rect_compute = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRttRectHits = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static __int64 __fastcall Detour_RectCompute(void* a1, void* a2, void* a3) {
     const auto callerRva=reinterpret_cast<uintptr_t>(_ReturnAddress())-reinterpret_cast<uintptr_t>(g_exe_base);
     __int64 res = g_orig_rect_compute(a1, a2, a3);
@@ -1253,6 +1456,7 @@ static __int64 __fastcall Detour_RectCompute(void* a1, void* a2, void* a3) {
     }
     return res;
 }
+#endif
 
 // ---- the water state, assigned by the engine's own operator ----------------------------------
 //
@@ -1274,11 +1478,24 @@ static __int64 __fastcall Detour_RectCompute(void* a1, void* a2, void* a3) {
 // only when the destination is exactly the second view's own water struct, and that view was
 // identified by its camera-name key inside FlagCompute. Every other caller in the game -- MAIN's own
 // assignment included -- passes through untouched.
+#if !CVR_RUST_VRIK
 using WaterAssignFn = void*(__fastcall*)(void*, void*);
+#endif
+#if !CVR_RUST_VRIK
 WaterAssignFn g_orig_water_assign = nullptr;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_WaterAssign = 1;
+#endif
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugWaterAssigns = 0;
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build's is rust/crates/cvr-render/src/frame_graph.rs
 static void* __fastcall Detour_WaterAssign(void* dst, void* src) {
     if (CyberpunkVR_WaterAssign) {
         const uintptr_t vv = g_vrcam_view.load(std::memory_order_acquire);
@@ -1294,13 +1511,28 @@ static void* __fastcall Detour_WaterAssign(void* dst, void* src) {
     }
     return g_orig_water_assign(dst, src);
 }
+#endif
 
 // ---- registered where they are defined -------------------------------------------------------
+#if CVR_RUST_VRIK
+// THE BUILD OBSERVERS, FLAGCOMPUTE, THE RECT COMMIT, THE WATER ASSIGN AND THE RTT VIEW-CREATE ARE RUST'S
+// (rust/crates/cvr-render/src/frame_graph.rs), registered here with this file's trampolines; Rust is handed them,
+// FlagCompute's trampoline (render_parity.rs runs it), the upscaler gate, g_main_view_ctx, the engine's handle assign
+// and the stereo log (the HUD's re-arm and grant and the half IPD are Rust's own).
+extern "C" {
+// Its table is built in Rust (frame_graph.rs, from stereo_shared.rs's objects); the upscaler gate stays here.
+// The upscaler gate: rust/crates/cvr-render/src/xr_manager_services.rs.
+}
+// The four detours and their originals register from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 CVR_DETOUR("[water] state-assign sub_14067B380", WATER_ASSIGN_RVA, Detour_WaterAssign, g_orig_water_assign)
 CVR_DETOUR("[build] full-build sub_141D43040",      FULL_BUILD_RVA,   Detour_FullBuild,   g_orig_full_build)
 CVR_DETOUR("[build] incr-build sub_14227BD10",      INCR_BUILD_RVA,   Detour_IncrBuild,   g_orig_incr_build)
 CVR_DETOUR("[lighting] rect-compute sub_14206EF20",  RECT_COMPUTE_RVA, Detour_RectCompute, g_orig_rect_compute)
+#endif
+#if !CVR_RUST_VRIK   // the Rust build's registers from rust/crates/cvr-render/src/engine_detours.rs
 CVR_DETOUR("[rtt] view-create sub_14048FAF4", RTT_VIEWCREATE_RVA, Detour_RTTViewCreate, g_orig_rtt_viewcreate)
+#endif
 
 }  // namespace detail
 }  // namespace cvr

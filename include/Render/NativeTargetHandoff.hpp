@@ -21,6 +21,72 @@ enum SourceFlags:uint64_t {
 };
 enum StateFlags:uint64_t {CurrentKnown=1,FrozenKnown=2,StateRefused=4};
 namespace detail {
+#if CVR_RUST_VRIK
+// The rules: rust/crates/cvr-render/src/target_handoff.rs (tools/single_pass_tests/target_handoff_test runs its cases
+// against them in its Rust variant). The members stay here, mirrored there; the methods run in Rust on them.
+struct ObservationWindow;struct TargetState;struct RecordingState;
+extern "C" {
+bool cvr_th_state_known(uint32_t);
+bool cvr_th_window(ObservationWindow*,uint32_t);
+bool cvr_th_target(TargetState*,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t);
+uint64_t cvr_th_recording(RecordingState*,uint32_t,uint64_t,uint64_t,uint32_t,uint32_t,uint32_t,const TargetState*,HRESULT);
+}
+struct ObservationWindow {
+    uint64_t events{};bool open{},finished{};
+    bool Begin(){return cvr_th_window(this,0);}
+    bool Event(){return cvr_th_window(this,1);}
+    void Finish(){cvr_th_window(this,2);}
+    void Clear(){cvr_th_window(this,3);}
+};
+// Only legacy texture states supported by this observer. The ledger never
+// infers implicit promotion, decay, enhanced barriers or split-barrier pairing.
+inline bool StateKnown(uint32_t value){return cvr_th_state_known(value);}
+struct SubresourceState {
+    uint32_t seed{},current{},frozen{},transitions{};
+    uint64_t flags{};
+};
+struct TargetState {
+    std::array<SubresourceState,StatesPerSource> states{};
+    UINT count{};Failure failure{};
+    void Reject(Failure why){cvr_th_target(this,0,uint32_t(why),0,0,0);}
+    bool Seed(UINT subresources,uint32_t state){return cvr_th_target(this,1,subresources,state,0,0);}
+    bool Transition(UINT subresource,uint32_t before,uint32_t after,D3D12_RESOURCE_BARRIER_FLAGS flags){
+        return cvr_th_target(this,2,subresource,before,after,uint32_t(flags));
+    }
+    void Alias(bool affects){cvr_th_target(this,3,affects,0,0,0);}
+    void Freeze(){cvr_th_target(this,4,0,0,0,0);}
+};
+struct RecordingState {
+    uint64_t list{},generation{},queue{},flags{PrefixUnknown};
+    Failure failure{};uint32_t exitReason{},exitKind{};HRESULT closeResult{E_PENDING};
+    Failure foreignFailure{};uint64_t foreignList{},foreignKind{},foreignEvents{};
+    bool pendingObserved{};
+    void Reject(Failure why){Call(0,0,0,uint32_t(why));}
+    void Foreign(uint64_t commandList,uint32_t kind){Call(1,commandList,0,kind);}
+    uint64_t AggregateFlags()const{return Const(2);}
+    Failure AggregateFailure()const{return Failure(Const(3));}
+    bool Begin(uint64_t commandList,uint64_t recordingGeneration){return Call(4,commandList,recordingGeneration)!=0;}
+    bool Match(uint64_t commandList,uint64_t recordingGeneration){return Call(5,commandList,recordingGeneration)!=0;}
+    bool Tracking()const{return Const(6)!=0;}
+    void Exit(uint32_t reason,uint32_t kind){Call(7,0,0,reason,kind);}
+    void Touch(uint64_t commandList,bool write,bool alias=false,uint32_t kind=0){Call(8,commandList,0,write,alias,kind);}
+    void ShaderDraw(uint64_t commandList,const TargetState& target,bool retiredRecording=false){
+        Call(9,commandList,0,retiredRecording,0,0,&target);
+    }
+    bool Close(HRESULT result){return Call(10,0,0,0,0,0,nullptr,result)!=0;}
+    bool Pending(uint64_t actualQueue,UINT occurrences,bool exactLease){return Call(11,actualQueue,0,occurrences,exactLease)!=0;}
+    void Submitted(uint64_t actualQueue){Call(12,actualQueue);}
+    void Reset(){Call(13);}
+private:
+    uint64_t Call(uint32_t which,uint64_t a=0,uint64_t b=0,uint32_t c=0,uint32_t d=0,uint32_t e=0,
+        const TargetState* target=nullptr,HRESULT result=S_OK){
+        return cvr_th_recording(this,which,a,b,c,d,e,target,result);
+    }
+    uint64_t Const(uint32_t which)const{return cvr_th_recording(const_cast<RecordingState*>(this),which,0,0,0,0,0,nullptr,S_OK);}
+};
+static_assert(sizeof(ObservationWindow)==16 && sizeof(SubresourceState)==24 && sizeof(TargetState)==128 &&
+    sizeof(RecordingState)==88 && offsetof(RecordingState,foreignList)==56,"mirrored by target_handoff.rs");
+#else
 struct ObservationWindow {
     uint64_t events{};bool open{},finished{};
     bool Begin(){if(finished)return false;open=true;return true;}
@@ -140,6 +206,7 @@ struct RecordingState {
     }
     void Reset(){if(Tracking()){flags|=ResetBeforeSubmit;Reject(Failure::ResetBeforeSubmit);}}
 };
+#endif
 }
 // Actual first stage9 draw only, before proof/checkpoint commands. The targets
 // must be exactly three colors and a writable depth/stencil view. Capturing and

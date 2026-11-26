@@ -15,10 +15,13 @@
 // `const float* SharedPose()` came to be declared for a `float SharedPose(int)` -- which compiles on
 // both sides and fails only at link time, naming a function that exists.
 bool InstallAnimPoseHook();
-float SharedPose(int i);
-void RefreshHandsSnapshot();
-bool VRIK_IsReadable(const void* p, size_t n);
+extern "C" float SharedPose(int i);
+extern "C" void RefreshHandsSnapshot();
+extern "C" bool VRIK_IsReadable(const void* p, size_t n);
+// C linkage: the solve's helpers (src/Anim/CharacterRig.cpp, or rust/crates/cvr-rig/src/vrik/rig.rs).
+extern "C" {
 void VRIK_QuatConj(const float* q, float* o);
 void VRIK_QuatMul(const float* a, const float* b, float* o);
 void VRIK_QuatNorm(float* q);
 void VRIK_QuatRotateVec(const float* q, const float* v, float* o);
+}

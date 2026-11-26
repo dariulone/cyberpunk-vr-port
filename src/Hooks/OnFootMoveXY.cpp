@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build registers this file's hook from rust/crates/cvr-render/src/hook_table.rs
 // OnFootMoveXY -- one hook, one file. It registers itself at the bottom; Hooks/Hook.hpp says why the
 // stage and order are declared here rather than in a boot function.
 //
@@ -20,6 +21,12 @@
 #include <cstdint>
 #include <cstddef>
 
+#if CVR_RUST_VRIK
+// THE HOOK IS RUST'S (rust/crates/cvr-rig/src/vrik/on_foot_move_xy.rs: the callback and the stub); the registration stays
+// here, so the install order holds.
+extern "C" bool cvr_hook_on_foot_move_xy_install();
+CVR_HOOK("OnFootMoveXY", ::cvr::hooks::Stage::Boot, 78, cvr_hook_on_foot_move_xy_install);
+#else
 extern "C" void OnOnFootMoveXYCallback(void* moveStruct) {
     if (g_telemetry) {
         CVR_DIAGNOSTIC(++g_telemetry->moveXYHits);
@@ -132,3 +139,5 @@ bool InstallOnFootMoveXYHook() {
     return true;
 }
 CVR_HOOK("OnFootMoveXY", ::cvr::hooks::Stage::Boot, 78, InstallOnFootMoveXYHook);
+#endif
+#endif

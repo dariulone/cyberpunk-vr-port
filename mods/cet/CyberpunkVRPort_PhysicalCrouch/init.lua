@@ -66,7 +66,30 @@ local function update()
   -- missed poll cannot invert the next crouch; native manual/quest state is intact.
 end
 
+-- THE RUST BUILD RUNS THIS BRIDGE (rust/crates/cvr-ffi/src/mechanics.rs physical_crouch, bit 3 of VRRustMechanics):
+-- the 50 ms update, the effect's application and release, the feedback and the shutdown. The hook stays here -- the
+-- crouch state's entry is reported to the plugin. The reference build has no such native, and the whole bridge keeps
+-- running here.
+local rustOwned = nil
+local function rustOwnsBridge()
+  if rustOwned == nil then
+    rustOwned = type(VRRustMechanics) == 'function' and math.floor(VRRustMechanics() / 8) % 2 == 1
+  end
+  return rustOwned
+end
+
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent('onInit', function()
+  if rustOwnsBridge() then
+    if rustHooks() then return end
+    Observe('CrouchEvents', 'OnEnter', function(_, _, scriptInterface)
+      if scriptInterface then VRPhysicalCrouchEnter(scriptInterface.executionOwner) end
+    end)
+    return
+  end
   effect = TweakDBID.new('VRPort.PhysicalCrouch')
   Observe('CrouchEvents', 'OnEnter', function(_, _, scriptInterface)
     local player = Game.GetPlayer()
@@ -79,6 +102,7 @@ registerForEvent('onInit', function()
   end)
 end)
 registerForEvent('onUpdate', function(dt)
+  if rustOwnsBridge() then return end
   elapsed = elapsed + (dt or 0)
   if elapsed < 0.05 then return end
   elapsed = 0
@@ -92,5 +116,6 @@ registerForEvent('onUpdate', function(dt)
   end
 end)
 registerForEvent('onShutdown', function()
+  if rustOwnsBridge() then return end
   pcall(function() release(owner); feedback(-1, 0) end)
 end)

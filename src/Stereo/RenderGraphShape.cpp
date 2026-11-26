@@ -17,15 +17,22 @@
 #include <atomic>
 #include <cstdint>
 
+#if !CVR_RUST_VRIK   // the Rust build's shapes are rust/crates/cvr-render/src/render_graph_shape.rs's
 namespace {
 
 constexpr uint32_t kSlots = 8, kMaxNodes = 512, kMaxEdges = 2048;
 
 }  // namespace
+#endif
 
 extern "C" {
 // Nonzero = record; a new value records every graph again.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/render_moved_exports.rs.
+#else
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GraphShapeGen{0};
+#endif
+#if !CVR_RUST_VRIK
 struct CvrGraphShape {
     uint64_t graph;
     uint64_t runs;
@@ -34,8 +41,13 @@ struct CvrGraphShape {
     uint16_t edge[kMaxEdges][2];       // job index before, job index after
 };
 __declspec(dllexport) CvrGraphShape CyberpunkVR_GraphShapes[kSlots]{};
+#endif
 }
 
+#if CVR_RUST_VRIK
+// THE RECORD IS RUST'S (rust/crates/cvr-render/src/render_graph_shape.rs, the slots render_moved_exports.rs's); the
+// Rust build registers its detour from Rust (rust/crates/cvr-render/src/engine_detours.rs).
+#else
 namespace cvr {
 namespace detail {
 namespace {
@@ -137,3 +149,4 @@ CVR_DETOUR_IF("[graph-shape] render graph run sub_1403E8F58", GRAPH_RUN_RVA, Det
 
 }  // namespace detail
 }  // namespace cvr
+#endif

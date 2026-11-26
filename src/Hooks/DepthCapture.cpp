@@ -38,11 +38,20 @@
 #include <atomic>
 #include <wrl.h>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char* fmt, ...);
+#endif
+#if !CVR_RUST_VRIK
 extern volatile int g_verboseLog; // gate per-frame spam (ClipCursor / depth-diag)
+#endif
+#if !CVR_RUST_VRIK
 extern "C" void PrepareStartupLiveControls();
+#endif
+#if !CVR_RUST_VRIK
 extern "C" int CyberpunkVR_IsMainViewRecording();
 extern "C" int CyberpunkVR_ViewKeyHookActive();
+#endif
+#if !CVR_RUST_VRIK
 extern "C" void CyberpunkVR_ProfPublish();
 extern "C" UINT GetForcedSwapchainWidth();
 extern "C" UINT GetForcedSwapchainHeight();
@@ -51,14 +60,20 @@ extern "C" UINT GetForcedDisplayModeHeight();
 extern "C" UINT GetForcedWindowWidth();
 extern "C" UINT GetForcedWindowHeight();
 extern "C" int GetMenuMode();
+#endif
 
+#if !CVR_RUST_VRIK
 uintptr_t MakeVtableSlotKey(void** vtable, size_t slot) {
     return reinterpret_cast<uintptr_t>(vtable) ^ (static_cast<uintptr_t>(slot) * 0x9E3779B97F4A7C15ull);
 }
+#endif
 
 // template GetOriginalMethod moved to Hooks/SwapChainInternal.hpp: a template must be VISIBLE
 // where it is instantiated, and DisplayModes.cpp instantiates it with two different types.
 
+#if CVR_RUST_VRIK
+// The registry is rust/crates/cvr-engine/src/vtable.rs.
+#else
 bool PatchVtableMethod(void** vtable, size_t slot, void* hook) {
     if (!vtable || !hook) return false;
 
@@ -88,7 +103,10 @@ bool PatchVtableMethod(void** vtable, size_t slot, void* hook) {
     FlushInstructionCache(GetCurrentProcess(), &vtable[slot], sizeof(void*));
     return true;
 }
+#endif
 
+// The depth half, the C++ build's; the Rust build's is rust/crates/cvr-gpu/src/depth_capture.rs.
+#if !CVR_RUST_VRIK
 static void RecordEclQueue(void* queue) {
     if(!cvr::RuntimeDiagnosticsEnabled())return;
     for (uint32_t i = 0; i < 16; ++i) {
@@ -372,6 +390,10 @@ void TryHookCmdListVtable(ID3D12CommandList* anyList) {
     PatchVtableMethod(vtable, 26, reinterpret_cast<void*>(&HookedResourceBarrier));
 }
 
+#endif  // !CVR_RUST_VRIK
+#if CVR_RUST_VRIK
+// The descriptor hooks are rust/crates/cvr-render/src/descriptor_hooks.rs.
+#else
 using CopyDescriptorsFn=void(STDMETHODCALLTYPE*)(ID3D12Device*,UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,const UINT*,UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,const UINT*,D3D12_DESCRIPTOR_HEAP_TYPE);
 using CopyDescriptorsSimpleFn=void(STDMETHODCALLTYPE*)(ID3D12Device*,UINT,D3D12_CPU_DESCRIPTOR_HANDLE,D3D12_CPU_DESCRIPTOR_HANDLE,D3D12_DESCRIPTOR_HEAP_TYPE);
 using CreateCommandSignatureFn=HRESULT(STDMETHODCALLTYPE*)(ID3D12Device*,const D3D12_COMMAND_SIGNATURE_DESC*,ID3D12RootSignature*,REFIID,void**);
@@ -442,6 +464,35 @@ bool DescriptorMutationHooksReady(ID3D12Device* device){
         table[23]==reinterpret_cast<void*>(&HookedCopyDescriptors) && GetOriginalMethod<CopyDescriptorsFn>(table,23) &&
         table[24]==reinterpret_cast<void*>(&HookedCopyDescriptorsSimple) && GetOriginalMethod<CopyDescriptorsSimpleFn>(table,24);
 }
+#endif
+#if CVR_RUST_VRIK
+// The depth half is rust/crates/cvr-gpu/src/depth_capture.rs: the DSV map, the scene-depth pick and its reference, the
+// state it rests in, the depth-writer queue, ExecuteCommandLists and the legacy signal tracker. The exports, the
+// counters SwapChain.cpp reports, the DSV's other observers, the view key and the OpenXR capture stay here.
+extern "C" {
+void STDMETHODCALLTYPE cvr_depth_create_dsv(ID3D12Device* device, ID3D12Resource* resource,
+                                            const D3D12_DEPTH_STENCIL_VIEW_DESC* desc, D3D12_CPU_DESCRIPTOR_HANDLE dest);
+}
+// The table is built in rust/crates/cvr-gpu/src/depth_capture.rs; its C++ services, the test variants' (the plugin's
+// are depth_capture.rs'):
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES
+extern "C" bool cvr_cpp_depth_dsv_observers(ID3D12Resource* resource, const D3D12_DEPTH_STENCIL_VIEW_DESC* desc, SIZE_T dest) {
+    const D3D12_CPU_DESCRIPTOR_HANDLE handle{dest};
+    cvr::stereo::scene_state::DsvCreated(resource, desc, handle);
+    if (cvr::stereo::probe::internalCommands) return false;
+    cvr::cascades::DsvCreated(resource, desc, handle);
+    cvr::hidden_area::DsvCreated(resource, desc, handle);
+    return true;
+}
+extern "C" bool cvr_cpp_probe_internal_commands() { return cvr::stereo::probe::internalCommands; }
+#endif
+#define CVR_DEPTH_DSV_HOOK cvr_depth_create_dsv
+#else
+#define CVR_DEPTH_DSV_HOOK HookedCreateDepthStencilView
+#endif
+
+#if CVR_RUST_VRIK
+#else
 void InstallDepthCaptureHooks(ID3D12Device* device) {
     if (!device) return;
     void** vtable = *reinterpret_cast<void***>(device);
@@ -454,18 +505,26 @@ void InstallDepthCaptureHooks(ID3D12Device* device) {
     PatchVtableMethod(vtable,23,reinterpret_cast<void*>(&HookedCopyDescriptors));
     PatchVtableMethod(vtable,24,reinterpret_cast<void*>(&HookedCopyDescriptorsSimple));
     PatchVtableMethod(vtable,41,reinterpret_cast<void*>(&HookedCreateCommandSignature));
-    if (PatchVtableMethod(vtable, 21, reinterpret_cast<void*>(&HookedCreateDepthStencilView))) {
+    if (PatchVtableMethod(vtable, 21, reinterpret_cast<void*>(&CVR_DEPTH_DSV_HOOK))) {
         if (g_verboseLog) Log("[DEPTH-DIAG] Hooked ID3D12Device::CreateDepthStencilView (slot 21)\n");
     }
 }
+#endif
 
 // Historical cross-queue tracker has no production consumer: depth now copies
 // inline/on its writer queue. Keep it available only for an explicit diagnostic A/B.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_LegacyQueueSignalTracking{0};
+#endif
 void TryHookQueueSignalVtable(ID3D12CommandQueue* queue); // defined below
 void ClearLegacyQueueSignals();
 
+#if !CVR_RUST_VRIK
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_EclTiming[8];   // Stereo/DeviceHooks.cpp
+#endif
+#if !CVR_RUST_VRIK
 void STDMETHODCALLTYPE HookedExecuteCommandLists(ID3D12CommandQueue* queue, UINT numLists, ID3D12CommandList* const* lists) {
     LARGE_INTEGER eclStart{};QueryPerformanceCounter(&eclStart);
     CVR_DIAGNOSTIC(g_eclTotalCalls.fetch_add(1, std::memory_order_relaxed));
@@ -534,10 +593,16 @@ struct QueueSignalState {
 static const uint64_t kSignalFreshMs = 250;
 // And one this old is gone for good -- drop it and let go of its fence.
 static const uint64_t kSignalDeadMs  = 5000;
+#endif  // !CVR_RUST_VRIK
 // Counted so the guard can never become a silent behaviour change.
+#if CVR_RUST_VRIK
+// Defined in Rust: rust/crates/cvr-render/src/used_moved_exports_rest.rs.
+#else
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugQueueWaitsIssued  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugQueueWaitsSkipped = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugQueueWaitsDropped = 0;
+#endif
+#if !CVR_RUST_VRIK
 std::mutex g_queueSignalMutex;
 std::unordered_map<ID3D12CommandQueue*, QueueSignalState> g_queueLastSignal;
 std::atomic<bool> g_haveLegacyQueueSignals{false};
@@ -649,3 +714,9 @@ extern "C" void CyberpunkVRPort_WaitOnAllGameSignals(ID3D12CommandQueue* consume
         s.fence->Release();
     }
 }
+#endif  // !CVR_RUST_VRIK
+
+#if CVR_RUST_VRIK
+
+
+#endif

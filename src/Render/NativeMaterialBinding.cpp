@@ -4,7 +4,19 @@
 #include <windows.h>
 #include <mutex>
 #include <unordered_map>
+#if CVR_RUST_VRIK
+// The game-code contract: rust/crates/cvr-render/src/binding_code.rs (0 pair preparation, 1 material read, 2 material
+// binding; through ReadProcessMemory).
+#endif
 
+#if CVR_RUST_VRIK
+// The observations are rust/crates/cvr-render/src/material_observe.rs (the lease shared by layout with
+// material_read.rs).
+namespace cvr::stereo::material_binding {
+extern "C" {
+}
+}
+#else
 namespace cvr::stereo::material_binding {
 namespace {
 struct Observation {
@@ -34,6 +46,9 @@ bool SameCbv(const descriptors::CbvBinding& a,const descriptors::CbvBinding& b){
 bool Compatible(uintptr_t game){
     if(!game || game!=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)))return false;
     static const bool compatible=[&]{
+#if CVR_RUST_VRIK
+        return cvr_binding_code(2,game);
+#else
         struct Code{uint32_t rva,bytes;uint64_t hash;};
         constexpr Code expected[]{{0x336B54,0x1E7,0x664356FF35FEE308ull},
             {0x336D3C,0xF1,0x6B6B9044CD5F18EAull},
@@ -44,6 +59,7 @@ bool Compatible(uintptr_t game){
             uint64_t hash=14695981039346656037ull;for(UINT i=0;i<code.bytes;++i)hash=(hash^bytes[i])*1099511628211ull;
             if(hash!=code.hash)return false;
         }return true;
+#endif
     }();return compatible;
 }
 void Reset(ID3D12GraphicsCommandList* list){
@@ -128,3 +144,4 @@ Status ResolveAtDraw(ID3D12GraphicsCommandList* list,uint64_t root,uint32_t para
     return transient?Status::Transient:Status::Registered;
 }catch(...){out={};return Status::Failure;}
 }
+#endif

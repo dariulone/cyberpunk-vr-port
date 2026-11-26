@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.24)
+project(OsrTests LANGUAGES CXX)
+enable_testing()
+set(CVR_OPENXR_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../../build/_deps/openxr-src/include" CACHE PATH "OpenXR-SDK headers")
+# src/Render/Osr.cpp in both: the C++ build's reconstruction, and in the Rust build the exported counters it keeps.
+add_executable(osr_tests main.cpp ../../src/Render/Osr.cpp)
+target_include_directories(osr_tests PRIVATE ../../include ${CVR_OPENXR_INCLUDE})
+target_compile_features(osr_tests PRIVATE cxx_std_20)
+target_compile_definitions(osr_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(osr_tests PRIVATE d3d12 dxgi d3dcompiler)
+add_test(NAME osr COMMAND osr_tests)
+
+option(CVR_OSR_TESTS_RUST "Also run the test against the Rust reconstruction" ON)
+if(CVR_OSR_TESTS_RUST)
+    include(../../cmake/RustStaticlib.cmake)
+    add_executable(osr_tests_rust main.cpp ../../src/Render/Osr.cpp)
+    target_include_directories(osr_tests_rust PRIVATE ../../include ${CVR_OPENXR_INCLUDE})
+    target_compile_features(osr_tests_rust PRIVATE cxx_std_20)
+    target_compile_definitions(osr_tests_rust PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN CVR_RUST_VRIK=1 CVR_RUST_TEST_FACADES=1)
+    target_link_libraries(osr_tests_rust PRIVATE d3d12 dxgi d3dcompiler)
+    cvr_link_rust(osr_tests_rust)
+    add_test(NAME osr_rust COMMAND osr_tests_rust)
+    add_test(NAME osr_parity
+             COMMAND ${CMAKE_COMMAND} -DCPP=$<TARGET_FILE:osr_tests> -DRUST=$<TARGET_FILE:osr_tests_rust>
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/ParityTrace.cmake)
+endif()

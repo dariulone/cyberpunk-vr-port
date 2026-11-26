@@ -5,8 +5,11 @@
 
 using namespace wrpuppets::fbt;   // the IK library (externals/wrpuppets-fbt-ik)
 
+#if !CVR_RUST_VRIK
 namespace cvr::fbt::game {
+#endif
 
+#if !CVR_RUST_VRIK  // the Rust build draws it in overlay_panels.rs (fbt_settings)
 void DrawSettingsSection() {
     if (UI::CollapsingHeader("FULL-BODY TRACKING", ImGuiTreeNodeFlags_DefaultOpen)) {
         const int step = CalibrationStep();
@@ -43,5 +46,8 @@ void DrawSettingsSection() {
         UI::EndDisabled();
     }
 }
+#endif
 
+#if !CVR_RUST_VRIK
 }  // namespace cvr::fbt::game
+#endif

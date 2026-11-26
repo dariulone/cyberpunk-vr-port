@@ -386,6 +386,8 @@ end
 -- `bg` is a root child and hidden by the same pass; hover_buy_button goes with its text.
 local function hideAuthored(w, depth)
   if depth > 6 then return end
+  -- Leaves have no GetNumChildren: asked first rather than letting the call raise a Lua error (see ForceFPP).
+  if w.GetNumChildren == nil then return end
   local n = -1
   pcall(function() n = w:GetNumChildren() end)
   if n < 0 then return end
@@ -871,6 +873,10 @@ end
 
 local overlay = false
 
+-- THE RUST BUILD HOOKS THESE ITSELF (rust/crates/cvr-ffi/src/mechanics/game_hooks.rs, bit 1 of VRRustMechanics2).
+local function rustHooks()
+  return type(VRRustMechanics2) == 'function' and math.floor(VRRustMechanics2() / 2) % 2 == 1
+end
 registerForEvent("onInit", function()
   local had = loadCfg()
 
@@ -883,7 +889,7 @@ registerForEvent("onInit", function()
   -- black, glitchValue reads 0, so the black is not the glitch effect itself. Switch this off, reload the
   -- mods, and draw a weapon: if the black stops, the hook was the cause; if the screen instead fills with
   -- glitch, that is what the hook is holding back and the cure has to be gentler than removing it.
-  if (cfg.glitch_hook or 1.0) >= 0.5 then
+  if (cfg.glitch_hook or 1.0) >= 0.5 and not rustHooks() then
     pcall(function()
       Override("IWorldWidgetComponent", "StartGlitching", function(self, intensity, lifetime, wrapped) end)
     end)
@@ -891,7 +897,19 @@ registerForEvent("onInit", function()
   print("[WristHud] ready; " .. (had and "wrist.cfg loaded" or "built-in defaults"))
 end)
 
+-- THE RUST BUILD RUNS THE READOUT (rust/crates/cvr-ffi/src/mechanics/wrist_hud.rs, bit 22 of VRRustMechanics): it
+-- reads wrist.cfg again whenever the overlay below saves it. The StartGlitching override and the overlay's tuning
+-- window stay here. The reference build has no such native, and everything runs here.
+local rustOwned = nil
+local function rust()
+  if rustOwned == nil then
+    rustOwned = type(VRRustMechanics) == "function" and math.floor(VRRustMechanics() / 4194304) % 2 == 1
+  end
+  return rustOwned
+end
+
 registerForEvent("onUpdate", function(dt)
+  if rust() then return end
   if Game.GetPlayer() == nil then
     S.built = false     -- a load screen: the components start over and so does the content
     S.rearmed = false   -- and the one re-arm is owed again

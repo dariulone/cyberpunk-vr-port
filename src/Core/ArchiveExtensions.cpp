@@ -1,3 +1,4 @@
+#if !CVR_RUST_VRIK   // the Rust build compiles nothing of this file: what it defined is Rust's
 #include "Core/ArchiveExtensions.hpp"
 #include "Core/Paths.hpp"
 
@@ -21,7 +22,9 @@
 
 #include <windows.h>
 
+#if !CVR_RUST_VRIK
 #include <yaml-cpp/yaml.h>
+#endif
 
 #include <algorithm>
 #include <filesystem>
@@ -34,6 +37,12 @@
 #include <utility>
 #include <vector>
 
+#if CVR_RUST_VRIK
+// The Rust build's archive is rust/crates/cvr-ffi/src/archive_ext.rs (the manifest, the mounting, the factories, the
+// animation sets, the patches and their loads, ArchiveXL's two engine changes, the earlier releases' copies, and the
+// SDK's depot, resource, mesh, world and job types it reads and writes through red4ext-abi).
+
+#else
 extern void Log(const char* fmt, ...);
 
 namespace cvr::archive {
@@ -557,3 +566,5 @@ void Install(RED4ext::v1::PluginHandle handle, const RED4ext::v1::Sdk* sdk) {
 }
 
 }  // namespace cvr::archive
+#endif
+#endif

@@ -9,6 +9,7 @@
 // The notice at the boot (Lobby/Intro.hpp): VRIntroTakeBootNotice(fade) -> Bool and VRIntroHum(on, volume) from the
 // lobby's intro.
 #include "Lobby/Intro.hpp"
+#include "Natives/NativeFunctions.hpp"  // the natives defined here, with C linkage in the Rust build
 #include "Audio/PortSound.hpp"
 #include "Lobby/MenuLobby.hpp"
 #include "Lobby/Notice.hpp"
@@ -24,9 +25,12 @@
 #include <atomic>
 #include <mutex>
 
+#if !CVR_RUST_VRIK
 extern void Log(const char*, ...);
+#endif
 
 namespace cvr::lobby::intro {
+#if !CVR_RUST_VRIK   // the Rust build's: cvr-render lobby_intro.rs, intro_boot.rs, lobby_tables.rs; cvr-ffi lobby_intro_natives.rs
 namespace {
 // A picture not given again for this long belongs to an intro whose script has stopped.
 constexpr ULONGLONG kStale = 2000;
@@ -71,12 +75,18 @@ std::shared_ptr<const Picture> Latest() {
     }
     return g_picture;
 }
+bool Running() { return Latest() != nullptr; }
+#endif
 
+#if !CVR_RUST_VRIK || CVR_RUST_TEST_FACADES   // the plugin does not call it; the Rust test variants do
 cvr::render::FreeLookHeading& Heading() {
     static cvr::render::FreeLookHeading heading(kFreeLookCone);
     return heading;
 }
+#endif
 
+// The boot's notice, the C++ build's; the Rust build's is rust/crates/cvr-render/src/intro_boot.rs.
+#if !CVR_RUST_VRIK
 namespace {
 // The notice once its screen has closed, with nothing taking it over: it stays at most this long (ms) -- the main
 // menu's world and the lobby come up meanwhile -- and not after the curtain opened without it, nor without the lobby.
@@ -170,6 +180,7 @@ bool TakeBootNotice(float fade) {
     return true;
 }
 
+
 void Hum(bool on, float volume) {
     // The lobby's own sound (tools/vr_lobby_assets/lobby_sounds.py): looped from 11 s to 20.6 s, the seam crossfaded
     // over 1.5 s, under a 900 Hz low-pass; it comes up over 1.5 s and goes over 2.5 s.
@@ -184,8 +195,10 @@ void Hum(bool on, float volume) {
     }
     cvr::sound::Channel("lobby_intro", hum, on ? 1.5f : 2.5f);
 }
+#endif
 }  // namespace cvr::lobby::intro
 
+#if !CVR_RUST_VRIK
 void VRIntroTakeBootNotice(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
     float fade = 0.0f;
     RED4ext::GetParameter(frame, &fade);
@@ -219,3 +232,4 @@ void VRLobbyIntro(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out,
     const bool shown = cvr::lobby::intro::Set(widget, distance, height, opacity, blackPoint);
     if (out) *out = shown;
 }
+#endif
