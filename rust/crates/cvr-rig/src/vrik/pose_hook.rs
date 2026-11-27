@@ -713,11 +713,12 @@ unsafe fn vrik_pass(bone_buf: *mut u8, track_buf: usize, track_count: u32, pose_
 }
 
 /// The view-frame hand basis both arms are built in: the view's world rotation (vq), the view origin in the model
-/// (vpM) and the hand frame's model rotation (rvM).
+/// (vpM), the hand frame's model rotation (rvM), and the model -> world rotation that frame stands for (the entity's
+/// own on the native frame, else the inverse of the world -> model turn ec).
 #[allow(clippy::too_many_arguments)]
 unsafe fn view_hand_basis(vp_view: &V3, native_hand_frame: bool, native_entity_rot: &Q, native_view_rot: &Q,
                           native_view_pos: &V3, hmd_rel: &Q, vrik_in_vehicle: bool, cam_model_entity_quat: &Q,
-                          raw_cam_model_pos: &V3) -> (Q, V3, Q) {
+                          raw_cam_model_pos: &V3) -> (Q, V3, Q, Q) {
     let mut vq: Q = if native_hand_frame {
         quat_mul(native_entity_rot, native_view_rot)
     } else if CyberpunkVR_VrikHandFrameOneLatch != 0 && g_viewPktValid {
@@ -761,7 +762,8 @@ unsafe fn view_hand_basis(vp_view: &V3, native_hand_frame: bool, native_entity_r
     } else if !vrik_in_vehicle && CyberpunkVR_VrikNativeFramePair != 0 {
         VRIK_ResolveViewModelPos(raw_cam_model_pos.as_ptr(), cam_model_entity_quat.as_ptr(), vp_m.as_mut_ptr());
     }
-    (vq, vp_m, rv_m)
+    let m2w = if native_hand_frame { *native_entity_rot } else { [-ec[0], -ec[1], -ec[2], ec[3]] };
+    (vq, vp_m, rv_m, m2w)
 }
 
 /// The base-frame fallback (no view pose): the controller in the recenter base, mapped and rotated by the hand frame.
@@ -1251,8 +1253,10 @@ unsafe fn fresh_solve(bone_buf: *mut u8, track_buf: usize, track_count: u32, pos
             if cam_model_valid {
                 let mut vp_view: V3 = [0.0; 3];
                 if resolve_view_world(&mut vp_view) {
-                    let (vq, vp_m, rv_m) = view_hand_basis(&vp_view, native_hand_frame, &native_entity_rot, &native_view_rot,
+                    let (vq, vp_m, rv_m, m2w) = view_hand_basis(&vp_view, native_hand_frame, &native_entity_rot, &native_view_rot,
                         &native_view_pos, &hmd_rel, vrik_in_vehicle, &cam_model_entity_quat, &raw_cam_model_pos);
+                    // the frame the arms are built in, for what is drawn from the hands in the world (the menus' beams)
+                    super::vr_menu::note_hands_frame(m2w, vp_view, vp_m);
                     // The view pose itself, and the exhale-smoke mouth point, in world space.
                     g_VRViewWorldPos = vp_view;
                     g_VRViewWorldRot = vq;
@@ -1472,8 +1476,9 @@ unsafe fn fresh_solve(bone_buf: *mut u8, track_buf: usize, track_count: u32, pos
             if cam_model_valid {
                 let mut vp_view: V3 = [0.0; 3];
                 if resolve_view_world(&mut vp_view) {
-                    let (_vq, vp_m, rv_m) = view_hand_basis(&vp_view, native_hand_frame, &native_entity_rot, &native_view_rot,
+                    let (_vq, vp_m, rv_m, _m2w) = view_hand_basis(&vp_view, native_hand_frame, &native_entity_rot, &native_view_rot,
                         &native_view_pos, &hmd_rel, vrik_in_vehicle, &cam_model_entity_quat, &raw_cam_model_pos);
+                    super::reach_dev::note_left_view(&vp_m, &rv_m, g_VRScaleL, &off_l, &wrist_l);
                     let mut hm: Q = [0.0; 4];
                     VRIK_BuildViewHandTarget(vp_m.as_ptr(), rv_m.as_ptr(), vr_pos.as_ptr(), vr_quat.as_ptr(), g_VRScaleL,
                         off_l.as_ptr(), target.as_mut_ptr(), hm.as_mut_ptr());

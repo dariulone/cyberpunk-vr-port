@@ -67,7 +67,8 @@ pub(super) fn set_enum_prop(o: &Handle, name: &str, en: &str, member: &str) {
         }
     }
 }
-fn holster_all() {
+/// UnequipAll through the equipment system (the tour's empty hands; the "holster" development command).
+pub(super) fn holster_all() {
     let pl = super::belt::player();
     if pl.is_null() {
         return;
@@ -1076,8 +1077,17 @@ pub(super) fn close(m: &mut Menu) {
         let mut b = std::mem::take(&mut m.beams[i]);
         despawn(m, &mut b);
     }
-    (m.buttons, m.hovered, m.anims, m.views) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    (m.icons, m.column_move, m.open_anim_at) = (Vec::new(), None, None);
+    let pages = (std::mem::take(&mut m.buttons), std::mem::take(&mut m.hovered), std::mem::take(&mut m.anims), std::mem::take(&mut m.views));
+    let icons = std::mem::take(&mut m.icons);
+    if exiting() {
+        // the game is quitting: the pages' game objects (a trade grid's items, their tooltips) are not released into
+        // an engine already taken down -- the last reference's destructor read through a freed system (a crash on
+        // quitting with the trade open)
+        std::mem::forget((pages, icons));
+    } else {
+        drop((pages, icons));
+    }
+    (m.column_move, m.open_anim_at) = (None, None);
     (m.money_widget, m.weight_widget) = (Handle::null(), Handle::null());
     drop_gestures(m);
     despawn_glass(m);
@@ -1469,6 +1479,9 @@ fn pointers(m: &mut Menu, cam: &Cam, c: V3, r: V3, u: V3) {
         if !cursor {
             set_cursor(m, hand - 1, 0.0, 0.0, 40.0, k::CYAN, 0.0);
         }
+        if super::reload_reach::on() {
+            publish_ray(hand - 1, origin, hit, ray, cam);
+        }
         beam(m, hand - 1, ray_on, [f(origin[0]), f(origin[1]), f(origin[2])], [f(hit[0]), f(hit[1]), f(hit[2])], f(ray[2]), cam);
     }
     // the tour's hovered button stays hovered while its step lasts (the pointers above would let it go next frame)
@@ -1738,6 +1751,37 @@ pub(super) fn update(m: &mut Menu, dt: f64) {
     }
     tick(m, dt);
     tour(m);
+    if let Some(section) = DEV_OPEN.with(|c| c.borrow_mut().take()) {
+        let ok = m.open || open(m, camera(), None);
+        if ok && !section.is_empty() {
+            open_section(m, Some(&section), true);
+        }
+        cvr_host::log!("[dev] menu: open {ok}, section {:?}\n", m.section);
+    }
+}
+thread_local! {
+    /// The "menu [section]" development command (dev_cmd.rs): the menu opened before the eyes on the next update, on
+    /// that section (its key, as the column's: inventory, character, map, journal, settings ...).
+    static DEV_OPEN: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+pub(super) fn dev_open(section: &str) {
+    DEV_OPEN.with(|c| *c.borrow_mut() = Some(section.to_string()));
+}
+/// CVR_RELOAD_REACH (the "reach" command): each hand's menu ray as the frame drew it, log/menu_ray.json every 100 ms --
+/// a test holds the controller still in the room and turns the head; the ray must not move.
+fn publish_ray(hand: usize, origin: [f32; 4], hit: [f32; 4], ray: [f32; 4], cam: &Cam) {
+    use std::sync::Mutex;
+    static RAYS: Mutex<([Option<[[f32; 4]; 3]>; 2], Option<std::time::Instant>)> = Mutex::new(([None; 2], None));
+    let mut g = RAYS.lock().unwrap_or_else(|e| e.into_inner());
+    g.0[hand.min(1)] = Some([origin, hit, ray]);
+    if g.1.is_some_and(|t| t.elapsed().as_millis() < 100) {
+        return;
+    }
+    g.1 = Some(std::time::Instant::now());
+    let side = |v: &Option<[[f32; 4]; 3]>| v.map(|[o, h, r]| serde_json::json!({ "origin": o, "hit": h, "ray": r }));
+    let j = serde_json::json!({ "left": side(&g.0[0]), "right": side(&g.0[1]), "cam": [cam.p, cam.f] });
+    let path = cvr_host::paths::dir(cvr_host::paths::Folder::Log).join("menu_ray.json");
+    let _ = std::fs::write(path, j.to_string());
 }
 pub(super) fn release(m: &mut Menu) {
     super::menu_appearance::release();
@@ -1762,8 +1806,14 @@ pub(in crate::mechanics) fn tick_frame(dt: f32) {
     super::menu_wheel::update(f64::from(dt), open);
     trace(if open { "wheel end (open)" } else { "wheel end" });
 }
+/// The game is quitting (shutdown ran): what still holds the game's objects keeps them.
+static EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(super) fn exiting() -> bool {
+    EXITING.load(std::sync::atomic::Ordering::Relaxed)
+}
 /// init.lua's onShutdown: Wheel.release, Menu.release.
 pub(in crate::mechanics) fn shutdown() {
+    EXITING.store(true, std::sync::atomic::Ordering::Relaxed);
     super::menu_wheel::release_all();
     with(release);
 }

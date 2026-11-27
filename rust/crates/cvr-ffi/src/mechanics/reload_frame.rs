@@ -857,14 +857,42 @@ pub(super) fn frame(s: &mut State, weapon: &Handle, slot_comp: &Handle, holder: 
     if c.sp.is_some() && c.db.is_some() {
         if s.frame.slide.grabbed {
             slide_grabbed(s, &c);
+            if super::reload_reach::on() {
+                reach_publish(s, &c, None, "grabbed");
+            }
         } else {
             slide_free(s, &c);
         }
+    } else if super::reload_reach::on() {
+        reach_publish(s, &c, None, if c.sp.is_none() { "no slide position" } else { "no slide basis" });
     }
     chamber_round(s, &c);
     fade_tick(s, dt, sc.fo("blendTime"));
     belt_mag_taken(s.frame.mag.state == "hand" && s.frame.mag.from_belt);
     super::reload_mag::frame(s, &c);
+}
+/// CVR_RELOAD_REACH: the free hand's slide as the frame saw it (reload_reach.rs).
+fn reach_publish(s: &State, c: &Ctx, near: Option<super::reload_reach::Near>, note: &str) {
+    let sc = c.sc;
+    let hq = native::<[f32; 4]>("VRHandRawRot", &[Value::Int32(c.free as i32)]).map(f4);
+    let why = if note.is_empty() { s.frame.slide.why.clone() } else { format!("{note}; {}", s.frame.slide.why) };
+    super::reload_reach::publish(&super::reload_reach::Part {
+        kind: "slide",
+        weapon: c.cfg.s("id").unwrap_or("?"),
+        free: c.free,
+        near,
+        hand: c.h,
+        hand_rot: hq,
+        axis: c.a,
+        travel: sc.f("travel", 1.0),
+        radius: sc.f("previewRadius", 0.05),
+        angle_max: sc.f("styleAngleMax", 60.0),
+        grab_with: sc.s("grabWith").unwrap_or("grip"),
+        grabbed: s.frame.slide.grabbed,
+        rack: s.frame.slide.rack,
+        why: &why,
+        exit: s.exit_at,
+    });
 }
 /// A freshly drawn gun: chambered, the rig signatures registered, our magazine home.
 fn new_weapon(s: &mut State, cfg: &J, wkey: Option<u64>) {
@@ -1229,6 +1257,9 @@ fn slide_free(s: &mut State, c: &Ctx) {
         s.frame.mag.grip_lock = false;
     }
     let (mut best, mut best_style, mut best_d) = (None::<J>, "-".to_string(), 1e9f64);
+    // the nearest grip whatever the wrist's turn: taken when no grip's turn is near enough (below)
+    let (mut any, mut any_style, mut any_d) = (None::<J>, "-".to_string(), 1e9f64);
+    let mut near: Option<super::reload_reach::Near> = None;
     let mut dbg_per = String::new();
     let grips = sc.g("grips");
     if grips.is_object() && s.frame.mag.state != "hand" {
@@ -1276,8 +1307,14 @@ fn slide_free(s: &mut State, c: &Ctx) {
                             vq = r.map(|q| qmul(cq, q));
                         }
                         let d = len3([hx[0] - v[0], hx[1] - v[1], hx[2] - v[2]]);
+                        if super::reload_reach::on() && near.is_none_or(|n| d < n.d) {
+                            near = Some(super::reload_reach::Near { d, at: v, rot: vq });
+                        }
                         if gd.is_none_or(|x| d < x) {
                             (gd, g_tilt) = (Some(d), vi > 1);
+                        }
+                        if d < any_d {
+                            (any, any_style, any_d) = (Some(g.clone()), style.clone(), d);
                         }
                         if d < best_d {
                             let mut ang_ok = true;
@@ -1303,6 +1340,13 @@ fn slide_free(s: &mut State, c: &Ctx) {
                 }
             }
         }
+    }
+    // A HAND ON THE SLIDE TAKES IT (2026-11-27): the turn gate (styleAngleMax, 60 degrees on the pistols with an
+    // overhand and a behind grip) chooses between the grip styles; when the wrist is turned off every recorded style it
+    // refused the slide outright -- the slide lit, the hand on it, and nothing but R3 racked it. The nearest grip
+    // within the preview radius is taken then (its style's pose), however the wrist is turned.
+    if best.is_none() && any_d <= sc.f("previewRadius", 0.05) {
+        (best, best_style, best_d) = (any, any_style, any_d);
     }
     let have_best = best_d < 1e9;
     s.frame.slide.dist = if have_best { best_d } else { -1.0 };
@@ -1399,6 +1443,9 @@ fn slide_free(s: &mut State, c: &Ctx) {
         }
     } else if s.frame.rot_t >= 0.0 {
         drive_slide(s, c, 0.0);
+    }
+    if super::reload_reach::on() {
+        reach_publish(s, c, near, "");
     }
     let sl = &s.frame.slide;
     if !sl.chambered && sl.eject_t.is_none() && !sl.grabbed && !sl.fired && sl.rack < 0.5 * travel && sl.ammo.unwrap_or(0) > 0 {

@@ -51,9 +51,14 @@ impl Lua for J {
     fn g(&self, k: &str) -> &J {
         self.get(k).unwrap_or(&J::Null)
     }
-    /// Element `n` of an array (1-based, as Lua indexes).
+    /// Element `n` of an array (1-based, as Lua indexes) -- or, of an object, its key "n": a Lua table that held both
+    /// numbered entries and named ones (shotgun.carry2 = { [1], [2], pose }) was written out as an object. Read as an
+    /// array only, both shells of a two-shell carry had no hold at all: turned off the hand and one inside the other.
     fn i(&self, n: usize) -> &J {
-        n.checked_sub(1).and_then(|n| self.get(n)).unwrap_or(&J::Null)
+        match self {
+            J::Object(o) => o.get(&n.to_string()).unwrap_or(&J::Null),
+            _ => n.checked_sub(1).and_then(|n| self.get(n)).unwrap_or(&J::Null),
+        }
     }
     fn f(&self, k: &str, d: f64) -> f64 {
         self.g(k).as_f64().unwrap_or(d)

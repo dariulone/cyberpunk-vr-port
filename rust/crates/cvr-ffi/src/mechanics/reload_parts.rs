@@ -130,6 +130,14 @@ fn hatch(s: &mut State, c: &Ctx) {
         p = if want > p { (p + step).min(1.0) } else { (p - step).max(0.0) };
         s.frame.hatch.p = p;
     }
+    // A COVER OF SEVERAL PARTS (the Burya's drum cover, the Kang Tao Zhuo's holders, the Rasetsu's, the Achilles' ...):
+    // each part its own move and turn over its own stretch of the same progress, and no one-bone swing -- those
+    // configs give no angle or axis, and the swing's defaults (90 degrees about x) stood a part across the gun the
+    // moment the magazine came out (the C++ build's Lua threw on the missing axis instead and wrote nothing).
+    if !manual && hc.g("parts").as_array().is_some_and(|a| !a.is_empty()) {
+        hatch_parts(s, hc, p);
+        return;
+    }
     let (a, wu) = (hc.f("angle", 90.0), hc.f("windUp", 0.0));
     let ang = if p < 0.20 {
         -wu * (p / 0.20)
@@ -154,6 +162,36 @@ fn hatch(s: &mut State, c: &Ctx) {
     } else {
         rig_write_rot(which, bone, ang * hc.f("sign", 1.0), ax);
         s.frame.hatch.wrote = true;
+    }
+}
+/// M.hatchParts: every part at progress `p` -- eased over its `from`..`to` stretch, `move` (parent-local metres, a
+/// translation offset) and `turn` degrees about `axis` (onto its rest); shut, each written part handed back to the
+/// animation (a part pinned at zero would be taken off the game for good).
+fn hatch_parts(s: &mut State, hc: &J, p: f64) {
+    let parts = hc.g("parts").arr();
+    if s.frame.hatch.pw.len() < parts.len() {
+        s.frame.hatch.pw.resize(parts.len(), false);
+    }
+    for (i, pt) in parts.iter().enumerate() {
+        let (which, bone) = which_bone(pt);
+        let (a, b) = (pt.f("from", 0.0), pt.f("to", 1.0));
+        let span = if b - a > 1e-3 { b - a } else { 1e-3 };
+        let f = ((p - a) / span).clamp(0.0, 1.0);
+        let f = f * f * (3.0 - 2.0 * f);
+        if p <= 0.0 {
+            if s.frame.hatch.pw[i] {
+                rig_write_off(which, bone);
+            }
+            s.frame.hatch.pw[i] = false;
+        } else {
+            if let Some(m) = pt.v3("move") {
+                rig_write(which, bone, [m[0] * f, m[1] * f, m[2] * f]);
+            }
+            if let Some(turn) = pt.fo("turn") {
+                rig_write_rot(which, bone, turn * f, axis(pt, "axis", [1.0, 0.0, 0.0]));
+            }
+            s.frame.hatch.pw[i] = true;
+        }
     }
 }
 /// The cylinder turned by the free hand's pad on it, only with the crane fully open (main's 60ad61ac9: the frame locks

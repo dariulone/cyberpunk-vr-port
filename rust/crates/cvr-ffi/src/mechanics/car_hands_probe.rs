@@ -89,6 +89,41 @@ fn unmount(pl: &Handle, car: &Handle) {
         rt::call(&facility, "Unmount", &[A::H(&req)]);
     }
 }
+/// The "car" / "mount" / "unmount" development commands (dev_cmd.rs): an Archer spawned beside the player (as the
+/// probe places it), the player mounted in its driver's seat at once, and out of it again. The answer for the log.
+static DEV_CAR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub(in crate::mechanics) fn dev(word: &str) -> String {
+    let pl = super::menu_rt::player();
+    if pl.is_null() {
+        return "no player".into();
+    }
+    let id = DEV_CAR.load(core::sync::atomic::Ordering::Relaxed);
+    let car = if id != 0 { crate::spawn_system::spawned(id) } else { Handle::null() };
+    match word {
+        "car" => {
+            let at = super::belt::m::<[f32; 4]>(&pl, "GetWorldPosition", &[]).unwrap_or([0.0; 4]);
+            let f = super::belt::m::<[f32; 4]>(&pl, "GetWorldForward", &[]).unwrap_or([0.0, 1.0, 0.0, 0.0]);
+            let right = [f[1], -f[0]];
+            let pos = [at[0] + right[0] * 2.6 + f[0] * 0.5, at[1] + right[1] * 2.6 + f[1] * 0.5, at[2], 1.0];
+            let yaw = (-f[0]).atan2(f[1]);
+            let q = [0.0, 0.0, (yaw * 0.5).sin(), (yaw * 0.5).cos()];
+            let id = crate::spawn_system::spawn_record(red4ext_abi::tweakdbid::from_name("Vehicle.v_standard2_archer_hella_player"), &pos, &q);
+            DEV_CAR.store(id, core::sync::atomic::Ordering::Relaxed);
+            format!("spawned {id}")
+        }
+        "mount" if car.is_null() => "no car (spawn one with \"car\" and wait for it)".into(),
+        "mount" => match mount(&pl, &car, "seat_front_left") {
+            Ok(()) => "the driver's seat asked".into(),
+            Err(e) => format!("failed: {e}"),
+        },
+        "unmount" if car.is_null() => "no car".into(),
+        "unmount" => {
+            unmount(&pl, &car);
+            "asked".into()
+        }
+        _ => "car | mount | unmount".into(),
+    }
+}
 /// One second's look at the hands: wanted, touching, on the world, the body's distance from where it was sent.
 fn sample(t: &mut Test, label: &str) {
     let w = WANTED.read();

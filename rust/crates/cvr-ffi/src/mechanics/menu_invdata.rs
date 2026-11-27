@@ -127,17 +127,40 @@ pub(super) struct Ctx {
     pub manager: Handle,
     cache: HashMap<String, Vec<Item>>,
     equipped_cache: HashMap<String, Option<Item>>,
+    /// The weapon wheel's items made once, by key (item_kept).
+    made: HashMap<String, Item>,
     comparison: Handle,
     ui: Handle,
+    /// The manager is the game's own radial wheel's (open_on): not ours to uninitialize.
+    borrowed: bool,
 }
 pub(super) fn open() -> Ctx {
     let m = super::lobby_ink::new("InventoryDataManagerV2");
     rt::call(&m, "Initialize", &[A::H(&player())]);
     let comparison = so("ItemPreferredComparisonResolver", "Make", &[A::H(&m)]);
-    Ctx { manager: m, cache: HashMap::new(), equipped_cache: HashMap::new(), comparison, ui: ui_system() }
+    Ctx { manager: m, cache: HashMap::new(), equipped_cache: HashMap::new(), made: HashMap::new(), comparison, ui: ui_system(), borrowed: false }
+}
+/// A context on a manager the game already keeps (RadialWheelController's: initialized with the HUD, its item cache
+/// built at its OnLateInit and rebuilt by itself on the equipment signals).
+pub(super) fn open_on(manager: Handle) -> Ctx {
+    let comparison = so("ItemPreferredComparisonResolver", "Make", &[A::H(&manager)]);
+    Ctx { manager, cache: HashMap::new(), equipped_cache: HashMap::new(), made: HashMap::new(), comparison, ui: ui_system(), borrowed: true }
+}
+/// The manager's whole-inventory cache built now (what the game's radial wheel does at its OnLateInit, under the
+/// loading screen): an own manager's first by-type query otherwise builds the data of every item then (~190 ms).
+pub(super) fn warm(ctx: &Ctx) {
+    rt::call(&ctx.manager, "GetPlayerInventoryData", &[]);
+}
+impl Ctx {
+    /// Whether the manager is the game's own (open_on).
+    pub(super) fn borrowed(&self) -> bool {
+        self.borrowed
+    }
 }
 pub(super) fn close(ctx: Ctx) {
-    rt::call(&ctx.manager, "UnInitialize", &[]);
+    if !ctx.borrowed {
+        rt::call(&ctx.manager, "UnInitialize", &[]);
+    }
 }
 pub(super) fn invalidate(ctx: &mut Ctx) {
     ctx.cache.clear();
@@ -145,6 +168,106 @@ pub(super) fn invalidate(ctx: &mut Ctx) {
     ctx.comparison = so("ItemPreferredComparisonResolver", "Make", &[A::H(&ctx.manager)]);
     rt::call(&ctx.manager, "MarkToRebuild", &[]);
     rt::call(&ctx.manager, "ClearInventoryItemDataCache", &[]);
+}
+/// `item` for the weapon wheel, kept the way the game's radial wheel keeps its slots (RadialWheelController: one
+/// inventory manager for the session, its own caches rebuilt only when it marks itself): an item made once is kept by
+/// key, and seen again costs its id, quality and counts read anew -- the counts the wheel shows refreshed in place --
+/// not the whole item's twenty-odd script calls (~1 ms an item, the wheel's opening hitch with a dozen of them). Only
+/// the wheel's fields are kept fresh (a kept item's equipped / new / allowed are as first made).
+pub(super) fn item_kept(ctx: &mut Ctx, data: Owned) -> Option<Item> {
+    if sb("InventoryItemData", "IsEmpty", &[A::P(ptr(&data))]) {
+        return None;
+    }
+    let key = key_of(&iid(&data, "GetID"));
+    let quality = ids(&data, "GetQuality");
+    if let Some(kept) = ctx.made.get(&key).filter(|it| it.quality == quality) {
+        let mut it = kept.clone();
+        it.quantity = idn(&data, "GetQuantity");
+        it.ammo = idn(&data, "GetAmmo");
+        it.data = Some(Rc::new(data));
+        return Some(it);
+    }
+    let it = item(ctx, data)?;
+    ctx.made.insert(key, it.clone());
+    Some(it)
+}
+/// The wheel's item already made for this id (an item whose counts do not show: the base fists).
+pub(super) fn kept(ctx: &Ctx, id: &Id16) -> Option<Item> {
+    ctx.made.get(&key_of(id)).cloned()
+}
+/// The player's items of the weapon wheel's hotkey types, found a little at a time (the game's own query,
+/// GetPlayerItemsByType, rebuilt the data of every item the player owns in one call when its manager had marked
+/// itself -- 8-9 ms on the first opening after any equipment change): the transaction system's list walked so many
+/// items a step, each item's type asked of its own data, the matches kept with the radial's blacklist applied
+/// (IsItemBlacklisted with isRadialQuerying: preview copies, TppHead, HideInUI, currency, ammo).
+pub(super) struct HotkeyScan {
+    list: Vec<Handle>,
+    at: usize,
+    kinds: Vec<f64>,
+    /// (type, the item's gameItemData) in the list's order.
+    pub hits: Vec<(f64, Handle)>,
+}
+impl HotkeyScan {
+    pub(super) fn start(kinds: Vec<f64>) -> HotkeyScan {
+        HotkeyScan { list: item_list(), at: 0, kinds, hits: Vec::new() }
+    }
+    /// Walks on until `budget` has passed (None: to the end); true once the whole list is walked.
+    pub(super) fn step(&mut self, budget: Option<std::time::Duration>) -> bool {
+        let t = std::time::Instant::now();
+        while self.at < self.list.len() {
+            let d = self.list[self.at].clone();
+            self.at += 1;
+            if d.is_null() {
+                continue;
+            }
+            if let Some(ty) = rt::call(&d, "GetItemType", &[]).and_then(|v| Val::of(&v).num()).filter(|ty| self.kinds.contains(ty)) {
+                let hidden = rt::call(&d, "GetID", &[]).map(|v| Id16::of(&Val::of(&v))).is_some_and(|id| preview_flag(&id))
+                    || ["TppHead", "HideInUI", "Currency", "Ammo"].iter().any(|t| rt::call(&d, "HasTag", &[A::Name(cname(t))]).is_some_and(|v| Val::of(&v).bool()));
+                if !hidden {
+                    self.hits.push((ty, d));
+                }
+            }
+            if self.at % 16 == 0 && budget.is_some_and(|b| t.elapsed() >= b) {
+                break;
+            }
+        }
+        self.at >= self.list.len()
+    }
+}
+/// A hotkey item the scan found, as the wheel shows it: made once (item_kept; GetInventoryItemData as the radial asks
+/// it), counted fresh as GetPlayerItemsByType counts it -- a grenade's, a healing item's or the launcher's charges, else
+/// the stack -- and None for a used-up stack.
+pub(super) fn hotkey_item(ctx: &mut Ctx, ty: f64, d: &Handle) -> Option<Item> {
+    let pl = player();
+    let id = rt::call(d, "GetID", &[]).map(|v| Id16::of(&Val::of(&v)))?;
+    let mut it = match kept(ctx, &id) {
+        Some(it) => it,
+        None => {
+            let data = rt::call(&ctx.manager, "GetInventoryItemData", &[A::H(&pl), A::H(d), A::B(false), A::B(true)])?;
+            item_kept(ctx, data)?
+        }
+    };
+    let charges = if ty == ev("gamedataItemType", "Gad_Grenade") {
+        rt::static_call("TweakDBInterface", "GetGrenadeRecord", &[A::Name(it.id.tdbid())])
+            .map(|r| Val::of(&r).handle())
+            .map(|rec| n(&pl, "GetGrenadeCharges", &[A::H(&rec)]))
+    } else if ty == ev("gamedataItemType", "Con_Inhaler") || ty == ev("gamedataItemType", "Con_Injector") {
+        Some(n(&pl, "GetHealingItemCharges", &[]))
+    } else if ty == ev("gamedataItemType", "Cyb_Launcher") {
+        Some(n(&pl, "GetProjectileLauncherCharges", &[]))
+    } else {
+        None
+    };
+    it.quantity = match charges {
+        Some(c) => c,
+        None => n(d, "GetQuantity", &[]),
+    };
+    (charges.is_some() || it.quantity > 0.0).then_some(it)
+}
+/// The item equipped in an area's slot from the manager's own per-area cache, made through `item_kept`.
+pub(super) fn equipped_kept(ctx: &mut Ctx, area_name: &str, slot: i32) -> Option<Item> {
+    let data = rt::call(&ctx.manager, "GetItemDataEquippedInArea", &[A::N(area(area_name)), A::N(f64::from(slot))])?;
+    item_kept(ctx, data)
 }
 pub(super) fn item(ctx: &Ctx, data: Owned) -> Option<Item> {
     if sb("InventoryItemData", "IsEmpty", &[A::P(ptr(&data))]) {

@@ -705,6 +705,10 @@ fn blocked_now(pl: &Handle) -> R<bool> {
         || get::<bool>(&psm, "GetBool", field(d, "Carrying")?)?
         || get::<i32>(&psm, "GetInt", field(d, "Takedown")?)? != 0)
 }
+/// Whether the game offers a choice hub now (an NPC's or a device's choices on the UIInteractions board).
+pub(super) fn choice_hub_up() -> bool {
+    offers().1
+}
 /// What the game offers now: the owner of its loot prompt, and whether a choice hub is up.
 fn offers() -> (Option<u64>, bool) {
     let (mut owner, mut hub) = (None, false);

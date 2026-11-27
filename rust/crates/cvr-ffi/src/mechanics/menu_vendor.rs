@@ -435,9 +435,16 @@ pub(super) fn close_sessions(_m: &mut Menu) {
         let active = v.ripper.as_ref().is_some_and(|r| r.active);
         let board = active && v.ripper.as_mut().is_some_and(|r| std::mem::replace(&mut r.board_open, false));
         if active {
+            // quitting: the visit's vendor, manager and panel are not released into a taken-down engine
+            if super::menu_main::exiting() {
+                std::mem::forget(v.ripper.take());
+            }
             v.ripper = None;
         }
         if v.stash.as_ref().is_some_and(|s| s.active) {
+            if super::menu_main::exiting() {
+                std::mem::forget(v.stash.take());
+            }
             v.stash = None;
         }
         board
@@ -668,4 +675,251 @@ pub(crate) fn hook(kind: i32, a: &Handle, b: &Handle, name: u64) -> bool {
         }
         _ => false,
     }
+}
+
+/// A development check (CVR_VENDOR_TEST): 40 s into the loaded save a vendor among the NPCs within 80 m (none: the
+/// player is taken to Viktor's clinic and the search runs again 20 s later) is opened as a visit opens it -- a
+/// VendorDataManager initialised with the player and the vendor's entity id -- and what the trade page reads of it is
+/// written to the log: the vendor the manager holds, its name, its stock, a price of each side.
+pub(in crate::mechanics) fn vendor_test(dt: f64) {
+    thread_local! {
+        static T: std::cell::Cell<(f64, u32, usize)> = const { std::cell::Cell::new((0.0, 0, 0)) };
+    }
+    trade_tick(dt);
+    if std::env::var_os("CVR_VENDOR_WALK").is_some() || WALK_ON.with(|c| c.get()) {
+        vendor_walk(dt);
+        return;
+    }
+    if std::env::var_os("CVR_VENDOR_TEST").is_none() {
+        return;
+    }
+    let pl = player();
+    let (t, step, first) = T.with(|c| c.get());
+    if pl.is_null() || step >= 2 {
+        return;
+    }
+    let p = pl.instance as usize;
+    let first = if first == 0 { p } else { first };
+    if p == first || super::belt::native::<bool>("VRLobbyActive", &[]) == Some(true) {
+        T.with(|c| c.set((t, step, first)));
+        return;
+    }
+    let t = t + dt;
+    let mut step = step;
+    if (step == 0 && t > 40.0) || (step == 1 && t > 60.0) {
+        let vendors: Vec<Handle> = super::melee::npcs(&pl, 80.0).into_iter().filter(|npc| vendor_id_of(npc) != 0).collect();
+        cvr_host::log!("[VRMenu] vendor test: {} vendor(s) among the NPCs within 80 m (from Rust)\n", vendors.len());
+        if let Some(v) = vendors.first() {
+            vendor_test_read(&pl, v);
+            step = 2;
+        } else if step == 0 {
+            let tf = super::game_system("GetTeleportationFacility");
+            let pos = [-1546.8f32, 1231.6, 11.7, 1.0];
+            let rot = [0.0f32; 3];
+            crate::mechanics::lobby_ink::call(&tf, "Teleport", &[crate::script_call::Value::Handle(&pl), crate::script_call::Value::Ptr(pos.as_ptr().cast()), crate::script_call::Value::Ptr(rot.as_ptr().cast())]);
+            cvr_host::log!("[VRMenu] vendor test: none near; taken to Viktor's clinic (from Rust)\n");
+            step = 1;
+        } else {
+            step = 2;
+        }
+    }
+    T.with(|c| c.set((t, step, first)));
+}
+// A development check (CVR_VENDOR_WALK): the trade opened as a player opens it. 40 s into the loaded save the nearest
+// vendor among the NPCs within 150 m (no ripperdoc; by name with the command) is found, the player put 1.6 m in front of it, and 3 s later the
+// turn that faces it is written to the log ("turn N deg", positive to the left) for the harness, which turns the
+// headset and presses X (the pad's interact); from then on, every second for 40 s, whether the game offers its
+// choices -- the trade page writes what it read once it opens ([VRMenu] trade: ...).
+thread_local! {
+    /// The walk: (clock, step, the first player instance seen, the step's start, the vendor's place, the hub last said).
+    static W: std::cell::Cell<(f64, u32, usize, f64, [f64; 3], i8)> = const { std::cell::Cell::new((0.0, 0, 0, 0.0, [0.0; 3], -1)) };
+    static WANT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    static WALK_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static TRADE: std::cell::Cell<Option<(u32, f64)>> = const { std::cell::Cell::new(None) };
+    static SOLD: std::cell::RefCell<Option<(super::menu_rt::Id16, String, f64)>> = const { std::cell::RefCell::new(None) };
+}
+/// The "vendor" command: the walk again, now, to the vendor named so (any player instance counts: the game runs).
+pub(super) fn dev_vendor(name: &str) {
+    WANT.with(|w| *w.borrow_mut() = Some(name.trim().to_lowercase()));
+    WALK_ON.with(|c| c.set(true));
+    W.with(|c| c.set((40.0, 0, usize::MAX, 0.0, [0.0; 3], -1)));
+}
+/// The "trade" command: the sale and the buyback (menu_trade::dev_trade), now.
+pub(super) fn dev_trade_start() {
+    TRADE.with(|c| c.set(Some((0, 0.0))));
+}
+/// The trade check's steps: sell, 2 s, buy back, 2 s, the money again.
+fn trade_tick(dt: f64) {
+    if let Some((k, wait)) = TRADE.with(|c| c.get()) {
+        let wait = wait - dt;
+        if wait > 0.0 {
+            TRADE.with(|c| c.set(Some((k, wait))));
+        } else {
+            let go = SOLD.with(|s| super::menu_trade::dev_trade(k, &mut s.borrow_mut()));
+            TRADE.with(|c| c.set(if go && k < 2 { Some((k + 1, 2.0)) } else { None }));
+        }
+    }
+}
+fn vendor_walk(dt: f64) {
+    let pl = player();
+    let (t, step, first, t0, vp, hub) = W.with(|c| c.get());
+    if pl.is_null() || (step >= 3 && step != 5) {
+        return;
+    }
+    let p = pl.instance as usize;
+    let first = if first == 0 { p } else { first };
+    if p == first || super::belt::native::<bool>("VRLobbyActive", &[]) == Some(true) {
+        W.with(|c| c.set((t, step, first, t0, vp, hub)));
+        return;
+    }
+    let t = t + dt;
+    let (mut step, mut t0, mut vp, mut hub) = (step, t0, vp, hub);
+    let pos = |h: &Handle| super::belt::m::<[f32; 4]>(h, "GetWorldPosition", &[]).ok().map(|v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]);
+    let fwd = |h: &Handle| super::belt::m::<[f32; 4]>(h, "GetWorldForward", &[]).ok().map(|v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]);
+    if (step == 0 && t > 40.0) || (step == 5 && t > t0 + 15.0) {
+        let me = pos(&pl).unwrap_or([0.0; 3]);
+        // every vendor near, by its record; the one asked for (CVR_VENDOR_WALK=<part of the record's name>, else any
+        // that is no food stall or bar) taken, the nearest of them
+        let want = WANT.with(|w| w.borrow().clone()).unwrap_or_else(|| std::env::var("CVR_VENDOR_WALK").unwrap_or_default().to_lowercase());
+        let mut best: Option<(f64, Handle)> = None;
+        for npc in super::melee::npcs(&pl, 150.0) {
+            let id = vendor_id_of(&npc);
+            if id == 0 || b(&npc, "IsRipperdoc", &[]) {
+                continue;
+            }
+            let Some(q) = pos(&npc) else { continue };
+            let d = ((q[0] - me[0]).powi(2) + (q[1] - me[1]).powi(2)).sqrt();
+            let name = rt::static_call("TDBID", "ToStringDEBUG", &[A::Name(id)]).map(|o| rt::Val::of(&o).text()).unwrap_or_default();
+            cvr_host::log!("[VRMenu] vendor walk: vendor {name} {d:.1} m away (from Rust)\n");
+            let lower = name.to_lowercase();
+            let fits = if want.len() > 1 { lower.contains(&want) } else { !["food", "bar", "drink", "noodle", "sushi"].iter().any(|k| lower.contains(k)) };
+            if fits && best.as_ref().is_none_or(|(bd, _)| d < *bd) {
+                best = Some((d, npc));
+            }
+        }
+        match best {
+            Some((d, v)) => {
+                vp = pos(&v).unwrap_or([0.0; 3]);
+                let f = fwd(&v).unwrap_or([0.0, 1.0, 0.0]);
+                // where a player stands to trade: 1.6 m before the vendor (at a shop's counter, not against it)
+                let at = [vp[0] + f[0] * 1.6, vp[1] + f[1] * 1.6, vp[2] + 0.05];
+                let tf = super::game_system("GetTeleportationFacility");
+                let to = [at[0] as f32, at[1] as f32, at[2] as f32, 1.0];
+                let rot = [0.0f32; 3];
+                crate::mechanics::lobby_ink::call(&tf, "Teleport", &[crate::script_call::Value::Handle(&pl), crate::script_call::Value::Ptr(to.as_ptr().cast()), crate::script_call::Value::Ptr(rot.as_ptr().cast())]);
+                cvr_host::log!(
+                    "[VRMenu] vendor walk: the nearest vendor {d:.1} m away at ({:.1}, {:.1}, {:.1}); the player put 1.6 m in front of it (from Rust)\n",
+                    vp[0],
+                    vp[1],
+                    vp[2]
+                );
+                (step, t0) = (1, t);
+            }
+            None if step == 0 => {
+                // none that trades by the street door: the megabuilding's atrium (Wilson's gun shop, the shops round it)
+                let tf = super::game_system("GetTeleportationFacility");
+                let to = [-1397.0f32, 1278.0, 123.3, 1.0];
+                let rot = [0.0f32; 3];
+                crate::mechanics::lobby_ink::call(&tf, "Teleport", &[crate::script_call::Value::Handle(&pl), crate::script_call::Value::Ptr(to.as_ptr().cast()), crate::script_call::Value::Ptr(rot.as_ptr().cast())]);
+                cvr_host::log!("[VRMenu] vendor walk: no trading vendor near; taken to the H10 atrium (from Rust)\n");
+                (step, t0) = (5, t);
+            }
+            None => {
+                cvr_host::log!("[VRMenu] vendor walk: no trading vendor near (from Rust)\n");
+                step = 3;
+            }
+        }
+    } else if step == 1 && t > t0 + 3.0 {
+        // from the eyes along the camera's look (the body's forward need not be the headset's)
+        let cam = super::game_system("GetCameraSystem");
+        let me = super::belt::m::<[f32; 4]>(&cam, "GetActiveCameraPosition", &[]).ok().map(|v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]).or_else(|| pos(&pl)).unwrap_or([0.0; 3]);
+        let f = super::belt::m::<[f32; 4]>(&cam, "GetActiveCameraForward", &[]).ok().map(|v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]).or_else(|| fwd(&pl)).unwrap_or([0.0, 1.0, 0.0]);
+        let dir = [vp[0] - me[0], vp[1] - me[1]];
+        let turn = (f[0] * dir[1] - f[1] * dir[0]).atan2(f[0] * dir[0] + f[1] * dir[1]).to_degrees();
+        cvr_host::log!("[VRMenu] vendor walk: turn {turn:.0} deg to face it, {:.1} m away (from Rust)\n", (dir[0] * dir[0] + dir[1] * dir[1]).sqrt());
+        (step, t0) = (2, t);
+    } else if step == 2 {
+        let up = super::reach::choice_hub_up() as i8;
+        if up != hub {
+            hub = up;
+            cvr_host::log!("[VRMenu] vendor walk: choice hub up: {} (from Rust)\n", up == 1);
+        }
+        // the menu once open, every second: where its screen stands against the eyes and their look
+        if (t - t0).fract() < dt {
+            let menu = super::menu_main::with(|m| (m.open, m.section.clone(), m.menu.as_ref().map(|s| (s.entity.clone(), s.shown, s.placed, s.ready))));
+            if let (true, Some((e, shown, placed, ready))) = (menu.0, menu.2) {
+                let cam = super::game_system("GetCameraSystem");
+                let cp = super::belt::m::<[f32; 4]>(&cam, "GetActiveCameraPosition", &[]).ok().map(|v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]).unwrap_or([0.0; 3]);
+                let cf = super::belt::m::<[f32; 4]>(&cam, "GetActiveCameraForward", &[]).ok().map(|v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]).unwrap_or([0.0, 1.0, 0.0]);
+                match pos(&e) {
+                    Some(mp) => {
+                        let d = [mp[0] - cp[0], mp[1] - cp[1], mp[2] - cp[2]];
+                        let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-6);
+                        let cosang = (d[0] * cf[0] + d[1] * cf[1] + d[2] * cf[2]) / dl;
+                        cvr_host::log!(
+                            "[VRMenu] vendor walk: menu open (section {:?}, shown {shown:?}, placed {placed}, ready {ready}) at ({:.2}, {:.2}, {:.2}), {dl:.2} m from the eyes, {:.0} deg off their look; eyes ({:.2}, {:.2}, {:.2}) looking ({:.2}, {:.2}, {:.2}) (from Rust)\n",
+                            menu.1,
+                            mp[0],
+                            mp[1],
+                            mp[2],
+                            cosang.clamp(-1.0, 1.0).acos().to_degrees(),
+                            cp[0],
+                            cp[1],
+                            cp[2],
+                            cf[0],
+                            cf[1],
+                            cf[2]
+                        );
+                    }
+                    None => cvr_host::log!(
+                        "[VRMenu] vendor walk: menu open (section {:?}, shown {shown:?}, placed {placed}, ready {ready}) but its entity has no position (from Rust)\n",
+                        menu.1
+                    ),
+                }
+            }
+        }
+        if t > t0 + 40.0 {
+            step = 3;
+        }
+    }
+    W.with(|c| c.set((t, step, first, t0, vp, hub)));
+}
+fn vendor_id_of(npc: &Handle) -> u64 {
+    let id = rt::static_call("MarketSystem", "GetVendorID", &[A::H(npc)]).map_or(0, |o| unsafe { *(o.as_ptr() as *const u64) });
+    if id != 0 && sb("TDBID", "IsValid", &[A::Name(id)]) { id } else { 0 }
+}
+fn vendor_test_read(pl: &Handle, vendor: &Handle) {
+    let eid = id16(vendor, "GetEntityID", &[]);
+    let manager = ink::new("VendorDataManager");
+    // the overloads' parameter types as the RTTI names them
+    // SAFETY: the manager, held; its class's registered functions and their parameters' types.
+    if let Some(class) = unsafe { red4ext_abi::rtti::object_class(manager.instance) } {
+        for &f in class.funcs().iter() {
+            let Some(f) = (unsafe { f.as_ref() }) else { continue };
+            if f.short_name != red4ext_abi::cname::CName::hashed("Initialize") {
+                continue;
+            }
+            let types: Vec<String> = f.params.as_slice().iter().filter_map(|&p| unsafe { p.as_ref() }.and_then(|p| unsafe { p.ty.as_ref() }).map(|t| t.name().text().to_string())).collect();
+            cvr_host::log!("[VRMenu] vendor test: VendorDataManager.Initialize({}) (from Rust)\n", types.join(", "));
+        }
+    }
+    let call = rt::call_typed(&manager, "Initialize", &["whandle:GameObject", "entEntityID"], &[A::H(pl), eid.a()]);
+    let held = o(&manager, "GetVendorInstance", &[]);
+    let name = loc(&s(&manager, "GetVendorName", &[]));
+    // the array kept while its elements are read (a Val points into it)
+    let owned = rt::call(&manager, "GetVendorInventoryItems", &[]);
+    let stock = owned.as_ref().map(|a| items(&rt::Val::of(a))).unwrap_or_default();
+    let raws: Vec<Handle> = stock.iter().filter_map(|st| st.f("itemData").map(|d| d.handle())).filter(|h| !h.is_null()).collect();
+    let buy = raws.first().map(|raw| n(&manager, "GetBuyingPrice", &[id16(raw, "GetID", &[]).a()]));
+    let sell_items = rt::objs(&manager, "GetItemsPlayerCanSellFast", &[A::H(pl), A::B(false)]);
+    let sell = sell_items.first().map(|raw| n(&manager, "GetSellingPrice", &[id16(raw, "GetID", &[]).a()]));
+    let money = sn("MarketSystem", "GetVendorMoney", &[A::H(vendor)]);
+    cvr_host::log!(
+        "[VRMenu] vendor test: Initialize {} (vendor held: {}), name '{name}', stock {} ({} with item data), first buying price {buy:?}, player's items to sell {}, first selling price {sell:?}, vendor money {money} (from Rust)\n",
+        if call.is_some() { "ran" } else { "NOT FOUND" },
+        !held.is_null(),
+        stock.len(),
+        raws.len(),
+        sell_items.len()
+    );
 }

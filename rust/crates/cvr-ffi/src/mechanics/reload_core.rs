@@ -698,6 +698,20 @@ fn queue_event(weapon: &Handle, class: &str, fields: &[(&str, Value)]) -> bool {
 pub(super) fn consume_ammo(weapon: &Handle, n: i32) -> bool {
     queue_event(weapon, "WeaponConsumeMagazineAmmoEvent", &[("amount", Value::Int32(n))])
 }
+/// The "ammo" development command: the held gun's magazine set to `n` rounds (spent down, or raised by the game's own
+/// event); the counts before and after.
+pub(super) fn dev_set_ammo(weapon: &Handle, n: i32) -> String {
+    let Some(cur) = mag_ammo(weapon) else { return "no count".into() };
+    let n = n.max(0);
+    let ok = if n < cur {
+        consume_ammo(weapon, cur - n)
+    } else if n > cur {
+        ammo_type(weapon).is_some_and(|at| queue_event(weapon, "SetAmmoCountEvent", &[("ammoTypeID", Value::Ptr(at.as_ptr().cast())), ("count", Value::Int32(n))]))
+    } else {
+        true
+    };
+    format!("{cur} -> {n}: {ok}")
+}
 fn ammo_type(weapon: &Handle) -> Option<[u64; 2]> {
     st::<[u64; 2]>("WeaponObject", "GetAmmoType", &[Value::Handle(weapon)])
 }

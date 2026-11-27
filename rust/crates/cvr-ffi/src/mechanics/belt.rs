@@ -1485,6 +1485,7 @@ fn update_shell_reach(s: &mut Belt, hp: V3, hq: Q) {
 }
 fn update_mag_reach(s: &mut Belt) {
     s.mag_d = [None; 2];
+    *MAG_AT.lock().unwrap_or_else(|e| e.into_inner()) = None;
     let host = s.state.wmag.as_ref().map(|k| format!("ucbeltmag_{k}"));
     s.mag_host = host.filter(|h| s.comps.contains_key(h));
     let Some((hp, hq)) = hips_model_frame(s) else { return };
@@ -1493,11 +1494,22 @@ fn update_mag_reach(s: &mut Belt) {
     let Some(e) = element_centre(s, &host) else { return };
     let w = qrot(hq, to_hips_frame(e));
     let target = [hp[0] + w[0], hp[1] + w[1], hp[2] + w[2]];
+    let mut palms = [None; 2];
     for side in 0..2usize {
         if let Some(p) = palm_point(s, side) {
             s.mag_d[side] = Some(dist(target, p));
+            palms[side] = Some(p);
         }
     }
+    *MAG_AT.lock().unwrap_or_else(|e| e.into_inner()) = Some((target, palms));
+}
+/// The belt pouch's centre and each palm (model space) as the reach measured them last: a test's hand aimed at it
+/// (reload_reach.rs).
+static MAG_AT: Mutex<Option<(V3, [Option<V3>; 2])>> = Mutex::new(None);
+pub(in crate::mechanics) fn mag_target(side: usize) -> Option<(V3, V3)> {
+    let g = MAG_AT.lock().unwrap_or_else(|e| e.into_inner());
+    let (t, palms) = (*g)?;
+    Some((t, palms[side.min(1)]?))
 }
 fn mark_reach(s: &mut Belt) {
     if s.ring_at.iter().all(Option::is_none) {
@@ -1589,6 +1601,38 @@ fn update_highlight(s: &mut Belt, dt: f64) {
             }
         }
         s.grenade_hover[side] = hover;
+        // CVR_RELOAD_REACH (reload_reach.rs): the left hand's nearest grenade holder, as the wrist pose that puts the
+        // palm on it -- a test takes a grenade from the belt the way a player's hand does
+        if side == 0 && super::reload_reach::on() && !no_grenades {
+            let nearest = ts.iter().filter(|t| t.0.starts_with("ucbeltgrenade")).min_by(|a, b| dist(a.1, p).total_cmp(&dist(b.1, p)));
+            let raw = native::<[f32; 4]>("VRHandRawModel", &[Value::Int32(0)]).map(f3);
+            if let (Some((host, at, _)), Some(raw)) = (nearest, raw) {
+                let why = format!(
+                    "lit {} held {} pin {} flying {}",
+                    s.lit_hand[0].as_deref().unwrap_or("-"),
+                    s.grab.slot.as_deref().unwrap_or("-"),
+                    s.grab.pin_pulled(),
+                    s.grab.flights_in_air()
+                );
+                super::reload_reach::publish(&super::reload_reach::Part {
+                    kind: "grenade",
+                    weapon: host,
+                    free: 0,
+                    near: Some(super::reload_reach::Near { d: dist(*at, p), at: [at[0] + raw[0] - p[0], at[1] + raw[1] - p[1], at[2] + raw[2] - p[2]], rot: None }),
+                    hand: raw,
+                    hand_rot: native::<[f32; 4]>("VRHandRawRot", &[Value::Int32(0)]).map(f4),
+                    axis: [0.0, 0.0, 1.0],
+                    travel: 0.0,
+                    radius: enter,
+                    angle_max: 0.0,
+                    grab_with: "grip",
+                    grabbed: s.grab.slot.is_some(),
+                    rack: 0.0,
+                    why: &why,
+                    exit: "",
+                });
+            }
+        }
         best = best.map(|b| group_lead(&b));
         // A grenade this hand had lit is let go by its own distance, even with another pouch nearest.
         if held.as_deref().is_some_and(|h| h.starts_with("ucbeltgrenade")) && (no_grenades || held_grenade_d.is_none_or(|d| d > leave)) {

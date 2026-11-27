@@ -1071,6 +1071,14 @@ impl Grenade {
     pub(super) fn is_pinned(&self) -> bool {
         self.pinned
     }
+    /// Grenades of ours in the air.
+    pub(super) fn flights_in_air(&self) -> usize {
+        self.flights.count()
+    }
+    /// The grenade in the hand has its pin out.
+    pub(super) fn pin_pulled(&self) -> bool {
+        self.pin_out
+    }
 }
 /// desiredPlane: the grab plane the panel forces (1 scene, 2 weapon), else the player's.
 fn desired_plane(s: &mut Belt, pl: &Handle, t: f64) -> i32 {

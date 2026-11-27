@@ -233,7 +233,7 @@ const GIT: &str = "$(git -C $RepoRoot rev-parse --short HEAD 2>$null)";
 const DATE: &str = "$(Get-Date -Format \"yyyy-MM-dd\")";
 
 fn dist(args: &[String]) -> R<()> {
-    let mut version = "0.2.5.5".to_string();
+    let mut version = "0.2.5.9".to_string();
     let mut build_dir = release::DEFAULT_BUILD_DIR.to_string();
     let (mut zip, mut force) = (false, false);
     let mut it = args.iter();

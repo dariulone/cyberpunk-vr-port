@@ -160,7 +160,85 @@ fn snapshot(visit: &(Handle, Handle)) -> Snapshot {
             }
         }
     }
+    // what the page shows of a visit, once per vendor: its stock and the prices read (an empty stock or a price of 0
+    // is a manager without its vendor)
+    static SAID: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+    let vendor = visit.0.instance as usize;
+    let mut said = SAID.lock().unwrap_or_else(|p| p.into_inner());
+    if *said != vendor {
+        *said = vendor;
+        let first = |l: &Vec<Ware>| l.first().and_then(|w| w.item.price).map_or("-".to_string(), |p| format!("{p}"));
+        cvr_host::log!(
+            "[VRMenu] trade: '{}' sells {} (first price {}), buys {} of the player's (first price {}), vendor money {} (from Rust)\n",
+            out.name,
+            out.buy.len(),
+            first(&out.buy),
+            out.sell.len(),
+            first(&out.sell),
+            out.vendor_money
+        );
+    }
     out
+}
+/// A development check (the "trade" command of CVR_VENDOR_WALK's command file): with a visit's trade page open, one
+/// piece of the first thing the page would sell is sold through the sell button's own quote and transact, and 2 s later
+/// bought back through the buyback's -- the player's and the vendor's money and the player's count written before, after
+/// the sale and after the buyback.
+pub(super) fn dev_trade(step: u32, state: &mut Option<(Id16, String, f64)>) -> bool {
+    let Some(visit) = super::menu_vendor::visit_parts() else {
+        cvr_host::log!("[VRMenu] trade test: no visit open (from Rust)\n");
+        return false;
+    };
+    let mgr = visit.1.clone();
+    let ts = super::game_system("GetTransactionSystem");
+    let money = || (n(&mgr, "GetLocalPlayerCurrencyAmount", &[]), sn("MarketSystem", "GetVendorMoney", &[A::H(&visit.0)]));
+    let count = |id: &Id16| n(&ts, "GetItemQuantity", &[A::H(&player()), id.a()]);
+    let snap = snapshot(&visit);
+    match step {
+        0 => {
+            let pick = snap.sell.iter().find(|w| {
+                let q = quote(&visit, w, 1.0);
+                q.allowed && !q.confirm && q.total > 0.0
+            });
+            let Some(w) = pick else {
+                cvr_host::log!("[VRMenu] trade test: nothing the page would sell (from Rust)\n");
+                return false;
+            };
+            let (pm, vm) = money();
+            let q = quote(&visit, w, 1.0);
+            cvr_host::log!(
+                "[VRMenu] trade test: before -- player money {pm}, vendor money {vm}; selling 1 of '{}' (player has {}) for {} (from Rust)\n",
+                w.item.name,
+                count(&w.item.id),
+                q.total
+            );
+            let done = matches!(transact(&visit, w, 1.0, true), Done::Ok);
+            *state = Some((w.item.id, w.item.name.clone(), q.total));
+            cvr_host::log!("[VRMenu] trade test: sale sent: {done} (from Rust)\n");
+            done
+        }
+        1 => {
+            let Some((id, name, _)) = state.clone() else { return false };
+            let (pm, vm) = money();
+            cvr_host::log!("[VRMenu] trade test: after the sale -- player money {pm}, vendor money {vm}, player has {} of '{name}' (from Rust)\n", count(&id));
+            let back = snap.buy.iter().find(|w| w.buyback && w.item.id == id);
+            let Some(w) = back else {
+                cvr_host::log!("[VRMenu] trade test: '{name}' is not offered back (from Rust)\n");
+                return false;
+            };
+            let q = quote(&visit, w, 1.0);
+            cvr_host::log!("[VRMenu] trade test: buying back 1 of '{name}' for {} (allowed {}) (from Rust)\n", q.total, q.allowed);
+            let done = matches!(transact(&visit, w, 1.0, true), Done::Ok);
+            cvr_host::log!("[VRMenu] trade test: buyback sent: {done} (from Rust)\n");
+            done
+        }
+        _ => {
+            let Some((id, name, _)) = state.clone() else { return false };
+            let (pm, vm) = money();
+            cvr_host::log!("[VRMenu] trade test: after the buyback -- player money {pm}, vendor money {vm}, player has {} of '{name}' (from Rust)\n", count(&id));
+            false
+        }
+    }
 }
 pub(super) struct Quote {
     pub allowed: bool,

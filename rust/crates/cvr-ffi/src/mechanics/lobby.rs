@@ -329,7 +329,46 @@ fn update(l: &mut Lobby, dt: f64) {
 pub(in crate::mechanics) fn tick(dt: f32) {
     let mut g = LOBBY.lock().unwrap_or_else(|p| p.into_inner());
     let l = g.get_or_insert_with(Lobby::default);
+    drain(l);
+    let press = DEV_PRESS.lock().unwrap_or_else(|p| p.into_inner()).take();
+    if let Some(key) = press {
+        let ok = holo::dev_press(l, &key);
+        log!("[dev] lobby '{key}': pressed {ok}; rows {:?}\n", holo::dev_rows(l));
+    }
     update(l, f64::from(dt));
+    drain(l);
+}
+/// The "lobby <row>" development command (dev_cmd.rs): a row of the holo's top page pressed on the next tick.
+static DEV_PRESS: Mutex<Option<String>> = Mutex::new(None);
+pub(in crate::mechanics) fn dev_press(key: &str) {
+    *DEV_PRESS.lock().unwrap_or_else(|p| p.into_inner()) = Some(key.to_string());
+}
+/// What the game's menus told the lobby while it was busy. THE NEW GAME HANG (2026-11-27): the lobby's own calls into
+/// the game run the menus' scripts synchronously -- the new game step's SpawnEvent("OnNewGame") leaves the main menu's
+/// scenario and brings the new game's screen up inside the call -- and their observers (VRLobbyMenu, VRLobbySaves)
+/// come back here on the same thread, the lobby still locked by its tick: the lock waited on itself and the game
+/// froze. Such news is queued instead and applied as soon as the tick lets go of the lobby (the C++ lobby's state was
+/// a plain global, read and written in place).
+enum Pending {
+    Menu(i32, Handle),
+    Saves(String),
+}
+// SAFETY: the game's handles are only touched on the game thread, as the lobby's own are (Lobby is Send for the same
+// reason).
+unsafe impl Send for Pending {}
+static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
+fn deliver(ev: Pending) {
+    match LOBBY.try_lock() {
+        Ok(mut g) => apply(g.get_or_insert_with(Lobby::default), ev),
+        Err(std::sync::TryLockError::Poisoned(p)) => apply(p.into_inner().get_or_insert_with(Lobby::default), ev),
+        Err(std::sync::TryLockError::WouldBlock) => PENDING.lock().unwrap_or_else(|p| p.into_inner()).push(ev),
+    }
+}
+fn drain(l: &mut Lobby) {
+    let queued = std::mem::take(&mut *PENDING.lock().unwrap_or_else(|p| p.into_inner()));
+    for ev in queued {
+        apply(l, ev);
+    }
 }
 /// The mod's onShutdown.
 pub(in crate::mechanics) fn shutdown() {
@@ -341,9 +380,18 @@ pub(in crate::mechanics) fn shutdown() {
 /// VRLobbyMenu(what, object): the Lua host's observers -- 0 the main menu's controller up, 1 down, 2 the new game's
 /// screen up, 3 its dispatcher, 4 its screen down, 5 the menu at its root, 6 the menu on one of its own screens.
 pub(in crate::mechanics) fn menu_event(what: i32, obj: Handle) {
-    let mut g = LOBBY.lock().unwrap_or_else(|p| p.into_inner());
-    let l = g.get_or_insert_with(Lobby::default);
+    deliver(Pending::Menu(what, obj));
+}
+fn apply(l: &mut Lobby, ev: Pending) {
     let s = &mut l.shared;
+    let (what, obj) = match ev {
+        Pending::Menu(what, obj) => (what, obj),
+        Pending::Saves(names) => {
+            s.save_names = Some(names.split('\n').filter(|s| !s.is_empty()).map(str::to_string).collect());
+            s.names_gen += 1;
+            return;
+        }
+    };
     match what {
         0 => s.main_menu = obj,
         1 => {
@@ -365,8 +413,5 @@ pub(in crate::mechanics) fn menu_event(what: i32, obj: Handle) {
 }
 /// VRLobbySaves(names): the main menu's saves, newest first, one per line (OnSavesForLoadReady).
 pub(in crate::mechanics) fn saves(names: String) {
-    let mut g = LOBBY.lock().unwrap_or_else(|p| p.into_inner());
-    let l = g.get_or_insert_with(Lobby::default);
-    l.shared.save_names = Some(names.split('\n').filter(|s| !s.is_empty()).map(str::to_string).collect());
-    l.shared.names_gen += 1;
+    deliver(Pending::Saves(names));
 }

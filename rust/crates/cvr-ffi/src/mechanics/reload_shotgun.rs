@@ -1275,6 +1275,9 @@ fn b_frame(s: &mut State, g: &mut Shotgun, sc: &'static J, snd: &'static J, weap
         g.b.flick_at,
         g.bodies.len()
     );
+    if super::reload_reach::on() {
+        b_reach(g, sc, free, wr, rel);
+    }
     match g.b.act {
         "unlatch" => "sg:break:unlatch",
         "opening" => "sg:break:opening",
@@ -1282,6 +1285,64 @@ fn b_frame(s: &mut State, g: &mut Shotgun, sc: &'static J, snd: &'static J, weap
         "closing" => "sg:break:closing",
         _ => "sg:break:closed",
     }
+}
+
+/// CVR_RELOAD_REACH: where the free hand goes next to load the open break-action (reload_reach.rs) -- with no shells in
+/// it, onto the belt's shell pouch (the wrist put so the palm lands on the pouch, the hand's turn kept); with shells,
+/// the wrist that seats the first one in the nearest empty chamber (the magnet's own target at full depth), its
+/// approach ("pull") a shell's length and 3 cm out along the chamber's line. The state rides in "why".
+fn b_reach(g: &Shotgun, sc: &'static J, free: usize, wr: Option<F>, rel: Option<F>) {
+    let Some(wr) = wr else { return };
+    let (hand, hq) = (fp(&wr), fq(&wr));
+    let l = sc.f("shellLen", 0.08);
+    let mut near = None;
+    let mut axis = [0.0; 3];
+    let mut travel = 0.0;
+    let mut kind = "break";
+    if let (Some(h), Some(rel)) = (g.b.held.as_ref(), rel) {
+        let sl = fcomp(&wr, &rel);
+        if let Some(sh) = h.list.first() {
+            let f = fcomp(&sl, &sh.hold);
+            let a = qrot(fq(&f), [0.0, 0.0, 1.0]);
+            let mut best: Option<(f64, usize)> = None;
+            for (k, c) in g.b.ch.iter().enumerate() {
+                let Some(cm) = g.b.cm.get(k) else { continue };
+                let d = len3v(f[0] - cm[0], f[1] - cm[1], f[2] - cm[2]);
+                if c.st == "empty" && best.is_none_or(|(b, _)| d < b) {
+                    best = Some((d, k));
+                }
+            }
+            if let Some((d, k)) = best {
+                let cm = g.b.cm[k];
+                let i = qrot(fq(&cm), [0.0, 0.0, 1.0]);
+                let ft = fr(fp(&cm), qmul(qswing(a, i), fq(&f)));
+                let wt = wrist_for(&fcomp(&ft, &finv(&sh.hold)), &rel);
+                near = Some(super::reload_reach::Near { d, at: fp(&wt), rot: Some(fq(&wt)) });
+                (axis, travel, kind) = (i, l + 0.03, "chamber");
+            }
+        }
+    } else if let Some((t, palm)) = super::belt::mag_target(free) {
+        let at = [hand[0] + t[0] - palm[0], hand[1] + t[1] - palm[1], hand[2] + t[2] - palm[2]];
+        near = Some(super::reload_reach::Near { d: len3v(t[0] - palm[0], t[1] - palm[1], t[2] - palm[2]), at, rot: None });
+        kind = "pouch";
+    }
+    super::reload_reach::publish(&super::reload_reach::Part {
+        kind,
+        weapon: "break",
+        free,
+        near,
+        hand,
+        hand_rot: Some(hq),
+        axis,
+        travel,
+        radius: belt_mag_radius(),
+        angle_max: 180.0,
+        grab_with: "grip",
+        grabbed: g.b.held.is_some(),
+        rack: g.b.hinge,
+        why: &g.diag,
+        exit: g.b.act,
+    });
 }
 
 // ---------------------------------------------------------------- the pump
@@ -1499,12 +1560,16 @@ fn p_write(g: &mut Shotgun, sc: &'static J) {
     let r0 = pc.v3("restLocal").unwrap_or([0.0; 3]);
     let sv = g.p.s;
     let w = ji(pc, "which", 1);
-    rig_write_abs(w, ji(pc, "bone", 0), [r0[0] + la[0] * sv, r0[1] + la[1] * sv, r0[2] + la[2] * sv], ID, 0);
+    // ABSOLUTE translation (the last argument 1), the rotation left to the animation (a zero quaternion): the pump and
+    // its riders are written where the rig puts them at rest plus the stroke. Written as an offset (0) the rest itself
+    // was added onto the animated pose -- the fore-end 41 cm forward, the bolt off its rail -- and the identity
+    // rotation turned the parts off their own.
+    rig_write_abs(w, ji(pc, "bone", 0), [r0[0] + la[0] * sv, r0[1] + la[1] * sv, r0[2] + la[2] * sv], [0.0; 4], 1);
     for rd in pc.g("riders").arr() {
         let v = sv * rd.f("ratio", 1.0);
         let ax = rd.v3("axis").unwrap_or(la);
         let r1 = rd.v3("restLocal").unwrap_or([0.0; 3]);
-        rig_write_abs(ji(rd, "which", w), ji(rd, "bone", 0), [r1[0] + ax[0] * v, r1[1] + ax[1] * v, r1[2] + ax[2] * v], ID, 0);
+        rig_write_abs(ji(rd, "which", w), ji(rd, "bone", 0), [r1[0] + ax[0] * v, r1[1] + ax[1] * v, r1[2] + ax[2] * v], [0.0; 4], 1);
     }
     g.p.wrote = true;
 }
@@ -1633,6 +1698,28 @@ fn p_frame(s: &mut State, g: &mut Shotgun, sc: &'static J, snd: &'static J, weap
     }
     let along = wa.map_or(0.0, |w| (w[0] - wm[0]) * bvec[0] + (w[1] - wm[1]) * bvec[1] + (w[2] - wm[2]) * bvec[2]);
     let on_fore = (two_h && sup) || d_hand <= pc.f("grabRadius", 0.10);
+    // CVR_RELOAD_REACH: the fore-end's grip for a test's hand (reload_reach.rs); worked with the grip and the trigger
+    // held, a full stroke along the pump's direction
+    if super::reload_reach::on() {
+        let hq = native::<[f32; 4]>("VRHandRawRot", &[Value::Int32(free as i32)]).map(f4);
+        super::reload_reach::publish(&super::reload_reach::Part {
+            kind: "pump",
+            weapon: "shotgun",
+            free,
+            near: Some(super::reload_reach::Near { d: d_hand, at: fp(&t0), rot: Some(fq(&t0)) }),
+            hand: wr.map_or([0.0; 3], |w| fp(&w)),
+            hand_rot: hq,
+            axis: [-bvec[0], -bvec[1], -bvec[2]],
+            travel: pc.f("travel", 0.08),
+            radius: pc.f("grabRadius", 0.10),
+            angle_max: 180.0,
+            grab_with: "grip+trigger",
+            grabbed: g.p.engaged,
+            rack: g.p.s,
+            why: if on_fore { "on the fore-end" } else { "off the fore-end" },
+            exit: "ok",
+        });
+    }
     let ltb = free == aim_hand() && grip && on_fore && g.p.shell.is_none();
     super::reload_mag::lt_block(s, ltb);
     if !g.p.engaged && on_fore && g.p.shell.is_none() && (g.p.spent_in || (!g.p.chambered && am > 0)) {

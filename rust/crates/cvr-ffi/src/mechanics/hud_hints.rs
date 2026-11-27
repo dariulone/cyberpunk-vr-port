@@ -194,12 +194,22 @@ struct Cyber {
     probe: Handle,
     chord: Option<Chord>,
 }
-/// A row of quick slots: its controller, the widgets moved apart with their margins as the game had them, the cyberware.
+/// A widget of the row moved apart: by its name, the margin the game gave it and the room added to its left.
+struct Spread {
+    name: &'static str,
+    widget: Handle,
+    was: [f32; 4],
+    room: f64,
+}
+/// A row of quick slots: its controller, the widgets moved apart, the cyberware, the frames to the next check of the
+/// spread.
 #[derive(Default)]
 struct Slots {
     controller: Handle,
-    spread: Vec<(Handle, [f32; 4])>,
+    spread: Vec<Spread>,
     cyber: Cyber,
+    check: u32,
+    said: u32,
 }
 impl Slots {
     /// What was moved put back as the game had it, and the row forgotten: its controller was replaced (the HUD's quick
@@ -207,8 +217,9 @@ impl Slots {
     /// new one -- its slots never drawn apart, their hints over the icons -- or, the same widgets met again with the
     /// record gone, they were drawn apart once more each time and the icons walked off to the right.
     fn restore(&mut self) {
-        for (w, was) in self.spread.drain(..) {
-            ink::margin(&w, f64::from(was[0]), f64::from(was[1]), f64::from(was[2]), f64::from(was[3]));
+        for sp in self.spread.drain(..) {
+            let was = sp.was;
+            ink::margin(&sp.widget, f64::from(was[0]), f64::from(was[1]), f64::from(was[2]), f64::from(was[3]));
         }
         if let Some(c) = self.cyber.chord.take() {
             drop_chord(&c);
@@ -606,7 +617,7 @@ fn tint_prefixes(s: &State) {
 
 // ---------------------------------------------------------------- the quick slots
 /// A row of quick slots on the pad: moved apart for the hints, the cyberware's LB + RB shown as its own chord.
-fn quick_slots(s: &mut Slots, rooms: &[(&str, f64)], probe: &str) {
+fn quick_slots(s: &mut Slots, rooms: &[(&'static str, f64)], probe: &str) {
     let root = h(&s.controller, "GetRootWidget", &[]);
     if root.is_null() {
         return;
@@ -626,19 +637,53 @@ fn quick_slots(s: &mut Slots, rooms: &[(&str, f64)], probe: &str) {
     let pad = !native && !part.is_empty() && !part.starts_with("kb_") && !part.starts_with("mouse") && part != "None";
     // the row apart
     if pad && s.spread.is_empty() {
-        for (name, room) in rooms {
+        for &(name, room) in rooms {
             let w = find(&root, name, 3);
             if w.is_null() {
                 continue;
             }
             let was = margins(&w);
             ink::margin(&w, f64::from(was[0]) + room, f64::from(was[1]), f64::from(was[2]), f64::from(was[3]));
-            s.spread.push((w, was));
+            s.spread.push(Spread { name, widget: w, was, room });
         }
+        s.check = 0;
         log!("[hud-hints] the quick slots' row drawn apart for the chords' hints ({} slots)\n", s.spread.len());
     } else if !pad && !s.spread.is_empty() {
-        for (w, was) in s.spread.drain(..) {
-            ink::margin(&w, f64::from(was[0]), f64::from(was[1]), f64::from(was[2]), f64::from(was[3]));
+        for sp in s.spread.drain(..) {
+            let was = sp.was;
+            ink::margin(&sp.widget, f64::from(was[0]), f64::from(was[1]), f64::from(was[2]), f64::from(was[3]));
+        }
+    }
+    // KEPT APART (about once a second): the game lays these widgets out again at times -- a margin of its own set anew,
+    // a slot made again under the same name -- and the room added once was lost or stood twice: the row over the radio,
+    // the hints over each other. Each one looked up by its name again: a new widget is moved apart as the first was,
+    // and a margin that is not the game's plus the room takes the game's new one as its own and the room onto it.
+    s.check += 1;
+    if pad && s.check >= 10 {
+        s.check = 0;
+        for sp in s.spread.iter_mut() {
+            let w = find(&root, sp.name, 3);
+            if w.is_null() {
+                continue;
+            }
+            let renewed = w.instance != sp.widget.instance;
+            let cur = margins(&w);
+            let want = [sp.was[0] + sp.room as f32, sp.was[1], sp.was[2], sp.was[3]];
+            if !renewed && cur.iter().zip(want.iter()).all(|(a, b)| (a - b).abs() < 0.5) {
+                continue;
+            }
+            if s.said < 40 {
+                s.said += 1;
+                log!(
+                    "[hud-hints] {}: {} (margin {:?}, kept {:?}): moved apart again\n",
+                    sp.name,
+                    if renewed { "made anew" } else { "laid out again by the game" },
+                    cur,
+                    want
+                );
+            }
+            (sp.widget, sp.was) = (w.clone(), cur);
+            ink::margin(&w, f64::from(cur[0]) + sp.room, f64::from(cur[1]), f64::from(cur[2]), f64::from(cur[3]));
         }
     }
     // the cyberware's chord in place of LB + RB

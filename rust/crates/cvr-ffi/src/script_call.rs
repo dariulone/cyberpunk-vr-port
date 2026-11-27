@@ -99,7 +99,27 @@ fn leading_types(params: &Params, mapping: Mapping, types: &[&str]) -> bool {
     };
     types.len() <= filled.len()
         // SAFETY: the parameters' own types.
-        && types.iter().zip(filled).all(|(t, p)| unsafe { p.ty.as_ref() }.is_some_and(|ty| ty.name() == CName::hashed(t)))
+        && types.iter().zip(filled).all(|(t, p)| unsafe { p.ty.as_ref() }.is_some_and(|ty| type_named(ty.name(), t)))
+}
+/// Whether the type named `actual` is the one written `wanted`: the same name, or a handle of the same class by its
+/// other name -- "whandle:GameObject" (the scripts' name) for the RTTI's "whandle:gameObject" (the native one): the
+/// RTTI names a handle by the native class, and VendorDataManager.Initialize(wref<GameObject>, EntityID) asked for by
+/// the script name was never found (the trade page's vendor not set: no stock, every price 0).
+fn type_named(actual: CName, wanted: &str) -> bool {
+    if actual == CName::hashed(wanted) {
+        return true;
+    }
+    let Some((head, class)) = wanted.split_once(':') else { return false };
+    if head != "handle" && head != "whandle" {
+        return false;
+    }
+    let Some(rtti) = RttiSystem::get() else { return false };
+    let c = CName::hashed(class);
+    let Some(found) = rtti.get_class(c).or_else(|| rtti.get_class_by_script_name(c)) else { return false };
+    let native = found.class_name();
+    [native, rtti.native_to_script_name(native)]
+        .iter()
+        .any(|n| n.0 != 0 && actual == CName::hashed(&format!("{head}:{}", n.text())))
 }
 
 /// `object`'s class's function `name` (its parents' included, the class's own first) that takes `count` values -- its
@@ -126,6 +146,28 @@ unsafe fn find_overload(object: *mut c_void, name: &str, count: usize, types: Op
     }
     // SAFETY: the caller's.
     let found = unsafe { walk_overloads(object, name, count, types) };
+    if let (None, Some(types)) = (found, types) {
+        // a typed call whose name and count the class has, but no overload's leading types: a type written wrong
+        // SAFETY: as above.
+        if let Some(other) = unsafe { walk_overloads(object, name, count, None) } {
+            let params: Vec<String> = other
+                .params
+                .as_slice()
+                .iter()
+                // SAFETY: the function's own parameters and their types.
+                .filter_map(|&p| param(p).and_then(|p| unsafe { p.ty.as_ref() }).map(|t| t.name().text().to_string()))
+                .collect();
+            let class = first.class_name().text().to_string();
+            crate::audit::once(crate::audit::key(&[0x5459_50, CName::hashed(&class).0, CName::hashed(name).0, types_key]), || {
+                format!(
+                    "typed call {class}.{name}({}): no overload takes these types; one takes ({}) (from {})",
+                    types.join(", "),
+                    params.join(", "),
+                    crate::audit::callers()
+                )
+            });
+        }
+    }
     if rtti_complete() {
         RESOLVED.write().unwrap_or_else(|p| p.into_inner()).insert(key, found.map_or(0, |f| f as *const BaseFunction as usize));
     }
@@ -200,7 +242,8 @@ pub(crate) unsafe fn static_for(object: *mut c_void, name: &str, count: usize) -
             }
             // every overload of the name, not the first: the one taking the object first (GetAmmoType(wref<WeaponObject>)
             // beside GetAmmoType(ItemID))
-            for f in static_overloads(&n.text(), name) {
+            let list = if by_kind() { static_overloads(&n.text(), name) } else { static_function(&n.text(), name).into_iter().collect() };
+            for f in list {
                 if f.flags & red4ext_abi::function::function_flags::IS_STATIC == 0 && !f.full_name.text().contains("::") {
                     continue;
                 }
@@ -248,7 +291,7 @@ unsafe fn resolve_for(object: *mut c_void, name: &str, values: &[Value]) -> Opti
     // SAFETY: the caller's.
     let t = unsafe { resolve(object, name, values.len()) }?;
     let Target::Member(f) = t else { return Some(t) };
-    if values_fit(f, values) {
+    if !by_kind() || values_fit(f, values) {
         return Some(t);
     }
     // (the object's class, the name, the values' kinds) -> the fitting overload, or 0 for none
@@ -288,11 +331,13 @@ unsafe fn resolve_for(object: *mut c_void, name: &str, values: &[Value]) -> Opti
                 }
                 class = c.parent();
             }
+            let class_name = first.class_name().text().to_string();
             if found.is_none() {
-                let class_name = first.class_name().text().to_string();
                 crate::audit::once(crate::audit::key(&[0x5346_49, CName::hashed(&class_name).0, short.0, kinds]), || {
                     format!("script call {class_name}.{name}: the values fit none of its overloads ({})", crate::audit::callers())
                 });
+            } else if let Some(g) = found.filter(|_| cvr_host::log::verbose()) {
+                switched(&class_name, name, f, g, kinds);
             }
             if rtti_complete() {
                 FITTED.lock().unwrap_or_else(|p| p.into_inner()).insert(key, found.map_or(0, |g| g as *const BaseFunction as usize));
@@ -692,16 +737,39 @@ fn static_overloads(class: &str, name: &str) -> Vec<&'static BaseFunction> {
 /// once).
 pub fn static_function_for(class: &str, name: &str, values: &[Value]) -> Option<&'static BaseFunction> {
     let first = static_function(class, name)?;
-    if values_fit(first, values) {
+    if !by_kind() || values_fit(first, values) {
         return Some(first);
     }
     let fitting = static_overloads(class, name).into_iter().find(|f| values_fit(f, values));
-    if fitting.is_none() {
-        crate::audit::once(crate::audit::key(&[0x5354_46, CName::hashed(class).0, CName::hashed(name).0, values.len() as u64]), || {
+    match fitting {
+        None => crate::audit::once(crate::audit::key(&[0x5354_46, CName::hashed(class).0, CName::hashed(name).0, values.len() as u64]), || {
             format!("static {class}.{name}: the values fit none of its overloads ({})", crate::audit::callers())
-        });
+        }),
+        Some(g) if cvr_host::log::verbose() => switched(class, name, first, g, values.len() as u64),
+        Some(_) => {}
     }
     Some(fitting.unwrap_or(first))
+}
+/// The overload choice by the values' kinds (CVR_OVERLOAD_BY_KIND=0: the first by name and count, as 0.2.5 chose).
+pub(crate) fn by_kind() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("CVR_OVERLOAD_BY_KIND").map_or(true, |v| v != "0"))
+}
+/// With the verbose diagnostics: a call the values' kinds moved off the first overload, said once -- both overloads'
+/// parameter types, so a wrong move is read off the log.
+fn switched(class: &str, name: &str, from: &BaseFunction, to: &BaseFunction, kinds: u64) {
+    let types = |f: &BaseFunction| -> String {
+        f.params
+            .as_slice()
+            .iter()
+            // SAFETY: the function's own parameters and their types.
+            .filter_map(|&p| param(p).and_then(|p| unsafe { p.ty.as_ref() }).map(|t| t.name().text().to_string()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    crate::audit::once(crate::audit::key(&[0x5357_43, CName::hashed(class).0, CName::hashed(name).0, kinds]), || {
+        format!("overload {class}.{name}: ({}) taken, not ({}) (from {})", types(to), types(from), crate::audit::callers())
+    });
 }
 /// A class's static by name, its parents' too: whatever is in its list of statics (a native static need not carry the
 /// flag: TDBID.ToStringDEBUG), else a member flagged static -- never a plain member, which comes first in the class's

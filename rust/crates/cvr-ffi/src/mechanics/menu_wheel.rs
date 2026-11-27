@@ -55,7 +55,18 @@ const SIDE_MAX: f64 = 0.35;
 const SIDE_DEFAULT: f64 = 0.18;
 const HOVER: f64 = 0.10;
 const THROUGH: f64 = -0.05;
-const IDLE: f64 = 20.0;
+/// Seconds with a player in the world before the wheel's entities and inventory manager are made (ahead of the first
+/// Y press, as the game's radial wheel spawns its widgets when the HUD starts).
+const WARM_AFTER: f64 = 3.0;
+/// How far below the body the entities wait until the wheel first opens (out of sight while the display comes on).
+const HIDE_DEPTH: f64 = 40.0;
+/// The inventory scan's time a frame.
+const SCAN_BUDGET: std::time::Duration = std::time::Duration::from_micros(400);
+/// An item came to the player or left (game_hooks.rs): the hotkey items are looked for again.
+static INVENTORY_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(super) fn inventory_changed() {
+    INVENTORY_CHANGED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
 const HAPTIC_CLICK: i32 = 20;
 
 /// wheel_art.lua's parts: (name, w, h, ox, oy).
@@ -207,7 +218,11 @@ struct Wheel {
     arc: Option<usize>,
     arc_shown: Option<Option<usize>>,
     arc_away: Option<f64>,
-    used_at: f64,
+    /// Seconds with a player in the world.
+    present: f64,
+    /// The hotkey cells' items: the scan under way, and the last one finished (None: stale).
+    scan: Option<idt::HotkeyScan>,
+    hits: Option<Vec<(f64, Handle)>>,
     allowed_at: f64,
     allowed: bool,
     hand: Option<usize>,
@@ -362,24 +377,34 @@ fn in_hand(pl: &Handle) -> HashSet<String> {
 fn choice_of(it: Item) -> Choice {
     Choice { name: it.name.clone(), image: it.image.clone(), key: it.key.clone(), quantity: it.quantity, quality: it.quality.clone(), smoke: false, lit: false, item: Some(it) }
 }
-fn hotkey_entry(ctx: &idt::Ctx, e: &mut Entry, hotkey: &str) {
+/// A hotkey's scope (Hotkey.GetScope: its item types in order).
+fn scope(hotkey: &str) -> Vec<f64> {
+    rt::static_call("Hotkey", "GetScope", &[A::N(ev("EHotkey", hotkey))]).map(|s| items(&Val::of(&s)).iter().filter_map(|k| k.num()).collect()).unwrap_or_default()
+}
+/// Every hotkey cell's types: what the inventory scan looks for.
+fn hotkey_kinds() -> Vec<f64> {
+    let mut kinds = Vec::new();
+    for s in SECTORS.iter() {
+        if let Kind::Misc(hk) = s.kind {
+            kinds.extend(scope(hk));
+        }
+    }
+    kinds
+}
+fn hotkey_entry(ctx: &mut idt::Ctx, e: &mut Entry, hotkey: &str, hits: &[(f64, Handle)]) {
     e.hotkey = ev("EHotkey", hotkey);
     let mut seen = HashSet::new();
-    if let Some(scope) = rt::static_call("Hotkey", "GetScope", &[A::N(e.hotkey)]) {
-        for kind in items(&Val::of(&scope)) {
-            let kv = kind.num().unwrap_or(0.0);
-            if let Some(arr) = rt::call(&ctx.manager, "GetPlayerItemsByType", &[A::N(kv)]) {
-                for d in items(&Val::of(&arr)) {
-                    if let Some(it) = idt::own(&d).and_then(|o0| idt::item(ctx, o0)) {
-                        if seen.insert(it.key.clone()) {
-                            e.choices.push(choice_of(it));
-                        }
-                    }
+    // RadialWheelController.GetValidItemsForMiscSlot: the scope's types in order, each type's items in the inventory's
+    for kind in scope(hotkey) {
+        for (_, d) in hits.iter().filter(|(ty, _)| *ty == kind) {
+            if let Some(it) = idt::hotkey_item(ctx, kind, d) {
+                if seen.insert(it.key.clone()) {
+                    e.choices.push(choice_of(it));
                 }
             }
         }
     }
-    let current = rt::call(&ctx.manager, "GetHotkeyItemData", &[A::N(e.hotkey)]).and_then(|d| idt::item(ctx, d));
+    let current = rt::call(&ctx.manager, "GetHotkeyItemData", &[A::N(e.hotkey)]).and_then(|d| idt::item_kept(ctx, d));
     if let Some(cur) = current {
         e.item = e.choices.iter().find(|c| c.key == cur.key).and_then(|c| c.item.clone());
     }
@@ -400,20 +425,20 @@ fn smoke_choice(pl: &Handle) -> Option<Choice> {
         quality: String::new(),
     })
 }
-fn base_fists(ctx: &idt::Ctx, pl: &Handle) -> Option<Item> {
+fn base_fists(ctx: &mut idt::Ctx, pl: &Handle) -> Option<Item> {
     let ids = rt::static_call("EquipmentSystem", "GetItemsInArea", &[A::H(pl), A::N(idt::area("BaseFists"))])?;
     let first = Val::of(&ids).at(0).map(|v| Id16::of(&v))?;
+    if let Some(it) = idt::kept(ctx, &first) {
+        return Some(it);
+    }
     let data = o(&super::game_system("GetTransactionSystem"), "GetItemData", &[A::H(pl), first.a()]);
     if data.is_null() {
         return None;
     }
     let d = rt::call(&ctx.manager, "GetInventoryItemData", &[A::H(pl), A::H(&data), A::B(false), A::B(true)])?;
-    idt::item(ctx, d)
+    idt::item_kept(ctx, d)
 }
-fn gather(ctx: &mut idt::Ctx, pl: &Handle) -> Vec<Entry> {
-    rt::call(&ctx.manager, "MarkToRebuild", &[]);
-    rt::call(&ctx.manager, "ClearInventoryItemDataCache", &[]);
-    idt::invalidate(ctx);
+fn gather(ctx: &mut idt::Ctx, pl: &Handle, hits: &[(f64, Handle)]) -> Vec<Entry> {
     let held = in_hand(pl);
     let blocked = weapons_blocked(pl);
     let mut out = Vec::new();
@@ -421,11 +446,11 @@ fn gather(ctx: &mut idt::Ctx, pl: &Handle) -> Vec<Entry> {
         let mut e = Entry::default();
         match s.kind {
             Kind::Weapon(slot) => {
-                e.item = idt::equipped(ctx, "Weapon", slot);
+                e.item = idt::equipped_kept(ctx, "Weapon", slot);
                 e.blocked = blocked;
             }
             Kind::Cyberware => {
-                let mut cw = idt::equipped(ctx, "ArmsCW", 0);
+                let mut cw = idt::equipped_kept(ctx, "ArmsCW", 0);
                 if cw.as_ref().is_some_and(|c| c.ty == ev("gamedataItemType", "Cyb_Launcher")) {
                     cw = None;
                 }
@@ -442,7 +467,7 @@ fn gather(ctx: &mut idt::Ctx, pl: &Handle) -> Vec<Entry> {
             }
             Kind::Holster => e.blocked = tagged(pl, "FirearmsNoUnequip"),
             Kind::Misc(hk) => {
-                hotkey_entry(ctx, &mut e, hk);
+                hotkey_entry(ctx, &mut e, hk, hits);
                 if hk == "DPAD_UP" {
                     if let Some(sm) = smoke_choice(pl) {
                         e.choices.insert(0, sm);
@@ -1044,20 +1069,24 @@ fn beam_length(h: &mut Surf, length: f64) {
         ink::size(r, *wd, (bottom.min(px) - top).max(0.0));
     }
 }
-fn show_beam(w: &mut Wheel, p: Option<&Point>, view: Option<V3>) {
-    let time = w.time;
-    let h = &mut w.beam;
+/// The beam's surface resolved, built and written once by the GPU.
+fn beam_ready(h: &mut Surf) -> bool {
     if !resolve(h, UI) {
-        return;
+        return false;
     }
     if !h.built {
         build_beam(h);
     }
     if !h.gpu {
         h.gpu = sp::native::<bool>("VRMenuSurfaceReady", &[Value::Handle(&h.comp), Value::Handle(&h.root)]) == Some(true);
-        if !h.gpu {
-            return;
-        }
+    }
+    h.gpu
+}
+fn show_beam(w: &mut Wheel, p: Option<&Point>, view: Option<V3>) {
+    let time = w.time;
+    let h = &mut w.beam;
+    if !beam_ready(h) {
+        return;
     }
     let (Some(p), Some(view)) = (p.filter(|p| p.beam), view) else {
         display(h, false, time);
@@ -1121,26 +1150,75 @@ fn prepare(w: &mut Wheel, b: &(V3, [f64; 4])) {
     w.anchor = anchor_for(b);
     heading_from_body(w, b);
     let Some((c, r, u)) = frame_of(w, b) else { return };
+    // below the body until the first opening places them: the display comes on there (prewarm)
+    let c = add(c, [0.0, 0.0, -HIDE_DEPTH]);
     w.screen = spawn(ENT, c, r, u);
     w.beam = spawn(BEAM_ENT, c, r, u);
     w.glass = spawn(DISC_ENT, c, r, u);
     w.choice_glass.clear();
     w.frame = None;
-    if w.ctx.is_none() {
-        w.ctx = Some(idt::open());
-    }
     sp::native::<()>("SetVRDiagCapture", &[Value::Int32(1)]);
-    w.used_at = w.time;
+}
+/// The wheel's inventory context: the game's own radial wheel's manager as soon as the HUD has made it (warm since its
+/// OnLateInit), taking over from one of ours; one of ours only for an opening before the HUD's (its cache built then).
+fn ensure_ctx(w: &mut Wheel, opening: bool) {
+    if w.ctx.as_ref().is_some_and(idt::Ctx::borrowed) {
+        return;
+    }
+    if let Some(m) = game_radial_manager() {
+        if let Some(old) = w.ctx.take() {
+            idt::close(old);
+        }
+        w.ctx = Some(idt::open_on(m));
+    } else if w.ctx.is_none() && opening {
+        let c = idt::open();
+        idt::warm(&c);
+        w.ctx = Some(c);
+    }
+}
+/// The game's radial wheel (RadialWheelController, a HUD controller made with the HUD), held weakly from its
+/// OnInitialize to its OnUninitialize (game_hooks.rs).
+struct Radial(red4ext_abi::handle::WeakHandle);
+// SAFETY: set and read on the game's main thread (the HUD's callbacks, the mechanics' tick).
+unsafe impl Send for Radial {}
+static RADIAL: Mutex<Option<Radial>> = Mutex::new(None);
+pub(super) fn radial_controller(this: Option<&Handle>) {
+    *RADIAL.lock().unwrap_or_else(|p| p.into_inner()) = this.map(|h| Radial(red4ext_abi::handle::WeakHandle::from_handle(h)));
+}
+fn game_radial_manager() -> Option<Handle> {
+    let c = RADIAL.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|r| r.0.lock())?;
+    let m = rt::field(&c, "inventoryManager").map(|v| v.handle())?;
+    (!m.is_null()).then_some(m)
+}
+/// The screen's display switched on while the wheel is still hidden (the canvas at zero opacity): a display switched
+/// on builds its render proxy from the material's defaults -- an opaque black plane the size of the screen -- until the
+/// canvas binds, the black window an opening began with when that happened in front of the eyes.
+fn prewarm(h: &mut Surf) {
+    if h.entity.is_null() || h.root.is_null() || h.display_on {
+        return;
+    }
+    ink::opacity(&h.root, 0.0);
+    super::belt::toggle(&sp::find_comp(&h.entity, "display"), true);
+    h.display_on = true;
+    h.shown = Some(false);
 }
 fn open(w: &mut Wheel, pl: &Handle, b: &(V3, [f64; 4])) -> bool {
     w.anchor = anchor_for(b);
     heading_from_body(w, b);
+    ensure_ctx(w, true);
     if w.anchor.is_none() || w.ctx.is_none() {
         return false;
     }
     loc::set(&super::menu_data::language());
+    // the inventory scan finished now if an opening came before it did
+    if w.hits.is_none() {
+        let mut sc = w.scan.take().unwrap_or_else(|| idt::HotkeyScan::start(hotkey_kinds()));
+        sc.step(None);
+        w.hits = Some(sc.hits);
+    }
+    let hits = w.hits.clone().unwrap_or_default();
     let mut ctx = w.ctx.take().expect("ctx");
-    w.slots = gather(&mut ctx, pl);
+    w.slots = gather(&mut ctx, pl, &hits);
     w.ctx = Some(ctx);
     (w.open, w.hover, w.arc, w.arc_away, w.hand, w.filled) = (true, None, None, None, None, false);
     play("open");
@@ -1167,7 +1245,6 @@ fn close(w: &mut Wheel, applied: bool) {
         play("close");
     }
     (w.hover, w.arc) = (None, None);
-    w.used_at = w.time;
 }
 fn place_glass(w: &mut Wheel, c: V3, r: V3, u: V3) {
     // not before the screen has shown for a tick: dark glass with no light on it reads as a black window
@@ -1207,6 +1284,7 @@ fn tick(w: &mut Wheel, menu_open: bool) {
     }
     let allowed = w.allowed;
     let hold = sp::native::<i32>("VRWeaponWheel", &[Value::Bool(allowed || w.open)]).unwrap_or(0);
+    ensure_ctx(w, false);
     if let Some((at0, key)) = w.consume_at.clone() {
         let on_key = rt::call(&equipment(), "GetItemIDFromHotkey", &[A::H(&pl), A::N(ev("EHotkey", "DPAD_UP"))]).map(|o0| idt::key_of(&Id16::of(&Val::of(&o0)))) == Some(key);
         if on_key {
@@ -1230,7 +1308,9 @@ fn tick(w: &mut Wheel, menu_open: bool) {
     if w.open {
         follow_head(w);
     }
-    if hold >= 1 && allowed {
+    // made ahead (the entities below the body, the inventory manager): kept for the session like the game's radial
+    // wheel's widgets, so no Y press spawns them; a press before that makes them then
+    if w.screen.id.is_none() && ((w.present > WARM_AFTER && !menu_open) || (hold >= 1 && allowed)) {
         prepare(w, &b);
     }
     if resolve(&mut w.screen, UI) {
@@ -1240,6 +1320,9 @@ fn tick(w: &mut Wheel, menu_open: bool) {
         }
         if !w.screen.gpu {
             w.screen.gpu = sp::native::<bool>("VRMenuSurfaceReady", &[Value::Handle(&w.screen.comp), Value::Handle(&w.screen.root)]) == Some(true);
+        }
+        if w.screen.gpu && !w.open {
+            prewarm(&mut w.screen);
         }
     }
     if hold == 2 && !w.open && allowed {
@@ -1253,8 +1336,19 @@ fn tick(w: &mut Wheel, menu_open: bool) {
         close(w, applied);
     }
     if !w.open {
-        if w.screen.id.is_some() && w.time - w.used_at > IDLE {
-            release(w);
+        // the beam's display likewise comes on hidden, once the screen's has
+        if w.screen.display_on && !w.beam.display_on && beam_ready(&mut w.beam) {
+            prewarm(&mut w.beam);
+        }
+        // the hotkey items looked for a little per frame: after a load, and again whenever an item comes or goes
+        if INVENTORY_CHANGED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            (w.hits, w.scan) = (None, None);
+        }
+        if w.hits.is_none() && w.present > WARM_AFTER {
+            let sc = w.scan.get_or_insert_with(|| idt::HotkeyScan::start(hotkey_kinds()));
+            if sc.step(Some(SCAN_BUDGET)) {
+                w.hits = w.scan.take().map(|sc| sc.hits);
+            }
         }
         return;
     }
@@ -1331,6 +1425,8 @@ pub(super) fn update(dt: f64, menu_open: bool) {
     let w = g.get_or_insert_with(Wheel::default);
     w.time += dt;
     if player().is_null() {
+        w.present = 0.0;
+        (w.hits, w.scan) = (None, None);
         sp::native::<i32>("VRWeaponWheel", &[Value::Bool(false)]);
         if w.screen.id.is_some() || w.ctx.is_some() {
             (w.screen, w.beam, w.glass) = (Surf::default(), Surf::default(), Surf::default());
@@ -1341,6 +1437,7 @@ pub(super) fn update(dt: f64, menu_open: bool) {
         }
         return;
     }
+    w.present += dt;
     tick(w, menu_open);
 }
 pub(super) fn release_all() {

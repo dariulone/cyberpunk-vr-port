@@ -110,6 +110,8 @@ mod lobby;
 mod no_anims;
 mod fight_test;
 mod reload_probe;
+mod reload_reach;
+mod dev_cmd;
 pub(crate) mod quickboot;
 pub(crate) mod arm_b;
 mod aim_threat;
@@ -542,6 +544,8 @@ fn update_frame() -> bool {
         hotkeys::tick();
         reload_recorder::self_test(f64::from(dt));
         reload::ammo_test(f64::from(dt));
+        menu_vendor::vendor_test(f64::from(dt));
+        dev_cmd::tick(f64::from(dt));
         reload_recorder::tick(f64::from(dt));
         world_map::tick();
         physical_crouch::tick(dt);

@@ -27,7 +27,7 @@ pub struct Launcher {
     pub monitor_output: i32,
     /// The launcher's weapon-plane pick, until the live ini has saved it; -1 uses xr_weapon_plane_as_scene.
     pub weapon_plane: i32,
-    /// How the VR menu is called (MENU_CALL_*): the swipe's modifier, or the swipe alone.
+    /// How the VR menu is called (MENU_CALL_*): the right hand's swipe down with its modifier.
     pub menu_call: i32,
 }
 
@@ -56,17 +56,17 @@ pub static CUSTOM_RES: AtomicI32 = AtomicI32::new(0);
 pub static MENU_CALL: AtomicI32 = AtomicI32::new(MENU_CALL_AUTO);
 
 /// The VR menu's call: by the headset picked (Quest 3: its thumbrest, every other headset: the left stick held in),
-/// the thumbrest, the left stick held in -- each with the right hand's swipe down -- or the swipe alone.
+/// the thumbrest, the left stick held in, or the right grip held -- each with the right hand's swipe down.
 pub const MENU_CALL_AUTO: i32 = 0;
 pub const MENU_CALL_THUMBREST: i32 = 1;
 pub const MENU_CALL_STICK: i32 = 2;
-pub const MENU_CALL_GESTURE: i32 = 3;
+pub const MENU_CALL_GRIP: i32 = 3;
 /// The headset whose controllers the automatic call takes the thumbrest of (launcher_presets: Meta Quest 3).
 pub const HMD_QUEST3: i32 = 2;
 
 /// A menu_call value, an unknown one automatic.
 pub fn parse_menu_call(value: i32) -> i32 {
-    if (MENU_CALL_AUTO..=MENU_CALL_GESTURE).contains(&value) { value } else { MENU_CALL_AUTO }
+    if (MENU_CALL_AUTO..=MENU_CALL_GRIP).contains(&value) { value } else { MENU_CALL_AUTO }
 }
 /// The call in effect: the automatic one resolved by the headset picked in the launcher.
 pub fn menu_call_effective() -> i32 {
@@ -343,7 +343,7 @@ mod tests {
         let l = parse(&[c"monitor_output = 1  \n"]);
         assert_eq!(l.monitor_output, 1);
         // the VR menu's call: a known one kept, an unknown one automatic
-        assert_eq!(parse(&[c"menu_call=3\n"]).menu_call, MENU_CALL_GESTURE);
+        assert_eq!(parse(&[c"menu_call=3\n"]).menu_call, MENU_CALL_GRIP);
         assert_eq!(parse(&[c"menu_call = 2\n"]).menu_call, MENU_CALL_STICK);
         assert_eq!(parse(&[c"menu_call=9\n"]).menu_call, MENU_CALL_AUTO);
     }

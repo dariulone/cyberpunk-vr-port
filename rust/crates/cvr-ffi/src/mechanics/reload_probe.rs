@@ -35,8 +35,33 @@ fn probe_write() -> Option<(i32, i32, f64, f64)> {
 fn write_at() -> f64 {
     std::env::var("CVR_RELOAD_PROBE_WRITE_AT").ok().and_then(|v| v.parse().ok()).unwrap_or(45.0)
 }
+/// The weapon a test's "weapon" command asked for (over CVR_RELOAD_PROBE).
+static ASKED: Mutex<Option<String>> = Mutex::new(None);
+static RESTART: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 fn record() -> Option<String> {
-    std::env::var("CVR_RELOAD_PROBE").ok().filter(|v| !v.is_empty())
+    ASKED.lock().unwrap_or_else(|p| p.into_inner()).clone().or_else(|| std::env::var("CVR_RELOAD_PROBE").ok().filter(|v| !v.is_empty()))
+}
+/// The "weapon" command: that record given, equipped and drawn, now (the running game's player counts).
+pub(super) fn dev_weapon(rec: &str) {
+    *ASKED.lock().unwrap_or_else(|p| p.into_inner()) = Some(rec.trim().to_string());
+    RESTART.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+/// The "equip <record>" development command: the item given and an equip request queued for it (cyberware goes to its
+/// own area); the answer for the log.
+pub(super) fn dev_equip(rec: &str) -> String {
+    let pl = super::belt::player();
+    if pl.is_null() {
+        return "no player".into();
+    }
+    let Some(id) = give(&pl, rec.trim(), 1) else { return format!("{rec}: not given") };
+    let es = equipment_system();
+    match (es.is_null(), request("EquipRequest", &pl, id)) {
+        (false, Some(req)) => {
+            rt::call(&es, "QueueRequest", &[A::H(&req)]);
+            format!("{rec}: given, equip asked")
+        }
+        _ => format!("{rec}: given, no equipment system"),
+    }
 }
 /// A request object of `class` with its owner and item written in place.
 fn request(class: &str, pl: &Handle, item: [u64; 2]) -> Option<Handle> {
@@ -71,6 +96,9 @@ pub(super) fn drive(dt: f64) {
         static T: std::cell::Cell<(f64, u32, usize, [u64; 2])> = const { std::cell::Cell::new((0.0, 0, 0, [0; 2])) };
     }
     let Some(rec) = record() else { return };
+    if RESTART.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        T.with(|c| c.set((12.0, 0, usize::MAX, [0; 2])));
+    }
     let pl = super::belt::player();
     let (t, step, first, id) = T.with(|c| c.get());
     if pl.is_null() || step >= 6 {
@@ -87,12 +115,13 @@ pub(super) fn drive(dt: f64) {
     match step {
         0 if t > 12.0 => {
             let got = give(&pl, &rec, 1);
-            let ammo = give(&pl, "Ammo.HandgunAmmo", 300).is_some();
+            // rounds of every kind: the weapon's own among them
+            let ammo = ["Ammo.HandgunAmmo", "Ammo.ShotgunAmmo", "Ammo.RifleAmmo", "Ammo.SniperRifleAmmo"].iter().all(|a| give(&pl, a, 300).is_some());
             cvr_host::log!("[reload-probe] q={:.3} {rec} given: {got:?}, rounds {ammo} (from Rust)\n", qpc_s());
             id = got.unwrap_or([0; 2]);
             next = if got.is_some() { 1 } else { 4 };
         }
-        1 if t > 13.0 => {
+        1 if t > 12.3 => {
             let es = equipment_system();
             let req = request("EquipRequest", &pl, id);
             if let (false, Some(req)) = (es.is_null(), req) {
@@ -107,7 +136,7 @@ pub(super) fn drive(dt: f64) {
             cvr_host::log!("[reload-probe] q={:.3} equip asked (from Rust)\n", qpc_s());
             next = 2;
         }
-        2 if t > 15.0 => {
+        2 if t > 12.8 => {
             let es = equipment_system();
             if let (false, Some(req)) = (es.is_null(), request("DrawItemRequest", &pl, id)) {
                 rt::call(&es, "QueueRequest", &[A::H(&req)]);
@@ -115,11 +144,13 @@ pub(super) fn drive(dt: f64) {
             cvr_host::log!("[reload-probe] q={:.3} draw asked (from Rust)\n", qpc_s());
             next = 3;
         }
-        3 if t > 19.0 => {
+        3 if t > 13.0 => {
             let w = super::belt::st_handle("ScriptedPuppet", "GetActiveWeapon", &[Value::Handle(&pl)]);
             let name = super::belt::item_id(&w).and_then(|i| super::belt::record_name(i[0])).unwrap_or_else(|| "-".into());
-            cvr_host::log!("[reload-probe] q={:.3} active weapon {name} (from Rust)\n", qpc_s());
-            next = 4;
+            if name == rec || t > 19.0 {
+                cvr_host::log!("[reload-probe] q={:.3} active weapon {name} (from Rust)\n", qpc_s());
+                next = 4;
+            }
         }
         // CVR_RELOAD_PROBE_WRITE="which,bone,dz,turn": the write a grabbed slide makes (a translation along the bone's z
         // and a turn about it), held 4 s from CVR_RELOAD_PROBE_WRITE_AT s on (default 45) -- its latched base shows

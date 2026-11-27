@@ -208,8 +208,8 @@ static RC_LABEL_MONITOR: Ui<RECT> = Ui::new(NO_RECT);
 /// How the VR menu is called (crate::launcher::MENU_CALL).
 static H_MENU_CALL: Ui<HWND> = Ui::new(null_mut());
 static RC_LABEL_MENU_CALL: Ui<RECT> = Ui::new(NO_RECT);
-/// The VR menu's calls in MENU_CALL's order: automatic, the thumbrest, the thumbstick (each with the swipe), the swipe.
-const MENU_CALL_OPTIONS: [&str; 4] = ["Auto (thumbrest on Quest 3)", "Thumbrest + gesture", "Thumbstick + gesture", "Gesture only"];
+/// The VR menu's calls in MENU_CALL's order: automatic, the thumbrest, the thumbstick, the right grip (each with the swipe).
+const MENU_CALL_OPTIONS: [&str; 4] = ["Auto (thumbrest on Quest 3)", "Thumbrest + gesture", "Thumbstick + gesture", "Grip + gesture"];
 // THE RENDER SIZE, three ways: the headset's ladder (the combo box), a slider with - / + beside it, and the width,
 // height and aspect typed. The slider runs over the pixel count (log scale) at the pick's aspect, the ladder's entries
 // marked on it; - / + step the width by RES_STEP_PX at that aspect; a typed width or height sets that side alone (the

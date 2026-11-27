@@ -1006,6 +1006,23 @@ fn hit_at(p: &Panel, x: f64, y: f64) -> Option<Hit> {
     }
     None
 }
+/// The "lobby" development command: the top page's row `key` pressed as a hand presses it (its go, hand 1); false when
+/// the top page has no such row or it is disabled.
+pub(super) fn dev_press(l: &mut Lobby, key: &str) -> bool {
+    let Some(pr) = l.holo.stack.last().cloned() else { return false };
+    let Some(row) = row_by_key(&pr.borrow(), key) else { return false };
+    if row.disabled {
+        return false;
+    }
+    let Some(go) = row.go.clone() else { return false };
+    go(l, 1);
+    dirty_all(&l.holo);
+    true
+}
+/// The keys of the top page's rows (the "lobby" command's answer when the key is not there).
+pub(super) fn dev_rows(l: &Lobby) -> Vec<String> {
+    l.holo.stack.last().map(|pr| pr.borrow().rows_cache.iter().map(|r| r.key.clone()).collect()).unwrap_or_default()
+}
 fn row_by_key(p: &Panel, key: &str) -> Option<Rc<Row>> {
     p.rows_cache.iter().find(|r| r.key == key).cloned()
 }
@@ -1572,6 +1589,9 @@ fn pointers(l: &mut Lobby) {
         let t = seen[hand].as_ref().map(|s| &s.1);
         let show = eye.is_some() && t.is_some_and(|t| !t.tip);
         l.holo.beams.set(hand + 1, show, t.and_then(|t| t.origin), t.and_then(|t| t.hit), eye);
+        if super::reload_reach::on() {
+            super::reload_reach::ray_sample(hand, t.and_then(|t| t.origin), t.and_then(|t| t.hit), eye);
+        }
     }
     let stack = l.holo.stack.clone();
     for pr in &stack {

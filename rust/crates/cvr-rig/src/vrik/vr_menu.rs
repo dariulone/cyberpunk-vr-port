@@ -174,9 +174,40 @@ fn controls() -> (i32, i32) {
     (gesture, wheel)
 }
 
-/// The view's model-to-world rotation, when the palm frame and the view are known.
-unsafe fn model_to_world_frame() -> Option<[f32; 4]> {
-    if g_VRPalmModelValid == 0 || g_VRViewWorldValid == 0 {
+/// A model -> world transform: its rotation and where the model's origin is in the world.
+type Frame2 = ([f32; 4], [f32; 3]);
+/// THE FRAME THE ARMS WERE BUILT IN (pose_hook.rs, each solve): the hands are put in the model through the view frame
+/// of the hands' own instant (the view turn time-aligned to the hand sample), so the world they stand in is that frame's
+/// -- not the camera pair (the view's world turn against the camera's model turn), whose two halves come from
+/// different head samples: while the head turned, the pair turned the beams by the head's own turn between them, a
+/// beam from a hand held still slid sideways 1-3 cm with every turn of the head (2026-11-27, lobby_ray.py).
+static HANDS_FRAME: std::sync::Mutex<Option<(Frame2, u64)>> = std::sync::Mutex::new(None);
+/// pose_hook.rs: the model -> world turn of the hand frame, the view's world position and its model position.
+pub(super) fn note_hands_frame(m2w: [f32; 4], view_world: [f32; 3], view_model: [f32; 3]) {
+    let mut q = m2w;
+    let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    if !(n > 1e-6) {
+        return;
+    }
+    q = q.map(|c| c / n);
+    let r = rotate(&q, &view_model);
+    let origin = [view_world[0] - r[0], view_world[1] - r[1], view_world[2] - r[2]];
+    // SAFETY: plain Win32 call.
+    let now = unsafe { GetTickCount64() };
+    *HANDS_FRAME.lock().unwrap_or_else(|p| p.into_inner()) = Some(((q, origin), now));
+}
+/// The model -> world transform for what is drawn from the hands: the arms' own frame (fresh within half a second),
+/// else the camera pair.
+unsafe fn model_to_world_frame() -> Option<Frame2> {
+    if g_VRPalmModelValid == 0 {
+        return None;
+    }
+    if let Some((f, at)) = *HANDS_FRAME.lock().unwrap_or_else(|p| p.into_inner()) {
+        if GetTickCount64().wrapping_sub(at) < 500 {
+            return Some(f);
+        }
+    }
+    if g_VRViewWorldValid == 0 {
         return None;
     }
     let (cam, view) = (g_VRCamModelRot, g_VRViewWorldRot);
@@ -185,17 +216,16 @@ unsafe fn model_to_world_frame() -> Option<[f32; 4]> {
     let mut m2w = [0.0f32; 4];
     VRIK_QuatMul(view.as_ptr(), cam_inv.as_ptr(), m2w.as_mut_ptr());
     VRIK_QuatNorm(m2w.as_mut_ptr());
-    Some(m2w)
+    let r = rotate(&m2w, &g_VRCamModelPos);
+    let view_pos = g_VRViewWorldPos;
+    Some((m2w, [view_pos[0] - r[0], view_pos[1] - r[1], view_pos[2] - r[2]]))
 }
-unsafe fn model_to_world(m2w: &[f32; 4], model: &[f32; 3]) -> [f32; 3] {
-    let cam = g_VRCamModelPos;
-    let rel = [model[0] - cam[0], model[1] - cam[1], model[2] - cam[2]];
-    let w = rotate(m2w, &rel);
-    let view = g_VRViewWorldPos;
-    [view[0] + w[0], view[1] + w[1], view[2] + w[2]]
+fn model_to_world(f: &Frame2, model: &[f32; 3]) -> [f32; 3] {
+    let w = rotate(&f.0, model);
+    [f.1[0] + w[0], f.1[1] + w[1], f.1[2] + w[2]]
 }
 /// A bone of the snapshot in the world, at `offset` (bone-local).
-unsafe fn bone_world(m2w: &[f32; 4], bone: i32, offset: &[f32; 3]) -> Option<[f32; 3]> {
+unsafe fn bone_world(m2w: &Frame2, bone: i32, offset: &[f32; 3]) -> Option<[f32; 3]> {
     if bone < 0 || bone >= g_VRFKSnapCount {
         return None;
     }
@@ -209,7 +239,7 @@ unsafe fn bone_world(m2w: &[f32; 4], bone: i32, offset: &[f32; 3]) -> Option<[f3
 }
 /// The pointing ray from the controller's own wrist: the index knuckle and the hand's axis put on it the way the
 /// snapshot has them on the drawn hand.
-unsafe fn aim_world(m2w: &[f32; 4], side: usize, along: &[f32; 3]) -> Option<([f32; 3], [f32; 3])> {
+unsafe fn aim_world(m2w: &Frame2, side: usize, along: &[f32; 3]) -> Option<([f32; 3], [f32; 3])> {
     let aim = (*(&raw const g_VRIKHandAim))[if side != 0 { 0 } else { 1 }];
     let (hand, index) = (HAND[side], INDEX1[side]);
     if aim[7] == 0.0 || hand >= g_VRFKSnapCount || index >= g_VRFKSnapCount {
@@ -228,7 +258,7 @@ unsafe fn aim_world(m2w: &[f32; 4], side: usize, along: &[f32; 3]) -> Option<([f
     let model = [aim[0] + o[0], aim[1] + o[1], aim[2] + o[2]];
     let origin = model_to_world(m2w, &model);
     let a = rotate(&q, along);
-    Some((origin, rotate(m2w, &a)))
+    Some((origin, rotate(&m2w.0, &a)))
 }
 
 unsafe fn finish(frame: *mut StackFrame) {
@@ -399,12 +429,12 @@ pub unsafe extern "C" fn VRMenuGesture(
         || super::physhands::grab::holds_on(1);
     let hand = [p[0] + head.pos[0], p[1] + head.pos[1], p[2] + head.pos[2]];
     // THE SWIPE'S MODIFIER, as the launcher's "VR menu call" picks it: the left thumbrest held (by default on a Quest
-    // 3), the left stick held in (by default on every other headset), or none -- the swipe alone. Never the right
-    // grip, which grabs things.
-    use cvr_settings::launcher::{menu_call_effective, MENU_CALL_GESTURE, MENU_CALL_STICK, MENU_CALL_THUMBREST};
+    // 3), the left stick held in (by default on every other headset), or the swiping hand's own grip held (closed on
+    // nothing: a grip that holds something -- the wheel, a rung, a thing -- is `holding` and calls no menu).
+    use cvr_settings::launcher::{menu_call_effective, MENU_CALL_GRIP, MENU_CALL_STICK, MENU_CALL_THUMBREST};
     let call = menu_call_effective();
     let modifier = match call {
-        MENU_CALL_GESTURE => true,
+        MENU_CALL_GRIP => input.right_grip > 0.5,
         MENU_CALL_THUMBREST => cvr_input::modifier::thumbrest_held(GetTickCount64()),
         _ => cvr_input::modifier::LEFT_CLICK.load(Relaxed),
     };

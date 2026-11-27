@@ -107,7 +107,7 @@ fn fits(a: &A, ty: &IType) -> bool {
         A::Name(_) => k == 0 || k == 4 || n == T_UINT64 || n == T_CNAME || n == T_TWEAKDBID,
         // a value in place is a struct or an id, never a number: ApplyStatusEffect(.., Float | EntityID | TweakDBID)
         // took an EntityID's bytes as its Float overload's duration when that one came first
-        A::P(_) => !(k == KIND_HANDLE || k == KIND_WEAK || k == 5 || n == T_BOOL || n == T_FLOAT || n == T_DOUBLE),
+        A::P(_) => !(k == KIND_HANDLE || k == KIND_WEAK || k == 5 || n == T_BOOL || (crate::script_call::by_kind() && (n == T_FLOAT || n == T_DOUBLE))),
         A::D => true,
     }
 }
@@ -478,6 +478,7 @@ pub(super) fn method_outs(obj: &Handle, name: &str, args: &[A], n_out: usize) ->
 pub(super) fn static_outs(class: &str, name: &str, args: &[A]) -> Option<(Option<Owned>, Vec<Owned>)> {
     breadcrumb(|| format!("{class}.{name}/{} (outs)", args.len()));
     let f = pick_static(class, name, args)
+        .filter(|_| crate::script_call::by_kind())
         .or_else(|| crate::script_call::static_function(class, name))
         .or_else(|| crate::script_call::native_class_function(class, name))?;
     run_outs(core::ptr::null_mut(), f, args)

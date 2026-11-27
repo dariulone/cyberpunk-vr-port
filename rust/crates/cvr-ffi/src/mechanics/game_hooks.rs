@@ -178,6 +178,22 @@ fn popup_init(call: &mut Call) {
     super::force_fpp::popup_initialized(&this);
     super::driving::modal_list(Some(this));
 }
+/// The game's radial wheel: the port's weapon wheel takes its items from it (menu_wheel.rs).
+fn radial_init(call: &mut Call) {
+    super::menu_wheel::radial_controller(Some(&call.this()));
+}
+fn radial_uninit(_call: &mut Call) {
+    super::menu_wheel::radial_controller(None);
+}
+/// An item came to the player or left it: the weapon wheel looks for its hotkey items again.
+fn item_added(_call: &mut Call) {
+    super::menu_wheel::inventory_changed();
+}
+fn item_removed(call: &mut Call) {
+    if call.this().instance == super::belt::player().instance {
+        super::menu_wheel::inventory_changed();
+    }
+}
 fn popup_uninit(_call: &mut Call) {
     super::driving::modal_list(None);
 }
@@ -276,6 +292,10 @@ pub(super) fn install_all() {
         ("WorldMapMenuGameController", "OnInitialize", Kind::After, world_map_on),
         ("WorldMapMenuGameController", "OnUninitialize", Kind::After, world_map_off),
         ("BaseModalListPopupGameController", "OnInitialize", Kind::After, popup_init),
+        ("RadialWheelController", "OnInitialize", Kind::After, radial_init),
+        ("RadialWheelController", "OnUninitialize", Kind::Before, radial_uninit),
+        ("PlayerPuppet", "OnItemAddedToInventory", Kind::After, item_added),
+        ("ScriptedPuppet", "OnItemRemovedEvent", Kind::After, item_removed),
         ("BaseModalListPopupGameController", "OnUninitialize", Kind::After, popup_uninit),
         ("CrouchEvents", "OnEnter", Kind::Before, crouch_enter),
         ("SwimmingSurfaceEvents", "OnEnter", Kind::After, swim_slow),
