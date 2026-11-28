@@ -33,7 +33,7 @@ const FIDELITY_FX: i32 = 0;
 const NVIDIA: i32 = 1;
 const DLSS_G: i32 = 2;
 /// ANR FG (Apex Neural Rendering): a DLSS-G provider dll run through the DLSS-G path (anr_fg.rs, main's 0.2.4).
-const ANR: i32 = 3;
+pub(super) const ANR: i32 = 3;
 /// The backends NGX's DLSS-G helpers run (NgxBackend).
 fn ngx_backend(backend: i32) -> bool {
     backend == DLSS_G || backend == ANR
@@ -2591,6 +2591,11 @@ pub unsafe extern "C" fn cvr_framegen_generator_poll(generator: *mut Generator) 
         s.poll();
     }
 }
+/// The presenter owns the generator. A healthy ANR feature can be primed again in place.
+pub(super) unsafe fn has_resident_anr(generator: *const Generator) -> bool {
+    generator.as_ref().and_then(|g| g.state.as_ref()).is_some_and(|s| s.mode == ANR && !s.failed)
+}
+
 /// Nonblocking retirement: false means a previous GPU consumer still owns it.
 #[no_mangle]
 pub unsafe extern "C" fn cvr_framegen_generator_reset(generator: *mut Generator) -> bool {

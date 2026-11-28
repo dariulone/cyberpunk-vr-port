@@ -153,19 +153,18 @@ unsafe extern "C" fn hooked_anim_pose_apply(a1: *mut c_void, a2: *mut c_void, a3
     result
 }
 
-/// InstallAnimPoseHook (the native's): the detour on the engine's pose-apply.
+/// Install the player's pose-apply hook. The auxiliary NPC hooks can be unavailable
+/// when another plugin already owns either of the engine functions they use.
 #[no_mangle]
 pub extern "C" fn cvr_cpp_install_anim_pose_hook() -> bool {
-    static INSTALLED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-    if INSTALLED.load(core::sync::atomic::Ordering::Acquire) {
-        return true;
+    static INSTALLED: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+    let mut installed = INSTALLED.lock().unwrap_or_else(|p| p.into_inner());
+    if !*installed {
+        *installed = install();
     }
-    let installed = install();
-    if installed {
-        INSTALLED.store(true, core::sync::atomic::Ordering::Release);
-    }
-    installed
+    *installed
 }
+
 fn install() -> bool {
     let name: Vec<u16> = "Cyberpunk2077.exe".encode_utf16().chain(Some(0)).collect();
     // SAFETY: a terminated name.
@@ -173,10 +172,19 @@ fn install() -> bool {
     if module.is_null() {
         return false;
     }
-    let target = (module as usize + ANIM_POSE_RVA) as *mut c_void;
+    let player = [(
+        (module as usize + ANIM_POSE_RVA) as *mut c_void,
+        hooked_anim_pose_apply as *const () as *mut c_void,
+        (&raw mut ORIGINAL).cast(),
+    )];
+    if !install_sites(&player) {
+        super::env::log("[vrik] player pose apply hook failed\n");
+        return false;
+    }
+    super::env::log("[vrik] player pose apply hook active\n");
+
     let object_target = (module as usize + ANIM_OBJECT_UPDATE_RVA) as *mut c_void;
     let conversion_target = (module as usize + POSE_LOCAL_TO_MODEL_RVA) as *mut c_void;
-    COMPLETED_CONVERSION_RETURN.store(module as usize + COMPLETED_CONVERSION_RETURN_RVA, core::sync::atomic::Ordering::Relaxed);
     // SAFETY: the executable's code, mapped.
     let (object_entry, conversion_entry) = unsafe {
         (
@@ -185,35 +193,44 @@ fn install() -> bool {
         )
     };
     if object_entry != ANIM_OBJECT_UPDATE_ENTRY || conversion_entry != POSE_LOCAL_TO_MODEL_ENTRY {
-        super::env::log("[npcgrip] complete object pose hook has an unsupported entry
-");
-        return false;
+        super::env::log("[npcgrip] auxiliary pose hooks skipped: an engine entry is already changed\n");
+        return true;
     }
-    let sites: [(*mut c_void, *mut c_void, *mut *mut c_void); 3] = [
-        (target, hooked_anim_pose_apply as *const () as *mut c_void, (&raw mut ORIGINAL).cast()),
+
+    COMPLETED_CONVERSION_RETURN.store(module as usize + COMPLETED_CONVERSION_RETURN_RVA, core::sync::atomic::Ordering::Relaxed);
+    let auxiliary = [
         (object_target, hooked_anim_object_update as *const () as *mut c_void, (&raw mut ORIGINAL_OBJECT_UPDATE).cast()),
         (conversion_target, cvr_pose_local_to_model_detour as *const () as *mut c_void, (&raw mut ORIGINAL_LOCAL_TO_MODEL).cast()),
     ];
-    // SAFETY: MinHook on the engine's functions (initialising it is a no-op when done); all three or none.
+    if install_sites(&auxiliary) {
+        super::env::log("[npcgrip] complete object pose hook active after all native graph controllers\n");
+    } else {
+        super::env::log("[npcgrip] auxiliary pose hooks failed\n");
+    }
+    true
+}
+
+type HookSite = (*mut c_void, *mut c_void, *mut *mut c_void);
+
+fn install_sites(sites: &[HookSite]) -> bool {
+    // SAFETY: MinHook on the engine's functions (initialising it is a no-op when done).
     unsafe {
         MH_Initialize();
-        for (i, &(t, detour, original)) in sites.iter().enumerate() {
-            if MH_CreateHook(t, detour, original) != MH_OK {
-                for &(undo, _, _) in &sites[..i] {
-                    MH_RemoveHook(undo);
+        for (i, &(target, detour, original)) in sites.iter().enumerate() {
+            if MH_CreateHook(target, detour, original) != MH_OK {
+                for &(created, _, _) in &sites[..i] {
+                    MH_RemoveHook(created);
                 }
                 return false;
             }
         }
-        if sites.iter().any(|&(t, _, _)| MH_EnableHook(t) != MH_OK) {
-            for &(t, _, _) in &sites {
-                MH_DisableHook(t);
-                MH_RemoveHook(t);
+        if sites.iter().any(|&(target, _, _)| MH_EnableHook(target) != MH_OK) {
+            for &(target, _, _) in sites {
+                MH_DisableHook(target);
+                MH_RemoveHook(target);
             }
             return false;
         }
     }
-    super::env::log("[npcgrip] complete object pose hook active after all native graph controllers
-");
     true
 }
