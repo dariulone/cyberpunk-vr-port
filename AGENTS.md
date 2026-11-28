@@ -1,3 +1,5 @@
+See `CONTRIBUTING.md` for repository layout, `cargo xtask` build entrypoints, and test/benchmark harnesses.
+
 # VR live validation
 
 - A normal `launch_game` call only opens the launcher or executable. It is not the save autostart path.
