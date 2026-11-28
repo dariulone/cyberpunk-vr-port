@@ -1164,6 +1164,11 @@ pub unsafe extern "C" fn cvr_swapchain_debug_name(
     }
 }
 
+/// The direct queue handed to the game's swapchain, published by depth_capture.
+pub(crate) fn game_present_queue() -> *mut c_void {
+    table::g_presentQueue.load(Relaxed)
+}
+
 // ---- the hub's table (formerly src/Hooks/SwapChain.cpp's): the state it reads and the subsystems it calls, in the
 // hub's order -- Rust's directly, the OpenXR manager's and the GPU frame timer's through the C++ half's services
 mod table {
@@ -1192,7 +1197,7 @@ mod table {
     extern "C" fn finish_gpu_frame() {
         cvr_host::submission::cvr_image_submission_lock();
         // SAFETY: the frame timer's callbacks of their types.
-        unsafe { cvr_gpu::frame_timer::cvr_gpu_frame_timer_finish(metrics, on_gpu_frame) };
+        unsafe { cvr_gpu::frame_timer::cvr_gpu_frame_timer_finish(super::game_present_queue(), metrics, on_gpu_frame) };
         cvr_host::submission::cvr_image_submission_unlock();
     }
     extern "C" fn gpu_profile_poll() {

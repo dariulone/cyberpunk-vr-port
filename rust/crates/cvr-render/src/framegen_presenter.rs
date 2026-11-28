@@ -22,6 +22,7 @@ use windows::core::Interface as _;
 use windows::Win32::Graphics::Direct3D12::{ID3D12Fence, ID3D12Resource};
 
 use crate::framegen_inputs::{cvr_framegen_release_inputs, cvr_framegen_retain_inputs, Inputs};
+use crate::ofxr::{BridgeCheck, BridgeStatus};
 
 /// cvr::framegen::Identity: a frame's serial, tracking origin, engine frame, the eyes' pose ids, capture time, and
 /// whether it is a stereo pair with matching inputs (and a camera reset).
@@ -266,8 +267,10 @@ struct Selection {
 }
 
 struct Presenter {
+    external_bridge: BridgeCheck,
     cadence: Cadence,
     generator: *mut crate::framegen_generator::Generator,
+    retire_generator: bool,
     pending: Frame,
     previous: Frame,
     primed: bool,
@@ -287,8 +290,10 @@ struct Presenter {
 unsafe impl Send for Presenter {}
 static PRESENTER: LazyLock<Mutex<Presenter>> = LazyLock::new(|| {
     Mutex::new(Presenter {
+        external_bridge: BridgeCheck::default(),
         cadence: Cadence::default(),
         generator: crate::framegen_generator::cvr_framegen_generator_new(),
+        retire_generator: false,
         pending: Frame::default(),
         previous: Frame::default(),
         primed: false,
@@ -319,55 +324,6 @@ pub(crate) fn diagnostics() -> bool {
     }
     // SAFETY: an export of the C++ half.
     unsafe { core::ptr::read_volatile(&raw const CyberpunkVR_RuntimeDiagnostics) != 0 }
-}
-
-/// An external OpenXR frame bridge (OFXR's XR_APILAYER_XRFrameBridge) is in the process: looked for every 2 s.
-fn external_bridge_loaded() -> bool {
-    use windows_sys::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW};
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-    static NEXT_CHECK: AtomicU64 = AtomicU64::new(0);
-    static LOADED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-    // SAFETY: a plain Win32 call.
-    let now = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
-    if now < NEXT_CHECK.load(Relaxed) {
-        return LOADED.load(Relaxed);
-    }
-    NEXT_CHECK.store(now + 2000, Relaxed);
-    let mut loaded = false;
-    let mut modules = [core::ptr::null_mut(); 1024];
-    let mut bytes = 0u32;
-    // SAFETY: the process's own module list into a local array.
-    unsafe {
-        if EnumProcessModules(
-            GetCurrentProcess(),
-            modules.as_mut_ptr(),
-            core::mem::size_of_val(&modules) as u32,
-            &mut bytes,
-        ) != 0
-        {
-            let count = (bytes as usize / core::mem::size_of::<*mut c_void>()).min(modules.len());
-            let prefix: Vec<u16> = "XR_APILAYER_XRFrameBridge".encode_utf16().collect();
-            for &module in &modules[..count] {
-                let mut name = [0u16; 260];
-                GetModuleBaseNameW(
-                    GetCurrentProcess(),
-                    module,
-                    name.as_mut_ptr(),
-                    name.len() as u32,
-                );
-                let same = name[..prefix.len()].iter().zip(&prefix).all(|(a, b)| {
-                    char::from_u32(u32::from(*a)).map(|c| c.to_ascii_lowercase())
-                        == char::from_u32(u32::from(*b)).map(|c| c.to_ascii_lowercase())
-                });
-                if same {
-                    loaded = true;
-                    break;
-                }
-            }
-        }
-    }
-    LOADED.store(loaded, Relaxed);
-    loaded
 }
 
 /// The pose half way between two (positions averaged, orientations by the shorter arc, normalised).
@@ -555,33 +511,57 @@ fn capture_frame(
 }
 
 impl Presenter {
-    /// The generation reset (its history and the generator's features); the reason logged when it was generating.
-    fn reset(&mut self, why: &str) {
+    /// Throw away both endpoints. The next valid pair primes the backend with the reset flag.
+    fn reset_history(&mut self, why: &str, keep_anr: bool) {
         if self.primed {
             // rate-limited: the first eight, then every 500th (a GPU-bound frame generator resets on each refused cycle)
             static RESETS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
             let n = RESETS.fetch_add(1, Relaxed);
             if n < 8 || n % 500 == 0 {
-                cvr_host::log::write(&format!("[framegen] generation reset ({}): {why}\n", n + 1));
+                let action = if keep_anr { "ANR history reset, resources retained" } else { "generation reset" };
+                cvr_host::log::write(&format!("[framegen] {action} ({}): {why}\n", n + 1));
             }
         }
         self.predict_next = 0;
         self.predicted_serial = 0;
-        if crate::fsr3::is_backend(self.active_backend) {
-            crate::fsr3::reset_history();
-            crate::fsr3::release_resources();
-        }
         core_fg::cvr_framegen_pacing_ready(false);
         self.cadence.reset();
         self.pending = Frame::default();
         self.previous = Frame::default();
         self.primed = false;
         self.generated_serial = 0;
-        // SAFETY: the presenter's generator.
-        if unsafe { crate::framegen_generator::cvr_framegen_generator_reset(self.generator) }
-            && !core_fg::cvr_framegen_depth_capture_enabled()
-        {
-            crate::framegen_inputs::cvr_framegen_release_all_inputs();
+    }
+
+    fn reset(&mut self, why: &str) {
+        self.reset_history(why, false);
+        if crate::fsr3::is_backend(self.active_backend) {
+            crate::fsr3::reset_history();
+            crate::fsr3::release_resources();
+        }
+        self.retire_generator = true;
+        self.poll_retirement();
+    }
+
+    fn poll_retirement(&mut self) {
+        // SAFETY: the presenter's generator; the backend waits for all its fences before dropping buffers.
+        if self.retire_generator && unsafe { crate::framegen_generator::cvr_framegen_generator_reset(self.generator) } {
+            self.retire_generator = false;
+            if !core_fg::cvr_framegen_depth_capture_enabled() {
+                crate::framegen_inputs::cvr_framegen_release_all_inputs();
+            }
+            if core_fg::cvr_framegen_metrics_enabled() {
+                core_fg::cvr_framegen_set_vram(crate::framegen_inputs::cvr_framegen_input_vram());
+            }
+        }
+    }
+
+    fn pause(&mut self, why: &str, settings: &Settings) {
+        use crate::framegen_generator::{has_resident_anr, ANR};
+        // SAFETY: the presenter's generator, under its lock.
+        if settings.enabled && settings.backend == ANR && !self.retire_generator && unsafe { has_resident_anr(self.generator) } {
+            self.reset_history(why, true);
+        } else {
+            self.reset(why);
         }
     }
 
@@ -595,6 +575,7 @@ impl Presenter {
     ) -> Selection {
         // SAFETY (whole body): the presenter's generator and the caller's live objects.
         unsafe { crate::framegen_generator::cvr_framegen_generator_poll(self.generator) };
+        self.poll_retirement();
         crate::fsr3::poll();
         let mut settings = Settings::default();
         core_fg::cvr_framegen_get_settings(&mut settings);
@@ -619,11 +600,10 @@ impl Presenter {
             && c.captured_ms - p.captured_ms <= 100.0
             && same_projection(&self.previous, &current);
         core_fg::cvr_framegen_on_presentation_cycle(pair_gap);
-        if !gameplay
-            || (self.pending.identity.serial != 0
-                && self.pending.identity.origin != current.identity.origin)
-        {
-            self.reset(if gameplay { "the tracking origin changed" } else { "not gameplay (a menu or an untracked view)" });
+        if !settings.enabled {
+            self.reset("generation disabled");
+        } else if !gameplay || (self.pending.identity.serial != 0 && self.pending.identity.origin != current.identity.origin) {
+            self.pause(if gameplay { "the tracking origin changed" } else { "not gameplay (a menu or an untracked view)" }, &settings);
         }
         if self.cadence.pending != 0 {
             return Selection {
@@ -665,23 +645,6 @@ impl Presenter {
             capture_frame(device, queue, &current, &cams);
         }
         if !settings.enabled || !gameplay {
-            self.primed = false;
-            self.previous = Frame::default();
-            self.generated_serial = 0;
-            self.predict_next = 0;
-            self.predicted_serial = 0;
-            core_fg::cvr_framegen_pacing_ready(false);
-            // SAFETY: the presenter's generator.
-            if unsafe { crate::framegen_generator::cvr_framegen_generator_reset(self.generator) } {
-                if !core_fg::cvr_framegen_depth_capture_enabled() {
-                    crate::framegen_inputs::cvr_framegen_release_all_inputs();
-                }
-                if core_fg::cvr_framegen_metrics_enabled() {
-                    core_fg::cvr_framegen_set_vram(
-                        crate::framegen_inputs::cvr_framegen_input_vram(),
-                    );
-                }
-            }
             status(
                 if settings.enabled {
                     c"Paused in menus or untracked views"
@@ -692,13 +655,27 @@ impl Presenter {
             );
             return result;
         }
-        if external_bridge_loaded() {
-            self.reset("the external OFXR bridge is loaded");
-            status(
-                c"External OFXR is loaded: disarm its tray and restart before native generation",
-                false,
-            );
+        if self.retire_generator {
+            status(c"Waiting for previous frame generation resources", false);
             return result;
+        }
+        match self.external_bridge.status() {
+            BridgeStatus::Absent => {}
+            BridgeStatus::Loaded => {
+                self.reset("the external OFXR bridge is loaded");
+                status(
+                    c"External OFXR is loaded: disarm its tray and restart before native generation",
+                    false,
+                );
+                return result;
+            }
+            BridgeStatus::Unverified => {
+                status(
+                    c"Could not verify external OFXR. Restart the game before using native frame generation",
+                    false,
+                );
+                return result;
+            }
         }
         if !current.identity.inputs || !current.identity.stereo || current.lease.is_none() {
             self.primed = false;
@@ -964,7 +941,9 @@ impl Presenter {
         // kept for the next cycle; a recenter, a menu transition or an explicit reset still invalidates it (main's 0.2.4).
         if !accepted {
             if !retain_endpoint || result.kind != Next::PendingReal {
-                self.reset(if retain_endpoint { "a frame not accepted (not a pending real one)" } else { "a frame not accepted" });
+                let mut settings = Settings::default();
+                core_fg::cvr_framegen_get_settings(&mut settings);
+                self.pause(if retain_endpoint { "a frame not accepted (not a pending real one)" } else { "a frame not accepted" }, &settings);
             }
             return;
         }
@@ -1046,7 +1025,11 @@ pub unsafe extern "C" fn cvr_xr_framegen_select(
         // Under SteamVR a pending endpoint outlives a cycle without a pair (main's 0.2.4); a menu or a stopped session
         // resets it there too.
         if !cvr_xr::runtime_info::RUNTIME.steamvr.load(Relaxed) || !i.gameplay {
-            presenter_reset(if i.gameplay { "a cycle without a stereo pair" } else { "a cycle without a pair outside gameplay" });
+            let mut p = presenter();
+            p.last = None;
+            let mut settings = Settings::default();
+            core_fg::cvr_framegen_get_settings(&mut settings);
+            p.pause(if i.gameplay { "a cycle without a stereo pair" } else { "a cycle without a pair outside gameplay" }, &settings);
         }
         drop(inputs);
         return false;

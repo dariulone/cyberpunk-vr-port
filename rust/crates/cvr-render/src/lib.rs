@@ -476,6 +476,8 @@ pub mod stereo_api;
 pub mod stereo_tables;
 #[cfg(feature = "rust-build")]
 pub mod framegen_presenter;
+#[cfg(any(feature = "rust-build", test))]
+mod ofxr;
 #[cfg(feature = "rust-build")]
 pub mod depth_layer;
 #[cfg(feature = "rust-build")]

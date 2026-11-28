@@ -150,10 +150,10 @@ impl Timer {
         }
     }
     unsafe fn begin(&mut self, on_frame: OnGpuFrame) {
-        self.poll(on_frame);
         if self.opened {
             return;
         }
+        self.poll(on_frame);
         let cursor = self.cursor;
         let slot = &self.slots[cursor];
         if slot.pending {
@@ -249,7 +249,10 @@ pub unsafe extern "C" fn cvr_gpu_frame_timer_before(
         return;
     }
     INSIDE.set(true);
-    if let Some(t) = timer.as_ref() {
+    if let Some(t) = timer.as_mut() {
+        if t.queue.as_raw() != queue {
+            t.stop();
+        }
         if t.stopped {
             if t.fence.GetCompletedValue() < t.value {
                 INSIDE.set(false);
@@ -282,7 +285,11 @@ pub unsafe extern "C" fn cvr_gpu_frame_timer_before(
 /// # Safety
 /// The callbacks are framegen's.
 #[no_mangle]
-pub unsafe extern "C" fn cvr_gpu_frame_timer_finish(metrics: MetricsEnabled, on_frame: OnGpuFrame) {
+pub unsafe extern "C" fn cvr_gpu_frame_timer_finish(
+    queue: *mut c_void,
+    metrics: MetricsEnabled,
+    on_frame: OnGpuFrame,
+) {
     if INSIDE.get() || !TIMER_EXISTS.load(Relaxed) {
         return;
     }
@@ -291,7 +298,7 @@ pub unsafe extern "C" fn cvr_gpu_frame_timer_finish(metrics: MetricsEnabled, on_
         return;
     };
     INSIDE.set(true);
-    if metrics() && !t.stopped {
+    if metrics() && !t.stopped && t.queue.as_raw() == queue {
         t.end(on_frame);
     } else {
         t.stop();

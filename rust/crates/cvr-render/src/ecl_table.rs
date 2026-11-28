@@ -113,7 +113,7 @@ unsafe extern "C" fn frame_sink(ms: f64) {
     cvr_gpu::framegen_core::cvr_framegen_on_gpu_frame(ms);
 }
 extern "C" fn before(queue: Queue, _count: u32, _lists: Lists) {
-    if queue == game_queue() {
+    if queue == crate::swapchain::game_present_queue() && !internal() {
         // framegen::BeforeGameCommands: the GPU frame timer (frame_timer.rs) with framegen's metrics switch and frame sink.
         // SAFETY: the game queue.
         unsafe {
